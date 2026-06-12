@@ -41,54 +41,37 @@
 </header>
 <main>
 
-<section class="hero" id="book">
-  <div class="wrap">
-    <div class="hero-grid">
-      <div>
-        <div class="route-eyebrow" aria-hidden="true">
-          <span class="dot"></span><span class="dash"></span>
-          <span class="lbl" style="letter-spacing:.34em;white-space:nowrap">Across All Seven Emirates</span>
-          <span class="dash"></span><span class="dot" style="background:transparent;border:1.5px solid var(--amber)"></span>
+<section class="hero2" id="book">
+  <div class="h2bg" role="img" aria-label="Sheikh Zayed Road at dusk"></div>
+  <div class="h2scrim"></div>
+  <div class="wrap h2grid">
+    <div class="h2copy">
+      <span class="lbl">Across All Seven Emirates</span>
+      <h1>Chauffeur-driven, without compromise.</h1>
+      <p class="lede">Immaculate cars, vetted chauffeurs and a concierge that answers at any hour.</p>
+    </div>
+    <div class="h2form">
+      <form class="book" id="bookForm" aria-label="Reserve a car">
+        <div class="seg" role="tablist">
+          <button type="button" class="on" data-mode="transfer">Transfer</button>
+          <button type="button" data-mode="hourly">By the hour</button>
         </div>
-        <h1>Luxury chauffeur service in Dubai</h1>
-        <p class="lede">The standard for private travel in the Emirates. Planned in advance, driven with discretion, on time without exception.</p>
-
-        <form class="book" id="bookForm" aria-label="Reserve a car">
-          <div class="seg" role="tablist">
-            <button type="button" class="on" data-mode="transfer">Transfer</button>
-            <button type="button" data-mode="hourly">By the hour</button>
+        <div class="f"><label for="bFrom">Pick-up</label><input id="bFrom" autocomplete="off" placeholder="DXB Terminal 3, hotel, residence" required></div>
+        <div class="swap">
+          <div class="f" id="fTo"><label for="bTo">Destination</label><input id="bTo" autocomplete="off" placeholder="Where to?" required></div>
+          <div class="f" id="fHours" style="display:none"><label for="bHours">At your disposal</label>
+            <select id="bHours"><option>5 hours</option><option>10 hours</option><option>Multiple days</option></select>
           </div>
-          <div class="f"><label for="bFrom">Pick-up</label><input id="bFrom" autocomplete="off" placeholder="DXB Terminal 3, hotel, residence" required></div>
-          <div class="swap">
-            <div class="f" id="fTo"><label for="bTo">Destination</label><input id="bTo" autocomplete="off" placeholder="Where to?" required></div>
-            <div class="f" id="fHours" style="display:none"><label for="bHours">At your disposal</label>
-              <select id="bHours"><option>5 hours</option><option>10 hours</option><option>Multiple days</option></select>
-            </div>
-          </div>
-          <div class="two">
-            <div class="f"><label for="bDate">Date</label><input id="bDate" type="text" placeholder="Select date" required></div>
-            <div class="f"><label for="bTime">Time</label><input id="bTime" type="text" placeholder="Select time" required></div>
-          </div>
-          <button class="btn btn-ink" type="submit">Reserve your car</button>
-          <p class="note">Confirmed by our concierge within minutes &middot; Free cancellation up to 48 hours</p>
-        </form>
-
-        <div class="trust icons">
-          <span><svg viewBox="0 0 24 24"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/></svg><b>5.0</b>&nbsp;on Google, every review five stars</span>
-          <span><svg viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/></svg>Vetted, professional chauffeurs</span>
-          <span><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>A concierge desk that answers at any hour</span>
         </div>
-      </div>
-      <div class="hero-photo">
-        <img src="https://images.unsplash.com/photo-1613033686399-aa7c18d6d760?q=80&w=900&h=1130&fit=crop&auto=format" alt="Mercedes-Benz S-Class at night — UMC Dubai luxury chauffeur service" fetchpriority="high" width="900" height="1130">
-      </div>
+        <div class="two">
+          <div class="f"><label for="bDate">Date</label><input id="bDate" type="text" placeholder="Select date" required></div>
+          <div class="f"><label for="bTime">Time</label><input id="bTime" type="text" placeholder="Select time" required></div>
+        </div>
+        <button class="btn btn-ink" type="submit">Reserve your car</button>
+        <p class="note">Confirmed by our concierge within minutes &middot; Free cancellation up to 48 hours</p>
+      </form>
     </div>
   </div>
-
-  <figure class="frame wrap rv">
-    <img src="https://images.unsplash.com/photo-1613033686399-aa7c18d6d760?q=80&w=1600&h=900&fit=crop&auto=format" alt="Mercedes-Benz S-Class at night — UMC Dubai" width="1600" height="900">
-    <figcaption class="lbl">The standard, not the exception</figcaption>
-  </figure>
 </section>
 
 <div class="authority rv">
