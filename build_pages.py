@@ -40,12 +40,14 @@ def head(title, desc, canon, extra=""):
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://maps.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/style.css?v={V}">
 {extra}
 {GTM_HEAD}
 </head>
 <body>
+<a class="skip" href="#main">Skip to content</a>
 {GTM_BODY}
 """
 
@@ -68,7 +70,7 @@ def header(active):
   </div>
   <nav class="mainnav" aria-label="Main"><ul>{nav}</ul></nav>
 </header>
-<main>
+<main id="main">
 """
 
 MCTA = f"""<div class="mcta"><a class="btn btn-ink" href="booking.html">Reserve your car</a>
@@ -855,7 +857,7 @@ privacy_body = header("contact.html").replace('class="on"','') + f"""
 </div></section>
 """ + FOOTER + "</body></html>"
 (SITE/"privacy.html").write_text(
- head("Privacy Notice | UMC Dubai","How UMC Dubai handles your personal information.","privacy/") + privacy_body)
+ head("Privacy Notice | UMC Dubai","How UMC Dubai handles personal information from your bookings, contact and payment, and the choices you have over how your data is used.","privacy/") + privacy_body)
 
 # ---------- terms ----------
 terms_body = header("contact.html").replace('class="on"','') + f"""
@@ -866,7 +868,7 @@ terms_body = header("contact.html").replace('class="on"','') + f"""
 </div></section>
 """ + FOOTER + "</body></html>"
 (SITE/"terms.html").write_text(
- head("Terms of Service | UMC Dubai","The terms and conditions that apply to every UMC Dubai reservation.","terms/") + terms_body)
+ head("Terms of Service | UMC Dubai","Terms and conditions for UMC Dubai chauffeur reservations — cancellation, conduct, liability and the laws of the UAE that govern every booking.","terms/") + terms_body)
 
 # ---------- inter-emirate ----------
 IE_FAQS = [
