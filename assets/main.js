@@ -1,0 +1,88 @@
+/* UMC Dubai — shared behaviour */
+(function(){
+  // mobile nav
+  const burger = document.querySelector(".burger");
+  const nav = document.querySelector("nav.mainnav");
+  if(burger && nav){
+    burger.addEventListener("click", ()=>{
+      const open = nav.classList.toggle("open");
+      burger.setAttribute("aria-expanded", open);
+    });
+    nav.addEventListener("click", e=>{ if(e.target.tagName==="A"){ nav.classList.remove("open"); burger.setAttribute("aria-expanded","false"); }});
+  }
+
+  // sticky header state + reserve pill
+  const header = document.querySelector("header.site");
+  if(header){
+    const onScroll = ()=> header.classList.toggle("scrolled", window.scrollY > 420);
+    window.addEventListener("scroll", onScroll, {passive:true});
+    onScroll();
+  }
+
+  // reveal on scroll
+  const io = ("IntersectionObserver" in window) ? new IntersectionObserver(es=>{
+    es.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add("in"); io.unobserve(e.target); }});
+  },{threshold:.12}) : null;
+  window.umcObserve = n => { if(io) io.observe(n); else n.classList.add("in"); };
+  document.querySelectorAll(".rv").forEach(n=>window.umcObserve(n));
+
+  // booking form: segment toggle + WhatsApp dispatch
+  const form = document.getElementById("bookForm");
+  if(form){
+    const seg = form.querySelectorAll(".seg button");
+    const toF = document.getElementById("fTo");
+    const hrF = document.getElementById("fHours");
+    let mode = "transfer";
+    seg.forEach(b=>b.addEventListener("click", ()=>{
+      mode = b.dataset.mode;
+      seg.forEach(x=>x.classList.toggle("on", x===b));
+      if(toF && hrF){
+        toF.style.display = mode==="transfer" ? "" : "none";
+        hrF.style.display = mode==="hourly" ? "" : "none";
+        toF.querySelector("input").required = mode==="transfer";
+      }
+    }));
+    form.addEventListener("submit", e=>{
+      e.preventDefault();
+      const v = id => (document.getElementById(id)||{}).value || "";
+      const q = new URLSearchParams({mode, from:v("bFrom"), to:v("bTo"), hours:v("bHours"), date:v("bDate"), time:v("bTime")});
+      window.location.href = "booking.html?" + q.toString();
+    });
+  }
+
+  // branded date & time pickers (after all scripts have loaded)
+  document.addEventListener("DOMContentLoaded", function(){
+    if(!window.flatpickr) return;
+    const d = document.getElementById("bDate");
+    const t = document.getElementById("bTime");
+    if(d) flatpickr(d, {dateFormat:"D, d M Y", minDate:"today", disableMobile:true});
+    if(t) flatpickr(t, {enableTime:true, noCalendar:true, dateFormat:"h:i K", minuteIncrement:5, disableMobile:true});
+  });
+
+  // back to top
+  const tt = document.createElement("button");
+  tt.className = "totop"; tt.setAttribute("aria-label","Back to top");
+  tt.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+  document.body.appendChild(tt);
+  tt.addEventListener("click", ()=>window.scrollTo({top:0,behavior:"smooth"}));
+  window.addEventListener("scroll", ()=>tt.classList.toggle("show", window.scrollY > window.innerHeight), {passive:true});
+
+  // contact page: ?vehicle= prefill
+  const params = new URLSearchParams(location.search);
+  const veh = params.get("vehicle");
+  if(veh){
+    const t = document.querySelector("[name=vehicle], #cVehicle");
+    if(t) t.value = veh;
+  }
+})();
+
+// homepage: Google Places on the hero form
+window.umcHomeMaps = function(){
+  try{
+    const opts = {componentRestrictions:{country:"ae"}, fields:["formatted_address","name"]};
+    ["bFrom","bTo"].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el) new google.maps.places.Autocomplete(el, opts);
+    });
+  }catch(e){}
+};
