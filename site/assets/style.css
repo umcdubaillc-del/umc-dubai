@@ -725,3 +725,14 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 .jdot{fill:var(--amber)}
 .jt{font-family:var(--serif);font-size:13px;letter-spacing:.25em;fill:var(--muted);text-anchor:middle}
 .svc-desc{font-size:1rem;color:var(--ink-soft);margin-bottom:1.4rem}
+
+/* mobile sticky reserve bar (hidden on desktop, replaces wa-float on mobile) */
+.mcta{display:none}
+@media(max-width:760px){
+  .mcta{display:flex;gap:.6rem;position:fixed;left:0;right:0;bottom:0;z-index:70;background:rgba(246,241,231,.97);border-top:1px solid var(--line);padding:.7rem .9rem calc(.7rem + env(safe-area-inset-bottom))}
+  .mcta .btn{flex:1;justify-content:center}
+  .mcta .mwa{width:46px;height:46px;border:1px solid var(--line);border-radius:50%;display:flex;align-items:center;justify-content:center;min-height:0}
+  .mcta .mwa svg{width:20px;height:20px;fill:#1FAF38}
+  body{padding-bottom:74px}
+  .wa-float{display:none}
+}

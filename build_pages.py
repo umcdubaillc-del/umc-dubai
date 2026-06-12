@@ -71,6 +71,9 @@ def header(active):
 <main>
 """
 
+MCTA = f"""<div class="mcta"><a class="btn btn-ink" href="booking.html">Reserve your car</a>
+<a class="mwa" target="_blank" rel="noopener" href="{WA}" aria-label="WhatsApp"><svg viewBox="0 0 32 32"><path d="M16 .8C7.6.8.8 7.6.8 16c0 2.7.7 5.3 2 7.6L.7 31.3l7.9-2.1c2.2 1.2 4.7 1.9 7.4 1.9 8.4 0 15.2-6.8 15.2-15.1S24.4.8 16 .8zm0 27.7c-2.4 0-4.7-.7-6.7-1.9l-.5-.3-4.7 1.2 1.3-4.6-.3-.5a12.4 12.4 0 0 1-1.9-6.6C3.2 9 8.9 3.3 16 3.3S28.8 9 28.8 16 23.1 28.5 16 28.5zm7-9.4c-.4-.2-2.3-1.1-2.6-1.2-.4-.1-.6-.2-.9.2-.3.4-1 1.2-1.2 1.5-.2.3-.4.3-.8.1-.4-.2-1.6-.6-3.1-1.9-1.1-1-1.9-2.2-2.1-2.6-.2-.4 0-.6.2-.8l.6-.7c.2-.2.3-.4.4-.6.1-.3 0-.5 0-.7l-1.2-2.8c-.3-.7-.6-.6-.9-.6h-.7c-.3 0-.7.1-1 .5-.4.4-1.3 1.3-1.3 3.2s1.4 3.7 1.6 4c.2.3 2.7 4.1 6.6 5.8.9.4 1.6.6 2.2.8.9.3 1.8.3 2.4.2.7-.1 2.3-.9 2.6-1.8.3-.9.3-1.7.2-1.8-.1-.2-.3-.3-.7-.5z"/></svg></a></div>"""
+
 FOOTER = f"""</main>
 <footer class="site">
   <div class="wrap">
@@ -121,6 +124,7 @@ FOOTER = f"""</main>
     </div>
   </div>
 </footer>
+{MCTA}
 <a class="wa-float" aria-label="WhatsApp UMC Dubai" target="_blank" rel="noopener" href="{WA}">
   <svg viewBox="0 0 32 32"><path d="M16 .8C7.6.8.8 7.6.8 16c0 2.7.7 5.3 2 7.6L.7 31.3l7.9-2.1c2.2 1.2 4.7 1.9 7.4 1.9 8.4 0 15.2-6.8 15.2-15.1S24.4.8 16 .8zm0 27.7c-2.4 0-4.7-.7-6.7-1.9l-.5-.3-4.7 1.2 1.3-4.6-.3-.5a12.4 12.4 0 0 1-1.9-6.6C3.2 9 8.9 3.3 16 3.3S28.8 9 28.8 16 23.1 28.5 16 28.5zm7-9.4c-.4-.2-2.3-1.1-2.6-1.2-.4-.1-.6-.2-.9.2-.3.4-1 1.2-1.2 1.5-.2.3-.4.3-.8.1-.4-.2-1.6-.6-3.1-1.9-1.1-1-1.9-2.2-2.1-2.6-.2-.4 0-.6.2-.8l.6-.7c.2-.2.3-.4.4-.6.1-.3 0-.5 0-.7l-1.2-2.8c-.3-.7-.6-.6-.9-.6h-.7c-.3 0-.7.1-1 .5-.4.4-1.3 1.3-1.3 3.2s1.4 3.7 1.6 4c.2.3 2.7 4.1 6.6 5.8.9.4 1.6.6 2.2.8.9.3 1.8.3 2.4.2.7-.1 2.3-.9 2.6-1.8.3-.9.3-1.7.2-1.8-.1-.2-.3-.3-.7-.5z"/></svg>
 </a>
@@ -269,7 +273,7 @@ index_body = header("index.html") + f"""
           <div class="f"><label for="bDate">Date</label><input id="bDate" type="text" placeholder="Select date" required></div>
           <div class="f"><label for="bTime">Time</label><input id="bTime" type="text" placeholder="Select time" required></div>
         </div>
-        <button class="btn btn-ink" type="submit">Reserve your car</button>
+        <button class="btn btn-ink" type="submit">Check availability</button>
         <p class="note">Confirmed by our concierge within minutes &middot; Free cancellation up to 48 hours</p>
       </form>
     </div>
@@ -501,7 +505,7 @@ booking_body = header("booking.html") + f"""
     </form>
   </div>
 </section>
-""" + TERMS_DLG + FOOTER + f"""
+""" + TERMS_DLG + FOOTER.replace(MCTA, "") + f"""
 <script src="assets/vendor/flatpickr.min.js"></script>
 <script src="assets/booking.js?v={V}"></script>
 <script async src="https://maps.googleapis.com/maps/api/js?key={MAPS_KEY}&libraries=places&callback=umcMapsInit"></script>
