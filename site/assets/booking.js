@@ -109,14 +109,13 @@
     this.closest(".f").classList.toggle("bad", bad);
   });
 
-  // phone: our own country-code selector
+  // phone: our own country-code selector — validation delegated to window.umcPhone
   function fullPhone(){
     const digits = ($("kPhone").value||"").replace(/[^0-9]/g,"").replace(/^0+/,"");
     return "+" + $("kCC").value + " " + digits;
   }
   function phoneValid(){
-    const digits = ($("kPhone").value||"").replace(/[^0-9]/g,"").replace(/^0+/,"");
-    return digits.length >= 6 && digits.length <= 12;
+    return window.umcPhone ? window.umcPhone.valid($("kPhone"), $("kCC")) : true;
   }
 
   // branded date & time pickers
@@ -196,7 +195,10 @@
     }
     $("kEmail").setCustomValidity("");
     if(!phoneValid()){
-      $("kPhone").setCustomValidity("Please enter a valid phone number.");
+      const msg = window.umcPhone ? window.umcPhone.errMsg($("kCC")) : "Please enter a valid phone number.";
+      const wrap = $("kPhone").closest(".f");
+      if(wrap){ wrap.classList.add("bad"); const err = wrap.querySelector(".phone-err"); if(err) err.textContent = msg; }
+      $("kPhone").setCustomValidity(msg);
       $("kPhone").reportValidity(); return;
     }
     $("kPhone").setCustomValidity("");

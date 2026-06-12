@@ -1,4 +1,58 @@
 /* UMC Dubai — shared behaviour */
+
+// shared phone utility (must exist before the IIFE wires forms, and before booking.js runs)
+window.umcPhone = {
+  // strip non-digits; do NOT strip leading zero here — only for length check / output
+  cleanInput: function(s){ return (s||"").replace(/[^0-9]/g, ""); },
+  // strip exactly one leading 0 (national trunk prefix) before counting significant digits
+  significantDigits: function(s){
+    const d = this.cleanInput(s);
+    return d.startsWith("0") ? d.slice(1) : d;
+  },
+  range: function(selEl){
+    const opt = selEl && selEl.options ? selEl.options[selEl.selectedIndex] : null;
+    const mn = opt && opt.dataset.lenMin ? +opt.dataset.lenMin : 7;
+    const mx = opt && opt.dataset.lenMax ? +opt.dataset.lenMax : 12;
+    return [mn, mx];
+  },
+  valid: function(inputEl, selEl){
+    const [mn, mx] = this.range(selEl);
+    const n = this.significantDigits(inputEl ? inputEl.value : "").length;
+    return n >= mn && n <= mx;
+  },
+  errMsg: function(selEl){
+    const [mn, mx] = this.range(selEl);
+    return mn === mx
+      ? "Enter a " + mn + "-digit mobile number"
+      : "Enter a " + mn + "–" + mx + "-digit mobile number";
+  },
+  wire: function(selEl, inputEl){
+    if(!selEl || !inputEl) return;
+    const wrap = inputEl.closest(".f");
+    const errEl = wrap ? wrap.querySelector(".phone-err") : null;
+    const self = this;
+    const syncMax = function(){
+      const [, mx] = self.range(selEl);
+      inputEl.setAttribute("maxlength", String(mx + 1)); // +1 so a leading 0 isn't blocked
+    };
+    const validate = function(showWhenEmpty){
+      const raw = inputEl.value;
+      const cleaned = self.cleanInput(raw);
+      if(cleaned !== raw) inputEl.value = cleaned;
+      const empty = cleaned.length === 0;
+      const ok = self.valid(inputEl, selEl);
+      const bad = !ok && (!empty || !!showWhenEmpty);
+      if(wrap) wrap.classList.toggle("bad", bad);
+      if(errEl) errEl.textContent = bad ? self.errMsg(selEl) : "";
+      return ok;
+    };
+    selEl.addEventListener("change", function(){ syncMax(); validate(false); });
+    inputEl.addEventListener("input", function(){ validate(false); });
+    inputEl.addEventListener("blur", function(){ validate(false); });
+    syncMax();
+  }
+};
+
 (function(){
   // mobile nav
   const burger = document.querySelector(".burger");
@@ -100,6 +154,12 @@
     const tnext = document.getElementById("tnext");
     if(tprev) tprev.addEventListener("click", () => tcar.scrollBy({left:-step(), behavior:"smooth"}));
     if(tnext) tnext.addEventListener("click", () => tcar.scrollBy({left: step(), behavior:"smooth"}));
+  }
+
+  // phone fields: live filtering + per-country length validation (booking + contact)
+  if(window.umcPhone){
+    window.umcPhone.wire(document.getElementById("kCC"), document.getElementById("kPhone"));
+    window.umcPhone.wire(document.getElementById("cCC"), document.getElementById("cPhone"));
   }
 })();
 

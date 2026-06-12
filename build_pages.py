@@ -212,9 +212,24 @@ COUNTRIES_REST = sorted([("Afghanistan","AF","93"),("Argentina","AR","54"),("Arm
 def _flag(cc): return "".join(chr(0x1F1E6 + ord(ch) - 65) for ch in cc)
 CC_NAMES = {"AE":"United Arab Emirates","SA":"Saudi Arabia","QA":"Qatar","KW":"Kuwait","BH":"Bahrain","OM":"Oman",
  "GB":"United Kingdom","US":"United States","IN":"India","PK":"Pakistan","RU":"Russia","CN":"China"}
-CC_OPTIONS = "".join('<option value="' + d + '"' + (' selected' if cc=="AE" else '') + ' title="' + CC_NAMES[cc] + '">' + _flag(cc) + ' +' + d + '</option>' for cc,d in COUNTRIES_PREF)
+# Per-country national mobile-number length [min,max] after stripping the trunk-prefix 0.
+# Defaults to (7,12) for any unlisted country.
+LEN = {
+ "AE":(9,9),"SA":(9,9),"QA":(8,8),"KW":(8,8),"BH":(8,8),"OM":(8,8),
+ "GB":(10,10),"US":(10,10),"CA":(10,10),
+ "IN":(10,10),"PK":(10,10),"BD":(10,10),"CN":(11,11),
+ "FR":(9,9),"DE":(10,11),"IT":(9,10),"ES":(9,9),"NL":(9,9),
+ "CH":(9,9),"RU":(10,10),"TR":(10,10),"EG":(10,10),"NG":(10,10),"KE":(9,9),"ZA":(9,9),
+ "AU":(9,9),"SG":(8,8),"HK":(8,8),"JP":(10,10),"KR":(9,10),
+ "BR":(10,11),"MX":(10,10),
+}
+DEFAULT_LEN = (7,12)
+def _len_attrs(cc):
+    mn, mx = LEN.get(cc, DEFAULT_LEN)
+    return ' data-cc="' + cc + '" data-len-min="' + str(mn) + '" data-len-max="' + str(mx) + '"'
+CC_OPTIONS = "".join('<option value="' + d + '"' + (' selected' if cc=="AE" else '') + _len_attrs(cc) + ' title="' + CC_NAMES[cc] + '">' + _flag(cc) + ' +' + d + '</option>' for cc,d in COUNTRIES_PREF)
 CC_OPTIONS += '<option disabled>&#8213;&#8213;&#8213;</option>'
-CC_OPTIONS += "".join('<option value="' + d + '" title="' + n + '">' + _flag(cc) + ' +' + d + '</option>' for n,cc,d in COUNTRIES_REST)
+CC_OPTIONS += "".join('<option value="' + d + '"' + _len_attrs(cc) + ' title="' + n + '">' + _flag(cc) + ' +' + d + '</option>' for n,cc,d in COUNTRIES_REST)
 
 TERMS_ITEMS = [
  ("Unforeseen circumstances","We shall not be held responsible for delays or disruptions caused by traffic, weather conditions, road closures or any other unforeseen events beyond our control."),
@@ -486,7 +501,7 @@ booking_body = header("booking.html") + f"""
               <div class="phonewrap">
                 <span class="cc"><select id="kCC" aria-label="Country code">{CC_OPTIONS}</select></span>
                 <span class="num"><input id="kPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="5x xxx xxxx" required></span>
-              </div></div>
+              </div><span class="fhint phone-err"></span></div>
           </div>
           <div class="f"><label class="req" for="kEmail">Email</label><input id="kEmail" type="email" autocomplete="email" required><span class="fhint">Enter a valid email address, e.g. name@domain.com</span></div>
                     <p class="bk-note" style="margin-top:1rem">By sending this request you agree to the <a href="terms.html" id="openTerms" style="border-bottom:1px solid var(--amber);color:var(--ink)">Terms of Service</a>.</p>
@@ -790,7 +805,7 @@ contact_body = header("contact.html") + f"""
             <div class="phonewrap">
               <span class="cc"><select id="cCC" aria-label="Country code">{CC_OPTIONS}</select></span>
               <span class="num"><input id="cPhone" type="tel" inputmode="tel" required placeholder="5x xxx xxxx"></span>
-            </div></div>
+            </div><span class="fhint phone-err"></span></div>
         </div>
         <div class="f"><label class="req" for="cEmail">Email</label><input id="cEmail" type="email" autocomplete="email" required><span class="fhint">Enter a valid email address, e.g. name@domain.com</span></div>
         <div class="f"><label for="cVehicle">Vehicle or service</label><input id="cVehicle" name="vehicle" placeholder="S-Class, airport transfer, corporate account&hellip;"></div>
@@ -833,8 +848,18 @@ document.getElementById("cSend").addEventListener("click", function(){
     if(!g(id)){ el.setCustomValidity("Please add " + label + "."); el.reportValidity(); el.setCustomValidity(""); return; }
   }
   if(!C_EMAIL_RX.test(g("cEmail"))){ cEmailEl.setCustomValidity("Please enter a valid email address."); cEmailEl.reportValidity(); cEmailEl.setCustomValidity(""); return; }
+  const cPhoneEl = document.getElementById("cPhone");
+  const cCCEl = document.getElementById("cCC");
+  if(window.umcPhone && !window.umcPhone.valid(cPhoneEl, cCCEl)){
+    const msg = window.umcPhone.errMsg(cCCEl);
+    const w = cPhoneEl.closest(".f");
+    if(w){ w.classList.add("bad"); const ee = w.querySelector(".phone-err"); if(ee) ee.textContent = msg; }
+    cPhoneEl.setCustomValidity(msg); cPhoneEl.reportValidity(); cPhoneEl.setCustomValidity(""); return;
+  }
+  // strip leading zero for the outgoing message so the international number is clean
+  const cPhoneOut = window.umcPhone ? window.umcPhone.significantDigits(g("cPhone")) : g("cPhone");
   let m = "Hello UMC Dubai,%0A%0AName: " + encodeURIComponent(g("cName")) +
-          "%0APhone: +" + encodeURIComponent(document.getElementById("cCC").value) + " " + encodeURIComponent(g("cPhone")) +
+          "%0APhone: +" + encodeURIComponent(cCCEl.value) + " " + encodeURIComponent(cPhoneOut) +
           "%0AEmail: " + encodeURIComponent(g("cEmail")) +
           "%0AService: " + encodeURIComponent(g("cVehicle")) +
           "%0ARequest: " + encodeURIComponent(g("cMsg"));
