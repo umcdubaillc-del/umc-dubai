@@ -711,3 +711,17 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 .h2copy .lede{color:#D9D0C0;max-width:46ch}
 .h2form .book{background:var(--bone);border:1px solid var(--line);border-radius:6px;box-shadow:0 40px 80px -32px rgba(0,0,0,.55);padding:1.6rem}
 @media(max-width:959px){.hero2{min-height:0}.h2copy{padding-top:1rem}}
+
+/* services — interactive journey switcher */
+.svc{max-width:860px;margin:0 auto;text-align:center}
+.svc-tabs{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:1.6rem}
+.svc-tabs button{font-family:var(--sans);font-size:.68rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-soft);background:transparent;border:1px solid var(--line);border-radius:999px;padding:.55rem 1.15rem;cursor:pointer;transition:all .2s;min-height:0}
+.svc-tabs button.on{background:var(--ink);border-color:var(--ink);color:var(--bone)}
+.svc-stage svg{width:100%;height:auto}
+.jr.hide{display:none}
+.jl{fill:none;stroke:var(--amber);stroke-width:1.6;stroke-dasharray:900;stroke-dashoffset:900;animation:jdraw 1.4s ease forwards}
+@keyframes jdraw{to{stroke-dashoffset:0}}
+.jicon{fill:none;stroke:var(--ink-soft);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.jdot{fill:var(--amber)}
+.jt{font-family:var(--serif);font-size:13px;letter-spacing:.25em;fill:var(--muted);text-anchor:middle}
+.svc-desc{font-size:1rem;color:var(--ink-soft);margin-bottom:1.4rem}

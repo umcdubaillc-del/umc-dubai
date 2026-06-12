@@ -97,15 +97,43 @@
 
 <div class="jline" aria-hidden="true"><span class="n1"></span><span class="stem"></span><span class="n2"></span></div>
 
-<section class="sec">
+<section class="sec" id="services">
   <div class="wrap">
-    <div class="shead rv"><span class="lbl">Services</span><h2>Arranged around your day.</h2></div>
-    <div class="svc-rows rv">
-      <a href="airport-transfers.html"><div><h3>Airport transfers</h3><p>Met in the arrivals hall and driven without delay. The flight is tracked so the car is never early or late.</p></div><span class="arr">&rarr;</span></a>
-      <a href="corporate.html"><div><h3>Corporate chauffeur</h3><p>Executive accounts with consolidated invoicing and booking on behalf of guests.</p></div><span class="arr">&rarr;</span></a>
-      <a href="booking.html"><div><h3>By the hour</h3><p>A car and chauffeur held at your disposal for five hours, ten hours or the length of a visit.</p></div><span class="arr">&rarr;</span></a>
-      <a href="inter-emirate.html"><div><h3>Inter-emirate transfers</h3><p>Dubai to Abu Dhabi and every emirate beyond. One car and one chauffeur, door to door.</p></div><span class="arr">&rarr;</span></a>
-      <a href="contact.html"><div><h3>Events &amp; groups</h3><p>From a single S-Class to a 55-seat coach, coordinated to the minute.</p></div><span class="arr">&rarr;</span></a>
+    <div class="shead rv"><span class="lbl">Services</span><h2>One company. Every journey.</h2></div>
+    <div class="svc rv">
+      <div class="svc-tabs" role="tablist">
+        <button class="on" data-s="airport" role="tab">Airport transfers</button>
+        <button data-s="hourly" role="tab">By the hour</button>
+        <button data-s="corporate" role="tab">Corporate</button>
+        <button data-s="emirates" role="tab">Inter-emirate</button>
+      </div>
+      <div class="svc-stage">
+        <svg viewBox="0 0 760 150" aria-hidden="true">
+          <g class="jr" data-s="airport">
+            <path class="jl" d="M70 100 C 220 100, 300 40, 420 40 S 640 95, 690 95"/>
+            <path class="jicon" d="M60 96 l14-5 m-14 5 l5 14 m-5-14 l22 8" transform="translate(0,-18)"/>
+            <circle class="jdot" cx="70" cy="100" r="4"/><circle class="jdot" cx="690" cy="95" r="4"/>
+            <path class="jicon" d="M683 88 l7-6 7 6 m-12-1 v9 h10 v-9"/>
+          </g>
+          <g class="jr hide" data-s="hourly">
+            <circle class="jl" cx="380" cy="78" r="48"/>
+            <path class="jicon" d="M380 52 v26 l17 10"/>
+            <circle class="jdot" cx="380" cy="30" r="4"/>
+          </g>
+          <g class="jr hide" data-s="corporate">
+            <path class="jicon" d="M120 110 v-50 h36 v50 m-26-38 h6 m4 0 h6 m-16 12 h6 m4 0 h6"/>
+            <path class="jl" d="M160 95 C 300 95, 460 60, 600 60"/>
+            <path class="jicon" d="M600 110 v-62 h40 v62 m-30-50 h7 m6 0 h7 m-20 14 h7 m6 0 h7 m-20 14 h7 m6 0 h7"/>
+          </g>
+          <g class="jr hide" data-s="emirates">
+            <circle class="jdot" cx="110" cy="105" r="5"/><text class="jt" x="110" y="130">DXB</text>
+            <path class="jl" d="M118 100 C 260 30, 520 30, 648 96"/>
+            <circle class="jdot" cx="655" cy="100" r="5"/><text class="jt" x="655" y="125">AUH</text>
+          </g>
+        </svg>
+      </div>
+      <p class="svc-desc" id="svcDesc">Met at arrivals, tracked from departure, driven door to door.</p>
+      <div class="btns" style="justify-content:center"><a class="btn btn-ink" id="svcCta" href="airport-transfers.html">Airport transfers</a></div>
     </div>
   </div>
 </section>
