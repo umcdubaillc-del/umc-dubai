@@ -90,6 +90,17 @@
     document.getElementById("svcDesc").textContent=SVC[s].d;
     const a=document.getElementById("svcCta"); a.href=SVC[s].href; a.textContent=SVC[s].cta;
   }));
+
+  // homepage: testimonials carousel
+  const tcar = document.getElementById("tcar");
+  if(tcar){
+    const card = tcar.querySelector(".tc");
+    const step = () => card ? card.offsetWidth + 19 : 0;
+    const tprev = document.getElementById("tprev");
+    const tnext = document.getElementById("tnext");
+    if(tprev) tprev.addEventListener("click", () => tcar.scrollBy({left:-step(), behavior:"smooth"}));
+    if(tnext) tnext.addEventListener("click", () => tcar.scrollBy({left: step(), behavior:"smooth"}));
+  }
 })();
 
 // homepage: Google Places on the hero form
