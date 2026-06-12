@@ -376,7 +376,7 @@ dialog.terms li{margin-bottom:.8rem;font-size:.9rem;color:var(--ink-soft)}
 /* wide rectangular car imagery; white-background cutouts blend into the card */
 .vcard .vimg{aspect-ratio:16/9;background:var(--card);display:flex;align-items:center;justify-content:center;padding:1rem}
 .vcard .vimg img{width:100%;height:100%;object-fit:contain;mix-blend-mode:multiply}
-.vcard .vcta{display:block;text-align:center;margin-top:1rem;padding:.7rem;font-size:.7rem}
+.vcard .vcta{text-align:center}
 .bk-car img{width:104px;height:64px;object-fit:contain;background:var(--card);mix-blend-mode:multiply;padding:.25rem}
 
 /* booking columns: hard top alignment + sticky side stack */
@@ -671,3 +671,30 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 .lugtag .tg-foot{margin-top:1rem;padding-top:.75rem;border-top:1px solid var(--hair);font-size:.6rem;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between}
 .lugtag .tg-foot i{font-style:normal;color:var(--amber-deep)}
 @media(max-width:520px){.lugtag{padding-left:3.6rem;transform:rotate(0)}}
+
+/* ===================== v9 ===================== */
+/* manifest: structured term/description rows */
+.lugtag li{display:grid;grid-template-columns:128px 1fr;gap:.9rem;align-items:baseline}
+.lugtag li::before{display:none}
+.lugtag li .t{font-size:.58rem;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:var(--amber-deep)}
+.lugtag li span{font-size:.9rem;color:var(--ink-soft);font-weight:300}
+@media(max-width:520px){.lugtag li{grid-template-columns:1fr;gap:.15rem}}
+
+/* departures board: quote CTA */
+.depboard a.tag{transition:all .2s;cursor:pointer}
+.depboard a.tag:hover{background:var(--amber);border-color:var(--amber);color:#231B12}
+
+/* card CTAs: deterministic equal boxes */
+.vctas .ico{width:38px;height:38px}
+.vctas .btn{display:inline-flex;align-items:center;justify-content:center;min-height:0;height:38px;padding:0 1.15rem;font-size:.64rem;line-height:1}
+
+/* fleet: scenario cards */
+.scen{display:grid;gap:1.2rem;max-width:1020px;margin:0 auto}
+@media(min-width:820px){.scen{grid-template-columns:repeat(3,1fr)}}
+.scen .sc{background:var(--card);border:1px solid var(--line);border-top:2px solid var(--amber);border-radius:4px;padding:1.6rem 1.5rem}
+.scen .sc svg{width:22px;height:22px;stroke:var(--amber-deep);fill:none;stroke-width:1.5;margin-bottom:.8rem}
+.scen .sc h3{font-size:1.15rem;margin-bottom:.4rem}
+.scen .sc p{font-size:.88rem;margin-bottom:1rem}
+.scen .pick{display:flex;flex-wrap:wrap;gap:.45rem}
+.scen .pick a{font-size:.66rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:.42rem .85rem;transition:all .2s}
+.scen .pick a:hover{border-color:var(--amber);color:var(--amber-deep)}
