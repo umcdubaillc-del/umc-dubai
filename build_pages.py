@@ -228,8 +228,9 @@ TERMS_ITEMS = [
  ("Governing law","These terms are governed by the laws of the United Arab Emirates. Any disputes shall be handled under the jurisdiction of the courts in Dubai, UAE. By proceeding with a booking through our website form, WhatsApp, or phone call, you acknowledge and agree to abide by all terms and conditions outlined on our website."),
 ]
 TERMS_OL = "".join("<li><b>" + t + ".</b> " + b + "</li>" for t,b in TERMS_ITEMS)
-TERMS_DLG = ('<dialog id="termsDlg" class="terms"><button class="x" type="button" aria-label="Close">&times;</button>'
- '<h2>Terms of Service</h2><ol>' + TERMS_OL + '</ol></dialog>')
+TERMS_DLG = ('<dialog id="termsDlg" class="terms">'
+ '<div class="thead"><h2>Terms of Service</h2><button class="x" type="button" aria-label="Close">&times;</button></div>'
+ '<div class="tbody"><ol>' + TERMS_OL + '</ol></div></dialog>')
 
 # ---------- favicon ----------
 (SITE/"favicon.svg").write_text(
