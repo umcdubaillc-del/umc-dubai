@@ -34,18 +34,6 @@
   applySeg();
 
   const SERVICE_LABEL = {p2p:"Transfer", airport:"Airport transfer", hourly5:"By the hour, 5 hours", hourly10:"By the hour, 10 hours", fullday:"By the hour, multiple days"};
-  function rateFor(v){
-    if(!v) return null;
-    if(state.service==="hourly5") return v.r5;
-    if(state.service==="hourly10"||state.service==="fullday") return v.r10;
-    return v.ra; /* airport & point-to-point: flat one-way */
-  }
-  function rateUnit(){
-    if(state.service==="fullday") return "Per day";
-    if(state.service==="hourly5") return "5 hours";
-    if(state.service==="hourly10") return "10 hours";
-    return "One-way";
-  }
 
   function syncConditional(){
     const isAirport = state.fromIsAirport || state.toIsAirport;
@@ -65,13 +53,10 @@
     const el = $("carList");
     const fleet = getFleet().filter(v=>v.visible!==false);
     el.innerHTML = fleet.map(v=>{
-      const r = rateFor(v);
-      const price = r ? "AED " + Number(r).toLocaleString() : "On request";
       return `<div class="bk-car${state.vehicle===v.id?" sel":""}" data-id="${v.id}" role="button" tabindex="0" aria-pressed="${state.vehicle===v.id}">
         <img src="${v.img}" alt="" loading="lazy">
         <div><span class="cat">${v.category}</span><h3>${v.name}</h3>
           <div class="cap"><span><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>${v.seats} guests</span><span><svg viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="13" rx="2"/><path d="M9 7V4h6v3"/></svg>${v.luggage} cases</span></div></div>
-        <div class="p"><b>${price}</b><span>${r?rateUnit():"24/7 desk"}</span></div>
       </div>`;
     }).join("");
     el.querySelectorAll(".bk-car").forEach(c=>{
@@ -84,7 +69,6 @@
 
   function summary(){
     const v = getFleet().find(x=>x.id===state.vehicle);
-    const r = rateFor(v);
     const hourly = state.service.startsWith("hourly")||state.service==="fullday";
     const row = (k,val)=>`<div class="bp-row"><span class="k">${k}</span><span class="v">${val}</span></div>`;
     let h = "";
@@ -97,13 +81,8 @@
     if(v) h += row("Vehicle", `<b>${v.name}</b>`);
     $("bkSummary").innerHTML = h || '<div class="bp-empty">Your journey details appear here as you type.</div>';
     const tot = $("bpTotal");
-    if(v && r){
-      const total = state.service==="fullday" ? r*state.days : r;
-      const note = state.service==="fullday" ? ` <span style="font-size:.65rem;color:var(--muted)">(AED ${Number(r).toLocaleString()} a day)</span>` : "";
-      tot.innerHTML = `<span class="k">${state.service==="fullday"?"Estimated total":"Your rate"}</span><span class="v">AED ${Number(total).toLocaleString()}${note}</span>`;
-      tot.classList.remove("hide");
-    } else if(v){
-      tot.innerHTML = '<span class="k">Your rate</span><span class="v" style="font-size:.9rem">Quoted on request</span>';
+    if(v){
+      tot.innerHTML = '<span class="k">Your quote</span><span class="v" style="font-size:.9rem">Confirmed on WhatsApp within minutes</span>';
       tot.classList.remove("hide");
     } else { tot.classList.add("hide"); }
     $("btnConfirm").disabled = !state.vehicle;
@@ -234,9 +213,6 @@
     if(!$("rowSign").classList.contains("hide") && g("kSign")) m += "\nWelcome sign: " + g("kSign");
     if(state.service==="fullday") m += "\nDays: " + state.days;
     m += "\nVehicle: " + (v? v.name : "-");
-    const r = rateFor(v);
-    if(r && state.service==="fullday") m += "\nQuoted rate: AED " + Number(r).toLocaleString() + " per day, AED " + Number(r*state.days).toLocaleString() + " total";
-    else if(r) m += "\nQuoted rate: AED " + Number(r).toLocaleString();
     m += "\n\nGuest: " + g("kName");
     m += "\nPhone: " + g("kPhone");
     if(g("kEmail")) m += "\nEmail: " + g("kEmail");
