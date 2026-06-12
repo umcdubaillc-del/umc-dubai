@@ -125,6 +125,7 @@ nav.mainnav a:hover,nav.mainnav a.on{color:var(--ink);border-color:var(--amber)}
 .vcard .vdetail{display:none;border-top:1px solid var(--hair);margin-top:1rem;padding-top:1rem}
 .vcard.openx .vdetail{display:block}
 .vcard.openx .vtoggle{color:var(--amber-deep)}
+.vtoggle[aria-expanded="true"] svg{transform:rotate(180deg)}
 .vdetail .r{display:flex;justify-content:space-between;font-size:.92rem;padding:.32rem 0;color:var(--ink-soft)}
 .vdetail .r b{font-weight:400;font-family:var(--serif);color:var(--ink)}
 .vdetail .inc{font-size:.8rem;color:var(--muted);margin-top:.7rem;line-height:1.6}
