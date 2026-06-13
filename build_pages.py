@@ -324,7 +324,9 @@ index_body = header("index.html") + f"""
 
 <section class="sec" id="services">
   <div class="wrap">
-    <div class="shead rv"><span class="lbl">Services</span><h2>One company. Every journey.</h2></div>
+    <div class="shead rv"><span class="lbl">Services</span><h2>One company. Every journey.</h2>
+      <p class="svc-events">Marking an occasion? <a href="events.html">Weddings, galas and private events &rarr;</a></p>
+    </div>
     <div class="svcx rv">
       <a class="svrow" href="airport-transfers.html">
         <span class="num">01</span>

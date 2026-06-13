@@ -43,6 +43,46 @@ export default {
           200
         );
       }
+      // Diagnostic: GET /api/lead?selftest=2 → fires Resend + Sheets + Mailchimp with a
+      // canned payload and returns each leg's HTTP outcome (status + first 200 chars of body).
+      // No secrets exposed — only HTTP results. Each enabled leg's body shows the actual
+      // upstream rejection (Google sign-in HTML for Sheets-access misconfig, Mailchimp's
+      // {"title":"…","detail":"…"} JSON, etc.) so the owner can act without tail-following.
+      if (request.method === "GET" && url.searchParams.get("selftest") === "2") {
+        const testPayload = {
+          source: "selftest",
+          name: "Diagnostic Test",
+          phone: "+971 50 000 0000",
+          email: "selftest@umcdubai.ae",
+          service: "Diagnostic",
+          pickup: "Selftest pickup",
+          destination: "Selftest destination",
+          date: "2026-01-01",
+          time: "12:00",
+          vehicle: "Diagnostic",
+          days: "",
+          flight: "",
+          sign: "",
+          notes: "Sent by /api/lead?selftest=2",
+          page: "/api/lead?selftest=2",
+          ts: new Date().toISOString()
+        };
+        const legs = [];
+        if (env.RESEND_API_KEY) legs.push(sendEmail(env, testPayload));
+        if (env.SHEETS_WEBHOOK_URL) legs.push(appendSheet(env, testPayload));
+        if (env.MC_API_KEY && env.MC_LIST_ID && env.MC_DC) legs.push(addToMailchimp(env, testPayload));
+        const results = await Promise.all(legs);
+        const out = {};
+        for (const r of results) {
+          out[r.label.toLowerCase()] = {
+            ok: r.ok,
+            status: r.status,
+            body: r.body,
+            ...(r.note ? { note: r.note } : {})
+          };
+        }
+        return json(out, 200);
+      }
       if (request.method !== "POST") {
         return new Response("Method Not Allowed", {
           status: 405,
@@ -102,6 +142,7 @@ async function handleLead(request, env, ctx) {
   if (payload.email && env.MC_API_KEY && env.MC_LIST_ID && env.MC_DC) {
     tasks.push(addToMailchimp(env, payload));
   }
+  if (env.RESEND_API_KEY && payload.email) tasks.push(sendClientReceipt(env, payload));
 
   // Fire and forget — do not block the response
   ctx.waitUntil(Promise.allSettled(tasks));
@@ -120,44 +161,71 @@ function clip(s, n) {
   return s.length > n ? s.slice(0, n) : s;
 }
 
+// Shared escape for inlined email HTML.
+function emailEsc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+  );
+}
+
+// Build the label/value rows, omitting empty fields (T4/T5: no blank rows).
+function emailRows(pairs) {
+  return pairs
+    .filter(([, v]) => v != null && String(v).trim() !== "" && String(v).trim() !== "-")
+    .map(
+      ([k, v]) =>
+        `<tr><td style="padding:9px 16px 9px 0;color:#7A6F5F;vertical-align:top;white-space:nowrap;font-size:11px;letter-spacing:.22em;text-transform:uppercase;font-weight:500;border-bottom:1px solid rgba(34,27,20,.08)">${emailEsc(
+          k
+        )}</td><td style="padding:9px 0;color:#221B14;border-bottom:1px solid rgba(34,27,20,.08);word-break:break-word">${emailEsc(v)}</td></tr>`
+    )
+    .join("");
+}
+
+// UMC wordmark + amber rule, used at the top of every transactional email.
+function emailWordmark() {
+  return `<tr><td style="padding:28px 28px 6px 28px;text-align:center">
+      <span style="font-family:Georgia,'Times New Roman',serif;font-size:24px;letter-spacing:.36em;color:#221B14">UMC</span>
+      <div style="height:1px;background:#C75B12;width:28px;margin:10px auto"></div>
+      <span style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:#7A6F5F">Dubai</span>
+    </td></tr>`;
+}
+
+// Internal notification email — sent to LEAD_EMAIL_TO (the concierge desk).
 async function sendEmail(env, b) {
+  const label = "RESEND";
   const to = env.LEAD_EMAIL_TO || "contact@umcdubai.ae";
   const subject = `New reservation request — ${b.name} — ${b.service || "general"}`;
-  const esc = (s) =>
-    String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
-    );
-  const rows = [
+  const rowsHtml = emailRows([
     ["Name", b.name],
     ["Phone", b.phone],
-    ["Email", b.email || "-"],
-    ["Service", b.service || "-"],
-    ["Pick-up", b.pickup || "-"],
-    ["Destination", b.destination || "-"],
-    ["Date", b.date || "-"],
-    ["Time", b.time || "-"],
-    ["Vehicle", b.vehicle || "-"],
-    ["Days", b.days || "-"],
-    ["Flight", b.flight || "-"],
-    ["Welcome sign", b.sign || "-"],
-    ["Notes", b.notes || "-"]
-  ];
+    ["Email", b.email],
+    ["Service", b.service],
+    ["Pick-up", b.pickup],
+    ["Destination", b.destination],
+    ["Date", b.date],
+    ["Time", b.time],
+    ["Vehicle", b.vehicle],
+    ["Days", b.days],
+    ["Flight", b.flight],
+    ["Welcome sign", b.sign],
+    ["Notes", b.notes]
+  ]);
   const html =
-    `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#221B14;max-width:560px;margin:0 auto;padding:16px">` +
-    `<h2 style="font-family:Georgia,serif;font-weight:400;font-size:20px;margin:0 0 6px;border-bottom:1px solid #ddd;padding-bottom:8px">New reservation request</h2>` +
-    `<p style="color:#666;font-size:13px;margin:0 0 18px">via ${esc(b.page || b.source || "site")}</p>` +
-    `<table cellpadding="0" cellspacing="0" style="font-size:14px;border-collapse:collapse">` +
-    rows
-      .map(
-        ([k, v]) =>
-          `<tr><td style="padding:4px 14px 4px 0;color:#666;vertical-align:top;white-space:nowrap">${esc(
-            k
-          )}</td><td style="padding:4px 0">${esc(v)}</td></tr>`
-      )
-      .join("") +
-    `</table>` +
-    `<p style="color:#999;font-size:12px;margin-top:24px">Submitted ${esc(b.ts)} · source: ${esc(b.source || "-")}</p>` +
-    `</body></html>`;
+    `<!doctype html><html><body style="margin:0;padding:24px 16px;background:#F6F1E7;font-family:-apple-system,Segoe UI,Roboto,sans-serif">` +
+    `<table align="center" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:580px;width:100%;margin:0 auto;background:#FBF8F1;border-radius:6px;overflow:hidden;border:1px solid rgba(34,27,20,.10)">` +
+    emailWordmark() +
+    `<tr><td style="padding:18px 28px 8px 28px;text-align:center">` +
+      `<h1 style="font-family:Georgia,'Times New Roman',serif;font-weight:400;font-size:22px;color:#221B14;margin:0;letter-spacing:-.01em">New reservation request</h1>` +
+      `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#A84B0C;margin:10px 0 0">via ${emailEsc(b.page || b.source || "site")}</p>` +
+    `</td></tr>` +
+    `<tr><td style="padding:18px 28px 8px 28px">` +
+      `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:14px;border-collapse:collapse">${rowsHtml}</table>` +
+    `</td></tr>` +
+    `<tr><td style="padding:20px 28px 22px 28px;background:#231B12;text-align:center;font-family:-apple-system,Segoe UI,Roboto,sans-serif">` +
+      `<p style="margin:0;color:#D9D0C0;font-size:12px">Submitted ${emailEsc(b.ts)}</p>` +
+      `<p style="margin:8px 0 0;color:#7A6F5F;font-size:11px;letter-spacing:.16em;text-transform:uppercase">UMC Dubai &middot; contact@umcdubai.ae &middot; +971 58 649 7861</p>` +
+    `</td></tr>` +
+    `</table></body></html>`;
 
   const message = {
     from: "UMC Dubai leads <noreply@umcdubai.ae>",
@@ -176,42 +244,54 @@ async function sendEmail(env, b) {
       },
       body: JSON.stringify(message)
     });
-    if (!res.ok) {
-      const bodyText = await res.text();
-      console.error("RESEND failed", res.status, bodyText);
-    } else {
-      console.log("RESEND ok", res.status);
-    }
-    return res;
+    const bodyText = (await res.text()).slice(0, 200);
+    if (!res.ok) console.error(label + " failed", res.status, bodyText);
+    else console.log(label + " ok", res.status);
+    return { label, ok: res.ok, status: res.status, body: bodyText };
   } catch (e) {
-    console.error("RESEND threw", e && (e.message || String(e)));
-    throw e;
+    const msg = e && (e.message || String(e));
+    console.error(label + " threw", msg);
+    return { label, ok: false, status: 0, body: "exception: " + msg };
   }
 }
 
 async function appendSheet(env, b) {
+  const label = "SHEETS";
   try {
+    // Apps Script Web Apps issue a 302 to script.googleusercontent.com on success — follow it.
+    // text/plain avoids the JSON content-type that some Apps Script deployments mis-handle.
     const res = await fetch(env.SHEETS_WEBHOOK_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(b)
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(b),
+      redirect: "follow"
     });
-    if (!res.ok) {
-      const bodyText = await res.text();
-      console.error("SHEETS failed", res.status, bodyText);
-    } else {
-      console.log("SHEETS ok", res.status);
-    }
-    return res;
+    const bodyText = (await res.text()).slice(0, 200);
+    // If the response is HTML with a Google sign-in form, the Apps Script deployment access
+    // is set to "Only myself" or a Google account — the owner must redeploy with "Anyone".
+    const looksLikeSignIn =
+      /<title>[^<]*Sign in|accounts\.google\.com|ServiceLogin|<html/i.test(bodyText) &&
+      /sign in|continue with google|choose an account/i.test(bodyText);
+    const ok = res.ok && !looksLikeSignIn;
+    const note = looksLikeSignIn
+      ? "Apps Script deployment access is NOT 'Anyone'. Redeploy the Web App as 'Execute as: Me' and 'Who has access: Anyone'."
+      : undefined;
+    if (!ok) console.error(label + " failed", res.status, bodyText, note || "");
+    else console.log(label + " ok", res.status);
+    return { label, ok, status: res.status, body: bodyText, ...(note ? { note } : {}) };
   } catch (e) {
-    console.error("SHEETS threw", e && (e.message || String(e)));
-    throw e;
+    const msg = e && (e.message || String(e));
+    console.error(label + " threw", msg);
+    return { label, ok: false, status: 0, body: "exception: " + msg };
   }
 }
 
 async function addToMailchimp(env, b) {
+  const label = "MAILCHIMP";
+  // b.email is already trim()+toLowerCase()'d in handleLead's payload normalisation
+  // (the Mailchimp member URL hash must be md5(email.trim().toLowerCase())).
   const hash = md5(b.email);
-  const firstName = (b.name || "").split(/\s+/)[0] || "";
+  const firstName = (b.name || "").trim().split(/\s+/)[0] || "";
   try {
     const res = await fetch(
       `https://${env.MC_DC}.api.mailchimp.com/3.0/lists/${env.MC_LIST_ID}/members/${hash}`,
@@ -224,20 +304,89 @@ async function addToMailchimp(env, b) {
         body: JSON.stringify({
           email_address: b.email,
           status_if_new: "subscribed",
+          status: "subscribed",
           merge_fields: { FNAME: firstName, PHONE: b.phone }
         })
       }
     );
-    if (!res.ok) {
-      const bodyText = await res.text();
-      console.error("MAILCHIMP failed", res.status, bodyText);
-    } else {
-      console.log("MAILCHIMP ok", res.status);
-    }
-    return res;
+    const bodyText = (await res.text()).slice(0, 200);
+    if (!res.ok) console.error(label + " failed", res.status, bodyText);
+    else console.log(label + " ok", res.status);
+    return { label, ok: res.ok, status: res.status, body: bodyText };
   } catch (e) {
-    console.error("MAILCHIMP threw", e && (e.message || String(e)));
-    throw e;
+    const msg = e && (e.message || String(e));
+    console.error(label + " threw", msg);
+    return { label, ok: false, status: 0, body: "exception: " + msg };
+  }
+}
+
+// Client confirmation email (T6) — only fired when payload.email is present and shaped like
+// an email. Warm institutional tone, framed as a receipt, NOT a guarantee.
+const CLIENT_EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+async function sendClientReceipt(env, b) {
+  const label = "CLIENT_RECEIPT";
+  if (!b.email || !CLIENT_EMAIL_RX.test(b.email)) {
+    return { label, ok: true, status: 0, body: "skipped: no valid client email", skipped: true };
+  }
+  const firstName = (b.name || "").trim().split(/\s+/)[0] || "there";
+  const subject = "We have your reservation request — UMC Dubai";
+  const rowsHtml = emailRows([
+    ["Service", b.service],
+    ["Pick-up", b.pickup],
+    ["Destination", b.destination],
+    ["Date", b.date],
+    ["Time", b.time],
+    ["Vehicle", b.vehicle],
+    ["Days", b.days],
+    ["Flight", b.flight],
+    ["Welcome sign", b.sign],
+    ["Notes", b.notes]
+  ]);
+  const html =
+    `<!doctype html><html><body style="margin:0;padding:24px 16px;background:#F6F1E7;font-family:-apple-system,Segoe UI,Roboto,sans-serif">` +
+    `<table align="center" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:580px;width:100%;margin:0 auto;background:#FBF8F1;border-radius:6px;overflow:hidden;border:1px solid rgba(34,27,20,.10)">` +
+    emailWordmark() +
+    `<tr><td style="padding:24px 28px 8px 28px;text-align:center">` +
+      `<h1 style="font-family:Georgia,'Times New Roman',serif;font-weight:400;font-size:24px;color:#221B14;margin:0 0 10px;letter-spacing:-.01em">Thank you, ${emailEsc(firstName)}.</h1>` +
+      `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px;color:#4A4136;line-height:1.65;margin:0;max-width:42ch;margin-left:auto;margin-right:auto">We have received your reservation request. Our team will confirm the details personally, usually within minutes.</p>` +
+    `</td></tr>` +
+    `<tr><td style="padding:24px 28px 8px 28px">` +
+      `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#A84B0C;margin:0 0 12px;font-weight:500">Your request</p>` +
+      `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:14px;border-collapse:collapse">${rowsHtml}</table>` +
+    `</td></tr>` +
+    `<tr><td style="padding:22px 28px 22px 28px;text-align:center">` +
+      `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:13px;color:#4A4136;line-height:1.7;margin:0">For any urgent change, please call or WhatsApp <a href="tel:+971586497861" style="color:#A84B0C;text-decoration:none;border-bottom:1px solid #C75B12">+971 58 649 7861</a>.</p>` +
+    `</td></tr>` +
+    `<tr><td style="padding:22px 28px;background:#231B12;text-align:center;font-family:-apple-system,Segoe UI,Roboto,sans-serif">` +
+      `<p style="margin:0;color:#D9D0C0;font-size:13px;letter-spacing:.06em">The UMC Dubai concierge desk</p>` +
+      `<p style="margin:10px 0 0;color:#7A6F5F;font-size:11px;line-height:1.6">This is a receipt of your request, not a confirmed booking. We will write back with the next steps shortly.</p>` +
+    `</td></tr>` +
+    `</table></body></html>`;
+
+  const message = {
+    from: "UMC Dubai <contact@umcdubai.ae>",
+    to: [b.email],
+    reply_to: "contact@umcdubai.ae",
+    subject,
+    html
+  };
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + env.RESEND_API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(message)
+    });
+    const bodyText = (await res.text()).slice(0, 200);
+    if (!res.ok) console.error(label + " failed", res.status, bodyText);
+    else console.log(label + " ok", res.status);
+    return { label, ok: res.ok, status: res.status, body: bodyText };
+  } catch (e) {
+    const msg = e && (e.message || String(e));
+    console.error(label + " threw", msg);
+    return { label, ok: false, status: 0, body: "exception: " + msg };
   }
 }
 
