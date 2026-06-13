@@ -706,7 +706,6 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 .h2scrim{position:absolute;inset:0;background:linear-gradient(100deg,rgba(20,15,9,.86) 0%,rgba(20,15,9,.62) 40%,rgba(20,15,9,.22) 72%,rgba(20,15,9,.38) 100%)}
 .h2grid{position:relative;z-index:1;display:grid;gap:2.5rem;align-items:center}
 @media(min-width:960px){.h2grid{grid-template-columns:1.05fr .95fr}}
-.h2copy .lbl{color:#E0894A}
 .h2copy h1{color:var(--bone);font-size:clamp(2.4rem,4.6vw,3.7rem);line-height:1.08;margin:.8rem 0 1rem}
 .h2copy .lede{color:#D9D0C0;max-width:46ch}
 .h2form .book{background:var(--bone);border:1px solid var(--line);border-radius:6px;box-shadow:0 40px 80px -32px rgba(0,0,0,.55);padding:1.6rem}
@@ -769,3 +768,16 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
   *,*::before,*::after{animation:none!important;transition:none!important}
   .rv{opacity:1;transform:none}
 }
+
+/* kicker — signature dot-rule-dot motif for section eyebrows */
+.kicker{display:inline-flex;align-items:center;gap:.55rem;margin-bottom:1rem}
+.kicker em{font-style:normal;font-size:.7rem;font-weight:600;letter-spacing:.28em;text-transform:uppercase;color:var(--amber)}
+.kicker .kdot{width:6px;height:6px;border-radius:50%;flex:none}
+.kicker .kdot-fill{background:var(--amber)}
+.kicker .kdot-open{border:1.5px solid var(--amber);background:transparent}
+.kicker .krule{width:26px;height:1px;background:linear-gradient(90deg,var(--amber),rgba(199,91,18,.25))}
+/* on the dark hero scrim, swap to the lighter amber for legibility */
+.hero2 .kicker em{color:#E0894A}
+.hero2 .kicker .kdot-fill{background:#E0894A}
+.hero2 .kicker .kdot-open{border-color:#E0894A}
+.hero2 .kicker .krule{background:linear-gradient(90deg,#E0894A,rgba(224,137,74,.25))}
