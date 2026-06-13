@@ -130,15 +130,20 @@ window.umcPhone = {
     if(t) t.value = veh;
   }
 
-  // homepage: testimonials carousel
+  // homepage: testimonials carousel — page by visible whole-card count
   const tcar = document.getElementById("tcar");
   if(tcar){
-    const card = tcar.querySelector(".tc");
-    const step = () => card ? card.offsetWidth + 19 : 0;
+    const page = (dir) => {
+      const card = tcar.querySelector(".tc");
+      if(!card) return;
+      const cardW = card.getBoundingClientRect().width + 19; // card width + gap
+      const per = Math.max(1, Math.round(tcar.clientWidth / cardW));
+      tcar.scrollBy({left: dir * per * cardW, behavior: "smooth"});
+    };
     const tprev = document.getElementById("tprev");
     const tnext = document.getElementById("tnext");
-    if(tprev) tprev.addEventListener("click", () => tcar.scrollBy({left:-step(), behavior:"smooth"}));
-    if(tnext) tnext.addEventListener("click", () => tcar.scrollBy({left: step(), behavior:"smooth"}));
+    if(tprev) tprev.addEventListener("click", () => page(-1));
+    if(tnext) tnext.addEventListener("click", () => page(1));
   }
 
   // phone fields: live filtering + per-country length validation (booking + contact)
