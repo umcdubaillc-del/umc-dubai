@@ -50,8 +50,10 @@ export default {
       // {"title":"…","detail":"…"} JSON, etc.) so the owner can act without tail-following.
       if (request.method === "GET" && url.searchParams.get("selftest") === "2") {
         const testPayload = {
-          source: "selftest",
-          name: "Diagnostic Test",
+          // Loud markers so the test row is easy to spot in the Sheet and the test
+          // Mailchimp member / Resend email are obviously diagnostic noise.
+          source: "SELFTEST",
+          name: "SELFTEST — delete me",
           phone: "+971 50 000 0000",
           email: "selftest@umcdubai.ae",
           service: "Diagnostic",
@@ -364,9 +366,9 @@ async function sendClientReceipt(env, b) {
     `</table></body></html>`;
 
   const message = {
-    from: "UMC Dubai <contact@umcdubai.ae>",
+    from: "UMC Dubai <bookings@umcdubai.ae>",
     to: [b.email],
-    reply_to: "contact@umcdubai.ae",
+    reply_to: "bookings@umcdubai.ae",
     subject,
     html
   };

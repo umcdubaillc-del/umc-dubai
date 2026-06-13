@@ -77,6 +77,10 @@ failure never blocks the customer.
    function doPost(e){
      const sh = SpreadsheetApp.getActive().getActiveSheet();
      const b = JSON.parse(e.postData.contents);
+     // Force phone to plain text — values beginning with "+" (e.g. +971…) are otherwise
+     // interpreted by Sheets as formulas and render as #ERROR!. The leading apostrophe
+     // tells Sheets the cell is literal text; it doesn't appear in the rendered value.
+     if (b.phone) b.phone = "'" + b.phone;
      if(sh.getLastRow()===0){ sh.appendRow(Object.keys(b)); }
      sh.appendRow(Object.values(b));
      return ContentService.createTextOutput(JSON.stringify({ok:true})).setMimeType(ContentService.MimeType.JSON);
@@ -84,6 +88,8 @@ failure never blocks the customer.
    ```
    Deploy → New deployment → Web app → execute as **Me** → access **Anyone** → copy the
    Web App URL. Paste it into the Cloudflare env var `SHEETS_WEBHOOK_URL` (next step).
+   If the script is already deployed, edit `doPost` then **Manage deployments → edit
+   (pencil) → Deploy** — the URL stays the same; do NOT create a new deployment.
 3. **Mailchimp** — create an audience. Account → Extras → API keys → copy the API key
    (the suffix after the dash is the datacentre, e.g. `…-us21` → dc is `us21`). Audience
    → Settings → Audience name and defaults → copy the Audience ID.
