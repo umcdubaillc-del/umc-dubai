@@ -274,7 +274,7 @@ index_body = header("index.html") + f"""
   <div class="h2scrim"></div>
   <div class="wrap h2grid">
     <div class="h2copy">
-      <span class="lbl">Across All Seven Emirates</span>
+      <span class="lbl">Dubai &middot; Serving all seven emirates</span>
       <h1>Chauffeur-driven, without compromise.</h1>
       <p class="lede">Immaculate cars, vetted chauffeurs and a concierge that answers at any hour.</p>
     </div>
@@ -435,7 +435,7 @@ document.addEventListener("DOMContentLoaded", function(){
 
 (SITE/"index.html").write_text(
  head("Luxury Chauffeur Service in Dubai & the UAE | UMC Dubai",
-      "UMC Dubai is the luxury chauffeur service trusted across the UAE. Airport transfers, corporate chauffeur and private drivers in Dubai — one all-inclusive rate, 24/7.",
+      "UMC Dubai is the luxury chauffeur service trusted across the UAE. Airport transfers, corporate chauffeur and private drivers in Dubai &amp; the UAE — one all-inclusive rate, 24/7.",
       "", ld_home + faq_schema(HOME_FAQS) + '<link rel="stylesheet" href="assets/vendor/flatpickr.min.css">') + index_body)
 
 # ---------- booking ----------
@@ -547,7 +547,7 @@ fleet_body = header("fleet.html") + f"""
 <section class="phero">
   <div class="wrap">
     <span class="lbl">The fleet</span>
-    <h1>Chauffeur-driven cars in Dubai</h1>
+    <h1>Chauffeur-driven cars in Dubai &amp; the UAE</h1>
     <p class="lede">Every car held to one standard. Each rate is final and includes the chauffeur, fuel, Salik and parking. What we quote is what you pay.</p>
   </div>
 </section>
@@ -607,7 +607,7 @@ fleet_body = header("fleet.html") + f"""
 </body>
 </html>"""
 (SITE/"fleet.html").write_text(
- head("Luxury Fleet — Chauffeur-Driven Cars in Dubai | UMC Dubai",
+ head("Luxury Fleet — Chauffeur-Driven Cars in Dubai & the UAE | UMC Dubai",
       "The UMC Dubai fleet: Mercedes S-Class, BMW 7 Series, Cadillac Escalade, V-Class, Sprinter and coaches — all-inclusive chauffeur rates across the UAE.",
       "our-fleet/", faq_schema(FLEET_FAQS)) + fleet_body)
 
@@ -689,7 +689,7 @@ corp_body = header("corporate.html") + f"""
 <section class="phero">
   <div class="wrap">
     <span class="lbl">DIFC &middot; Business Bay &middot; Downtown</span>
-    <h1>Corporate chauffeur in Dubai</h1>
+    <h1>Corporate chauffeur in Dubai &amp; the UAE</h1>
     <p class="lede">Ground transport your company can rely on. Confirmed cars, vetted chauffeurs, consolidated invoicing and a human on the line at any hour.</p>
     <div style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
       <a class="btn btn-ink" href="contact.html?vehicle=Corporate%20Account">Open a corporate account</a>
