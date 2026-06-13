@@ -56,8 +56,11 @@
     el.innerHTML = fleet.map(v=>{
       return `<div class="bk-car${state.vehicle===v.id?" sel":""}" data-id="${v.id}" role="button" tabindex="0" aria-pressed="${state.vehicle===v.id}">
         <img src="${v.img}" alt="" loading="lazy">
-        <div><span class="cat">${v.category}</span><h3>${v.name}</h3>
-          <div class="cap"><span><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>${v.seats} guests</span><span><svg viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="13" rx="2"/><path d="M9 7V4h6v3"/></svg>${v.luggage} cases</span></div></div>
+        <div><span class="cat">${v.category}</span><h3>${v.name}</h3></div>
+        <div class="vcap2">
+          <span><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>${v.seats} guests</span>
+          <span><svg viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="13" rx="2"/><path d="M9 7V4h6v3"/></svg>${v.luggage} luggage</span>
+        </div>
       </div>`;
     }).join("");
     el.querySelectorAll(".bk-car").forEach(c=>{
