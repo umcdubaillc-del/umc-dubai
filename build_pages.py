@@ -56,7 +56,7 @@ def head(title, desc, canon, extra=""):
 
 def header(active):
     items = [("index.html","Home"),("fleet.html","Fleet"),("airport-transfers.html","Airport Transfers"),
-             ("corporate.html","Corporate"),("about.html","About"),("contact.html","Contact")]
+             ("corporate.html","Corporate"),("events.html","Events"),("about.html","About"),("contact.html","Contact")]
     parts = []
     for h, t in items:
         cls = ' class="on"' if h == active else ''
@@ -92,6 +92,7 @@ FOOTER = f"""</main>
           <li><a href="airport-transfers.html">Airport transfer Dubai</a></li>
           <li><a href="corporate.html">Corporate chauffeur</a></li>
           <li><a href="inter-emirate.html">Inter-emirate transfers</a></li>
+          <li><a href="events.html">Wedding &amp; event service</a></li>
           <li><a href="fleet.html">Hourly &amp; daily hire</a></li>
           <li><a href="booking.html">Reserve a car</a></li>
         </ul>
@@ -778,6 +779,60 @@ about_body = header("about.html") + f"""
       "UMC Dubai is the luxury chauffeur company serving executives, families and high-profile guests across the UAE — one standard, 24 hours a day.",
       "about-us/") + about_body)
 
+# ---------- events / occasions ----------
+EVENTS_WA = "https://api.whatsapp.com/send?phone=971586497861&text=Hello%20UMC%20Dubai%2C%20I%20would%20like%20to%20discuss%20chauffeur%20service%20for%20an%20event."
+events_body = header("events.html") + f"""
+<section class="phero">
+  <div class="wrap">
+    <span class="lbl">Weddings &middot; Galas &middot; Private celebrations</span>
+    <h1>Arrivals worth remembering.</h1>
+    <p class="lede">For the occasions that deserve more than a car: a coordinated fleet, one point of contact and a standard that holds from the first arrival to the last.</p>
+    <div class="btns rv" style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
+      <a class="btn btn-ink" href="contact.html?vehicle=Event">Plan your occasion</a>
+    </div>
+  </div>
+</section>
+{JL}
+<section class="occ">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">Occasions</span><h2>For the days that matter most.</h2></div>
+    <div class="occ-list rv">
+      <div class="occ-row">
+        <div class="occ-txt"><div class="on">01</div><h3>Weddings</h3><p>A matched fleet for the couple and their guests, coordinated to the ceremony&rsquo;s timing. Ribboned cars on request, and a single chauffeur lead who answers to your planner, not to a dispatch line.</p></div>
+        <div class="occ-side"><div class="li">Bridal car, dressed to your palette</div><div class="li">Guest shuttles between venues</div><div class="li">One coordinator across every vehicle</div></div>
+      </div>
+      <div class="occ-row">
+        <div class="occ-txt"><div class="on">02</div><h3>Corporate &amp; galas</h3><p>Arrivals timed to the minute for conferences, award nights and delegations. Multiple cars moved as one convoy, with a manifest your office approves in advance.</p></div>
+        <div class="occ-side"><div class="li">Convoy movements, single contact</div><div class="li">Branded welcome signage</div><div class="li">Monthly invoice, no per-trip admin</div></div>
+      </div>
+      <div class="occ-row">
+        <div class="occ-txt"><div class="on">03</div><h3>Private celebrations</h3><p>Birthdays, anniversaries and family milestones, given the same discretion as a head-of-state movement. The cabin prepared to your preferences before you step in.</p></div>
+        <div class="occ-side"><div class="li">Cabin prepared to your taste</div><div class="li">Child seats on request</div><div class="li">Discreet, vetted chauffeurs</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+{JL}
+<section class="closing band-dark numband-sec" style="padding:3.6rem 0">
+  <div class="wrap">
+    <div class="numband rv">
+      <div><div class="n">5.0<sup>&#9733;</sup></div><div class="d">Google rating</div></div>
+      <div><div class="n">2,500<sup>+</sup></div><div class="d">Clients served</div></div>
+      <div><div class="n">7</div><div class="d">Emirates covered</div></div>
+      <div><div class="n">24<sup>/7</sup></div><div class="d">Concierge desk</div></div>
+    </div>
+  </div>
+</section>
+<section class="closing band-dark">
+  <div class="wrap"><span class="lbl">Occasions</span><h2 class="rv">Begin with the standard.</h2>
+  <div class="btns rv"><a class="btn btn-ink" href="contact.html?vehicle=Event">Plan your occasion</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{EVENTS_WA}">WhatsApp concierge</a></div></div>
+</section>
+""" + FOOTER + "</body></html>"
+(SITE/"events.html").write_text(
+ head("Wedding & Event Chauffeur Service Dubai | UMC Dubai",
+      "Chauffeur service for weddings, galas and private events across the UAE. A coordinated fleet, one point of contact and a standard that never changes.",
+      "events/") + events_body)
+
 # ---------- contact (with verbatim terms) ----------
 contact_body = header("contact.html") + f"""
 <section class="phero">
@@ -963,7 +1018,7 @@ notfound = header("index.html").replace('class="on"','') + f"""
 (SITE/"404.html").write_text(head("Page Not Found | UMC Dubai","","404") + notfound)
 
 # ---------- sitemap & robots & headers ----------
-pages = ["", "fleet.html","airport-transfers.html","inter-emirate.html","corporate.html","about.html","contact.html","booking.html","terms.html","privacy.html"]
+pages = ["", "fleet.html","airport-transfers.html","inter-emirate.html","corporate.html","events.html","about.html","contact.html","booking.html","terms.html","privacy.html"]
 urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><changefreq>weekly</changefreq></url>" for p in pages)
 (SITE/"sitemap.xml").write_text(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>')
 (SITE/"robots.txt").write_text("User-agent: *\nAllow: /\nSitemap: https://umcdubai.ae/sitemap.xml\n")

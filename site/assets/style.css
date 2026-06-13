@@ -4,6 +4,7 @@
   --bone:#F6F1E7; --bone-2:#EFE8D9; --card:#FBF8F1;
   --ink:#221B14; --ink-soft:#4A4136; --muted:#7A6F5F;
   --amber:#C75B12; --amber-deep:#A84B0C;
+  --espresso:#231B12;
   --hair:rgba(34,27,20,.10); --line:rgba(34,27,20,.18);
   --wrap:1080px; --narrow:680px;
   --serif:'Marcellus',Georgia,serif; --sans:'Outfit',system-ui,sans-serif;
@@ -780,3 +781,18 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .hero2 .kicker .kdot-fill{background:#E0894A}
 .hero2 .kicker .kdot-open{border-color:#E0894A}
 .hero2 .kicker .krule{background:linear-gradient(90deg,#E0894A,rgba(224,137,74,.25))}
+
+/* events page — Occasions ledger (v14) */
+.occ{padding:5rem 0}
+.occ-list{border:1px solid var(--line);border-bottom:none}
+.occ-row{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--line)}
+.occ-txt{padding:2.6rem 2.4rem}
+.occ-txt .on{font-family:var(--serif);font-size:1.05rem;color:var(--amber);margin-bottom:.6rem}
+.occ-txt h3{font-family:var(--serif);font-weight:400;font-size:1.7rem;margin:0 0 .7rem}
+.occ-txt p{font-size:.92rem;color:var(--ink-soft);line-height:1.7;margin:0}
+.occ-side{background:var(--espresso);color:var(--bone);padding:2.6rem 2.4rem;display:flex;flex-direction:column;justify-content:center;gap:1rem}
+.occ-side .li{display:flex;gap:.8rem;align-items:baseline;font-size:.9rem;color:#D9D0C0}
+.occ-side .li::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:var(--amber);transform:translateY(-2px)}
+.occ-row:nth-child(even) .occ-txt{order:2}
+.occ-row:nth-child(even) .occ-side{order:1}
+@media(max-width:760px){.occ-row{grid-template-columns:1fr}.occ-row:nth-child(even) .occ-txt,.occ-row:nth-child(even) .occ-side{order:initial}}
