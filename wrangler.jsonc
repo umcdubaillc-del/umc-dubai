@@ -7,6 +7,14 @@
   "observability": {
     "enabled": true
   },
+  // Plaintext vars — declared in the config so a deploy doesn't wipe what the dashboard
+  // had set. SECRETS (RESEND_API_KEY, MC_API_KEY, SHEETS_WEBHOOK_URL) deliberately stay
+  // in the Cloudflare dashboard as Secrets and MUST NOT be added here.
+  "vars": {
+    "LEAD_EMAIL_TO": "contact@umcdubai.ae",
+    "MC_DC": "us17",
+    "MC_LIST_ID": "ea9715492e"
+  },
   "assets": {
     "directory": "./site",
     "binding": "ASSETS",
