@@ -130,20 +130,54 @@ window.umcPhone = {
     if(t) t.value = veh;
   }
 
-  // homepage: testimonials carousel — page by visible whole-card count
+  // homepage: testimonials carousel — page by visible whole-card count, clamp + loop
+  // (v25). Earlier scrollBy was unbounded, so paging past the last review on mobile
+  // overshot into the rubber-band area and looked like the card had vanished.
   const tcar = document.getElementById("tcar");
   if(tcar){
-    const page = (dir) => {
+    const step = () => {
       const card = tcar.querySelector(".tc");
-      if(!card) return;
-      const cardW = card.getBoundingClientRect().width + 19; // card width + gap
-      const per = Math.max(1, Math.round(tcar.clientWidth / cardW));
-      tcar.scrollBy({left: dir * per * cardW, behavior: "smooth"});
+      if(!card) return 0;
+      const cs = getComputedStyle(tcar);
+      const gap = parseFloat(cs.gap || cs.columnGap || "0") || 0;
+      return card.getBoundingClientRect().width + gap;
+    };
+    const page = (dir) => {
+      const s = step();
+      if(!s) return;
+      const n = tcar.querySelectorAll(".tc").length;
+      const per = Math.max(1, Math.round(tcar.clientWidth / s));
+      if(n <= per) return; // nothing to page through
+      const maxScroll = (n - per) * s;
+      const target = tcar.scrollLeft + dir * per * s;
+      let next;
+      if (target > maxScroll + s / 2) next = 0;           // past last → loop to first
+      else if (target < -s / 2)        next = maxScroll;  // before first → loop to last
+      else                              next = Math.max(0, Math.min(maxScroll, target));
+      tcar.scrollTo({left: next, behavior: "smooth"});
     };
     const tprev = document.getElementById("tprev");
     const tnext = document.getElementById("tnext");
     if(tprev) tprev.addEventListener("click", () => page(-1));
     if(tnext) tnext.addEventListener("click", () => page(1));
+  }
+
+  // homepage services: mobile tap-to-expand accordion (v25). Each .svrow is an <a> with
+  // a real href; on a hover-capable device the CSS expands desc on hover. On touch (where
+  // there is no hover), first tap expands the row (preventDefault), second tap on an
+  // already-expanded row follows the link. Only one row open at a time.
+  const svrows = document.querySelectorAll(".svrow");
+  if(svrows.length){
+    const isTouchSvc = () => window.matchMedia("(max-width: 720px)").matches;
+    svrows.forEach((row) => {
+      row.addEventListener("click", (e) => {
+        if(!isTouchSvc()) return;                    // desktop: native link follow
+        if(row.classList.contains("open")) return;   // already open: allow nav
+        e.preventDefault();
+        svrows.forEach((r) => { if(r !== row) r.classList.remove("open"); });
+        row.classList.add("open");
+      });
+    });
   }
 
   // phone fields: live filtering + per-country length validation (booking + contact)

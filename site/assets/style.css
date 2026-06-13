@@ -750,10 +750,24 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
   .svrow:hover .go .arrow{background:var(--amber);border-color:var(--amber);color:var(--espresso,#231B12)}
   .svrow:hover .go .arrow svg{transform:translate(2px,-2px)}
 }
-@media(max-width:720px){.svrow{grid-template-columns:2.4rem 1fr;gap:1rem;padding:1.5rem .4rem}.svrow h3{font-size:1.4rem}.svrow .desc{margin-top:.2rem;font-size:.85rem}.svrow .go{grid-column:2;margin-top:.7rem}}
+/* mobile (v25): tap-to-expand accordion. desc is hidden by default; .open class on the
+   row reveals it and rotates the arrow to point down as the affordance. Section is
+   compact and scannable at rest; expanded row has overflow:visible so the description
+   is never clipped — height:auto via display:block on the desc. */
+@media(max-width:720px){
+  .svrow{grid-template-columns:2.4rem 1fr;gap:1rem;padding:1.5rem .4rem;overflow:visible}
+  .svrow h3{font-size:1.4rem}
+  .svrow .desc{display:none}
+  .svrow .go{grid-column:2;margin-top:.4rem}
+  .svrow.open .desc{display:block;margin-top:.4rem;font-size:.88rem;color:var(--ink-soft);line-height:1.55;max-width:none}
+  .svrow.open::before{opacity:1}
+  .svrow.open .num{color:var(--amber)}
+  .svrow.open .go .arrow{background:var(--amber);border-color:var(--amber);color:var(--espresso,#231B12)}
+  .svrow.open .go .arrow svg{transform:rotate(90deg)}
+}
 
 /* testimonials — scroll-snap Google reviews carousel */
-.tcar{display:flex;gap:1.2rem;overflow-x:auto;scroll-snap-type:x mandatory;scroll-behavior:smooth;scrollbar-width:none}
+.tcar{display:flex;gap:1.2rem;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scroll-behavior:smooth;scrollbar-width:none}
 .tcar::-webkit-scrollbar{display:none}
 .tc{display:flex;flex-direction:column;scroll-snap-align:start;flex:0 0 100%;min-height:300px;background:var(--card);border:1px solid var(--line);border-radius:5px;padding:1.7rem 1.7rem 1.4rem}
 @media(min-width:640px){.tc{flex:0 0 calc((100% - 1.2rem)/2)}}
