@@ -740,8 +740,8 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 .svp-row h3{font-family:var(--serif);font-weight:400;font-size:1.7rem;line-height:1.15;letter-spacing:-.005em;margin:0;position:relative;display:inline-block;align-self:flex-start;padding-bottom:3px}
 .svp-row h3::after{content:"";position:absolute;left:0;bottom:0;height:1px;width:0;background:var(--amber);transition:width .6s cubic-bezier(.2,.7,.2,1)}
 .svp-row p{font-size:.92rem;color:var(--ink-soft);line-height:1.65;max-width:60ch;margin:0}
-.svp-cta{display:flex;align-items:center;gap:.8rem;font-family:var(--sans);font-weight:600;font-size:.68rem;letter-spacing:.2em;text-transform:uppercase;color:var(--amber-deep);white-space:nowrap}
-.svp-cta-arrow{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;transition:all .5s cubic-bezier(.2,.7,.2,1)}
+.svp-cta{display:inline-flex;align-items:center;gap:.45rem;justify-self:end;align-self:center;font-family:var(--sans);font-weight:500;font-size:.74rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink);border-bottom:1px solid var(--amber);padding-bottom:.2rem;transition:color .22s;white-space:nowrap}
+.svp-cta::after{content:"\2192";display:inline-block;transition:transform .25s cubic-bezier(.32,.72,0,1)}
 .svp-cta-arrow svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;transition:transform .5s cubic-bezier(.2,.7,.2,1)}
 /* Hover only fires on real pointer devices — touch devices skip this block and see the
    already-complete static plate. Section reads finished at rest; hover INTENSIFIES it. */
@@ -751,16 +751,15 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
   .svp-row:hover .svp-rule{background:var(--amber);height:104px}
   .svp-row:hover .svp-mid{transform:translateX(8px)}
   .svp-row:hover h3::after{width:100%}
-  .svp-row:hover .svp-cta-arrow{background:var(--amber);border-color:var(--amber);color:var(--espresso,#231B12)}
-  .svp-row:hover .svp-cta-arrow svg{transform:translate(3px,-2px)}
+  .svp-row:hover .svp-cta{color:var(--amber-deep)}
+  .svp-row:hover .svp-cta::after{transform:translateX(4px)}
 }
-/* Mobile (≤720px): native scroll-snap horizontal carousel. Each .svp-row becomes a
-   card; description is always fully visible (no hover, no accordion, no clipping).
-   The track scrolls inside its own container; .wrap horizontal padding is broken out
-   with negative margin so a sliver of the next card peeks at the edge as a swipe
-   affordance. No JS — browser scroll-snap handles everything, so there's no carousel-
-   bounds class of bug. */
-.svp-hint{display:none}
+/* Mobile (≤720px): scroll-snap horizontal carousel + prev/next arrows (v28).
+   Each .svp-row becomes a 100%-width card with snap-align:start, so one card fills
+   the viewport exactly with no peek. Swipe still works (native scroll-snap); arrows
+   use the shared carouselSnap utility in main.js, which detects "at end" by scroll
+   position so it cannot freeze on the last card the way the v25 index-based stepper did. */
+.svnav{display:none}
 @media (max-width: 720px) {
   .svp{
     border-top:0;
@@ -776,8 +775,8 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
   }
   .svp::-webkit-scrollbar{display:none}
   .svp-row{
-    flex:0 0 86%;
-    scroll-snap-align:center;
+    flex:0 0 100%;
+    scroll-snap-align:start;
     display:flex;
     flex-direction:column;
     gap:.55rem;
@@ -796,9 +795,10 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
   .svp-row h3{font-size:1.3rem}
   .svp-row h3::after{display:none}
   .svp-row p{font-size:.88rem;line-height:1.6;max-width:none}
-  .svp-cta{grid-area:auto;margin-top:.7rem;font-size:.62rem;letter-spacing:.18em;justify-content:space-between}
-  .svp-cta-arrow{width:34px;height:34px}
-  .svp-hint{display:block;text-align:center;font-size:.62rem;font-weight:500;letter-spacing:.28em;text-transform:uppercase;color:var(--muted);margin-top:.3rem}
+  .svp-cta{justify-self:flex-start;align-self:flex-start;margin-top:.7rem;font-size:.7rem;letter-spacing:.14em}
+  .svnav{display:flex;gap:.6rem;justify-content:center;margin-top:1.1rem}
+  .svnav button{width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--ink-soft);cursor:pointer;min-height:0;font-size:1rem;line-height:1;padding:0;transition:border-color .22s,color .22s}
+  .svnav button:hover,.svnav button:active{border-color:var(--amber);color:var(--amber-deep)}
 }
 
 /* testimonials — scroll-snap Google reviews carousel */
@@ -857,7 +857,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 /* ===================== v27 ===================== */
 /* signature dossier: shared shell for Corporate Account File + Fleet Movement Order
    institutional document language — espresso 2px frame, bone inner, mono clerical labels */
-.dossier{max-width:980px;margin:0 auto;background:var(--bone);border:2px solid var(--espresso);border-radius:11px;padding:clamp(1.6rem,3.5vw,2.4rem);position:relative}
+.dossier{max-width:980px;margin:0 auto;background:var(--card);border:2px solid var(--espresso);border-radius:11px;padding:clamp(1.6rem,3.5vw,2.4rem);position:relative}
 .dossier .ds-head{display:flex;justify-content:space-between;align-items:flex-start;gap:2rem;flex-wrap:wrap;margin-bottom:1.7rem}
 .dossier .ds-headL{flex:1 1 360px;min-width:0}
 .dossier .ds-kicker{display:block;font-family:var(--mono);font-size:.66rem;letter-spacing:.22em;color:var(--amber-deep);text-transform:uppercase;margin-bottom:.85rem}

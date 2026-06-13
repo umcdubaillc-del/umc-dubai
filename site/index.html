@@ -24,7 +24,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://maps.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css?v=1781385242">
+<link rel="stylesheet" href="assets/style.css?v=1781387264">
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "LocalBusiness", "name": "UMC Dubai", "description": "Luxury chauffeur service in Dubai and across the UAE: airport transfers, corporate chauffeur programmes, hourly and full-day private drivers.", "url": "https://umcdubai.ae/", "telephone": "+971586497861", "email": "contact@umcdubai.ae", "sameAs": ["https://www.facebook.com/umcdubai", "https://www.instagram.com/umcdubai"], "image": "https://umcdubai.ae/wp-content/uploads/2024/07/mercedes-benz-s-class-interior-1.jpg", "areaServed": ["Dubai", "Abu Dhabi", "Sharjah", "Ras Al Khaimah", "Al Ain", "Umm Al Quwain"], "priceRange": "AED 350 - AED 2400", "openingHours": "Mo-Su 00:00-24:00", "aggregateRating": {"@type": "AggregateRating", "ratingValue": "5.0", "reviewCount": "25"}}</script><script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "What does the rate include?", "acceptedAnswer": {"@type": "Answer", "text": "Every rate includes your professional chauffeur, fuel, Salik and parking. There are no hidden costs and your quote sets out the full amount before you confirm."}}, {"@type": "Question", "name": "How do I reserve, and can I request a specific vehicle?", "acceptedAnswer": {"@type": "Answer", "text": "Reserve online in minutes, or call or WhatsApp our concierge desk on +971 58 649 7861 at any hour. If the vehicle you have in mind is not listed, tell us and we will do our best to arrange it."}}, {"@type": "Question", "name": "What if I need additional stops, or the day runs long?", "acceptedAnswer": {"@type": "Answer", "text": "Additional stops are charged by vehicle type for each 30-minute interval, up to one hour. If your plans extend, the booking extends with them by the hour. Our desk is available around the clock."}}, {"@type": "Question", "name": "Which payment methods do you accept?", "acceptedAnswer": {"@type": "Answer", "text": "All major cards, bank transfers and cash. For card payments we share a secure payment link once your reservation is confirmed. Invoices are available on request."}}, {"@type": "Question", "name": "Are there any additional fees I should know about?", "acceptedAnswer": {"@type": "Answer", "text": "Journeys outside Dubai carry an additional fee by vehicle type. Your quote states the full amount before you confirm, and nothing changes after it."}}, {"@type": "Question", "name": "Can I cancel and receive a refund?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Cancel at least 48 hours before your pick-up time and the booking is refunded in full."}}, {"@type": "Question", "name": "Can I rebook?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Reservations can be rebooked for up to 15 days from the time of booking."}}]}</script><link rel="stylesheet" href="assets/vendor/flatpickr.min.css">
 <!-- Google Tag Manager -->
 <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-PNM6MRS7');</script>
@@ -105,7 +105,7 @@
 <section class="sec" id="services">
   <div class="wrap">
     <div class="shead rv"><span class="lbl">Services</span><h2>One company. Every journey.</h2></div>
-    <div class="svp rv">
+    <div class="svp rv" id="svpCar">
       <a class="svp-row" href="airport-transfers.html">
         <span class="svp-num">01</span>
         <span class="svp-rule" aria-hidden="true"></span>
@@ -114,10 +114,7 @@
           <h3>Airport transfers</h3>
           <p>Met at arrivals with a name board, your flight tracked from departure, driven door to door across every UAE airport.</p>
         </span>
-        <span class="svp-cta">
-          <span class="svp-cta-label">Reserve</span>
-          <span class="svp-cta-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-        </span>
+        <span class="svp-cta">Reserve</span>
       </a>
       <a class="svp-row" href="booking.html?mode=hourly">
         <span class="svp-num">02</span>
@@ -127,10 +124,7 @@
           <h3>By the hour</h3>
           <p>A car and chauffeur entirely at your disposal, five or ten hours at a time, for the day that does not run in a straight line.</p>
         </span>
-        <span class="svp-cta">
-          <span class="svp-cta-label">Reserve</span>
-          <span class="svp-cta-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-        </span>
+        <span class="svp-cta">Reserve</span>
       </a>
       <a class="svp-row" href="corporate.html">
         <span class="svp-num">03</span>
@@ -140,10 +134,7 @@
           <h3>Corporate</h3>
           <p>Executive travel managed under one account, one monthly invoice and one point of contact who already knows your preferences.</p>
         </span>
-        <span class="svp-cta">
-          <span class="svp-cta-label">Accounts</span>
-          <span class="svp-cta-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-        </span>
+        <span class="svp-cta">Accounts</span>
       </a>
       <a class="svp-row" href="inter-emirate.html">
         <span class="svp-num">04</span>
@@ -153,10 +144,7 @@
           <h3>Inter-emirate</h3>
           <p>Fixed-quote journeys between all seven emirates, planned to the minute, from Dubai to Abu Dhabi, Ras Al Khaimah and beyond.</p>
         </span>
-        <span class="svp-cta">
-          <span class="svp-cta-label">Routes</span>
-          <span class="svp-cta-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-        </span>
+        <span class="svp-cta">Routes</span>
       </a>
       <a class="svp-row" href="events.html">
         <span class="svp-num">05</span>
@@ -166,13 +154,13 @@
           <h3>Events</h3>
           <p>Weddings, galas and private celebrations &mdash; a coordinated fleet for the days that matter most, planned to the minute by one point of contact.</p>
         </span>
-        <span class="svp-cta">
-          <span class="svp-cta-label">Plan</span>
-          <span class="svp-cta-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-        </span>
+        <span class="svp-cta">Plan</span>
       </a>
     </div>
-    <p class="svp-hint" aria-hidden="true">Swipe &rarr;</p>
+    <div class="svnav" aria-hidden="true">
+      <button id="svprev" type="button" aria-label="Previous service">&larr;</button>
+      <button id="svnext" type="button" aria-label="Next service">&rarr;</button>
+    </div>
   </div>
 </section>
 
@@ -285,8 +273,8 @@
 <a class="wa-float" aria-label="WhatsApp UMC Dubai" target="_blank" rel="noopener" href="https://api.whatsapp.com/send?phone=971586497861&text=Hello%2C%20I%20would%20like%20to%20reserve%20a%20car%20with%20UMC%20Dubai.">
   <svg viewBox="0 0 32 32"><path d="M16 .8C7.6.8.8 7.6.8 16c0 2.7.7 5.3 2 7.6L.7 31.3l7.9-2.1c2.2 1.2 4.7 1.9 7.4 1.9 8.4 0 15.2-6.8 15.2-15.1S24.4.8 16 .8zm0 27.7c-2.4 0-4.7-.7-6.7-1.9l-.5-.3-4.7 1.2 1.3-4.6-.3-.5a12.4 12.4 0 0 1-1.9-6.6C3.2 9 8.9 3.3 16 3.3S28.8 9 28.8 16 23.1 28.5 16 28.5zm7-9.4c-.4-.2-2.3-1.1-2.6-1.2-.4-.1-.6-.2-.9.2-.3.4-1 1.2-1.2 1.5-.2.3-.4.3-.8.1-.4-.2-1.6-.6-3.1-1.9-1.1-1-1.9-2.2-2.1-2.6-.2-.4 0-.6.2-.8l.6-.7c.2-.2.3-.4.4-.6.1-.3 0-.5 0-.7l-1.2-2.8c-.3-.7-.6-.6-.9-.6h-.7c-.3 0-.7.1-1 .5-.4.4-1.3 1.3-1.3 3.2s1.4 3.7 1.6 4c.2.3 2.7 4.1 6.6 5.8.9.4 1.6.6 2.2.8.9.3 1.8.3 2.4.2.7-.1 2.3-.9 2.6-1.8.3-.9.3-1.7.2-1.8-.1-.2-.3-.3-.7-.5z"/></svg>
 </a>
-<script src="assets/fleet-data.js?v=1781385242"></script>
-<script src="assets/main.js?v=1781385242"></script>
+<script src="assets/fleet-data.js?v=1781387264"></script>
+<script src="assets/main.js?v=1781387264"></script>
 
 <script src="assets/vendor/flatpickr.min.js"></script>
 <script async src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBx8uKzaCk5fFG8a0D8zqW82HLwOsb7px0&libraries=places&callback=umcHomeMaps"></script>

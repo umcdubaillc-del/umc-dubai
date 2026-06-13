@@ -4,7 +4,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 SITE = HERE / "site"
 WA = "https://api.whatsapp.com/send?phone=971586497861&text=Hello%2C%20I%20would%20like%20to%20reserve%20a%20car%20with%20UMC%20Dubai."
 MAPS_KEY = "AIzaSyBx8uKzaCk5fFG8a0D8zqW82HLwOsb7px0"
-V = "1781385242"
+V = "1781387264"
 OG_BASE = "https://umc-dubai.pages.dev"  # flip to https://umcdubai.ae at production cutover
 GTM_ID = "GTM-PNM6MRS7"
 GTM_HEAD = ("<!-- Google Tag Manager -->\n<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});"
@@ -325,7 +325,7 @@ index_body = header("index.html") + f"""
 <section class="sec" id="services">
   <div class="wrap">
     <div class="shead rv"><span class="lbl">Services</span><h2>One company. Every journey.</h2></div>
-    <div class="svp rv">
+    <div class="svp rv" id="svpCar">
       <a class="svp-row" href="airport-transfers.html">
         <span class="svp-num">01</span>
         <span class="svp-rule" aria-hidden="true"></span>
@@ -334,10 +334,7 @@ index_body = header("index.html") + f"""
           <h3>Airport transfers</h3>
           <p>Met at arrivals with a name board, your flight tracked from departure, driven door to door across every UAE airport.</p>
         </span>
-        <span class="svp-cta">
-          <span class="svp-cta-label">Reserve</span>
-          <span class="svp-cta-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-        </span>
+        <span class="svp-cta">Reserve</span>
       </a>
       <a class="svp-row" href="booking.html?mode=hourly">
         <span class="svp-num">02</span>
@@ -347,10 +344,7 @@ index_body = header("index.html") + f"""
           <h3>By the hour</h3>
           <p>A car and chauffeur entirely at your disposal, five or ten hours at a time, for the day that does not run in a straight line.</p>
         </span>
-        <span class="svp-cta">
-          <span class="svp-cta-label">Reserve</span>
-          <span class="svp-cta-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-        </span>
+        <span class="svp-cta">Reserve</span>
       </a>
       <a class="svp-row" href="corporate.html">
         <span class="svp-num">03</span>
@@ -360,10 +354,7 @@ index_body = header("index.html") + f"""
           <h3>Corporate</h3>
           <p>Executive travel managed under one account, one monthly invoice and one point of contact who already knows your preferences.</p>
         </span>
-        <span class="svp-cta">
-          <span class="svp-cta-label">Accounts</span>
-          <span class="svp-cta-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-        </span>
+        <span class="svp-cta">Accounts</span>
       </a>
       <a class="svp-row" href="inter-emirate.html">
         <span class="svp-num">04</span>
@@ -373,10 +364,7 @@ index_body = header("index.html") + f"""
           <h3>Inter-emirate</h3>
           <p>Fixed-quote journeys between all seven emirates, planned to the minute, from Dubai to Abu Dhabi, Ras Al Khaimah and beyond.</p>
         </span>
-        <span class="svp-cta">
-          <span class="svp-cta-label">Routes</span>
-          <span class="svp-cta-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-        </span>
+        <span class="svp-cta">Routes</span>
       </a>
       <a class="svp-row" href="events.html">
         <span class="svp-num">05</span>
@@ -386,13 +374,13 @@ index_body = header("index.html") + f"""
           <h3>Events</h3>
           <p>Weddings, galas and private celebrations &mdash; a coordinated fleet for the days that matter most, planned to the minute by one point of contact.</p>
         </span>
-        <span class="svp-cta">
-          <span class="svp-cta-label">Plan</span>
-          <span class="svp-cta-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-        </span>
+        <span class="svp-cta">Plan</span>
       </a>
     </div>
-    <p class="svp-hint" aria-hidden="true">Swipe &rarr;</p>
+    <div class="svnav" aria-hidden="true">
+      <button id="svprev" type="button" aria-label="Previous service">&larr;</button>
+      <button id="svnext" type="button" aria-label="Next service">&rarr;</button>
+    </div>
   </div>
 </section>
 

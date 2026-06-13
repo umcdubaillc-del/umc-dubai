@@ -130,36 +130,44 @@ window.umcPhone = {
     if(t) t.value = veh;
   }
 
-  // homepage: testimonials carousel — index-based scrollIntoView (v25 redux).
-  // Earlier versions did arithmetic on scrollLeft/step which could overshoot into the
-  // rubber-band area or land between cards. scrollIntoView always lands on a real
-  // card, so the "blank card" class of bug is impossible. We compute the active card
-  // from its DOM position, step by the visible card count, and wrap when we run off
-  // either end — no maxScroll math, no stale slide counts.
-  const tcar = document.getElementById("tcar");
-  if(tcar){
-    const snap = (dir) => {
-      const cards = Array.from(tcar.querySelectorAll(".tc"));
-      if(!cards.length) return;
-      const left = tcar.scrollLeft;
-      const tolerance = 12;
-      let active = 0;
-      cards.forEach((c, i) => { if(c.offsetLeft <= left + tolerance) active = i; });
-      const per = Math.max(1, Math.round(tcar.clientWidth / cards[0].offsetWidth));
-      let next = active + dir * per;
-      if(next < 0) next = Math.max(0, cards.length - per);     // before first → loop to last page
-      else if(next > cards.length - 1) next = 0;               // past last → loop to first
-      next = Math.max(0, Math.min(cards.length - 1, next));
-      cards[next].scrollIntoView({behavior: "smooth", inline: "start", block: "nearest"});
-    };
-    const tprev = document.getElementById("tprev");
-    const tnext = document.getElementById("tnext");
-    if(tprev) tprev.addEventListener("click", () => snap(-1));
-    if(tnext) tnext.addEventListener("click", () => snap(1));
-  }
-
-  // (v26: services use CSS-only hover animation — no JS handler needed; the .svp-row
-  // markup is a plain <a>, so touch follows the link on tap and desktop fires :hover.)
+  // homepage: shared scroll-snap carousel arrow — testimonials + mobile services (v28).
+  // v25/v26 used scrollIntoView with a per-page step. Bug: at the right edge, the
+  // browser clamps scrollLeft to (scrollWidth - clientWidth), so the LAST card sits
+  // partially within the viewport and its offsetLeft exceeds the clamped scrollLeft.
+  // Active-card detection picked the second-to-last index, then "next" landed on the
+  // last card whose offsetLeft was already past max — scrollIntoView clamped silently
+  // and the arrow appeared dead. Index-based wrap (next > N-1) never fired because
+  // next stopped AT N-1. This rewrite detects "at end" by SCROLL POSITION, advances
+  // one card per click, and wraps cleanly at both ends.
+  const carouselSnap = (container, cardSelector, dir) => {
+    const cards = Array.from(container.querySelectorAll(cardSelector));
+    if(!cards.length) return;
+    const max = container.scrollWidth - container.clientWidth;
+    const left = container.scrollLeft;
+    const tol = 8;
+    if(dir > 0 && left >= max - tol){
+      container.scrollTo({left: 0, behavior: "smooth"});
+      return;
+    }
+    if(dir < 0 && left <= tol){
+      container.scrollTo({left: max, behavior: "smooth"});
+      return;
+    }
+    let active = 0;
+    cards.forEach((c, i) => { if(c.offsetLeft <= left + tol) active = i; });
+    const target = Math.max(0, Math.min(cards.length - 1, active + dir));
+    container.scrollTo({left: cards[target].offsetLeft, behavior: "smooth"});
+  };
+  const wireCarousel = (containerId, cardSelector, prevId, nextId) => {
+    const c = document.getElementById(containerId);
+    if(!c) return;
+    const p = document.getElementById(prevId);
+    const n = document.getElementById(nextId);
+    if(p) p.addEventListener("click", () => carouselSnap(c, cardSelector, -1));
+    if(n) n.addEventListener("click", () => carouselSnap(c, cardSelector, 1));
+  };
+  wireCarousel("tcar", ".tc", "tprev", "tnext");
+  wireCarousel("svpCar", ".svp-row", "svprev", "svnext");
 
   // phone fields: live filtering + per-country length validation (booking + contact)
   if(window.umcPhone){
