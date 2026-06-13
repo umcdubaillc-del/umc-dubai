@@ -130,27 +130,36 @@ window.umcPhone = {
     if(t) t.value = veh;
   }
 
-  // homepage: shared carousel arrow — testimonials + mobile services (v30).
-  // v28 derived "at end / at start" from container.scrollLeft. Safari under
-  // scroll-snap-type:mandatory returns stale or snap-corrected scroll positions
-  // after the first programmatic scroll, so the wrap branch never fired on the
-  // second cycle: right arrow dead at the last card, left arrow at first card
-  // refused to wrap to the last. (Chrome handles it; Safari does not.)
-  // Fix: stop reading scrollLeft. Track an explicit activeIndex in closure per
-  // carousel; (activeIndex + dir + N) % N handles both ends deterministically.
-  // scrollTo is only the visual feedback — the index is the source of truth.
+  // homepage: shared carousel arrow — testimonials + mobile services (v31).
+  // v30 made activeIndex the source of truth (good), but Safari's snap engine
+  // still fought programmatic scrollTo({behavior:'smooth'}) under
+  // scroll-snap-type:mandatory — wrapping from the last card back to the first
+  // would die on the second cycle because Safari snap-corrected the smooth
+  // animation mid-flight. Fix: temporarily disable snap on the container
+  // before scrolling, then restore after the smooth animation settles. The
+  // browser obeys the scrollTo cleanly with snap off; re-enabling snap on a
+  // delay lets it lock the final position. Per-carousel restoreTimer so rapid
+  // arrow clicks don't restore snap mid-animation.
   const wireCarousel = (containerId, cardSelector, prevId, nextId) => {
     const c = document.getElementById(containerId);
     if(!c) return;
     const p = document.getElementById(prevId);
     const n = document.getElementById(nextId);
     let activeIndex = 0;
+    let restoreTimer = null;
     const snap = (dir) => {
       const cards = c.querySelectorAll(cardSelector);
       const count = cards.length;
       if(!count) return;
       activeIndex = ((activeIndex + dir) % count + count) % count;
-      c.scrollTo({left: cards[activeIndex].offsetLeft, behavior: "smooth"});
+      const target = cards[activeIndex];
+      if(restoreTimer){ clearTimeout(restoreTimer); restoreTimer = null; }
+      c.style.scrollSnapType = "none";
+      c.scrollTo({left: target.offsetLeft, behavior: "smooth"});
+      restoreTimer = setTimeout(() => {
+        c.style.scrollSnapType = "";
+        restoreTimer = null;
+      }, 650);
     };
     if(p) p.addEventListener("click", () => snap(-1));
     if(n) n.addEventListener("click", () => snap(1));
