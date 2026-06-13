@@ -293,7 +293,10 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,su
 
 .bk-cars{display:grid;gap:1rem;margin-top:1rem}
 .bk-car{display:grid;grid-template-columns:104px 1fr auto;gap:1rem;align-items:center;border:1px solid var(--hair);border-radius:3px;background:var(--bone);padding:.7rem;cursor:pointer;transition:border-color .2s,transform .2s}
-.bk-car img{width:104px;height:74px;object-fit:cover;border-radius:2px}
+/* booking car thumb: same contain + multiply treatment as the fleet .vimg (v14) */
+.bk-car .bcimg{flex:none;width:96px;height:60px;display:flex;align-items:center;justify-content:center;background:transparent;overflow:hidden}
+.bk-car .bcimg img{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;mix-blend-mode:multiply}
+.bk-car .bcimg img.photo,.bk-car .bcimg img[data-photo]{mix-blend-mode:normal}
 .bk-car h3{font-size:1.05rem}
 .bk-car .m{font-size:.78rem;color:var(--muted)}
 .bk-car:hover{border-color:var(--line);transform:translateY(-2px)}
@@ -382,7 +385,7 @@ dialog.terms li{margin-bottom:.8rem;font-size:.9rem;color:var(--ink-soft)}
 /* ===================== v3.1 refinements ===================== */
 /* (v13: .vcard .vimg + .vcard .vimg img rules consolidated near line 122) */
 .vcard .vcta{text-align:center}
-.bk-car img{width:104px;height:64px;object-fit:contain;background:var(--card);mix-blend-mode:multiply;padding:.25rem}
+/* (v14: .bk-car img rule replaced by .bk-car .bcimg + .bk-car .bcimg img near line 296) */
 
 /* booking columns: hard top alignment + sticky side stack */
 
