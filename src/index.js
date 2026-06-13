@@ -1,23 +1,45 @@
 /* (c) UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 
-// Cloudflare Pages Function — POST /api/lead
-// Accepts the form payload, fans out to email (Resend), Google Sheet (Apps Script webhook)
-// and Mailchimp, returns 200 fast. Browser proceeds to WhatsApp regardless of fan-out success.
+// Cloudflare Worker (with static assets) — entry point.
 //
-// Env vars (set in Cloudflare Pages → Settings → Environment variables, Production):
+// Routing:
+//   POST /api/lead   → handleLead (lead capture: Resend email + Sheets webhook + Mailchimp)
+//   * /api/lead      → 405
+//   any other path   → env.ASSETS.fetch(request)   (serve from ./site)
+//
+// The asset binding is declared in wrangler.jsonc (assets.binding = "ASSETS"). The
+// run_worker_first = ["/api/*"] config there ensures Cloudflare invokes this Worker
+// for /api/lead before checking static assets, while everything else serves static-first.
+//
+// Env vars (set in Cloudflare → Workers & Pages → umc-dubai → Settings → Variables and
+// Secrets; the section is editable once `main` is set in wrangler.jsonc):
 //   LEAD_EMAIL_TO        e.g. contact@umcdubai.ae (defaults to that if unset)
 //   RESEND_API_KEY       Resend API key — required for the email leg (skipped if unset)
-//   SHEETS_WEBHOOK_URL   the Apps Script Web App URL (optional; skipped if missing)
+//   SHEETS_WEBHOOK_URL   Apps Script Web App URL (optional; skipped if missing)
 //   MC_API_KEY           Mailchimp API key (optional)
 //   MC_DC                Mailchimp datacentre prefix, e.g. us21
 //   MC_LIST_ID           Mailchimp audience/list ID
 //
 // Resend requires the sending domain (umcdubai.ae) verified in the Resend dashboard
-// (SPF + DKIM DNS records). See https://resend.com/docs/dashboard/domains.
+// (SPF + DKIM DNS records).
 
-export async function onRequestPost(context) {
-  const { request, env } = context;
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    if (url.pathname === "/api/lead") {
+      if (request.method !== "POST") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { "Allow": "POST", "Content-Type": "text/plain" }
+        });
+      }
+      return handleLead(request, env, ctx);
+    }
+    return env.ASSETS.fetch(request);
+  }
+};
 
+async function handleLead(request, env, ctx) {
   // Parse and size-limit the body
   let body;
   try {
@@ -66,7 +88,7 @@ export async function onRequestPost(context) {
   }
 
   // Fire and forget — do not block the response
-  context.waitUntil(Promise.allSettled(tasks));
+  ctx.waitUntil(Promise.allSettled(tasks));
   return json({ ok: true }, 200);
 }
 

@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "umc-dubai",
+  "main": "src/index.js",
+  "compatibility_date": "2026-06-13",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "./site",
+    "binding": "ASSETS",
+    // Static-first by default; only matching paths invoke the Worker before assets.
+    // Lets /api/lead reach src/index.js while everything else is served from ./site.
+    "run_worker_first": ["/api/*"]
+  }
+}
