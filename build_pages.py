@@ -323,33 +323,27 @@ index_body = header("index.html") + f"""
 
 <section class="sec" id="services">
   <div class="wrap">
-    <div class="shead rv"><span class="lbl">Services</span><h2>One company. Every journey.</h2>
-      <p class="sublede">From a single airport pickup to a standing corporate account, one team handles every mile.</p>
-    </div>
-    <div class="svc4 rv">
-      <a class="svc4card" href="airport-transfers.html">
-        <span class="svic"><svg viewBox="0 0 24 24"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg></span>
-        <h3>Airport transfers</h3>
-        <p>Met at arrivals, flight tracked, driven door to door across all UAE airports.</p>
-        <span class="svgo">Explore &rarr;</span>
+    <div class="shead rv"><span class="lbl">Services</span><h2>One company. Every journey.</h2></div>
+    <div class="svcx rv">
+      <a class="svrow" href="airport-transfers.html">
+        <span class="num">01</span>
+        <span class="mid"><h3>Airport transfers</h3><span class="desc">Met at arrivals with a name board, your flight tracked from departure, driven door to door across every UAE airport.</span></span>
+        <span class="go">Reserve <span class="arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></span>
       </a>
-      <a class="svc4card" href="booking.html?mode=hourly">
-        <span class="svic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></span>
-        <h3>By the hour</h3>
-        <p>A car and chauffeur at your disposal, five or ten hours at a time.</p>
-        <span class="svgo">Reserve &rarr;</span>
+      <a class="svrow" href="booking.html?mode=hourly">
+        <span class="num">02</span>
+        <span class="mid"><h3>By the hour</h3><span class="desc">A car and chauffeur entirely at your disposal, five or ten hours at a time, for the day that does not run in a straight line.</span></span>
+        <span class="go">Reserve <span class="arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></span>
       </a>
-      <a class="svc4card" href="corporate.html">
-        <span class="svic"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M9 8h2m4 0h-2M9 12h2m4 0h-2M9 16h2m4 0h-2"/></svg></span>
-        <h3>Corporate</h3>
-        <p>Executive travel under one account, one monthly invoice, one point of contact.</p>
-        <span class="svgo">Corporate accounts &rarr;</span>
+      <a class="svrow" href="corporate.html">
+        <span class="num">03</span>
+        <span class="mid"><h3>Corporate</h3><span class="desc">Executive travel managed under one account, one monthly invoice and one point of contact who already knows your preferences.</span></span>
+        <span class="go">Accounts <span class="arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></span>
       </a>
-      <a class="svc4card" href="inter-emirate.html">
-        <span class="svic"><svg viewBox="0 0 24 24"><path d="M5 19c3-9 11-9 14 0"/><circle cx="5" cy="19" r="1.6"/><circle cx="19" cy="19" r="1.6"/></svg></span>
-        <h3>Inter-emirate</h3>
-        <p>Fixed-quote journeys between all seven emirates, planned to the minute.</p>
-        <span class="svgo">Routes &amp; quotes &rarr;</span>
+      <a class="svrow" href="inter-emirate.html">
+        <span class="num">04</span>
+        <span class="mid"><h3>Inter-emirate</h3><span class="desc">Fixed-quote journeys between all seven emirates, planned to the minute, from Dubai to Abu Dhabi, Ras Al Khaimah and beyond.</span></span>
+        <span class="go">Routes <span class="arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></span>
       </a>
     </div>
   </div>
