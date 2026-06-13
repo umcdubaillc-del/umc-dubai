@@ -130,41 +130,30 @@ window.umcPhone = {
     if(t) t.value = veh;
   }
 
-  // homepage: shared scroll-snap carousel arrow — testimonials + mobile services (v28).
-  // v25/v26 used scrollIntoView with a per-page step. Bug: at the right edge, the
-  // browser clamps scrollLeft to (scrollWidth - clientWidth), so the LAST card sits
-  // partially within the viewport and its offsetLeft exceeds the clamped scrollLeft.
-  // Active-card detection picked the second-to-last index, then "next" landed on the
-  // last card whose offsetLeft was already past max — scrollIntoView clamped silently
-  // and the arrow appeared dead. Index-based wrap (next > N-1) never fired because
-  // next stopped AT N-1. This rewrite detects "at end" by SCROLL POSITION, advances
-  // one card per click, and wraps cleanly at both ends.
-  const carouselSnap = (container, cardSelector, dir) => {
-    const cards = Array.from(container.querySelectorAll(cardSelector));
-    if(!cards.length) return;
-    const max = container.scrollWidth - container.clientWidth;
-    const left = container.scrollLeft;
-    const tol = 8;
-    if(dir > 0 && left >= max - tol){
-      container.scrollTo({left: 0, behavior: "smooth"});
-      return;
-    }
-    if(dir < 0 && left <= tol){
-      container.scrollTo({left: max, behavior: "smooth"});
-      return;
-    }
-    let active = 0;
-    cards.forEach((c, i) => { if(c.offsetLeft <= left + tol) active = i; });
-    const target = Math.max(0, Math.min(cards.length - 1, active + dir));
-    container.scrollTo({left: cards[target].offsetLeft, behavior: "smooth"});
-  };
+  // homepage: shared carousel arrow — testimonials + mobile services (v30).
+  // v28 derived "at end / at start" from container.scrollLeft. Safari under
+  // scroll-snap-type:mandatory returns stale or snap-corrected scroll positions
+  // after the first programmatic scroll, so the wrap branch never fired on the
+  // second cycle: right arrow dead at the last card, left arrow at first card
+  // refused to wrap to the last. (Chrome handles it; Safari does not.)
+  // Fix: stop reading scrollLeft. Track an explicit activeIndex in closure per
+  // carousel; (activeIndex + dir + N) % N handles both ends deterministically.
+  // scrollTo is only the visual feedback — the index is the source of truth.
   const wireCarousel = (containerId, cardSelector, prevId, nextId) => {
     const c = document.getElementById(containerId);
     if(!c) return;
     const p = document.getElementById(prevId);
     const n = document.getElementById(nextId);
-    if(p) p.addEventListener("click", () => carouselSnap(c, cardSelector, -1));
-    if(n) n.addEventListener("click", () => carouselSnap(c, cardSelector, 1));
+    let activeIndex = 0;
+    const snap = (dir) => {
+      const cards = c.querySelectorAll(cardSelector);
+      const count = cards.length;
+      if(!count) return;
+      activeIndex = ((activeIndex + dir) % count + count) % count;
+      c.scrollTo({left: cards[activeIndex].offsetLeft, behavior: "smooth"});
+    };
+    if(p) p.addEventListener("click", () => snap(-1));
+    if(n) n.addEventListener("click", () => snap(1));
   };
   wireCarousel("tcar", ".tc", "tprev", "tnext");
   wireCarousel("svpCar", ".svp-row", "svprev", "svnext");

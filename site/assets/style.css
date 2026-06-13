@@ -694,7 +694,7 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 /* fleet: scenario cards */
 .scen{display:grid;gap:1.2rem;max-width:1020px;margin:0 auto}
 @media(min-width:820px){.scen{grid-template-columns:repeat(3,1fr)}}
-.scen .sc{background:var(--card);border:1px solid var(--line);border-top:2px solid var(--amber);border-radius:4px;padding:1.6rem 1.5rem}
+.scen .sc{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:1.6rem 1.5rem}
 .scen .sc svg{width:22px;height:22px;stroke:var(--amber-deep);fill:none;stroke-width:1.5;margin-bottom:.8rem}
 .scen .sc h3{font-size:1.15rem;margin-bottom:.4rem}
 .scen .sc p{font-size:.88rem;margin-bottom:1rem}
