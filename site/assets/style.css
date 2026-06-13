@@ -724,46 +724,50 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 }
 
 /* services — interactive journey switcher */
-/* services — numbered editorial index (v13; v21 promotes Events to a 5th .svrow;
-   v25 gates the hover-expand behind @media(hover:hover) so touch devices show the
-   description statically at full height instead of triggering a clipped half-hover) */
-.svcx{border-top:1px solid var(--line);margin-top:2.4rem}
-.svrow{display:grid;grid-template-columns:5.5rem 1fr auto;align-items:center;gap:2rem;padding:2.05rem 1rem;border-bottom:1px solid var(--line);position:relative;text-decoration:none;color:inherit;transition:padding .35s cubic-bezier(.2,.7,.2,1)}
-.svrow .num{font-family:var(--serif);font-size:1.05rem;color:var(--muted);transition:color .35s}
-.svrow .mid{display:flex;flex-direction:column;gap:.35rem}
-.svrow h3{font-family:var(--serif);font-weight:400;font-size:1.85rem;line-height:1;margin:0;letter-spacing:-.01em;transition:transform .35s cubic-bezier(.2,.7,.2,1)}
-/* Baseline (touch / no-hover devices): description visible at full height, no clipping. */
-.svrow .desc{font-size:.92rem;color:var(--ink-soft);max-width:52ch;margin-top:.15rem;transition:opacity .35s,max-height .35s,transform .35s,margin .35s}
-.svrow .go{display:flex;align-items:center;gap:.7rem;font-size:.66rem;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--amber-deep);white-space:nowrap}
-.svrow .go .arrow{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;transition:all .35s}
-.svrow .go .arrow svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;transition:transform .35s}
-.svrow::before{content:"";position:absolute;inset:0;background:linear-gradient(100deg,rgba(199,91,18,.05),rgba(199,91,18,0) 60%);opacity:0;transition:opacity .35s}
-/* Hover-capable devices only (real pointers): collapse desc by default, expand on hover.
-   Touch devices skip this entire block and use the baseline (always visible) above. */
+/* services — specimen-plate rows (v26 redesign). Catalogue-style typographic plates:
+   large Marcellus numeral on the left, a thin vertical rule, title + meta + paragraph
+   in the middle, CTA on the right. Description is always visible at rest (no hide-
+   then-reveal on hover) so touch devices never see clipped text. Hover (real pointers
+   only) is the showcase: the vertical rule extends, the numeral scales up and tints
+   amber, the title's amber underline draws across, the CTA circle paints amber. */
+.svp{border-top:1px solid var(--line);margin-top:2.4rem}
+.svp-row{display:grid;grid-template-columns:7rem 1px 1fr auto;align-items:center;gap:2.2rem;padding:2.4rem 1rem;border-bottom:1px solid var(--line);position:relative;text-decoration:none;color:inherit;overflow:hidden}
+.svp-row::before{content:"";position:absolute;inset:0;background:linear-gradient(100deg,rgba(199,91,18,.045),rgba(199,91,18,0) 65%);opacity:0;transition:opacity .55s cubic-bezier(.2,.7,.2,1);pointer-events:none}
+.svp-num{font-family:var(--serif);font-weight:400;font-size:3rem;color:var(--muted);line-height:1;text-align:center;transform-origin:center;transition:color .5s cubic-bezier(.2,.7,.2,1),transform .5s cubic-bezier(.2,.7,.2,1)}
+.svp-rule{display:block;width:1px;height:64px;background:var(--line);justify-self:center;transition:background .5s,height .55s cubic-bezier(.2,.7,.2,1)}
+.svp-mid{display:flex;flex-direction:column;gap:.4rem;transition:transform .5s cubic-bezier(.2,.7,.2,1)}
+.svp-meta{font-family:var(--sans);font-weight:500;font-size:.66rem;letter-spacing:.26em;text-transform:uppercase;color:var(--amber-deep)}
+.svp-row h3{font-family:var(--serif);font-weight:400;font-size:1.7rem;line-height:1.15;letter-spacing:-.005em;margin:0;position:relative;display:inline-block;align-self:flex-start;padding-bottom:3px}
+.svp-row h3::after{content:"";position:absolute;left:0;bottom:0;height:1px;width:0;background:var(--amber);transition:width .6s cubic-bezier(.2,.7,.2,1)}
+.svp-row p{font-size:.92rem;color:var(--ink-soft);line-height:1.65;max-width:60ch;margin:0}
+.svp-cta{display:flex;align-items:center;gap:.8rem;font-family:var(--sans);font-weight:600;font-size:.68rem;letter-spacing:.2em;text-transform:uppercase;color:var(--amber-deep);white-space:nowrap}
+.svp-cta-arrow{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;transition:all .5s cubic-bezier(.2,.7,.2,1)}
+.svp-cta-arrow svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;transition:transform .5s cubic-bezier(.2,.7,.2,1)}
+/* Hover only fires on real pointer devices — touch devices skip this block and see the
+   already-complete static plate. Section reads finished at rest; hover INTENSIFIES it. */
 @media (hover: hover) {
-  .svrow .desc{opacity:.001;max-height:0;transform:translateY(-4px);overflow:hidden;margin-top:0}
-  .svrow:hover{padding-left:1.75rem;padding-right:1.75rem}
-  .svrow:hover::before{opacity:1}
-  .svrow:hover .num{color:var(--amber)}
-  .svrow:hover h3{transform:translateX(6px)}
-  .svrow:hover .desc{opacity:1;max-height:60px;transform:translateY(0);margin-top:.15rem}
-  .svrow:hover .go .arrow{background:var(--amber);border-color:var(--amber);color:var(--espresso,#231B12)}
-  .svrow:hover .go .arrow svg{transform:translate(2px,-2px)}
+  .svp-row:hover::before{opacity:1}
+  .svp-row:hover .svp-num{color:var(--amber);transform:translateY(-3px) scale(1.18)}
+  .svp-row:hover .svp-rule{background:var(--amber);height:104px}
+  .svp-row:hover .svp-mid{transform:translateX(8px)}
+  .svp-row:hover h3::after{width:100%}
+  .svp-row:hover .svp-cta-arrow{background:var(--amber);border-color:var(--amber);color:var(--espresso,#231B12)}
+  .svp-row:hover .svp-cta-arrow svg{transform:translate(3px,-2px)}
 }
-/* mobile (v25): tap-to-expand accordion. desc is hidden by default; .open class on the
-   row reveals it and rotates the arrow to point down as the affordance. Section is
-   compact and scannable at rest; expanded row has overflow:visible so the description
-   is never clipped — height:auto via display:block on the desc. */
-@media(max-width:720px){
-  .svrow{grid-template-columns:2.4rem 1fr;gap:1rem;padding:1.5rem .4rem;overflow:visible}
-  .svrow h3{font-size:1.4rem}
-  .svrow .desc{display:none}
-  .svrow .go{grid-column:2;margin-top:.4rem}
-  .svrow.open .desc{display:block;margin-top:.4rem;font-size:.88rem;color:var(--ink-soft);line-height:1.55;max-width:none}
-  .svrow.open::before{opacity:1}
-  .svrow.open .num{color:var(--amber)}
-  .svrow.open .go .arrow{background:var(--amber);border-color:var(--amber);color:var(--espresso,#231B12)}
-  .svrow.open .go .arrow svg{transform:rotate(90deg)}
+/* Mobile: compact static layout. No animation, nothing to clip. Number sits flush left,
+   the vertical rule is hidden, title/meta/description stack, CTA below. Description is
+   always visible at a small comfortable size — no accordion, no hover, no tap surprises. */
+@media (max-width: 720px) {
+  .svp-row{grid-template-columns:2.6rem 1fr;grid-template-areas:"num mid" "num cta";gap:1rem 1.1rem;padding:1.8rem .4rem;overflow:visible}
+  .svp-num{grid-area:num;font-size:1.5rem;text-align:left;align-self:start;padding-top:.15rem;color:var(--amber-deep)}
+  .svp-rule{display:none}
+  .svp-mid{grid-area:mid}
+  .svp-meta{font-size:.6rem;letter-spacing:.22em}
+  .svp-row h3{font-size:1.3rem}
+  .svp-row h3::after{display:none}
+  .svp-row p{font-size:.88rem;line-height:1.6;max-width:none}
+  .svp-cta{grid-area:cta;margin-top:.2rem;font-size:.62rem;letter-spacing:.18em}
+  .svp-cta-arrow{width:34px;height:34px}
 }
 
 /* testimonials — scroll-snap Google reviews carousel */

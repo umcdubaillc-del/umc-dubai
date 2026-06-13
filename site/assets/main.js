@@ -162,23 +162,8 @@ window.umcPhone = {
     if(tnext) tnext.addEventListener("click", () => page(1));
   }
 
-  // homepage services: mobile tap-to-expand accordion (v25). Each .svrow is an <a> with
-  // a real href; on a hover-capable device the CSS expands desc on hover. On touch (where
-  // there is no hover), first tap expands the row (preventDefault), second tap on an
-  // already-expanded row follows the link. Only one row open at a time.
-  const svrows = document.querySelectorAll(".svrow");
-  if(svrows.length){
-    const isTouchSvc = () => window.matchMedia("(max-width: 720px)").matches;
-    svrows.forEach((row) => {
-      row.addEventListener("click", (e) => {
-        if(!isTouchSvc()) return;                    // desktop: native link follow
-        if(row.classList.contains("open")) return;   // already open: allow nav
-        e.preventDefault();
-        svrows.forEach((r) => { if(r !== row) r.classList.remove("open"); });
-        row.classList.add("open");
-      });
-    });
-  }
+  // (v26: services use CSS-only hover animation — no JS handler needed; the .svp-row
+  // markup is a plain <a>, so touch follows the link on tap and desktop fires :hover.)
 
   // phone fields: live filtering + per-country length validation (booking + contact)
   if(window.umcPhone){
