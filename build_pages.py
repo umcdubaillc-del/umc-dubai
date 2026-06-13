@@ -299,12 +299,31 @@ index_body = header("index.html") + f"""
   </div>
 </section>
 
+<!-- v22 client line — revert source, do not delete
 <div class="authority rv">
   <div class="wrap">
     <span class="lbl">Guests and delegations served for</span>
     <p class="names">Emirates <i>&middot;</i> Jetex <i>&middot;</i> IIFA Awards <i>&middot;</i> Gulfood</p>
   </div>
 </div>
+-->
+
+<section class="sec engx-sec">
+  <div class="wrap">
+    <div class="engx-head rv">
+      <div class="engx-rule" aria-hidden="true"></div>
+      <span class="lbl">Selected engagements</span>
+    </div>
+    <div class="engx-grid rv">
+      <div class="engx-cell">Emirates</div>
+      <div class="engx-cell">Jetex</div>
+      <div class="engx-cell">IIFA Awards</div>
+      <div class="engx-cell">Gulfood</div>
+      <div class="engx-cell">Loro Piana</div>
+      <div class="engx-cell">Dolce &amp; Gabbana</div>
+    </div>
+  </div>
+</section>
 
 {JL}
 
