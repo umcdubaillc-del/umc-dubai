@@ -88,3 +88,28 @@ customer.
 Missing env vars: the email leg always runs (uses the hardcoded default `contact@umcdubai.ae`
 when `LEAD_EMAIL_TO` is unset); the Sheets and Mailchimp legs are skipped silently when
 their vars are unset, so partial configuration is safe.
+
+## Owner TODO — fleet image cleanup (v13)
+The fleet card image box was normalised to a 16:10 wrapper with `object-fit:contain` and
+`mix-blend-mode:multiply` so white-background PNGs visually drop their box onto the bone
+card. That's a presentation fix; the source images still carry baked-in backgrounds in
+many cases. For a proper fix, replace the listed sources with self-hosted PNGs that
+already have alpha-channel cutouts (remove.bg, Photoshop) and rehost under
+`site/assets/cars/`, then update `img:` in `site/assets/fleet-data.js`. Per CLAUDE.md
+rule, never swap in stock photos — keep each car the actual UMC vehicle.
+
+Vehicles to audit (live URLs as of v13):
+- **Mercedes-Benz S-Class** (`mb-s-class`) — static.vecteezy.com (claims transparent — verify with the owner's licensed Vecteezy file)
+- **BMW 7 Series** (`bmw-7`) — di-shared-assets.dealerinspire.com (dealer asset, often has background)
+- **Cadillac Escalade** (`cadillac-escalade`) — shop.vipautoaccessories.com (JPG — definitely opaque)
+- **GMC Yukon Elevation XL** (`gmc-yukon-xl`) — cgi.gmc.com (passes `transparentBackgroundPng=true` — verify)
+- **Mercedes-Benz E-Class** (`mb-e-class`) — media.oneweb.mercedes-benz.com (varies)
+- **Lexus ES** (`lexus-es`) — www.lexusmontgomery.com (usually transparent)
+- **Mercedes-Benz V-Class** (`mb-v-class`) — corfuviptransfers.com (third-party site, audit)
+- **Mercedes-Benz Sprinter** (`mb-sprinter`) — vehicle-images.carscommerce.inc (usually transparent)
+- **King Long Coach** (`king-long`) — www.king-long.com (audit)
+
+If any photo image (not a press render) needs the original background preserved, add
+class `photo` to the wrapper: `<div class="vimg photo">`, which disables the multiply
+blend via the `.vcard .vimg.photo img{mix-blend-mode:normal}` escape hatch already in
+style.css.

@@ -118,7 +118,10 @@ nav.mainnav a:hover,nav.mainnav a.on{color:var(--ink);border-color:var(--amber)}
 .fleet-grid{display:grid;gap:1.4rem;grid-template-columns:1fr}
 @media(min-width:720px){.fleet-grid{grid-template-columns:1fr 1fr;gap:2rem}}
 .vcard{background:var(--card);border:1px solid var(--hair);border-radius:3px;overflow:hidden}
-.vcard img{width:100%;aspect-ratio:4/3;object-fit:cover}
+/* fleet image presentation: uniform box + transparent feel via multiply blend (v13) */
+.vcard .vimg{aspect-ratio:16/10;display:flex;align-items:center;justify-content:center;background:transparent;overflow:hidden}
+.vcard .vimg img{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;mix-blend-mode:multiply;transition:transform .6s ease}
+.vcard .vimg.photo img{mix-blend-mode:normal}
 .vcard .vbody{padding:1.15rem 1.2rem 1.3rem}
 .vcard h3{font-size:1.3rem;margin-bottom:.2rem}
 .vcard .vmeta{font-size:.82rem;color:var(--muted);display:flex;gap:1rem;margin-bottom:.7rem}
@@ -211,8 +214,6 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,su
 /* hover micro-interactions */
 .vcard{transition:transform .28s ease,box-shadow .28s ease}
 .vcard:hover{transform:translateY(-4px);box-shadow:0 22px 44px -26px rgba(34,27,20,.4)}
-.vcard .vimg{overflow:hidden}
-.vcard .vimg img{transition:transform .6s ease}
 .vcard:hover .vimg img{transform:scale(1.035)}
 .svc-rows .arr{transition:transform .25s ease}
 .svc-rows a:hover .arr{transform:translateX(6px)}
@@ -379,9 +380,7 @@ dialog.terms li{margin-bottom:.8rem;font-size:.9rem;color:var(--ink-soft)}
 .iti__search-input{font-family:var(--sans)}
 
 /* ===================== v3.1 refinements ===================== */
-/* wide rectangular car imagery; white-background cutouts blend into the card */
-.vcard .vimg{aspect-ratio:16/9;background:var(--card);display:flex;align-items:center;justify-content:center;padding:1rem}
-.vcard .vimg img{width:100%;height:100%;object-fit:contain;mix-blend-mode:multiply}
+/* (v13: .vcard .vimg + .vcard .vimg img rules consolidated near line 122) */
 .vcard .vcta{text-align:center}
 .bk-car img{width:104px;height:64px;object-fit:contain;background:var(--card);mix-blend-mode:multiply;padding:.25rem}
 
