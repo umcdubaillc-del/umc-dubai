@@ -500,7 +500,6 @@ booking_body = header("booking.html") + f"""
                     <p class="bk-note" style="margin-top:1rem">By sending this request you agree to the <a href="terms.html" id="openTerms" style="border-bottom:1px solid var(--amber);color:var(--ink)">Terms of Service</a>.</p>
           <button class="btn btn-ink" type="submit" id="btnConfirm" style="width:100%;margin-top:.7rem" disabled>Confirm reservation request</button>
           <p class="bk-note">Sending opens WhatsApp with your request pre-filled. Our concierge confirms availability and shares a secure payment link — nothing is charged online.</p>
-          <p class="bk-note hide" id="bkDone" style="color:var(--amber-deep)">Request sent — our concierge will confirm shortly. If WhatsApp did not open, call +971 58 649 7861.</p>
         </div>
       </div>
 
@@ -516,6 +515,13 @@ booking_body = header("booking.html") + f"""
       </div>
     </div>
     </form>
+    <div class="hide" id="bkDone">
+      <div class="bk-card" style="max-width:560px;margin:0 auto;text-align:center">
+        <h2>Request received</h2>
+        <p class="lede" style="margin-bottom:1rem">Opening WhatsApp to confirm the details with our team&hellip;</p>
+        <p class="bk-note">If WhatsApp did not open, call <a href="tel:+971586497861" style="border-bottom:1px solid var(--amber);color:var(--ink)">+971 58 649 7861</a>.</p>
+      </div>
+    </div>
   </div>
 </section>
 """ + TERMS_DLG + FOOTER + f"""
@@ -803,7 +809,7 @@ contact_body = header("contact.html") + f"""
         <div class="f"><label class="req" for="cEmail">Email</label><input id="cEmail" type="email" autocomplete="email" required><span class="fhint">Enter a valid email address, e.g. name@domain.com</span></div>
         <div class="f"><label for="cVehicle">Vehicle or service</label><input id="cVehicle" name="vehicle" placeholder="S-Class, airport transfer, corporate account&hellip;"></div>
         <div class="f"><label for="cMsg">Your request</label><textarea id="cMsg" rows="4" placeholder="Route, date and time, number of guests&hellip;"></textarea></div>
-        <button class="btn btn-ink" style="width:100%" id="cSend" type="button">Send via WhatsApp</button>
+        <button class="btn btn-ink" style="width:100%" id="cSend" type="button">Send request</button>
         <p class="bk-note">Prefer email? <a href="mailto:contact@umcdubai.ae" style="border-bottom:1px solid var(--amber)">contact@umcdubai.ae</a></p>
       </div>
       <div class="bk-card">
@@ -851,6 +857,15 @@ document.getElementById("cSend").addEventListener("click", function(){
   }
   // strip leading zero for the outgoing message so the international number is clean
   const cPhoneOut = window.umcPhone ? window.umcPhone.significantDigits(g("cPhone")) : g("cPhone");
+  const cPayload = {
+    source: "contact",
+    name: g("cName"), phone: "+" + cCCEl.value + " " + cPhoneOut, email: g("cEmail"),
+    service: g("cVehicle"), pickup: "", destination: "",
+    date: "", time: "", vehicle: g("cVehicle"), days: "",
+    flight: "", sign: "", notes: g("cMsg"),
+    page: location.pathname, ts: new Date().toISOString()
+  };
+  try { fetch("/api/lead", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(cPayload)}); } catch(_){}
   let m = "Hello UMC Dubai,%0A%0AName: " + encodeURIComponent(g("cName")) +
           "%0APhone: +" + encodeURIComponent(cCCEl.value) + " " + encodeURIComponent(cPhoneOut) +
           "%0AEmail: " + encodeURIComponent(g("cEmail")) +

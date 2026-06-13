@@ -54,3 +54,37 @@ If a new third-party tag is added via GTM, extend the CSP allowlist accordingly.
 - Base `.btn` declares `min-height:48px` — any compact button variant MUST set `min-height:0` (min-height beats height in CSS, silently).
 - Python re.sub replacement strings convert \\b to a literal backspace byte; never patch JS regexes through re.sub templates.
 - CSSStyleRule.cssRules is always truthy in modern Chrome (CSS Nesting); walk rules by type, not truthiness.
+
+## Lead capture pipeline (v13)
+Booking and contact forms POST a JSON payload to `/api/lead` (Cloudflare Pages Function at
+`functions/api/lead.js`) BEFORE opening WhatsApp. The Function fans out to email
+(MailChannels), a Google Sheet (Apps Script webhook), and Mailchimp. The browser proceeds
+to WhatsApp regardless of the Function's response — capture failure never blocks the
+customer.
+
+### Owner setup (one time, in this order)
+1. **Google Sheet** — create a Sheet named "UMC Leads". Extensions → Apps Script. Paste:
+   ```javascript
+   function doPost(e){
+     const sh = SpreadsheetApp.getActive().getActiveSheet();
+     const b = JSON.parse(e.postData.contents);
+     if(sh.getLastRow()===0){ sh.appendRow(Object.keys(b)); }
+     sh.appendRow(Object.values(b));
+     return ContentService.createTextOutput(JSON.stringify({ok:true})).setMimeType(ContentService.MimeType.JSON);
+   }
+   ```
+   Deploy → New deployment → Web app → execute as **Me** → access **Anyone** → copy the
+   Web App URL. Paste it into the Cloudflare env var `SHEETS_WEBHOOK_URL` (next step).
+2. **Mailchimp** — create an audience. Account → Extras → API keys → copy the API key
+   (the suffix after the dash is the datacentre, e.g. `…-us21` → dc is `us21`). Audience
+   → Settings → Audience name and defaults → copy the Audience ID.
+3. **Cloudflare Pages env vars** — Pages project → Settings → Environment variables →
+   Production. Add: `LEAD_EMAIL_TO=contact@umcdubai.ae`, `SHEETS_WEBHOOK_URL`,
+   `MC_API_KEY`, `MC_DC` (e.g. `us21`), `MC_LIST_ID`. Redeploy after saving.
+4. **MailChannels** — add the domain lockdown DNS TXT record at `_mailchannels.umcdubai.ae`
+   per the latest MailChannels docs so the Worker may send mail as `@umcdubai.ae`. Without
+   this the email leg silently fails; the Sheet and Mailchimp legs still work.
+
+Missing env vars: the email leg always runs (uses the hardcoded default `contact@umcdubai.ae`
+when `LEAD_EMAIL_TO` is unset); the Sheets and Mailchimp legs are skipped silently when
+their vars are unset, so partial configuration is safe.

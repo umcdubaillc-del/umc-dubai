@@ -223,8 +223,30 @@
     m += "\nPhone: " + g("kPhone");
     if(g("kEmail")) m += "\nEmail: " + g("kEmail");
     if(g("kNotes")) m += "\nNotes: " + g("kNotes");
-    window.open("https://api.whatsapp.com/send?phone=" + PHONE + "&text=" + encodeURIComponent(m), "_blank", "noopener");
-    $("bkDone").classList.remove("hide");
+
+    // ----- non-blocking capture before WhatsApp -----
+    const phoneOut = window.umcPhone ? window.umcPhone.significantDigits(g("kPhone")) : g("kPhone");
+    const payload = {
+      source: "booking",
+      name: g("kName"), phone: "+" + $("kCC").value + " " + phoneOut, email: g("kEmail"),
+      service: SERVICE_LABEL[state.service], pickup: g("kFrom"), destination: hourly ? "" : g("kTo"),
+      date: g("kDate"), time: g("kTime"),
+      vehicle: (v ? v.name : ""),
+      days: state.service === "fullday" ? String(state.days) : "",
+      flight: g("kFlight"), sign: g("kSign"), notes: g("kNotes"),
+      page: location.pathname, ts: new Date().toISOString()
+    };
+    try { fetch("/api/lead", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)}); } catch(_){}
+
+    // swap form view for the done panel, then open WhatsApp ~600ms later
+    const form = $("bkForm"), done = $("bkDone");
+    if(form) form.classList.add("hide");
+    if(done){
+      done.classList.remove("hide");
+      done.scrollIntoView({behavior:"smooth", block:"start"});
+    }
+    const waUrl = "https://api.whatsapp.com/send?phone=" + PHONE + "&text=" + encodeURIComponent(m);
+    setTimeout(()=>{ window.open(waUrl, "_blank", "noopener"); }, 600);
   });
 
   // terms dialog
