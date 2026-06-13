@@ -724,25 +724,33 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 }
 
 /* services — interactive journey switcher */
-/* services — numbered editorial index (v13; v21 promotes Events to a 5th .svrow) */
+/* services — numbered editorial index (v13; v21 promotes Events to a 5th .svrow;
+   v25 gates the hover-expand behind @media(hover:hover) so touch devices show the
+   description statically at full height instead of triggering a clipped half-hover) */
 .svcx{border-top:1px solid var(--line);margin-top:2.4rem}
 .svrow{display:grid;grid-template-columns:5.5rem 1fr auto;align-items:center;gap:2rem;padding:2.05rem 1rem;border-bottom:1px solid var(--line);position:relative;text-decoration:none;color:inherit;transition:padding .35s cubic-bezier(.2,.7,.2,1)}
 .svrow .num{font-family:var(--serif);font-size:1.05rem;color:var(--muted);transition:color .35s}
 .svrow .mid{display:flex;flex-direction:column;gap:.35rem}
 .svrow h3{font-family:var(--serif);font-weight:400;font-size:1.85rem;line-height:1;margin:0;letter-spacing:-.01em;transition:transform .35s cubic-bezier(.2,.7,.2,1)}
-.svrow .desc{font-size:.92rem;color:var(--ink-soft);max-width:52ch;opacity:.001;max-height:0;transform:translateY(-4px);overflow:hidden;transition:opacity .35s,max-height .35s,transform .35s,margin .35s}
+/* Baseline (touch / no-hover devices): description visible at full height, no clipping. */
+.svrow .desc{font-size:.92rem;color:var(--ink-soft);max-width:52ch;margin-top:.15rem;transition:opacity .35s,max-height .35s,transform .35s,margin .35s}
 .svrow .go{display:flex;align-items:center;gap:.7rem;font-size:.66rem;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--amber-deep);white-space:nowrap}
 .svrow .go .arrow{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;transition:all .35s}
 .svrow .go .arrow svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;transition:transform .35s}
 .svrow::before{content:"";position:absolute;inset:0;background:linear-gradient(100deg,rgba(199,91,18,.05),rgba(199,91,18,0) 60%);opacity:0;transition:opacity .35s}
-.svrow:hover{padding-left:1.75rem;padding-right:1.75rem}
-.svrow:hover::before{opacity:1}
-.svrow:hover .num{color:var(--amber)}
-.svrow:hover h3{transform:translateX(6px)}
-.svrow:hover .desc{opacity:1;max-height:60px;transform:translateY(0);margin-top:.15rem}
-.svrow:hover .go .arrow{background:var(--amber);border-color:var(--amber);color:var(--espresso,#231B12)}
-.svrow:hover .go .arrow svg{transform:translate(2px,-2px)}
-@media(max-width:720px){.svrow{grid-template-columns:2.4rem 1fr;gap:1rem;padding:1.5rem .4rem}.svrow h3{font-size:1.4rem}.svrow .desc{opacity:1;max-height:none;transform:none;margin-top:.2rem;font-size:.85rem}.svrow .go{grid-column:2;margin-top:.7rem}.svrow:hover{padding-left:.4rem;padding-right:.4rem}}
+/* Hover-capable devices only (real pointers): collapse desc by default, expand on hover.
+   Touch devices skip this entire block and use the baseline (always visible) above. */
+@media (hover: hover) {
+  .svrow .desc{opacity:.001;max-height:0;transform:translateY(-4px);overflow:hidden;margin-top:0}
+  .svrow:hover{padding-left:1.75rem;padding-right:1.75rem}
+  .svrow:hover::before{opacity:1}
+  .svrow:hover .num{color:var(--amber)}
+  .svrow:hover h3{transform:translateX(6px)}
+  .svrow:hover .desc{opacity:1;max-height:60px;transform:translateY(0);margin-top:.15rem}
+  .svrow:hover .go .arrow{background:var(--amber);border-color:var(--amber);color:var(--espresso,#231B12)}
+  .svrow:hover .go .arrow svg{transform:translate(2px,-2px)}
+}
+@media(max-width:720px){.svrow{grid-template-columns:2.4rem 1fr;gap:1rem;padding:1.5rem .4rem}.svrow h3{font-size:1.4rem}.svrow .desc{margin-top:.2rem;font-size:.85rem}.svrow .go{grid-column:2;margin-top:.7rem}}
 
 /* testimonials — scroll-snap Google reviews carousel */
 .tcar{display:flex;gap:1.2rem;overflow-x:auto;scroll-snap-type:x mandatory;scroll-behavior:smooth;scrollbar-width:none}
