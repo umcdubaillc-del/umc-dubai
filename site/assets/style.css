@@ -431,8 +431,8 @@ label.req::after{content:" *";color:#B3402A;font-weight:500}
 .bpass .bp-head .lbl{color:#E0894A;font-size:.56rem}
 .bpass .bp-perf{position:relative;border-top:1.5px dashed var(--line);margin:0 .9rem}
 .bpass .bp-perf::before,.bpass .bp-perf::after{content:"";position:absolute;top:-7px;width:14px;height:14px;border-radius:50%;background:var(--bone);border:1px solid var(--line)}
-.bpass .bp-perf::before{left:-16.5px}
-.bpass .bp-perf::after{right:-16.5px}
+.bpass .bp-perf::before{left:-26.5px}
+.bpass .bp-perf::after{right:-26.5px}
 .bpass .bp-rows{padding:1rem 1.1rem .6rem;display:grid;gap:.65rem}
 .bpass .bp-row{display:flex;justify-content:space-between;gap:1rem;align-items:baseline}
 .bpass .bp-row .k{font-size:.6rem;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);flex:none}
@@ -754,20 +754,51 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
   .svp-row:hover .svp-cta-arrow{background:var(--amber);border-color:var(--amber);color:var(--espresso,#231B12)}
   .svp-row:hover .svp-cta-arrow svg{transform:translate(3px,-2px)}
 }
-/* Mobile: compact static layout. No animation, nothing to clip. Number sits flush left,
-   the vertical rule is hidden, title/meta/description stack, CTA below. Description is
-   always visible at a small comfortable size — no accordion, no hover, no tap surprises. */
+/* Mobile (≤720px): native scroll-snap horizontal carousel. Each .svp-row becomes a
+   card; description is always fully visible (no hover, no accordion, no clipping).
+   The track scrolls inside its own container; .wrap horizontal padding is broken out
+   with negative margin so a sliver of the next card peeks at the edge as a swipe
+   affordance. No JS — browser scroll-snap handles everything, so there's no carousel-
+   bounds class of bug. */
+.svp-hint{display:none}
 @media (max-width: 720px) {
-  .svp-row{grid-template-columns:2.6rem 1fr;grid-template-areas:"num mid" "num cta";gap:1rem 1.1rem;padding:1.8rem .4rem;overflow:visible}
-  .svp-num{grid-area:num;font-size:1.5rem;text-align:left;align-self:start;padding-top:.15rem;color:var(--amber-deep)}
+  .svp{
+    border-top:0;
+    display:flex;
+    overflow-x:auto;
+    overscroll-behavior-x:contain;
+    scroll-snap-type:x mandatory;
+    scroll-behavior:smooth;
+    scrollbar-width:none;
+    gap:1rem;
+    margin:2rem -1rem 0;
+    padding:.4rem 1rem 1.2rem;
+  }
+  .svp::-webkit-scrollbar{display:none}
+  .svp-row{
+    flex:0 0 86%;
+    scroll-snap-align:center;
+    display:flex;
+    flex-direction:column;
+    gap:.55rem;
+    padding:1.7rem 1.4rem 1.5rem;
+    border:1px solid var(--line);
+    border-radius:6px;
+    background:var(--card);
+    overflow:visible;
+    grid-template-areas:none;
+  }
+  .svp-row::before{display:none}
+  .svp-num{grid-area:auto;font-size:1.5rem;color:var(--amber-deep);text-align:left;align-self:flex-start;padding:0}
   .svp-rule{display:none}
-  .svp-mid{grid-area:mid}
+  .svp-mid{grid-area:auto;gap:.35rem}
   .svp-meta{font-size:.6rem;letter-spacing:.22em}
   .svp-row h3{font-size:1.3rem}
   .svp-row h3::after{display:none}
   .svp-row p{font-size:.88rem;line-height:1.6;max-width:none}
-  .svp-cta{grid-area:cta;margin-top:.2rem;font-size:.62rem;letter-spacing:.18em}
+  .svp-cta{grid-area:auto;margin-top:.7rem;font-size:.62rem;letter-spacing:.18em;justify-content:space-between}
   .svp-cta-arrow{width:34px;height:34px}
+  .svp-hint{display:block;text-align:center;font-size:.62rem;font-weight:500;letter-spacing:.28em;text-transform:uppercase;color:var(--muted);margin-top:.3rem}
 }
 
 /* testimonials — scroll-snap Google reviews carousel */

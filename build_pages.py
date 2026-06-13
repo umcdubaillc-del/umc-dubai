@@ -392,6 +392,7 @@ index_body = header("index.html") + f"""
         </span>
       </a>
     </div>
+    <p class="svp-hint" aria-hidden="true">Swipe &rarr;</p>
   </div>
 </section>
 
@@ -750,9 +751,9 @@ corp_body = header("corporate.html") + f"""
   <div class="wrap">
     <div class="shead rv"><span class="lbl">Onboarding</span><h2>Operational in 48 hours.</h2></div>
     <div class="hsteps rv">
-      <div class="hstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 7l8 6 8-6"/></svg></div><span class="when">Hour zero</span><h3>The enquiry</h3><p>Share your company details and typical movement patterns by email or one call.</p></div>
+      <div class="hstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 7l8 6 8-6"/></svg></div><span class="when">Hour zero</span><h3>The enquiry</h3><p>Tell us how your company moves. Travel patterns, monthly volume, the departments involved and the standards you hold. We design the account to fit.</p></div>
       <div class="hstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/></svg></div><span class="when">Within a day</span><h3>Your rate card</h3><p>Fixed corporate rates for the classes you use, with everything included and nothing metered.</p></div>
-      <div class="hstep"><div class="node"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/></svg></div><span class="when">Within 48 hours</span><h3>Account live</h3><p>Your team books for anyone, a name board waits at every arrival, and one invoice arrives monthly.</p></div>
+      <div class="hstep"><div class="node"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/></svg></div><span class="when">Within 48 hours</span><h3>Account live</h3><p>Your team books any service on the account: airport transfers, hourly hire, inter-emirate journeys and events. Every booking runs to one standard. One consolidated invoice arrives at month-end.</p></div>
     </div>
   </div>
 </section>
@@ -857,7 +858,6 @@ events_body = header("events.html") + f"""
     </div>
   </div>
 </section>
-{JL}
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Occasions</span><h2 class="rv">Begin with the standard.</h2>
   <div class="btns rv"><a class="btn btn-ink" href="contact.html">Plan your occasion</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{EVENTS_WA}">WhatsApp concierge</a></div></div>

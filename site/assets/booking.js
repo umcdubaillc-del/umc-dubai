@@ -99,7 +99,7 @@
     $("bkSummary").innerHTML = h || '<div class="bp-empty">Your journey details appear here as you type.</div>';
     const tot = $("bpTotal");
     if(v){
-      tot.innerHTML = '<span class="k">Your quote</span><span class="v" style="font-size:.9rem">Confirmed on WhatsApp within minutes</span>';
+      tot.innerHTML = '<span class="k">Your quote</span><span class="v" style="font-size:.9rem">Confirmed by our team within minutes</span>';
       tot.classList.remove("hide");
     } else { tot.classList.add("hide"); }
     $("btnConfirm").disabled = !state.vehicle;

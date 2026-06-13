@@ -130,36 +130,32 @@ window.umcPhone = {
     if(t) t.value = veh;
   }
 
-  // homepage: testimonials carousel — page by visible whole-card count, clamp + loop
-  // (v25). Earlier scrollBy was unbounded, so paging past the last review on mobile
-  // overshot into the rubber-band area and looked like the card had vanished.
+  // homepage: testimonials carousel — index-based scrollIntoView (v25 redux).
+  // Earlier versions did arithmetic on scrollLeft/step which could overshoot into the
+  // rubber-band area or land between cards. scrollIntoView always lands on a real
+  // card, so the "blank card" class of bug is impossible. We compute the active card
+  // from its DOM position, step by the visible card count, and wrap when we run off
+  // either end — no maxScroll math, no stale slide counts.
   const tcar = document.getElementById("tcar");
   if(tcar){
-    const step = () => {
-      const card = tcar.querySelector(".tc");
-      if(!card) return 0;
-      const cs = getComputedStyle(tcar);
-      const gap = parseFloat(cs.gap || cs.columnGap || "0") || 0;
-      return card.getBoundingClientRect().width + gap;
-    };
-    const page = (dir) => {
-      const s = step();
-      if(!s) return;
-      const n = tcar.querySelectorAll(".tc").length;
-      const per = Math.max(1, Math.round(tcar.clientWidth / s));
-      if(n <= per) return; // nothing to page through
-      const maxScroll = (n - per) * s;
-      const target = tcar.scrollLeft + dir * per * s;
-      let next;
-      if (target > maxScroll + s / 2) next = 0;           // past last → loop to first
-      else if (target < -s / 2)        next = maxScroll;  // before first → loop to last
-      else                              next = Math.max(0, Math.min(maxScroll, target));
-      tcar.scrollTo({left: next, behavior: "smooth"});
+    const snap = (dir) => {
+      const cards = Array.from(tcar.querySelectorAll(".tc"));
+      if(!cards.length) return;
+      const left = tcar.scrollLeft;
+      const tolerance = 12;
+      let active = 0;
+      cards.forEach((c, i) => { if(c.offsetLeft <= left + tolerance) active = i; });
+      const per = Math.max(1, Math.round(tcar.clientWidth / cards[0].offsetWidth));
+      let next = active + dir * per;
+      if(next < 0) next = Math.max(0, cards.length - per);     // before first → loop to last page
+      else if(next > cards.length - 1) next = 0;               // past last → loop to first
+      next = Math.max(0, Math.min(cards.length - 1, next));
+      cards[next].scrollIntoView({behavior: "smooth", inline: "start", block: "nearest"});
     };
     const tprev = document.getElementById("tprev");
     const tnext = document.getElementById("tnext");
-    if(tprev) tprev.addEventListener("click", () => page(-1));
-    if(tnext) tnext.addEventListener("click", () => page(1));
+    if(tprev) tprev.addEventListener("click", () => snap(-1));
+    if(tnext) tnext.addEventListener("click", () => snap(1));
   }
 
   // (v26: services use CSS-only hover animation — no JS handler needed; the .svp-row
