@@ -55,15 +55,18 @@ If a new third-party tag is added via GTM, extend the CSP allowlist accordingly.
 - Python re.sub replacement strings convert \\b to a literal backspace byte; never patch JS regexes through re.sub templates.
 - CSSStyleRule.cssRules is always truthy in modern Chrome (CSS Nesting); walk rules by type, not truthiness.
 
-## Lead capture pipeline (v13)
+## Lead capture pipeline (v13, email provider revised v13.1)
 Booking and contact forms POST a JSON payload to `/api/lead` (Cloudflare Pages Function at
-`functions/api/lead.js`) BEFORE opening WhatsApp. The Function fans out to email
-(MailChannels), a Google Sheet (Apps Script webhook), and Mailchimp. The browser proceeds
-to WhatsApp regardless of the Function's response — capture failure never blocks the
-customer.
+`functions/api/lead.js`) BEFORE opening WhatsApp. The Function fans out to email (**Resend** —
+MailChannels killed its free Cloudflare-Workers API on 31 Aug 2024 so it's no longer viable),
+a Google Sheet (Apps Script webhook), and Mailchimp. The browser proceeds to WhatsApp
+regardless of the Function's response — capture failure never blocks the customer.
 
 ### Owner setup (one time, in this order)
-1. **Google Sheet** — create a Sheet named "UMC Leads". Extensions → Apps Script. Paste:
+1. **Resend** — sign up at resend.com (3,000 emails/month free). Add `umcdubai.ae` as a
+   verified domain (resend.com → Domains → Add) and add the SPF + DKIM DNS records they
+   show into your DNS host; wait until both go green. API keys → Create API key → copy.
+2. **Google Sheet** — create a Sheet named "UMC Leads". Extensions → Apps Script. Paste:
    ```javascript
    function doPost(e){
      const sh = SpreadsheetApp.getActive().getActiveSheet();
@@ -75,19 +78,18 @@ customer.
    ```
    Deploy → New deployment → Web app → execute as **Me** → access **Anyone** → copy the
    Web App URL. Paste it into the Cloudflare env var `SHEETS_WEBHOOK_URL` (next step).
-2. **Mailchimp** — create an audience. Account → Extras → API keys → copy the API key
+3. **Mailchimp** — create an audience. Account → Extras → API keys → copy the API key
    (the suffix after the dash is the datacentre, e.g. `…-us21` → dc is `us21`). Audience
    → Settings → Audience name and defaults → copy the Audience ID.
-3. **Cloudflare Pages env vars** — Pages project → Settings → Environment variables →
-   Production. Add: `LEAD_EMAIL_TO=contact@umcdubai.ae`, `SHEETS_WEBHOOK_URL`,
-   `MC_API_KEY`, `MC_DC` (e.g. `us21`), `MC_LIST_ID`. Redeploy after saving.
-4. **MailChannels** — add the domain lockdown DNS TXT record at `_mailchannels.umcdubai.ae`
-   per the latest MailChannels docs so the Worker may send mail as `@umcdubai.ae`. Without
-   this the email leg silently fails; the Sheet and Mailchimp legs still work.
+4. **Cloudflare Pages env vars** — Pages project → Settings → Environment variables →
+   Production. Add: `LEAD_EMAIL_TO=contact@umcdubai.ae`, `RESEND_API_KEY`,
+   `SHEETS_WEBHOOK_URL`, `MC_API_KEY`, `MC_DC` (e.g. `us21`), `MC_LIST_ID`. Redeploy
+   after saving.
 
-Missing env vars: the email leg always runs (uses the hardcoded default `contact@umcdubai.ae`
-when `LEAD_EMAIL_TO` is unset); the Sheets and Mailchimp legs are skipped silently when
-their vars are unset, so partial configuration is safe.
+Missing env vars are safe — every leg is independently guarded: the email leg is skipped
+if `RESEND_API_KEY` is unset; Sheets and Mailchimp legs are skipped if their vars are
+unset; `LEAD_EMAIL_TO` defaults to `contact@umcdubai.ae`. The Function still returns 200
+fast and the WhatsApp handoff runs regardless, so a partial install ships safely.
 
 ## Owner TODO — fleet image cleanup (v13)
 The fleet card image box was normalised to a 16:10 wrapper with `object-fit:contain` and

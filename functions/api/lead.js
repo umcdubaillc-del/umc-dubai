@@ -1,18 +1,19 @@
 /* (c) UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 
 // Cloudflare Pages Function — POST /api/lead
-// Accepts the form payload, fans out to email (MailChannels), Google Sheet (Apps Script webhook)
+// Accepts the form payload, fans out to email (Resend), Google Sheet (Apps Script webhook)
 // and Mailchimp, returns 200 fast. Browser proceeds to WhatsApp regardless of fan-out success.
 //
 // Env vars (set in Cloudflare Pages → Settings → Environment variables, Production):
-//   LEAD_EMAIL_TO        e.g. contact@umcdubai.ae
+//   LEAD_EMAIL_TO        e.g. contact@umcdubai.ae (defaults to that if unset)
+//   RESEND_API_KEY       Resend API key — required for the email leg (skipped if unset)
 //   SHEETS_WEBHOOK_URL   the Apps Script Web App URL (optional; skipped if missing)
 //   MC_API_KEY           Mailchimp API key (optional)
 //   MC_DC                Mailchimp datacentre prefix, e.g. us21
 //   MC_LIST_ID           Mailchimp audience/list ID
 //
-// MailChannels requires a domain lockdown TXT record at _mailchannels.umcdubai.ae —
-// see the latest MailChannels docs.
+// Resend requires the sending domain (umcdubai.ae) verified in the Resend dashboard
+// (SPF + DKIM DNS records). See https://resend.com/docs/dashboard/domains.
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -57,7 +58,8 @@ export async function onRequestPost(context) {
     ts: clip(body.ts || new Date().toISOString(), 40)
   };
 
-  const tasks = [sendEmail(env, payload)];
+  const tasks = [];
+  if (env.RESEND_API_KEY) tasks.push(sendEmail(env, payload));
   if (env.SHEETS_WEBHOOK_URL) tasks.push(appendSheet(env, payload));
   if (payload.email && env.MC_API_KEY && env.MC_LIST_ID && env.MC_DC) {
     tasks.push(addToMailchimp(env, payload));
@@ -83,37 +85,56 @@ function clip(s, n) {
 async function sendEmail(env, b) {
   const to = env.LEAD_EMAIL_TO || "contact@umcdubai.ae";
   const subject = `New reservation request — ${b.name} — ${b.service || "general"}`;
-  const lines = [
-    "New reservation request via " + (b.page || b.source || "site"),
-    "",
-    "Name:        " + b.name,
-    "Phone:       " + b.phone,
-    "Email:       " + (b.email || "-"),
-    "",
-    "Service:     " + (b.service || "-"),
-    "Pick-up:     " + (b.pickup || "-"),
-    "Destination: " + (b.destination || "-"),
-    "Date:        " + (b.date || "-"),
-    "Time:        " + (b.time || "-"),
-    "Vehicle:     " + (b.vehicle || "-"),
-    "Days:        " + (b.days || "-"),
-    "Flight:      " + (b.flight || "-"),
-    "Welcome:     " + (b.sign || "-"),
-    "Notes:       " + (b.notes || "-"),
-    "",
-    "Submitted at: " + b.ts,
-    "Source:       " + (b.source || "-")
+  const esc = (s) =>
+    String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+    );
+  const rows = [
+    ["Name", b.name],
+    ["Phone", b.phone],
+    ["Email", b.email || "-"],
+    ["Service", b.service || "-"],
+    ["Pick-up", b.pickup || "-"],
+    ["Destination", b.destination || "-"],
+    ["Date", b.date || "-"],
+    ["Time", b.time || "-"],
+    ["Vehicle", b.vehicle || "-"],
+    ["Days", b.days || "-"],
+    ["Flight", b.flight || "-"],
+    ["Welcome sign", b.sign || "-"],
+    ["Notes", b.notes || "-"]
   ];
+  const html =
+    `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#221B14;max-width:560px;margin:0 auto;padding:16px">` +
+    `<h2 style="font-family:Georgia,serif;font-weight:400;font-size:20px;margin:0 0 6px;border-bottom:1px solid #ddd;padding-bottom:8px">New reservation request</h2>` +
+    `<p style="color:#666;font-size:13px;margin:0 0 18px">via ${esc(b.page || b.source || "site")}</p>` +
+    `<table cellpadding="0" cellspacing="0" style="font-size:14px;border-collapse:collapse">` +
+    rows
+      .map(
+        ([k, v]) =>
+          `<tr><td style="padding:4px 14px 4px 0;color:#666;vertical-align:top;white-space:nowrap">${esc(
+            k
+          )}</td><td style="padding:4px 0">${esc(v)}</td></tr>`
+      )
+      .join("") +
+    `</table>` +
+    `<p style="color:#999;font-size:12px;margin-top:24px">Submitted ${esc(b.ts)} · source: ${esc(b.source || "-")}</p>` +
+    `</body></html>`;
+
   const message = {
-    personalizations: [{ to: [{ email: to, name: "UMC Dubai" }] }],
-    from: { email: "noreply@umcdubai.ae", name: "UMC Dubai leads" },
+    from: "UMC Dubai leads <noreply@umcdubai.ae>",
+    to: [to],
     subject,
-    content: [{ type: "text/plain", value: lines.join("\n") }]
+    html
   };
-  if (b.email) message.reply_to = { email: b.email, name: b.name };
-  return fetch("https://api.mailchannels.net/tx/v1/send", {
+  if (b.email) message.reply_to = b.email;
+
+  return fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      Authorization: "Bearer " + env.RESEND_API_KEY,
+      "Content-Type": "application/json"
+    },
     body: JSON.stringify(message)
   });
 }
