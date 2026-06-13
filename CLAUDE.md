@@ -50,25 +50,6 @@ If a new third-party tag is added via GTM, extend the CSP allowlist accordingly.
 - Sanity CMS for fleet data (replace fleet-data.js constants via getFleet/saveFleet)
 - Vecteezy S-Class: replace preview rendition with licensed file from the owner's account
 
-## Reverted/replaced blocks
-Sections that were swapped out but whose original markup is intentionally preserved as
-inline HTML comments in `build_pages.py` so they can be restored quickly. **Do not delete
-the comments** — they're our revert source of truth.
-
-- **v22 client line** (replaced in v23 by the Selected engagements ledger). Original:
-  ```html
-  <div class="authority rv">
-    <div class="wrap">
-      <span class="lbl">Guests and delegations served for</span>
-      <p class="names">Emirates <i>·</i> Jetex <i>·</i> IIFA Awards <i>·</i> Gulfood</p>
-    </div>
-  </div>
-  ```
-  Lives commented out immediately above the new `<section class="sec engx-sec">` block
-  in the homepage body. To revert: uncomment that block and delete the engx-sec section.
-  The `.authority`/`.names` CSS (around line 246–248 of style.css) is intentionally
-  retained for the same reason.
-
 ## Hard-won gotchas
 - Base `.btn` declares `min-height:48px` — any compact button variant MUST set `min-height:0` (min-height beats height in CSS, silently).
 - Python re.sub replacement strings convert \\b to a literal backspace byte; never patch JS regexes through re.sub templates.
