@@ -724,10 +724,7 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 }
 
 /* services — interactive journey switcher */
-/* services — numbered editorial index (v13) + events link (v19) */
-.svc-events{font-size:.88rem;color:var(--ink-soft);margin-top:.6rem;text-align:center}
-.svc-events a{color:var(--amber-deep);border-bottom:1px solid rgba(199,91,18,.4);transition:color .2s,border-color .2s}
-.svc-events a:hover{color:var(--amber);border-bottom-color:var(--amber)}
+/* services — numbered editorial index (v13; v21 promotes Events to a 5th .svrow) */
 .svcx{border-top:1px solid var(--line);margin-top:2.4rem}
 .svrow{display:grid;grid-template-columns:5.5rem 1fr auto;align-items:center;gap:2rem;padding:2.05rem 1rem;border-bottom:1px solid var(--line);position:relative;text-decoration:none;color:inherit;transition:padding .35s cubic-bezier(.2,.7,.2,1)}
 .svrow .num{font-family:var(--serif);font-size:1.05rem;color:var(--muted);transition:color .35s}

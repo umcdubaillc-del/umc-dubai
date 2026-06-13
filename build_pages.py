@@ -271,7 +271,7 @@ index_body = header("index.html") + f"""
   <div class="h2scrim"></div>
   <div class="wrap h2grid">
     <div class="h2copy">
-      <span class="kicker"><i class="kdot kdot-fill"></i><i class="krule"></i><em>Serving all seven emirates</em><i class="krule"></i><i class="kdot kdot-open"></i></span>
+      <span class="kicker"><i class="kdot kdot-open"></i><i class="krule"></i><em>Serving all seven emirates</em><i class="krule"></i><i class="kdot kdot-fill"></i></span>
       <h1>Chauffeur driven, without compromise.</h1>
       <p class="lede">Immaculate cars, vetted chauffeurs and a concierge that answers at any hour.</p>
     </div>
@@ -324,9 +324,7 @@ index_body = header("index.html") + f"""
 
 <section class="sec" id="services">
   <div class="wrap">
-    <div class="shead rv"><span class="lbl">Services</span><h2>One company. Every journey.</h2>
-      <p class="svc-events">Marking an occasion? <a href="events.html">Weddings, galas and private events &rarr;</a></p>
-    </div>
+    <div class="shead rv"><span class="lbl">Services</span><h2>One company. Every journey.</h2></div>
     <div class="svcx rv">
       <a class="svrow" href="airport-transfers.html">
         <span class="num">01</span>
@@ -347,6 +345,11 @@ index_body = header("index.html") + f"""
         <span class="num">04</span>
         <span class="mid"><h3>Inter-emirate</h3><span class="desc">Fixed-quote journeys between all seven emirates, planned to the minute, from Dubai to Abu Dhabi, Ras Al Khaimah and beyond.</span></span>
         <span class="go">Routes <span class="arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></span>
+      </a>
+      <a class="svrow" href="events.html">
+        <span class="num">05</span>
+        <span class="mid"><h3>Events</h3><span class="desc">Weddings, galas and private celebrations &mdash; a coordinated fleet for the days that matter most, planned to the minute by one point of contact.</span></span>
+        <span class="go">Plan <span class="arrow"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></span>
       </a>
     </div>
   </div>
@@ -815,16 +818,6 @@ events_body = header("events.html") + f"""
   </div>
 </section>
 {JL}
-<section class="closing band-dark numband-sec" style="padding:3.6rem 0">
-  <div class="wrap">
-    <div class="numband rv">
-      <div><div class="n">5.0<sup>&#9733;</sup></div><div class="d">Google rating</div></div>
-      <div><div class="n">2,500<sup>+</sup></div><div class="d">Clients served</div></div>
-      <div><div class="n">7</div><div class="d">Emirates covered</div></div>
-      <div><div class="n">24<sup>/7</sup></div><div class="d">Concierge desk</div></div>
-    </div>
-  </div>
-</section>
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Occasions</span><h2 class="rv">Begin with the standard.</h2>
   <div class="btns rv"><a class="btn btn-ink" href="contact.html?vehicle=Event">Plan your occasion</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{EVENTS_WA}">WhatsApp concierge</a></div></div>
@@ -847,7 +840,7 @@ contact_body = header("contact.html") + f"""
 <section class="sec" style="padding-top:2.4rem">
   <div class="wrap">
     <div class="bk-layout">
-      <div class="bk-card">
+      <div class="bk-card" id="ctFormCard">
         <h2>Reservation request</h2>
         <div class="two">
           <div class="f"><label class="req" for="cName">Full name</label><input id="cName" required></div>
@@ -862,6 +855,11 @@ contact_body = header("contact.html") + f"""
         <div class="f"><label for="cMsg">Your request</label><textarea id="cMsg" rows="4" placeholder="Route, date and time, number of guests&hellip;"></textarea></div>
         <button class="btn btn-ink" style="width:100%" id="cSend" type="button">Send request</button>
         <p class="bk-note">Prefer email? <a href="mailto:contact@umcdubai.ae" style="border-bottom:1px solid var(--amber)">contact@umcdubai.ae</a></p>
+      </div>
+      <div class="bk-card hide" id="ctDone" style="text-align:center">
+        <h2>Request received</h2>
+        <p class="lede" style="margin-bottom:1rem">Opening WhatsApp to confirm the details with our team&hellip;</p>
+        <p class="bk-note">If WhatsApp did not open, call <a href="tel:+971586497861" style="border-bottom:1px solid var(--amber);color:var(--ink)">+971 58 649 7861</a>.</p>
       </div>
       <div class="bk-card">
         <div class="chatcard rv" aria-hidden="true">
@@ -908,21 +906,34 @@ document.getElementById("cSend").addEventListener("click", function(){
   }
   // strip leading zero for the outgoing message so the international number is clean
   const cPhoneOut = window.umcPhone ? window.umcPhone.significantDigits(g("cPhone")) : g("cPhone");
+  // Same payload shape as the booking form; source distinguishes the two streams in the
+  // Sheet/Mailchimp. Empty fields (service, pickup, destination, date, time, days, flight,
+  // sign) are stripped by the Worker's emailRows() helper so the internal + client emails
+  // don't show blank rows.
   const cPayload = {
-    source: "contact",
+    source: "contact-form",
     name: g("cName"), phone: "+" + cCCEl.value + " " + cPhoneOut, email: g("cEmail"),
-    service: g("cVehicle"), pickup: "", destination: "",
+    service: "", pickup: "", destination: "",
     date: "", time: "", vehicle: g("cVehicle"), days: "",
     flight: "", sign: "", notes: g("cMsg"),
     page: location.pathname, ts: new Date().toISOString()
   };
   try { fetch("/api/lead", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(cPayload)}); } catch(_){}
-  let m = "Hello UMC Dubai,%0A%0AName: " + encodeURIComponent(g("cName")) +
-          "%0APhone: +" + encodeURIComponent(cCCEl.value) + " " + encodeURIComponent(cPhoneOut) +
-          "%0AEmail: " + encodeURIComponent(g("cEmail")) +
-          "%0AService: " + encodeURIComponent(g("cVehicle")) +
-          "%0ARequest: " + encodeURIComponent(g("cMsg"));
-  window.open("https://api.whatsapp.com/send?phone=971586497861&text=" + m, "_blank", "noopener");
+
+  // Swap the form card for the done panel, then open WhatsApp ~600ms later.
+  const formCard = document.getElementById("ctFormCard");
+  const doneCard = document.getElementById("ctDone");
+  if (formCard) formCard.classList.add("hide");
+  if (doneCard) {
+    doneCard.classList.remove("hide");
+    doneCard.scrollIntoView({behavior:"smooth", block:"start"});
+  }
+  const m = "Hello UMC Dubai,%0A%0AName: " + encodeURIComponent(g("cName")) +
+            "%0APhone: +" + encodeURIComponent(cCCEl.value) + " " + encodeURIComponent(cPhoneOut) +
+            "%0AEmail: " + encodeURIComponent(g("cEmail")) +
+            (g("cVehicle") ? "%0AService: " + encodeURIComponent(g("cVehicle")) : "") +
+            (g("cMsg") ? "%0ARequest: " + encodeURIComponent(g("cMsg")) : "");
+  setTimeout(()=>{ window.open("https://api.whatsapp.com/send?phone=971586497861&text=" + m, "_blank", "noopener"); }, 600);
 });
 </script>
 </body>
