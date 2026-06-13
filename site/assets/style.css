@@ -9,7 +9,12 @@
   --serif:'Marcellus',Georgia,serif; --sans:'Outfit',system-ui,sans-serif;
 }
 *{margin:0;padding:0;box-sizing:border-box}
-html{scroll-behavior:smooth}
+html{scroll-behavior:smooth;scrollbar-color:#B9AC95 var(--bone-2);scrollbar-width:thin}
+/* branded scrollbars, site-wide — declared at file scope, outside any @media or selector */
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-track{background:var(--bone-2)}
+::-webkit-scrollbar-thumb{background:#B9AC95;border-radius:6px;border:2.5px solid var(--bone-2)}
+::-webkit-scrollbar-thumb:hover{background:var(--amber-deep)}
 body{background:var(--bone);color:var(--ink);font-family:var(--sans);font-weight:300;font-size:16.5px;line-height:1.7;-webkit-font-smoothing:antialiased}
 img{max-width:100%;display:block}
 a{color:inherit;text-decoration:none}
@@ -469,12 +474,6 @@ dialog.terms{margin:auto}
 /* opaque header: no content ghosting underneath */
 header.site{background:var(--bone)}
 
-/* branded scrollbars, site-wide */
-html{scrollbar-color:#B9AC95 var(--bone-2);scrollbar-width:thin}
-::-webkit-scrollbar{width:11px;height:11px}
-::-webkit-scrollbar-track{background:var(--bone-2)}
-::-webkit-scrollbar-thumb{background:#B9AC95;border-radius:6px;border:2.5px solid var(--bone-2)}
-::-webkit-scrollbar-thumb:hover{background:var(--amber-deep)}
 
 /* custom phone country selector (ours, no library) */
 .phonewrap{display:flex;gap:.6rem;align-items:flex-end}
