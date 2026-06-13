@@ -200,12 +200,19 @@ document.getElementById("cSend").addEventListener("click", function(){
     doneCard.classList.remove("hide");
     doneCard.scrollIntoView({behavior:"smooth", block:"start"});
   }
-  const m = "Hello UMC Dubai,%0A%0AName: " + encodeURIComponent(g("cName")) +
-            "%0APhone: +" + encodeURIComponent(cCCEl.value) + " " + encodeURIComponent(cPhoneOut) +
-            "%0AEmail: " + encodeURIComponent(g("cEmail")) +
-            (g("cVehicle") ? "%0AService: " + encodeURIComponent(g("cVehicle")) : "") +
-            (g("cMsg") ? "%0ARequest: " + encodeURIComponent(g("cMsg")) : "");
-  setTimeout(()=>{ window.open("https://api.whatsapp.com/send?phone=971586497861&text=" + m, "_blank", "noopener"); }, 600);
+  // Polished WhatsApp pre-fill (v22) — same template as the booking form for consistency.
+  // Compose as plain text + encodeURIComponent once; skip any empty field.
+  const cLines = ["Hello UMC Dubai — I'd like to request a reservation.", ""];
+  cLines.push("Name: " + g("cName"));
+  const cContactBits = ["+" + cCCEl.value + " " + cPhoneOut];
+  if (g("cEmail")) cContactBits.push(g("cEmail"));
+  cLines.push("Contact: " + cContactBits.join(" · "));
+  if (g("cVehicle")) cLines.push("Service: " + g("cVehicle"));
+  if (g("cMsg")) cLines.push("Notes: " + g("cMsg"));
+  cLines.push("", "Please confirm availability. Thank you.");
+  const cWaText = encodeURIComponent(cLines.join("
+"));
+  setTimeout(()=>{ window.open("https://api.whatsapp.com/send?phone=971586497861&text=" + cWaText, "_blank", "noopener"); }, 600);
 });
 </script>
 </body>

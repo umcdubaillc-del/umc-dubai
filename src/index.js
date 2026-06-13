@@ -197,20 +197,24 @@ async function sendEmail(env, b) {
   const label = "RESEND";
   const to = env.LEAD_EMAIL_TO || "contact@umcdubai.ae";
   const subject = `New reservation request — ${b.name} — ${b.service || "general"}`;
-  const rowsHtml = emailRows([
+  // v22: split into "Guest details" + "Request details" sections; labels renamed to match
+  // the website form's wording (Vehicle → Vehicle or service, Notes → Request).
+  const guestRowsHtml = emailRows([
     ["Name", b.name],
     ["Phone", b.phone],
-    ["Email", b.email],
+    ["Email", b.email]
+  ]);
+  const requestRowsHtml = emailRows([
     ["Service", b.service],
     ["Pick-up", b.pickup],
     ["Destination", b.destination],
     ["Date", b.date],
     ["Time", b.time],
-    ["Vehicle", b.vehicle],
+    ["Vehicle or service", b.vehicle],
     ["Days", b.days],
     ["Flight", b.flight],
     ["Welcome sign", b.sign],
-    ["Notes", b.notes]
+    ["Request", b.notes]
   ]);
   const html =
     `<!doctype html><html><body style="margin:0;padding:24px 16px;background:#F6F1E7;font-family:-apple-system,Segoe UI,Roboto,sans-serif">` +
@@ -220,8 +224,13 @@ async function sendEmail(env, b) {
       `<h1 style="font-family:Georgia,'Times New Roman',serif;font-weight:400;font-size:22px;color:#221B14;margin:0;letter-spacing:-.01em">New reservation request</h1>` +
       `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#A84B0C;margin:10px 0 0">via ${emailEsc(b.page || b.source || "site")}</p>` +
     `</td></tr>` +
+    `<tr><td style="padding:18px 28px 4px 28px">` +
+      `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#A84B0C;margin:0 0 10px;font-weight:500">Guest details</p>` +
+      `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:14px;border-collapse:collapse">${guestRowsHtml}</table>` +
+    `</td></tr>` +
     `<tr><td style="padding:18px 28px 8px 28px">` +
-      `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:14px;border-collapse:collapse">${rowsHtml}</table>` +
+      `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#A84B0C;margin:0 0 10px;font-weight:500">Request details</p>` +
+      `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:14px;border-collapse:collapse">${requestRowsHtml}</table>` +
     `</td></tr>` +
     `<tr><td style="padding:20px 28px 22px 28px;background:#231B12;text-align:center;font-family:-apple-system,Segoe UI,Roboto,sans-serif">` +
       `<p style="margin:0;color:#D9D0C0;font-size:12px">Submitted ${emailEsc(b.ts)}</p>` +
@@ -332,17 +341,25 @@ async function sendClientReceipt(env, b) {
   }
   const firstName = (b.name || "").trim().split(/\s+/)[0] || "there";
   const subject = "We have your reservation request — UMC Dubai";
-  const rowsHtml = emailRows([
+  // v22: client receipt gets the same two-section layout — "Your details" so the client
+  // sees what they submitted, and "Your request" with the booking specifics. Labels match
+  // the website form (Vehicle → Vehicle or service, Notes → Request).
+  const yourDetailsHtml = emailRows([
+    ["Name", b.name],
+    ["Phone", b.phone],
+    ["Email", b.email]
+  ]);
+  const yourRequestHtml = emailRows([
     ["Service", b.service],
     ["Pick-up", b.pickup],
     ["Destination", b.destination],
     ["Date", b.date],
     ["Time", b.time],
-    ["Vehicle", b.vehicle],
+    ["Vehicle or service", b.vehicle],
     ["Days", b.days],
     ["Flight", b.flight],
     ["Welcome sign", b.sign],
-    ["Notes", b.notes]
+    ["Request", b.notes]
   ]);
   const html =
     `<!doctype html><html><body style="margin:0;padding:24px 16px;background:#F6F1E7;font-family:-apple-system,Segoe UI,Roboto,sans-serif">` +
@@ -352,9 +369,13 @@ async function sendClientReceipt(env, b) {
       `<h1 style="font-family:Georgia,'Times New Roman',serif;font-weight:400;font-size:24px;color:#221B14;margin:0 0 10px;letter-spacing:-.01em">Thank you, ${emailEsc(firstName)}.</h1>` +
       `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px;color:#4A4136;line-height:1.65;margin:0;max-width:42ch;margin-left:auto;margin-right:auto">We have received your reservation request. Our team will confirm the details personally, usually within minutes.</p>` +
     `</td></tr>` +
-    `<tr><td style="padding:24px 28px 8px 28px">` +
-      `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#A84B0C;margin:0 0 12px;font-weight:500">Your request</p>` +
-      `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:14px;border-collapse:collapse">${rowsHtml}</table>` +
+    `<tr><td style="padding:24px 28px 4px 28px">` +
+      `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#A84B0C;margin:0 0 10px;font-weight:500">Your details</p>` +
+      `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:14px;border-collapse:collapse">${yourDetailsHtml}</table>` +
+    `</td></tr>` +
+    `<tr><td style="padding:18px 28px 8px 28px">` +
+      `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#A84B0C;margin:0 0 10px;font-weight:500">Your request</p>` +
+      `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:14px;border-collapse:collapse">${yourRequestHtml}</table>` +
     `</td></tr>` +
     `<tr><td style="padding:22px 28px 22px 28px;text-align:center">` +
       `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:13px;color:#4A4136;line-height:1.7;margin:0">For any urgent change, please call or WhatsApp <a href="tel:+971586497861" style="color:#A84B0C;text-decoration:none;border-bottom:1px solid #C75B12">+971 58 649 7861</a>.</p>` +

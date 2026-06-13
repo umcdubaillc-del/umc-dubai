@@ -222,19 +222,26 @@
     const v = getFleet().find(x=>x.id===state.vehicle);
     const g = id => ($(id)||{}).value || "";
     const hourly = state.service.startsWith("hourly")||state.service==="fullday";
-    let m = "RESERVATION REQUEST — UMC Dubai\n";
-    m += "\nService: " + SERVICE_LABEL[state.service];
-    m += "\nPick-up: " + g("kFrom");
-    if(!hourly) m += "\nDestination: " + g("kTo");
-    m += "\nDate: " + g("kDate") + "   Time: " + g("kTime");
-    if(!$("rowFlight").classList.contains("hide") && g("kFlight")) m += "\nFlight: " + g("kFlight");
-    if(!$("rowSign").classList.contains("hide") && g("kSign")) m += "\nWelcome sign: " + g("kSign");
-    if(state.service==="fullday") m += "\nDays: " + state.days;
-    m += "\nVehicle: " + (v? v.name : "-");
-    m += "\n\nGuest: " + g("kName");
-    m += "\nPhone: " + g("kPhone");
-    if(g("kEmail")) m += "\nEmail: " + g("kEmail");
-    if(g("kNotes")) m += "\nNotes: " + g("kNotes");
+    // Polished institutional WhatsApp pre-fill (v22). Compose as plain text with newlines;
+    // encodeURIComponent below encodes everything once. Skip any line whose value is empty
+    // so the message never carries "Service: Event" stubs or "Pickup: -" placeholders.
+    const lines = ["Hello UMC Dubai — I'd like to request a reservation.", ""];
+    lines.push("Name: " + g("kName"));
+    const contactBits = [g("kPhone")];
+    if(g("kEmail")) contactBits.push(g("kEmail"));
+    lines.push("Contact: " + contactBits.join(" · "));
+    lines.push("Service: " + SERVICE_LABEL[state.service]);
+    if(v) lines.push("Vehicle: " + v.name);
+    if(g("kFrom")) lines.push("Pickup: " + g("kFrom"));
+    if(!hourly && g("kTo")) lines.push("Destination: " + g("kTo"));
+    const dt = [g("kDate"), g("kTime")].filter(Boolean).join(" at ");
+    if(dt) lines.push("Date: " + dt);
+    if(state.service === "fullday") lines.push("Days: " + state.days);
+    if(!$("rowFlight").classList.contains("hide") && g("kFlight")) lines.push("Flight: " + g("kFlight"));
+    if(!$("rowSign").classList.contains("hide") && g("kSign")) lines.push("Welcome sign: " + g("kSign"));
+    if(g("kNotes")) lines.push("Notes: " + g("kNotes"));
+    lines.push("", "Please confirm availability. Thank you.");
+    const m = lines.join("\n");
 
     // ----- non-blocking capture before WhatsApp -----
     const phoneOut = window.umcPhone ? window.umcPhone.significantDigits(g("kPhone")) : g("kPhone");

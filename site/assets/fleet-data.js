@@ -11,7 +11,7 @@ const DEFAULT_FLEET = [
    r10:2000,r5:1300,ra:600,visible:true,
    img:"https://di-shared-assets.dealerinspire.com/legacy/rackspace/ldm-images/2024-BMW-7Series-Color-Dark-Graphite-Metallic.png",
    desc:"Commanding presence with a lounge-grade rear cabin."},
-  {id:"cadillac-escalade",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/Cadillac-Logo-scaled.jpg",name:"Cadillac Escalade",category:"Luxury SUV",year:2024,seats:7,luggage:4,
+  {id:"cadillac-escalade",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/Cadillac-Logo-scaled.jpg",name:"Cadillac Escalade",category:"Luxury SUV",year:2024,seats:6,luggage:4,
    r10:2400,r5:1800,ra:850,visible:true,
    img:"https://shop.vipautoaccessories.com/cdn/shop/products/Profile_a3cdee2d-dcae-45a1-9ac0-67df4e3c3965_540x.jpg?v=1676323971",
    desc:"Seven seats of unmistakable American luxury."},
