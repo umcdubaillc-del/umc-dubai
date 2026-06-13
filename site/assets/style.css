@@ -722,18 +722,19 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 }
 
 /* services — interactive journey switcher */
-.svc{max-width:860px;margin:0 auto;text-align:center}
-.svc-tabs{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:1.6rem}
-.svc-tabs button{font-family:var(--sans);font-size:.68rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-soft);background:transparent;border:1px solid var(--line);border-radius:999px;padding:.55rem 1.15rem;cursor:pointer;transition:all .2s;min-height:0}
-.svc-tabs button.on{background:var(--ink);border-color:var(--ink);color:var(--bone)}
-.svc-stage svg{width:100%;height:auto}
-.jr.hide{display:none}
-.jl{fill:none;stroke:var(--amber);stroke-width:1.6;stroke-dasharray:900;stroke-dashoffset:900;animation:jdraw 1.4s ease forwards}
-@keyframes jdraw{to{stroke-dashoffset:0}}
-.jicon{fill:none;stroke:var(--ink-soft);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-.jdot{fill:var(--amber)}
-.jt{font-family:var(--serif);font-size:13px;letter-spacing:.25em;fill:var(--muted);text-anchor:middle}
-.svc-desc{font-size:1rem;color:var(--ink-soft);margin-bottom:1.4rem}
+/* services — clear four-card grid (v12) */
+.sublede{max-width:60ch;margin:.7rem auto 0;color:var(--ink-soft);font-size:.95rem}
+.svc4{display:grid;gap:1.1rem;margin-top:2.4rem}
+@media(min-width:640px){.svc4{grid-template-columns:repeat(2,1fr)}}
+@media(min-width:1000px){.svc4{grid-template-columns:repeat(4,1fr)}}
+.svc4card{display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:1.7rem 1.5rem 1.5rem;transition:transform .2s,box-shadow .2s,border-color .2s}
+.svc4card:hover{transform:translateY(-4px);box-shadow:0 26px 46px -28px rgba(34,27,20,.4);border-color:rgba(199,91,18,.4)}
+.svic{width:46px;height:46px;border-radius:50%;background:var(--bone-2);display:flex;align-items:center;justify-content:center;margin-bottom:1.1rem}
+.svic svg{width:22px;height:22px;fill:none;stroke:var(--amber-deep);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.svc4card h3{font-family:var(--serif);font-weight:400;font-size:1.2rem;margin-bottom:.45rem}
+.svc4card p{font-size:.88rem;color:var(--ink-soft);line-height:1.6;flex:1}
+.svgo{margin-top:1.1rem;font-size:.68rem;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--amber-deep)}
+.svc4card:hover .svgo{color:var(--amber)}
 
 /* testimonials — scroll-snap Google reviews carousel */
 .tcar{display:flex;gap:1.2rem;overflow-x:auto;scroll-snap-type:x mandatory;padding:.4rem .2rem 1rem;scrollbar-width:none}

@@ -130,22 +130,6 @@ window.umcPhone = {
     if(t) t.value = veh;
   }
 
-  // homepage: services journey switcher
-  const SVC = {
-    airport:{d:"Met at arrivals, tracked from departure, driven door to door.",href:"airport-transfers.html",cta:"Airport transfers"},
-    hourly:{d:"A car and chauffeur at your disposal, five or ten hours at a time.",href:"booking.html?mode=hourly",cta:"Reserve by the hour"},
-    corporate:{d:"Executive travel managed under one account and one monthly invoice.",href:"corporate.html",cta:"Corporate accounts"},
-    emirates:{d:"Fixed-quote journeys between all seven emirates, door to door.",href:"inter-emirate.html",cta:"Inter-emirate transfers"}
-  };
-  document.querySelectorAll(".svc-tabs button").forEach(b=>b.addEventListener("click",function(){
-    document.querySelectorAll(".svc-tabs button").forEach(x=>x.classList.remove("on")); this.classList.add("on");
-    const s=this.dataset.s;
-    document.querySelectorAll(".svc-stage .jr").forEach(g=>g.classList.toggle("hide",g.dataset.s!==s));
-    const g=document.querySelector('.svc-stage .jr[data-s="'+s+'"] .jl'); if(g){g.style.animation="none";void g.getBoundingClientRect();g.style.animation="";}
-    document.getElementById("svcDesc").textContent=SVC[s].d;
-    const a=document.getElementById("svcCta"); a.href=SVC[s].href; a.textContent=SVC[s].cta;
-  }));
-
   // homepage: testimonials carousel
   const tcar = document.getElementById("tcar");
   if(tcar){
