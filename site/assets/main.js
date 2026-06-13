@@ -1,3 +1,4 @@
+/* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 /* UMC Dubai — shared behaviour */
 
 // shared phone utility (must exist before the IIFE wires forms, and before booking.js runs)
