@@ -4,7 +4,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 SITE = HERE / "site"
 WA = "https://api.whatsapp.com/send?phone=971586497861&text=Hello%2C%20I%20would%20like%20to%20reserve%20a%20car%20with%20UMC%20Dubai."
 MAPS_KEY = "AIzaSyBx8uKzaCk5fFG8a0D8zqW82HLwOsb7px0"
-V = "1781302360"
+V = "1781385242"
 OG_BASE = "https://umc-dubai.pages.dev"  # flip to https://umcdubai.ae at production cutover
 GTM_ID = "GTM-PNM6MRS7"
 GTM_HEAD = ("<!-- Google Tag Manager -->\n<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});"
@@ -721,6 +721,35 @@ airport_body = header("airport-transfers.html") + f"""
       "airport-transfers/dubai/", faq_schema(AIRPORT_FAQS)) + airport_body)
 
 # ---------- corporate ----------
+# v27 T2 — replaced the v25 T3 "What your programme receives" 6-up grid and
+# "Operational in 48 hours" 3-step onboarding with the single Account File dossier.
+# To revert: restore the two <section class="sec"> blocks below in place of the .dossier markup.
+# --- v25 corporate blocks (preserved for revert) ---
+# <section class="sec">
+#   <div class="wrap">
+#     <div class="shead rv"><span class="lbl">Corporate accounts</span><h2>What your programme receives.</h2></div>
+#     <div class="std rv">
+#       <div><span class="lbl">Account</span><h3>One account, one invoice</h3><p>A dedicated account contact, consolidated monthly invoicing with per-journey breakdowns, and cost-centre references on request.</p></div>
+#       <div><span class="lbl">Booking</span><h3>Book for anyone</h3><p>Assistants and travel managers reserve for executives and guests in minutes by phone, WhatsApp or email. A name board waits at every arrival.</p></div>
+#       <div><span class="lbl">Duty of care</span><h3>Vetted and accountable</h3><p>Employed and background-checked chauffeurs in maintained late-model vehicles, with live flight tracking and a human escalation path at any hour.</p></div>
+#       <div><span class="lbl">Roadshows</span><h3>Movements, to the minute</h3><p>Investor roadshows, delegations and multi-car convoys coordinated under a single point of contact.</p></div>
+#       <div><span class="lbl">Discretion</span><h3>Confidential by default</h3><p>Our chauffeurs serve senior executives daily. Conversations, documents and itineraries stay in the car.</p></div>
+#       <div><span class="lbl">Certainty</span><h3>Fixed corporate rates</h3><p>Agreed rates that include the chauffeur, fuel, Salik and parking, so finance sees no surprises.</p></div>
+#     </div>
+#   </div>
+# </section>
+# {JL}
+# <section class="sec">
+#   <div class="wrap">
+#     <div class="shead rv"><span class="lbl">Onboarding</span><h2>Operational in 48 hours.</h2></div>
+#     <div class="hsteps rv">
+#       <div class="hstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 7l8 6 8-6"/></svg></div><span class="when">Hour zero</span><h3>The enquiry</h3><p>Tell us how your company moves. Travel patterns, monthly volume, the departments involved and the standards you hold. We design the account to fit.</p></div>
+#       <div class="hstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/></svg></div><span class="when">Within a day</span><h3>Your rate card</h3><p>Fixed corporate rates for the classes you use, with everything included and nothing metered.</p></div>
+#       <div class="hstep"><div class="node"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/></svg></div><span class="when">Within 48 hours</span><h3>Account live</h3><p>Your team books any service on the account: airport transfers, hourly hire, inter-emirate journeys and events. Every booking runs to one standard. One consolidated invoice arrives at month-end.</p></div>
+#     </div>
+#   </div>
+# </section>
+# --- end revert block ---
 corp_body = header("corporate.html") + f"""
 <section class="phero">
   <div class="wrap">
@@ -735,25 +764,30 @@ corp_body = header("corporate.html") + f"""
 {JL}
 <section class="sec">
   <div class="wrap">
-    <div class="shead rv"><span class="lbl">Corporate accounts</span><h2>What your programme receives.</h2></div>
-    <div class="std rv">
-      <div><span class="lbl">Account</span><h3>One account, one invoice</h3><p>A dedicated account contact, consolidated monthly invoicing with per-journey breakdowns, and cost-centre references on request.</p></div>
-      <div><span class="lbl">Booking</span><h3>Book for anyone</h3><p>Assistants and travel managers reserve for executives and guests in minutes by phone, WhatsApp or email. A name board waits at every arrival.</p></div>
-      <div><span class="lbl">Duty of care</span><h3>Vetted and accountable</h3><p>Employed and background-checked chauffeurs in maintained late-model vehicles, with live flight tracking and a human escalation path at any hour.</p></div>
-      <div><span class="lbl">Roadshows</span><h3>Movements, to the minute</h3><p>Investor roadshows, delegations and multi-car convoys coordinated under a single point of contact.</p></div>
-      <div><span class="lbl">Discretion</span><h3>Confidential by default</h3><p>Our chauffeurs serve senior executives daily. Conversations, documents and itineraries stay in the car.</p></div>
-      <div><span class="lbl">Certainty</span><h3>Fixed corporate rates</h3><p>Agreed rates that include the chauffeur, fuel, Salik and parking, so finance sees no surprises.</p></div>
-    </div>
-  </div>
-</section>
-{JL}
-<section class="sec">
-  <div class="wrap">
-    <div class="shead rv"><span class="lbl">Onboarding</span><h2>Operational in 48 hours.</h2></div>
-    <div class="hsteps rv">
-      <div class="hstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 7l8 6 8-6"/></svg></div><span class="when">Hour zero</span><h3>The enquiry</h3><p>Tell us how your company moves. Travel patterns, monthly volume, the departments involved and the standards you hold. We design the account to fit.</p></div>
-      <div class="hstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/></svg></div><span class="when">Within a day</span><h3>Your rate card</h3><p>Fixed corporate rates for the classes you use, with everything included and nothing metered.</p></div>
-      <div class="hstep"><div class="node"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/></svg></div><span class="when">Within 48 hours</span><h3>Account live</h3><p>Your team books any service on the account: airport transfers, hourly hire, inter-emirate journeys and events. Every booking runs to one standard. One consolidated invoice arrives at month-end.</p></div>
+    <div class="dossier acctfile rv">
+      <header class="ds-head">
+        <div class="ds-headL">
+          <span class="ds-kicker">UMC Dubai &mdash; Corporate Account</span>
+          <h2 class="ds-title">Your account, on file.</h2>
+          <p class="ds-intro">One agreement covers how your company moves. Everything below is held on your account and applied to every journey.</p>
+        </div>
+        <div class="ds-stamp" aria-hidden="true">
+          <div class="ds-stamp-row"><span class="k">Account</span><span class="v">Corporate</span></div>
+          <div class="ds-stamp-row"><span class="k">Status</span><span class="v amb">Open</span></div>
+        </div>
+      </header>
+      <div class="acct-grid">
+        <div class="acct-item"><div class="acct-meta"><span class="acct-num">01</span><span class="acct-cat">Account</span></div><h3 class="acct-title">One account, one invoice</h3><p class="acct-desc">A dedicated account contact, consolidated monthly invoicing with per-journey breakdowns, and cost-centre references on request.</p></div>
+        <div class="acct-item"><div class="acct-meta"><span class="acct-num">02</span><span class="acct-cat">Booking</span></div><h3 class="acct-title">Book for anyone</h3><p class="acct-desc">Assistants and travel managers reserve for executives and guests in minutes by phone, WhatsApp or email. A name board waits at every arrival.</p></div>
+        <div class="acct-item"><div class="acct-meta"><span class="acct-num">03</span><span class="acct-cat">Duty of care</span></div><h3 class="acct-title">Vetted and accountable</h3><p class="acct-desc">Employed and background-checked chauffeurs in maintained late-model vehicles, with live flight tracking and a human escalation path at any hour.</p></div>
+        <div class="acct-item"><div class="acct-meta"><span class="acct-num">04</span><span class="acct-cat">Roadshows</span></div><h3 class="acct-title">Movements, to the minute</h3><p class="acct-desc">Investor roadshows, delegations and multi-car convoys coordinated under a single point of contact.</p></div>
+        <div class="acct-item"><div class="acct-meta"><span class="acct-num">05</span><span class="acct-cat">Discretion</span></div><h3 class="acct-title">Confidential by default</h3><p class="acct-desc">Our chauffeurs serve senior executives daily. Conversations, documents and itineraries stay in the car.</p></div>
+        <div class="acct-item"><div class="acct-meta"><span class="acct-num">06</span><span class="acct-cat">Certainty</span></div><h3 class="acct-title">Fixed corporate rates</h3><p class="acct-desc">Agreed rates that include the chauffeur, fuel, Salik and parking, so finance sees no surprises.</p></div>
+      </div>
+      <footer class="ds-foot">
+        <span class="ds-foot-line">Held in confidence &middot; One account &middot; One standard</span>
+        <a class="ds-foot-cta" href="contact.html?vehicle=Corporate%20Account">Open an account &rarr;</a>
+      </footer>
     </div>
   </div>
 </section>
@@ -835,6 +869,39 @@ events_body = header("events.html") + f"""
     <p class="lede">For the occasions that deserve more than a car: a coordinated fleet, one point of contact and a standard that holds from the first arrival to the last.</p>
     <div class="btns rv" style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
       <a class="btn btn-ink" href="contact.html">Plan your occasion</a>
+    </div>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap">
+    <div class="dossier flmove rv">
+      <header class="ds-head">
+        <div class="ds-headL">
+          <span class="ds-kicker">UMC Dubai &mdash; Fleet Movement Order</span>
+          <h2 class="ds-title">A fleet in formation, however large.</h2>
+          <p class="ds-intro">From a single car to a convoy of more than a hundred, across one day or many. Every vehicle planned, staged and timed as one movement, your coordinator working alongside ours.</p>
+        </div>
+        <div class="ds-stamp" aria-hidden="true">
+          <div class="ds-stamp-row"><span class="k">Fleet</span><span class="v">1&ndash;100+</span></div>
+          <div class="ds-stamp-row"><span class="k">Duration</span><span class="v">Single / multi-day</span></div>
+          <div class="ds-stamp-row"><span class="k">Status</span><span class="v amb">Ready</span></div>
+        </div>
+      </header>
+      <div class="fm-rows">
+        <div class="fm-row"><div class="fm-label"><span class="fm-title">Enquiry</span><span class="fm-sub">Phase 01</span></div><p class="fm-desc">You tell us the occasion and the guests. We quote the fleet, and add cars as the plan grows.</p><span class="fm-tag">Quoted</span></div>
+        <div class="fm-row"><div class="fm-label"><span class="fm-title">Planning</span><span class="fm-sub">Phase 02</span></div><p class="fm-desc">Your coordinator and ours agree every movement: airport arrivals, shuttles, each car assigned to its party, hour by hour.</p><span class="fm-tag">Scheduled</span></div>
+        <div class="fm-row"><div class="fm-label"><span class="fm-title">Execution</span><span class="fm-sub">Phase 03</span></div><p class="fm-desc">Every car staged on site to schedule, moving in formation under a single point of contact.</p><span class="fm-tag">Staged</span></div>
+        <div class="fm-row"><div class="fm-label"><span class="fm-title">Held in reserve</span><span class="fm-sub">Standby</span></div><p class="fm-desc">Spare cars on standby for the unplanned, so a change of guest or schedule is never a problem you see.</p><span class="fm-tag">Reserve</span></div>
+      </div>
+      <div class="fm-pair">
+        <div><span class="fm-pair-lbl">Coordination</span><p>Your coordinator briefs ours once. From there the entire vehicle layer is ours to run.</p></div>
+        <div><span class="fm-pair-lbl">The fleet</span><p>Rolls-Royce, limousines, S-Class, a matched fleet of any marque. You name it, we arrange it.</p></div>
+      </div>
+      <footer class="ds-foot">
+        <span class="ds-foot-line">One movement &middot; One point of contact &middot; Nothing your guests see go wrong</span>
+        <a class="ds-foot-cta" href="contact.html">Plan your event &rarr;</a>
+      </footer>
     </div>
   </div>
 </section>

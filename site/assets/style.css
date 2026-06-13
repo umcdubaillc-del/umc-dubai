@@ -8,6 +8,7 @@
   --hair:rgba(34,27,20,.10); --line:rgba(34,27,20,.18);
   --wrap:1080px; --narrow:680px;
   --serif:'Marcellus',Georgia,serif; --sans:'Outfit',system-ui,sans-serif;
+  --mono:ui-monospace,'SF Mono','Cascadia Mono',Menlo,Consolas,monospace;
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth;scrollbar-color:#B9AC95 var(--bone-2);scrollbar-width:thin}
@@ -661,8 +662,7 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 
 /* airport: luggage-tag inclusions */
 .tagwrap{display:flex;justify-content:center;padding:.6rem 0}
-.lugtag{position:relative;width:min(540px,100%);background:var(--card);border:1px solid var(--line);border-radius:10px 22px 22px 10px;box-shadow:0 26px 50px -28px rgba(34,27,20,.45);transform:rotate(-1.4deg);padding:1.5rem 1.8rem 1.5rem 4.2rem}
-.lugtag::before{content:"";position:absolute;left:1.45rem;top:50%;transform:translateY(-50%);width:22px;height:22px;border-radius:50%;background:var(--bone);border:1.5px solid var(--amber);box-shadow:inset 0 0 0 3px var(--card)}
+.lugtag{position:relative;width:min(540px,100%);background:var(--card);border:1px solid var(--line);border-radius:10px 22px 22px 10px;box-shadow:0 26px 50px -28px rgba(34,27,20,.45);transform:rotate(-1.4deg);padding:1.5rem 1.8rem 1.5rem 3.4rem}
 .lugtag::after{content:"";position:absolute;left:2.75rem;top:10%;bottom:10%;width:1.5px;background:repeating-linear-gradient(var(--line) 0 5px, transparent 5px 10px)}
 .lugtag .tg-head{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--hair);padding-bottom:.7rem;margin-bottom:.85rem}
 .lugtag .tg-head .lbl{font-size:.56rem}
@@ -673,7 +673,7 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
  radial-gradient(circle at center,var(--amber) 0 2.5px,transparent 3px);transform:translateY(2px)}
 .lugtag .tg-foot{margin-top:1rem;padding-top:.75rem;border-top:1px solid var(--hair);font-size:.6rem;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between}
 .lugtag .tg-foot i{font-style:normal;color:var(--amber-deep)}
-@media(max-width:520px){.lugtag{padding-left:3.6rem;transform:rotate(0)}}
+@media(max-width:520px){.lugtag{padding-left:3.4rem;transform:rotate(0)}}
 
 /* ===================== v9 ===================== */
 /* manifest: structured term/description rows */
@@ -853,4 +853,74 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .occ-row:nth-child(even) .occ-txt{order:2}
 .occ-row:nth-child(even) .occ-side{order:1}
 @media(max-width:760px){.occ-row{grid-template-columns:1fr}.occ-row:nth-child(even) .occ-txt,.occ-row:nth-child(even) .occ-side{order:initial}}
+
+/* ===================== v27 ===================== */
+/* signature dossier: shared shell for Corporate Account File + Fleet Movement Order
+   institutional document language — espresso 2px frame, bone inner, mono clerical labels */
+.dossier{max-width:980px;margin:0 auto;background:var(--bone);border:2px solid var(--espresso);border-radius:11px;padding:clamp(1.6rem,3.5vw,2.4rem);position:relative}
+.dossier .ds-head{display:flex;justify-content:space-between;align-items:flex-start;gap:2rem;flex-wrap:wrap;margin-bottom:1.7rem}
+.dossier .ds-headL{flex:1 1 360px;min-width:0}
+.dossier .ds-kicker{display:block;font-family:var(--mono);font-size:.66rem;letter-spacing:.22em;color:var(--amber-deep);text-transform:uppercase;margin-bottom:.85rem}
+.dossier .ds-title{font-family:var(--serif);font-weight:400;color:var(--ink);font-size:clamp(1.55rem,3.4vw,2.05rem);line-height:1.18;letter-spacing:.01em;margin-bottom:.7rem}
+.dossier .ds-intro{font-size:.95rem;color:var(--muted);line-height:1.62;max-width:50ch}
+.dossier .ds-stamp{flex:0 0 auto;border:1px solid var(--line);border-radius:4px;padding:.7rem 1rem;min-width:212px;background:rgba(34,27,20,.025)}
+.dossier .ds-stamp-row{display:flex;justify-content:space-between;align-items:baseline;gap:1.4rem;font-family:var(--mono);font-size:.64rem;letter-spacing:.18em;text-transform:uppercase;padding:.34rem 0}
+.dossier .ds-stamp-row + .ds-stamp-row{border-top:1px dashed var(--hair)}
+.dossier .ds-stamp-row .k{color:var(--muted)}
+.dossier .ds-stamp-row .v{color:var(--ink)}
+.dossier .ds-stamp-row .v.amb{color:var(--amber-deep)}
+.dossier .ds-foot{display:flex;justify-content:space-between;align-items:center;gap:1.5rem;flex-wrap:wrap;margin-top:1.7rem;padding-top:1.25rem;border-top:1px solid var(--line)}
+.dossier .ds-foot-line{font-family:var(--mono);font-size:.6rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);line-height:1.5}
+.dossier .ds-foot-cta{font-family:var(--mono);font-size:.7rem;letter-spacing:.22em;text-transform:uppercase;color:var(--amber-deep);border-bottom:1px solid var(--amber);padding-bottom:2px;transition:color .25s cubic-bezier(.32,.72,0,1),letter-spacing .25s cubic-bezier(.32,.72,0,1);white-space:nowrap}
+.dossier .ds-foot-cta:hover{color:var(--amber);letter-spacing:.24em}
+
+/* T2 — corporate account file: 2 × 3 provisions */
+.acct-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 2.4rem;padding-top:.2rem;border-top:1px solid var(--line)}
+.acct-item{display:flex;flex-direction:column;gap:.5rem;padding:1.1rem 0;border-bottom:1px solid var(--hair)}
+.acct-item:nth-last-child(-n+2){border-bottom:0}
+.acct-item .acct-meta{display:flex;align-items:baseline;gap:.85rem;font-family:var(--mono);font-size:.62rem;letter-spacing:.22em;text-transform:uppercase}
+.acct-item .acct-num{color:var(--amber-deep)}
+.acct-item .acct-cat{color:var(--muted)}
+.acct-item .acct-title{font-family:var(--serif);font-weight:400;font-size:1.07rem;color:var(--ink);line-height:1.3;margin-top:.05rem}
+.acct-item .acct-desc{font-size:.82rem;color:var(--ink-soft);line-height:1.62}
+
+/* T3 — events fleet movement order: 4 phase rows + 2-column pair */
+.fm-rows{display:grid;gap:0;padding-top:.2rem;border-top:1px solid var(--line)}
+.fm-row{display:grid;grid-template-columns:135px 1fr 90px;gap:1.6rem;align-items:start;padding:1.05rem 0;border-bottom:1px solid var(--hair)}
+.fm-row:last-child{border-bottom:0}
+.fm-row .fm-title{display:block;font-family:var(--serif);font-weight:400;font-size:1rem;color:var(--ink);line-height:1.25}
+.fm-row .fm-sub{display:block;margin-top:.35rem;font-family:var(--mono);font-size:.6rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+.fm-row .fm-desc{font-size:.85rem;color:var(--ink-soft);line-height:1.62;padding-top:.05rem}
+.fm-row .fm-tag{justify-self:end;align-self:start;font-family:var(--mono);font-size:.62rem;letter-spacing:.22em;text-transform:uppercase;color:var(--amber-deep);padding-top:.1rem}
+.fm-pair{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid var(--line)}
+.fm-pair > div{padding:0 1.3rem}
+.fm-pair > div:first-child{padding-left:0;border-right:1px solid var(--hair)}
+.fm-pair > div:last-child{padding-right:0}
+.fm-pair .fm-pair-lbl{display:block;font-family:var(--mono);font-size:.62rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin-bottom:.5rem}
+.fm-pair p{font-size:.85rem;color:var(--ink-soft);line-height:1.62}
+
+/* mobile collapse (T2 + T3) — most traffic is mobile; this stack must look deliberate */
+@media(max-width:720px){
+  .dossier{border-radius:8px;padding:1.25rem 1.1rem 1.35rem;border-width:1.5px;max-width:none}
+  .dossier .ds-head{flex-direction:column;gap:1.05rem;margin-bottom:1.25rem}
+  .dossier .ds-headL{flex:1 1 100%}
+  .dossier .ds-kicker{margin-bottom:.7rem;font-size:.62rem;letter-spacing:.2em}
+  .dossier .ds-title{font-size:1.5rem;margin-bottom:.55rem}
+  .dossier .ds-intro{font-size:.9rem;max-width:none}
+  .dossier .ds-stamp{align-self:stretch;min-width:0;padding:.55rem .8rem}
+  .dossier .ds-stamp-row{font-size:.6rem;letter-spacing:.16em;gap:1rem;padding:.28rem 0}
+  .dossier .ds-foot{flex-direction:column;align-items:flex-start;gap:.9rem;margin-top:1.25rem;padding-top:1rem}
+  .dossier .ds-foot-line{font-size:.56rem;letter-spacing:.2em}
+  .dossier .ds-foot-cta{font-size:.66rem}
+  .acct-grid{grid-template-columns:1fr;gap:0}
+  .acct-item{padding:.9rem 0}
+  .acct-item:nth-last-child(-n+2){border-bottom:1px solid var(--hair)}
+  .acct-item:last-child{border-bottom:0}
+  .acct-item .acct-title{font-size:1rem}
+  .fm-row{grid-template-columns:1fr;gap:.45rem;padding:.95rem 0}
+  .fm-row .fm-tag{justify-self:start;padding-top:.05rem}
+  .fm-pair{grid-template-columns:1fr;gap:1rem;margin-top:1.25rem;padding-top:1rem}
+  .fm-pair > div{padding:0}
+  .fm-pair > div:first-child{border-right:0;padding-bottom:1rem;border-bottom:1px solid var(--hair)}
+}
 
