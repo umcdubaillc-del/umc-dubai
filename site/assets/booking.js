@@ -64,7 +64,20 @@
       </div>`;
     }).join("");
     el.querySelectorAll(".bk-car").forEach(c=>{
-      const pick = ()=>{ state.vehicle = c.dataset.id; renderCars(); summary(); $("secDetails").scrollIntoView({behavior:"smooth",block:"start"}); };
+      const pick = ()=>{
+        state.vehicle = c.dataset.id;
+        renderCars();
+        summary();
+        // rAF: wait for the post-render reflow before measuring; subtract the live sticky-
+        // header height (was hard-coded scrollIntoView, which dropped #secDetails behind the header).
+        requestAnimationFrame(()=>{
+          const el = $("secDetails"); if(!el) return;
+          const hdr = document.querySelector("header.site");
+          const offset = (hdr ? hdr.offsetHeight : 0) + 24;
+          const top = el.getBoundingClientRect().top + window.scrollY - offset;
+          window.scrollTo({ top, behavior:"smooth" });
+        });
+      };
       c.addEventListener("click", pick);
       c.addEventListener("keydown", e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); pick(); }});
     });
@@ -214,7 +227,6 @@
     m += "\nPick-up: " + g("kFrom");
     if(!hourly) m += "\nDestination: " + g("kTo");
     m += "\nDate: " + g("kDate") + "   Time: " + g("kTime");
-    if(state.km) m += "\nRoute: ~" + state.km + " km / " + state.mins + " min";
     if(!$("rowFlight").classList.contains("hide") && g("kFlight")) m += "\nFlight: " + g("kFlight");
     if(!$("rowSign").classList.contains("hide") && g("kSign")) m += "\nWelcome sign: " + g("kSign");
     if(state.service==="fullday") m += "\nDays: " + state.days;

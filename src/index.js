@@ -27,10 +27,26 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === "/api/lead") {
+      // Diagnostic: GET /api/lead?selftest=1 → which env bindings the Worker actually sees.
+      // Booleans only (never the secret values); mc_dc and email_to are non-secret config so
+      // the actual string is returned to help the owner verify the values are correct.
+      if (request.method === "GET" && url.searchParams.get("selftest") === "1") {
+        return json(
+          {
+            resend: !!env.RESEND_API_KEY,
+            sheets: !!env.SHEETS_WEBHOOK_URL,
+            mc_key: !!env.MC_API_KEY,
+            mc_dc: env.MC_DC || null,
+            mc_list: !!env.MC_LIST_ID,
+            email_to: env.LEAD_EMAIL_TO || null
+          },
+          200
+        );
+      }
       if (request.method !== "POST") {
         return new Response("Method Not Allowed", {
           status: 405,
-          headers: { "Allow": "POST", "Content-Type": "text/plain" }
+          headers: { "Allow": "POST, GET", "Content-Type": "text/plain" }
         });
       }
       return handleLead(request, env, ctx);
@@ -151,42 +167,78 @@ async function sendEmail(env, b) {
   };
   if (b.email) message.reply_to = b.email;
 
-  return fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: "Bearer " + env.RESEND_API_KEY,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(message)
-  });
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + env.RESEND_API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(message)
+    });
+    if (!res.ok) {
+      const bodyText = await res.text();
+      console.error("RESEND failed", res.status, bodyText);
+    } else {
+      console.log("RESEND ok", res.status);
+    }
+    return res;
+  } catch (e) {
+    console.error("RESEND threw", e && (e.message || String(e)));
+    throw e;
+  }
 }
 
 async function appendSheet(env, b) {
-  return fetch(env.SHEETS_WEBHOOK_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(b)
-  });
+  try {
+    const res = await fetch(env.SHEETS_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(b)
+    });
+    if (!res.ok) {
+      const bodyText = await res.text();
+      console.error("SHEETS failed", res.status, bodyText);
+    } else {
+      console.log("SHEETS ok", res.status);
+    }
+    return res;
+  } catch (e) {
+    console.error("SHEETS threw", e && (e.message || String(e)));
+    throw e;
+  }
 }
 
 async function addToMailchimp(env, b) {
   const hash = md5(b.email);
   const firstName = (b.name || "").split(/\s+/)[0] || "";
-  return fetch(
-    `https://${env.MC_DC}.api.mailchimp.com/3.0/lists/${env.MC_LIST_ID}/members/${hash}`,
-    {
-      method: "PUT",
-      headers: {
-        Authorization: "Basic " + btoa("anystring:" + env.MC_API_KEY),
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        email_address: b.email,
-        status_if_new: "subscribed",
-        merge_fields: { FNAME: firstName, PHONE: b.phone }
-      })
+  try {
+    const res = await fetch(
+      `https://${env.MC_DC}.api.mailchimp.com/3.0/lists/${env.MC_LIST_ID}/members/${hash}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: "Basic " + btoa("anystring:" + env.MC_API_KEY),
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          email_address: b.email,
+          status_if_new: "subscribed",
+          merge_fields: { FNAME: firstName, PHONE: b.phone }
+        })
+      }
+    );
+    if (!res.ok) {
+      const bodyText = await res.text();
+      console.error("MAILCHIMP failed", res.status, bodyText);
+    } else {
+      console.log("MAILCHIMP ok", res.status);
     }
-  );
+    return res;
+  } catch (e) {
+    console.error("MAILCHIMP threw", e && (e.message || String(e)));
+    throw e;
+  }
 }
 
 // --- Minimal MD5 (Joseph Myers, public domain, adapted) ---

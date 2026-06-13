@@ -428,7 +428,7 @@ booking_body = header("booking.html") + f"""
   <div class="wrap">
     <span class="lbl">Reservations</span>
     <h1>Reserve your car</h1>
-    <p class="lede">Your reservation is confirmed by our concierge on WhatsApp within minutes. No payment is taken online.</p>
+    <p class="lede">Our team confirms every reservation personally, usually within minutes of your request.</p>
   </div>
 </section>
 
