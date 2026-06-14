@@ -130,16 +130,22 @@ window.umcPhone = {
     if(t) t.value = veh;
   }
 
-  // homepage: shared carousel arrow — testimonials + mobile services (v31).
-  // v30 made activeIndex the source of truth (good), but Safari's snap engine
-  // still fought programmatic scrollTo({behavior:'smooth'}) under
-  // scroll-snap-type:mandatory — wrapping from the last card back to the first
-  // would die on the second cycle because Safari snap-corrected the smooth
-  // animation mid-flight. Fix: temporarily disable snap on the container
-  // before scrolling, then restore after the smooth animation settles. The
-  // browser obeys the scrollTo cleanly with snap off; re-enabling snap on a
-  // delay lets it lock the final position. Per-carousel restoreTimer so rapid
-  // arrow clicks don't restore snap mid-animation.
+  // homepage: shared carousel arrow — testimonials + mobile services (v32).
+  // v30: activeIndex is the source of truth (modulo wrap). v31: snap-disable
+  // during the programmatic scroll so Safari's mandatory snap engine doesn't
+  // fight the smooth animation. v32: compute the scroll target in scroll-
+  // container-local coords, not in offsetParent (body) coords.
+  //
+  // The bug v32 fixes: target.offsetLeft is measured from the element's
+  // offsetParent — for our cards that's <body>, because no ancestor in the
+  // .tcar/.svp chain is positioned. The scroll container's scrollLeft is in
+  // its own coordinate system, which differs from body coords by the
+  // container's own offset within the document (the ~20px .wrap padding at
+  // mid viewports). v30 was rescued by snap re-correction; v31 disabled snap
+  // and the misalignment surfaced as a clipped left edge after arrow nav.
+  // Subtracting c.offsetLeft (and any container paddingLeft, defensively for
+  // future scroll-padding work) converts target.offsetLeft into the value
+  // scrollTo expects, landing the card exactly where a swipe + snap would.
   const wireCarousel = (containerId, cardSelector, prevId, nextId) => {
     const c = document.getElementById(containerId);
     if(!c) return;
@@ -153,9 +159,11 @@ window.umcPhone = {
       if(!count) return;
       activeIndex = ((activeIndex + dir) % count + count) % count;
       const target = cards[activeIndex];
+      const padLeft = parseFloat(getComputedStyle(c).paddingLeft) || 0;
+      const targetLeft = target.offsetLeft - c.offsetLeft - padLeft;
       if(restoreTimer){ clearTimeout(restoreTimer); restoreTimer = null; }
       c.style.scrollSnapType = "none";
-      c.scrollTo({left: target.offsetLeft, behavior: "smooth"});
+      c.scrollTo({left: Math.max(0, targetLeft), behavior: "smooth"});
       restoreTimer = setTimeout(() => {
         c.style.scrollSnapType = "";
         restoreTimer = null;
