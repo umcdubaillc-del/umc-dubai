@@ -5,7 +5,8 @@ const UMC_FLEET_KEY = "umc_fleet";
 const DEFAULT_FLEET = [
   {id:"mb-s-class",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/mercedes.png",name:"Mercedes-Benz S-Class",category:"Flagship Sedan",year:2024,seats:4,luggage:2,
    r10:2400,r5:1800,ra:850,visible:true,
-   img:"https://static.vecteezy.com/system/resources/previews/067/164/815/non_2x/black-mercedes-s-class-sedan-isolated-on-transparent-background-png.png",
+   /* TEMPORARY — replace with real UMC S-Class photography when supplied. */
+   img:"assets/fleet/s-class/card.webp",photo:true,
    desc:"The reference point for executive travel. Reclining rear seats, supreme quiet."},
   {id:"bmw-7",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/bmw.png",name:"BMW 7 Series",category:"Flagship Sedan",year:2024,seats:4,luggage:2,
    r10:2000,r5:1300,ra:600,visible:true,
@@ -67,7 +68,7 @@ function renderFleet(el, opts){
     const from = fromRate(v);
     const bk = "booking.html?vehicle=" + encodeURIComponent(v.id);
     return `<article class="vcard rv" data-cat="${esc(v.category)}">
-      <div class="vimg"><img src="${esc(v.img)}" alt="${esc(v.name)} — chauffeur-driven in Dubai with UMC" loading="lazy"></div>
+      <div class="vimg${v.photo?" photo":""}"><img src="${esc(v.img)}" alt="${esc(v.name)} — chauffeur-driven in Dubai with UMC" loading="lazy"></div>
       <div class="vbody">
         <div class="vtitle"><h3>${esc(v.name)}</h3>${v.marque?`<img class="marque" src="${esc(v.marque)}" alt="" loading="lazy">`:""}</div>
         <div class="vmeta"><span>${esc(v.category)}</span><span>${v.seats} guests</span><span>${v.luggage} cases</span></div>
