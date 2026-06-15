@@ -1131,8 +1131,440 @@ notfound = header("index.html").replace('class="on"','') + f"""
 """ + FOOTER + "</body></html>"
 (SITE/"404.html").write_text(head("Page Not Found | UMC Dubai","","404") + notfound)
 
+# ---------- fleet / s-class (flagship model page; template for the other 7 cars) ----------
+SC_TAGLINES = [
+  "It is recognised before it stops.",
+  "Stillness once the door closes.",
+  "Presence on the approach.",
+  "The room you arrive in.",
+]
+SC_SLIDES = [
+  "Front three-quarter at a hotel forecourt, just before pick-up",
+  "Side profile against neutral architecture",
+  "Rear three-quarter as the car leaves frame",
+  "Detail — chrome grille and three-pointed star",
+]
+SC_HOTSPOTS = [
+  # (number, x%, y%, title, blurb, anchor: '', 'r', 'l', 'up')
+  (1, 64, 62, "Reclining rear seats", "Each rear seat reclines for distance journeys; bolstered headrest and adjustable footrest.", ""),
+  (2, 41, 30, "Privacy partition", "Glass partition raises on request — full acoustic separation from the chauffeur compartment.", ""),
+  (3, 52, 18, "Ambient lighting", "Continuous ceiling line, dimmable across the cabin in warm or cool tones.", ""),
+  (4, 78, 24, "Rear-zone climate", "Independent temperature for the rear cabin; your chauffeur sets your preference before pick-up.", "r"),
+  (5, 76, 58, "USB-C charging", "Discreet fast-charge ports at each rear seat, with cables on board.", "r"),
+]
+# TO BE CONFIRMED BY USMAN — final amenity list and wording.
+SC_AMENITIES = [
+  ('<svg viewBox="0 0 24 24"><path d="M10.2 2.5h3.6M12 2.5v3.4M9.6 9.2c-.7.8-1.1 1.7-1.1 2.8V19a2 2 0 0 0 2 2h3a2 2 0 0 0 2-2v-7c0-1.1-.4-2-1.1-2.8l-.9-1V5.9h-3v2.3z"/><path d="M8.5 13.5h7"/></svg>',
+   "Water", "Provided"),
+  ('<svg viewBox="0 0 24 24"><path d="M13 2.5L5.5 13H11l-1 8.5L17.5 11H12z"/></svg>',
+   "Phone chargers", "USB-C &amp; USB-A"),
+  ('<svg viewBox="0 0 24 24"><rect x="4" y="9" width="16" height="11" rx="2"/><path d="M8 9c0-4 8-4 8 0M10 13c.8 1 3.2 1 4 0"/></svg>',
+   "Tissues &amp; wipes", "Restocked daily"),
+  ('<svg viewBox="0 0 24 24"><path d="M12 3c0 2.5-3 3.5-3 6.5a3 3 0 0 0 6 0C15 6.5 12 5.5 12 3z"/><path d="M5 14c0 3 3 5 7 5s7-2 7-5"/><path d="M6 18l1.4 2M18 18l-1.4 2"/></svg>',
+   "A clean cabin", "Detailed between journeys"),
+  ('<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.2"/><path d="M12 4v2.4M12 17.6V20M4 12h2.4M17.6 12H20M6.3 6.3l1.7 1.7M16 16l1.7 1.7M6.3 17.7L8 16M16 8l1.7-1.7"/></svg>',
+   "Climate your way", "Independent rear zone"),
+  ('<svg viewBox="0 0 24 24"><path d="M4 10v4h3l4 4V6L7 10H4z"/><path d="M16.5 9.5l5 5M21.5 9.5l-5 5"/></svg>',
+   "Quiet on request", "Spoken or in writing"),
+]
+
+def sc_placeholder(i, alt):
+    # Tasteful HTML/SVG placeholder — clearly marked, swap for real photo later.
+    rot = 30 + i*30
+    return (
+      f'<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Placeholder: {alt}">'
+      f'<defs><linearGradient id="scph{i}bg" x1="0" y1="0" x2="1" y2="1" gradientTransform="rotate({rot})">'
+      '<stop offset="0" stop-color="#EFE8D9"/><stop offset=".55" stop-color="#7A6F5F"/><stop offset="1" stop-color="#231B12"/></linearGradient>'
+      f'<radialGradient id="scph{i}glow" cx=".55" cy=".62" r=".7">'
+      '<stop offset="0" stop-color="#F6F1E7" stop-opacity=".18"/><stop offset="1" stop-color="#231B12" stop-opacity="0"/></radialGradient></defs>'
+      f'<rect width="1600" height="900" fill="url(#scph{i}bg)"/>'
+      f'<rect width="1600" height="900" fill="url(#scph{i}glow)"/>'
+      '<g transform="translate(260,440)" fill="#231B12" opacity=".48">'
+      '<path d="M0 180 Q60 130 200 110 L380 60 Q510 30 720 30 Q920 30 1010 60 L1080 100 L1140 110 Q1180 130 1180 180 Z"/>'
+      '<ellipse cx="220" cy="200" rx="62" ry="10" opacity=".55"/><ellipse cx="940" cy="200" rx="62" ry="10" opacity=".55"/>'
+      '<circle cx="220" cy="184" r="42"/><circle cx="940" cy="184" r="42"/>'
+      '<circle cx="220" cy="184" r="18" fill="#7A6F5F"/><circle cx="940" cy="184" r="18" fill="#7A6F5F"/></g>'
+      '<g font-family="Outfit, sans-serif" fill="#F6F1E7">'
+      f'<text x="60" y="60" font-size="20" letter-spacing="6" opacity=".7">{i+1:02d} &#8202;/&#8202; 04</text>'
+      f'<text x="60" y="858" font-size="14" letter-spacing="4" opacity=".55">PLACEHOLDER &#8226; REPLACE WITH: {alt}</text>'
+      '</g></svg>'
+    )
+
+def sc_hotspot_html(h):
+    n, x, y, title, blurb, anchor = h
+    pop_class = "sc-int__pop" + ((" " + anchor) if anchor else "")
+    return (f'<div class="sc-int__spot" style="left:{x}%;top:{y}%">'
+            f'<button type="button" aria-expanded="false" aria-controls="sc-pop-{n}" aria-label="{title}">{n}</button>'
+            f'<div id="sc-pop-{n}" class="{pop_class}" role="dialog" aria-label="{title}">'
+            f'<b>{title}</b><span>{blurb}</span></div></div>')
+
+def sc_hotspot_li(h):
+    n, _x, _y, title, blurb, _a = h
+    return f'<li><span class="n">{n}</span><div><b>{title}</b><span>{blurb}</span></div></li>'
+
+def sc_amenity_cell(a):
+    svg, label, meta = a
+    return f'<div class="sc-am__cell"><span class="ico">{svg}</span><b>{label}</b><span class="meta">{meta}</span></div>'
+
+sc_slides_html = "".join(
+    f'<div class="sc-hero__slide" data-slide="{i}" role="group" aria-label="Slide {i+1} of {len(SC_SLIDES)}">'
+    f'<!-- REPLACE WITH REAL PHOTO ({i+1}/{len(SC_SLIDES)}): {alt} -->'
+    f'{sc_placeholder(i, alt)}</div>'
+    for i, alt in enumerate(SC_SLIDES)
+)
+def _sc_dot(i):
+    cls = ' class="on" aria-current="true"' if i == 0 else ''
+    return f'<button type="button" data-go="{i}" aria-label="Show slide {i+1}"{cls}></button>'
+sc_dots_html = "".join(_sc_dot(i) for i in range(len(SC_SLIDES)))
+sc_taglines_html = "".join(
+    f'<div class="sc-hero__tagline{(" on" if i==0 else "")}" data-tag="{i}">{t}</div>'
+    for i, t in enumerate(SC_TAGLINES)
+)
+sc_hotspots_html = "".join(sc_hotspot_html(h) for h in SC_HOTSPOTS)
+sc_hotlist_html = "".join(sc_hotspot_li(h) for h in SC_HOTSPOTS)
+sc_amenities_html = "".join(sc_amenity_cell(a) for a in SC_AMENITIES)
+
+# Interior cabin SVG — side cross-section, hand-drawn editorial feel.
+SC_INTERIOR_SVG = '''
+<svg class="sc-int__svg" viewBox="0 0 1000 360" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="scInteriorT">
+  <title id="scInteriorT">Side cross-section of the S-Class rear cabin</title>
+  <!-- ground -->
+  <line class="ground" x1="20" y1="328" x2="980" y2="328"/>
+  <!-- body fill -->
+  <path class="body-fill" d="M40 270 Q50 200 130 175 Q200 158 290 110 Q380 70 540 64 Q700 58 820 90 Q900 110 940 160 Q970 200 968 270 L968 280 L40 280 Z"/>
+  <!-- roof outline -->
+  <path class="roof" d="M40 270 Q50 200 130 175 Q200 158 290 110 Q380 70 540 64 Q700 58 820 90 Q900 110 940 160 Q970 200 968 270"/>
+  <!-- floor outline -->
+  <path class="floor" d="M30 282 L80 295 L160 304 L235 304 Q260 304 270 304 L780 304 Q820 304 850 295 L970 282"/>
+  <!-- ambient ceiling light (amber) -->
+  <path class="ambient" d="M170 120 Q360 75 540 70 Q700 68 820 95"/>
+  <!-- windows -->
+  <path class="window" d="M160 165 Q200 145 280 118 L370 90 Q460 75 540 73 Q620 73 680 80 L760 96 Q820 110 850 132 L850 168 L160 168 Z"/>
+  <!-- partition between front and rear -->
+  <line class="partition" x1="430" y1="80" x2="430" y2="270"/>
+  <!-- driver seat (front) -->
+  <path class="seat-back" d="M280 170 L320 170 L324 250 L284 250 Z"/>
+  <path class="seat-cushion" d="M280 250 L340 250 L342 268 L282 268 Z"/>
+  <!-- steering wheel -->
+  <circle class="wheel" cx="240" cy="200" r="14"/>
+  <line class="ink-line" x1="232" y1="210" x2="240" y2="200"/>
+  <!-- rear cabin seats (reclined) -->
+  <path class="headrest" d="M540 92 L580 92 L582 124 L540 124 Z"/>
+  <path class="seat-back" d="M540 124 L600 124 L640 220 L562 220 Z"/>
+  <path class="seat-cushion" d="M562 220 L760 220 L780 252 L582 252 Z"/>
+  <!-- footrest extension -->
+  <path class="seat-cushion" d="M760 232 L820 232 L820 252 L780 252 Z"/>
+  <!-- subtle floor seam -->
+  <line class="deco" x1="430" y1="265" x2="430" y2="304"/>
+  <!-- wheels -->
+  <circle class="wheel" cx="190" cy="305" r="34"/>
+  <circle class="wheel-inner" cx="190" cy="305" r="18"/>
+  <circle class="wheel" cx="820" cy="305" r="34"/>
+  <circle class="wheel-inner" cx="820" cy="305" r="18"/>
+</svg>'''
+
+# Capacity SVG — top-down plan of the S-Class.
+SC_CAPACITY_SVG = '''
+<svg class="sc-cap__svg" viewBox="0 0 300 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="scCapT" aria-describedby="scCapDesc">
+  <title id="scCapT">Top-down plan of the S-Class cabin</title>
+  <desc id="scCapDesc">Toggle the passenger count to highlight occupied seats. Up to four passengers, two large bags.</desc>
+  <!-- body outline -->
+  <path class="body" d="M150 12 C 78 12, 36 60, 36 130 L36 480 C 36 552, 78 588, 150 588 C 222 588, 264 552, 264 480 L264 130 C 264 60, 222 12, 150 12 Z"/>
+  <!-- bonnet -->
+  <path class="deco" d="M58 110 L60 80 M242 110 L240 80 M150 24 L150 70"/>
+  <!-- glass shapes -->
+  <path class="glass" d="M70 96 Q150 70 230 96 L230 162 Q150 150 70 162 Z"/>
+  <path class="glass" d="M62 380 Q150 408 238 380 L238 472 Q150 488 62 472 Z"/>
+  <!-- partition seam -->
+  <line class="deco" x1="60" y1="270" x2="240" y2="270"/>
+  <!-- driver (always shown subtly) -->
+  <rect class="seat driver" x="56" y="170" width="64" height="88" rx="10"/>
+  <text class="label" x="48" y="218" text-anchor="middle" transform="rotate(-90 48 218)">Chauffeur</text>
+  <circle class="wheel" cx="88" cy="200" r="3.4"/>
+  <!-- front passenger -->
+  <rect class="seat" data-seat="front-pax" x="180" y="170" width="64" height="88" rx="10"/>
+  <text class="label" data-for="front-pax" x="252" y="218" text-anchor="middle" transform="rotate(90 252 218)">Front</text>
+  <!-- rear bench: rear-l / rear-c / rear-r -->
+  <rect class="seat" data-seat="rear-l" x="56" y="294" width="58" height="80" rx="10"/>
+  <text class="label" data-for="rear-l" x="48" y="338" text-anchor="middle" transform="rotate(-90 48 338)">Rear · L</text>
+  <rect class="seat" data-seat="rear-c" x="121" y="294" width="58" height="80" rx="10"/>
+  <text class="label" data-for="rear-c" x="150" y="276" text-anchor="middle">Rear · C</text>
+  <rect class="seat" data-seat="rear-r" x="186" y="294" width="58" height="80" rx="10"/>
+  <text class="label" data-for="rear-r" x="252" y="338" text-anchor="middle" transform="rotate(90 252 338)">Rear · R</text>
+  <!-- trunk with 2 large bags -->
+  <rect class="luggage" x="86" y="500" width="56" height="68" rx="4"/>
+  <line class="leader" x1="86" y1="514" x2="142" y2="514"/>
+  <line class="leader" x1="86" y1="552" x2="142" y2="552"/>
+  <rect class="luggage" x="158" y="500" width="56" height="68" rx="4"/>
+  <line class="leader" x1="158" y1="514" x2="214" y2="514"/>
+  <line class="leader" x1="158" y1="552" x2="214" y2="552"/>
+  <text class="label" x="150" y="494" text-anchor="middle">Boot · 2 large</text>
+</svg>'''
+
+sc_body = header("fleet.html").replace('class="on"','class="on"') + f"""
+<section class="sc-hero" aria-roledescription="carousel" aria-label="Mercedes-Benz S-Class — exterior gallery">
+  <div class="sc-hero__inner">
+    <div class="sc-hero__rail" aria-hidden="true">
+      <span class="chap">Chapter I &#8201;·&#8201; The S-Class</span>
+      <div class="barwrap"><span class="bar" style="height:25%"></span></div>
+    </div>
+    <div class="sc-hero__stage">
+      <div class="sc-hero__track">{sc_slides_html}</div>
+    </div>
+    <div class="sc-hero__caps">
+      <div class="sc-hero__caps-inner">
+        <div>
+          <div class="sc-hero__kicker">Mercedes-Benz S-Class</div>
+          <div class="sc-hero__taglines" aria-live="polite">{sc_taglines_html}</div>
+        </div>
+        <div class="sc-hero__ctas">
+          <a class="btn btn-ink" href="booking.html?vehicle=mb-s-class">Reserve the S-Class</a>
+          <a class="btn-line" href="#interior">Read the interior</a>
+        </div>
+      </div>
+    </div>
+    <div class="sc-hero__arrows">
+      <button type="button" data-hero="prev" aria-label="Previous slide"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+      <button type="button" data-hero="next" aria-label="Next slide"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+    </div>
+    <div class="sc-hero__dots" role="tablist" aria-label="Slide selector">{sc_dots_html}</div>
+  </div>
+</section>
+
+<section class="sc-int" id="interior">
+  <div class="sc-int__head">
+    <div>
+      <span class="sc-eyebrow"><span class="num">i.</span><span class="rule"></span><span>The Interior</span></span>
+      <h2>The quiet room.</h2>
+    </div>
+    <p class="lede">The rear of the S-Class is a small private room that happens to move. <em>The light is warm, the line is straight, the world outside is muted.</em> Sit, recline, take a call — or simply stop talking.</p>
+  </div>
+  <div class="sc-int__canvas">
+    <div class="sc-int__plate">
+      <span class="sc-int__corner tl"></span><span class="sc-int__corner tr"></span>
+      <span class="sc-int__corner bl"></span><span class="sc-int__corner br"></span>
+      <div class="sc-int__stage">
+        {SC_INTERIOR_SVG}
+        <div class="sc-int__spots">{sc_hotspots_html}</div>
+      </div>
+    </div>
+  </div>
+  <div class="sc-int__list" aria-label="Cabin features"><ol>{sc_hotlist_html}</ol></div>
+</section>
+
+<section class="sc-am" id="amenities">
+  <div class="sc-am__head">
+    <span class="sc-eyebrow"><span class="num">ii.</span><span class="rule"></span><span>On Board</span></span>
+    <h2>Provided in every cabin.</h2>
+    <p class="lede">A short, honest list. Nothing is sold separately.</p>
+  </div>
+  <!-- TO BE CONFIRMED BY USMAN — final amenity list and wording -->
+  <div class="sc-am__grid" role="list">{sc_amenities_html}</div>
+  <p class="sc-am__note">List under review &#8212; confirm with Usman before launch.</p>
+</section>
+
+<section class="sc-cap" id="capacity">
+  <div class="sc-cap__wrap">
+    <div class="sc-cap__copy">
+      <span class="sc-eyebrow"><span class="num">iii.</span><span class="rule"></span><span>Capacity</span></span>
+      <h2>How many travel.</h2>
+      <p class="lede">Use the keys to see how the cabin fills. Up to four passengers, two large suitcases &#8212; one chauffeur, always.</p>
+      <div class="sc-cap__toggle" role="group" aria-label="Number of passengers">
+        <button type="button" data-n="1" aria-pressed="false">1</button>
+        <button type="button" data-n="2" aria-pressed="true" class="on">2</button>
+        <button type="button" data-n="3" aria-pressed="false">3</button>
+        <button type="button" data-n="4" aria-pressed="false">4</button>
+      </div>
+      <div class="sc-cap__count" aria-live="polite">
+        <div class="it"><span class="k">Passengers</span><span class="v"><em>2</em> &nbsp;of 4</span></div>
+        <div class="it"><span class="k">Large bags</span><span class="v">2</span></div>
+        <div class="it"><span class="k">Chauffeur</span><span class="v">1</span></div>
+      </div>
+    </div>
+    <div class="sc-cap__svgwrap">
+      {SC_CAPACITY_SVG}
+      <div class="sc-cap__legend"><span><i class="s-on"></i>Occupied</span><span><i></i>Available</span><span><i class="s-drv"></i>Chauffeur</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="sc-paper">
+  <div class="sc-paper__wrap">
+    <div class="sc-paper__head">
+      <span class="sc-eyebrow" style="justify-content:center"><span class="num">iv.</span><span class="rule"></span><span>On Paper</span></span>
+      <h2>The plain facts.</h2>
+    </div>
+    <article class="card">
+      <div class="rows">
+        <div class="row"><span class="k">Passengers</span><span class="v">Up to 4</span></div>
+        <div class="row"><span class="k">Luggage</span><span class="v">2 large suitcases</span></div>
+        <div class="row"><span class="k">Suited to</span><span class="v">Executive travel</span></div>
+      </div>
+      <p>The Mercedes&#8209;Benz S&#8209;Class is the reference point for chauffeur travel in Dubai. Reclining rear seats, a hushed cabin, independent rear&#8209;zone climate and discreet charging at every seat. Suited to airport arrivals from DXB or DWC, board meetings between the Difc and the Marina, and any journey where the room you arrive in should feel like the room you left.</p>
+    </article>
+  </div>
+</section>
+
+<section class="sc-chau">
+  <div class="sc-chau__wrap">
+    <div>
+      <span class="sc-eyebrow"><span class="num">v.</span><span class="rule"></span><span>The Chauffeur</span></span>
+      <h2>It is chauffeur-driven.</h2>
+      <p>Every S-Class on this fleet travels with a uniformed chauffeur on our payroll. Vetted, trained and held to a single standard. They hold the door, they know the route, they keep the cabin quiet until you speak first.</p>
+      <ul class="sc-chau__points">
+        <li>Employed by UMC &#8212; not contracted, not platform-supplied.</li>
+        <li>Routes planned before the engine starts; airport arrivals tracked from departure.</li>
+        <li>Standing instruction: silence is the default; conversation on request.</li>
+      </ul>
+    </div>
+    <aside class="sc-chau__quote">
+      <span class="lbl">House standard</span>
+      <blockquote>&ldquo;The chauffeur arrives early, parks where the door will open onto your side, and waits with the engine running.&rdquo;</blockquote>
+      <div class="attr"><span class="dash"></span>UMC Operations &#8226; Dubai</div>
+    </aside>
+  </div>
+</section>
+
+<section class="closing band-dark">
+  <div class="wrap">
+    <span class="lbl">Reservations</span>
+    <h2 class="rv">Reserve the S-Class.</h2>
+    <div class="btns rv">
+      <a class="btn btn-ink" href="booking.html?vehicle=mb-s-class">Reserve the S-Class</a>
+      <a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a>
+    </div>
+  </div>
+</section>
+
+<section class="sc-also">
+  <div class="sc-also__head">
+    <span class="sc-eyebrow" style="justify-content:center"><span class="num">vi.</span><span class="rule"></span><span>Also Consider</span></span>
+    <h2>Adjacent to the S-Class.</h2>
+  </div>
+  <div class="sc-also__grid">
+    <article class="acard">
+      <div class="marque-row"><span class="mk">Bayerische Motoren Werke</span><span class="dash"></span><span>Flagship Sedan</span></div>
+      <h3>BMW 7 Series</h3>
+      <div class="strap">The same standard, a different signature.</div>
+      <p>An equally calm flagship for clients who prefer the marque. Identical seats, identical luggage, identical chauffeur policy.</p>
+      <div class="stats">
+        <div class="it"><span class="k">Passengers</span><span class="v">Up to 4</span></div>
+        <div class="it"><span class="k">Luggage</span><span class="v">2 large</span></div>
+      </div>
+      <a class="btn-line" href="booking.html?vehicle=bmw-7">Reserve the 7 Series</a>
+    </article>
+    <article class="acard">
+      <div class="marque-row"><span class="mk">Mercedes-Benz</span><span class="dash"></span><span>Luxury Van</span></div>
+      <h3>Mercedes V-Class</h3>
+      <div class="strap">Travelling together &#8212; a cabin where the group faces in.</div>
+      <p>Captain&#8217;s chairs facing each other for up to seven, generous luggage and the same chauffeur standard. Where the conversation is part of the journey.</p>
+      <div class="stats">
+        <div class="it"><span class="k">Passengers</span><span class="v">Up to 7</span></div>
+        <div class="it"><span class="k">Luggage</span><span class="v">5 large</span></div>
+      </div>
+      <a class="btn-line" href="booking.html?vehicle=mb-v-class">Reserve the V-Class</a>
+    </article>
+  </div>
+</section>
+
+<script>
+(function(){{
+  var rm = matchMedia("(prefers-reduced-motion:reduce)").matches;
+
+  /* ---------- hero gallery ---------- */
+  var hero = document.querySelector(".sc-hero");
+  if(hero){{
+    var track = hero.querySelector(".sc-hero__track");
+    var slides = hero.querySelectorAll(".sc-hero__slide");
+    var dots = hero.querySelectorAll(".sc-hero__dots button");
+    var taglines = hero.querySelectorAll(".sc-hero__tagline");
+    var bar = hero.querySelector(".sc-hero__rail .bar");
+    var prev = hero.querySelector('[data-hero="prev"]');
+    var next = hero.querySelector('[data-hero="next"]');
+    var n = slides.length, i = 0, timer = null;
+    function go(k){{
+      i = (k + n) % n;
+      track.style.transform = "translateX(-" + (i * 100) + "%)";
+      dots.forEach(function(b, idx){{ b.classList.toggle("on", idx === i); b.setAttribute("aria-current", idx === i ? "true" : "false"); }});
+      taglines.forEach(function(el, idx){{ el.classList.toggle("on", idx === i); }});
+      if(bar) bar.style.height = (((i + 1) / n) * 100) + "%";
+    }}
+    function step(){{ go(i + 1); }}
+    function play(){{ if(rm) return; stop(); timer = setInterval(step, 6200); }}
+    function stop(){{ if(timer){{ clearInterval(timer); timer = null; }} }}
+    dots.forEach(function(b, idx){{ b.addEventListener("click", function(){{ go(idx); play(); }}); }});
+    if(prev) prev.addEventListener("click", function(){{ go(i - 1); play(); }});
+    if(next) next.addEventListener("click", function(){{ go(i + 1); play(); }});
+    var sx = 0, dx = 0;
+    var stage = hero.querySelector(".sc-hero__stage");
+    if(stage){{
+      stage.addEventListener("touchstart", function(e){{ sx = e.touches[0].clientX; dx = 0; stop(); }}, {{passive:true}});
+      stage.addEventListener("touchmove", function(e){{ dx = e.touches[0].clientX - sx; }}, {{passive:true}});
+      stage.addEventListener("touchend", function(){{ if(Math.abs(dx) > 40) go(i + (dx < 0 ? 1 : -1)); play(); }}, {{passive:true}});
+    }}
+    hero.addEventListener("mouseenter", stop);
+    hero.addEventListener("mouseleave", play);
+    document.addEventListener("visibilitychange", function(){{ if(document.hidden){{ stop(); }} else {{ play(); }} }});
+    go(0); play();
+  }}
+
+  /* ---------- interior hotspots ---------- */
+  var spots = document.querySelectorAll(".sc-int__spot button");
+  function closeAll(){{ spots.forEach(function(b){{ b.setAttribute("aria-expanded", "false"); var p = b.parentElement.querySelector(".sc-int__pop"); if(p) p.classList.remove("on"); }}); }}
+  spots.forEach(function(b){{
+    b.addEventListener("click", function(e){{
+      e.stopPropagation();
+      var was = b.getAttribute("aria-expanded") === "true";
+      closeAll();
+      if(!was){{
+        b.setAttribute("aria-expanded", "true");
+        var p = b.parentElement.querySelector(".sc-int__pop");
+        if(p) p.classList.add("on");
+      }}
+    }});
+  }});
+  document.addEventListener("click", function(e){{ if(!e.target.closest(".sc-int__spot")) closeAll(); }});
+  document.addEventListener("keydown", function(e){{ if(e.key === "Escape") closeAll(); }});
+
+  /* ---------- capacity diagram ---------- */
+  var cap = document.querySelector(".sc-cap");
+  if(cap){{
+    var btns = cap.querySelectorAll(".sc-cap__toggle button");
+    var countEm = cap.querySelector(".sc-cap__count em");
+    /* Fill order chosen for narrative truth: solo rides rear-right (executive),
+       a pair adds rear-left, three fills the bench, four adds the front passenger. */
+    var order = ["rear-r","rear-l","rear-c","front-pax"];
+    function setCount(c){{
+      cap.querySelectorAll(".sc-cap__svg .seat[data-seat]").forEach(function(s){{ s.classList.remove("on"); }});
+      cap.querySelectorAll(".sc-cap__svg .label[data-for]").forEach(function(l){{ l.classList.remove("on"); }});
+      for(var k = 0; k < c; k++){{
+        var id = order[k];
+        cap.querySelectorAll(".sc-cap__svg .seat[data-seat='" + id + "']").forEach(function(s){{ s.classList.add("on"); }});
+        cap.querySelectorAll(".sc-cap__svg .label[data-for='" + id + "']").forEach(function(l){{ l.classList.add("on"); }});
+      }}
+      if(countEm) countEm.textContent = c;
+      btns.forEach(function(b){{ var on = +b.dataset.n === c; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); }});
+    }}
+    btns.forEach(function(b){{ b.addEventListener("click", function(){{ setCount(+b.dataset.n); }}); }});
+    setCount(2);
+  }}
+}})();
+</script>
+""" + FOOTER + "</body></html>"
+
+# Place the page at /fleet/s-class. Inject <base href="/"> immediately before <title>
+# so that the shared head's relative URLs (assets/, favicon, nav links, extra link, FOOTER hrefs)
+# all resolve from the document root regardless of subdirectory depth.
+sc_head = head("Mercedes S-Class Chauffeur in Dubai &mdash; The Reference Standard | UMC Dubai",
+               "Chauffeur-driven Mercedes-Benz S-Class in Dubai and across the UAE: reclining rear seats, hushed cabin, vetted UMC chauffeur. Reserve in minutes.",
+               "fleet/s-class/",
+               f'<link rel="stylesheet" href="assets/s-class.css?v={V}">')
+sc_head = sc_head.replace('<title>', '<base href="/">\n<title>', 1)
+(SITE/"fleet").mkdir(parents=True, exist_ok=True)
+(SITE/"fleet"/"s-class.html").write_text(sc_head + sc_body)
+
 # ---------- sitemap & robots & headers ----------
-pages = ["", "fleet.html","airport-transfers.html","inter-emirate.html","corporate.html","events.html","about.html","contact.html","booking.html","terms.html","privacy.html"]
+pages = ["", "fleet.html","fleet/s-class","airport-transfers.html","inter-emirate.html","corporate.html","events.html","about.html","contact.html","booking.html","terms.html","privacy.html"]
 urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><changefreq>weekly</changefreq></url>" for p in pages)
 (SITE/"sitemap.xml").write_text(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>')
 (SITE/"robots.txt").write_text("User-agent: *\nAllow: /\nSitemap: https://umcdubai.ae/sitemap.xml\n")
