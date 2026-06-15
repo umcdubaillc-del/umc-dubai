@@ -267,7 +267,8 @@ ld_home = '<script type="application/ld+json">'+json.dumps({
 
 index_body = header("index.html") + f"""
 <section class="hero2" id="book">
-  <div class="h2bg" role="img" aria-label="Sheikh Zayed Road at dusk"></div>
+  <!-- TEMPORARY hero image — replace with real UMC photography ASAP. -->
+  <div class="h2bg" role="img" aria-label="Luxury chauffeur sedan at the kerbside"></div>
   <div class="h2scrim"></div>
   <div class="wrap h2grid">
     <div class="h2copy">
@@ -1132,21 +1133,19 @@ notfound = header("index.html").replace('class="on"','') + f"""
 (SITE/"404.html").write_text(head("Page Not Found | UMC Dubai","","404") + notfound)
 
 # ---------- fleet / s-class (flagship model page; template for the other 7 cars) ----------
-SC_TAGLINES = [
-  "It is recognised before it stops.",
-  "Stillness once the door closes.",
-  "Presence on the approach.",
-  "The room you arrive in.",
+# Single static hero image (no rotation, no dots).
+SC_HERO_IMG = ("hero-1.webp", "Mercedes-Benz S-Class — front three-quarter exterior at the kerbside")
+SC_HERO_TAGLINE = "It is recognised before it stops."
+# Four supporting cabin shots sit in a 2x2 grid beside the primary interior image. No hotspots on these.
+SC_INT_DETAILS = [
+  ("hero-2.webp", "Cabin detail"),
+  ("hero-3.webp", "Cabin detail"),
+  ("hero-4.webp", "Cabin detail"),
+  ("hero-5.webp", "Cabin detail"),
 ]
-# Hero gallery — self-hosted images under /assets/fleet/s-class/.
-# TEMPORARY pending real UMC photography.
-SC_SLIDES = [
-  ("hero-1.webp", "Mercedes-Benz S-Class — exterior, front three-quarter"),
-  ("hero-2.webp", "Mercedes-Benz S-Class — exterior"),
-  ("hero-3.webp", "Mercedes-Benz S-Class — exterior"),
-  ("hero-4.webp", "Mercedes-Benz S-Class — exterior"),
-  ("hero-5.webp", "Mercedes-Benz S-Class — exterior"),
-]
+# Hotspot pin coordinates (x%, y%) are placeholders against the temporary interior image.
+# RE-PIN against the new HD interior photo from Usman when it lands — the hotspot system
+# accepts any (x%, y%) per marker without code changes elsewhere.
 SC_HOTSPOTS = [
   # (number, x%, y%, title, blurb, anchor: '', 'r', 'l', 'up')
   (1, 50, 60, "Reclining rear seats", "Each rear seat reclines for distance journeys; bolstered headrest and adjustable footrest.", ""),
@@ -1187,43 +1186,31 @@ def sc_amenity_cell(a):
     svg, label, meta = a
     return f'<div class="sc-am__cell"><span class="ico">{svg}</span><b>{label}</b><span class="meta">{meta}</span></div>'
 
-def _sc_slide(i, src, alt):
-    loading = 'eager' if i == 0 else 'lazy'
-    pri = ' fetchpriority="high"' if i == 0 else ''
-    return (f'<div class="sc-hero__slide" data-slide="{i}" role="group" aria-label="Slide {i+1} of {len(SC_SLIDES)}">'
-            f'<!-- TEMPORARY hero image — replace with real UMC S-Class photography. -->'
-            f'<img src="assets/fleet/s-class/{src}" alt="{alt}" loading="{loading}"{pri}></div>')
-sc_slides_html = "".join(_sc_slide(i, src, alt) for i, (src, alt) in enumerate(SC_SLIDES))
-def _sc_dot(i):
-    cls = ' class="on" aria-current="true"' if i == 0 else ''
-    return f'<button type="button" data-go="{i}" aria-label="Show slide {i+1}"{cls}></button>'
-sc_dots_html = "".join(_sc_dot(i) for i in range(len(SC_SLIDES)))
-sc_taglines_html = "".join(
-    f'<div class="sc-hero__tagline{(" on" if i==0 else "")}" data-tag="{i}">{t}</div>'
-    for i, t in enumerate(SC_TAGLINES)
-)
 sc_hotspots_html = "".join(sc_hotspot_html(h) for h in SC_HOTSPOTS)
 sc_hotlist_html = "".join(sc_hotspot_li(h) for h in SC_HOTSPOTS)
 sc_amenities_html = "".join(sc_amenity_cell(a) for a in SC_AMENITIES)
+sc_details_html = "".join(
+    f'<img class="sc-int__detail" src="assets/fleet/s-class/{src}" alt="{alt}" loading="lazy">'
+    for src, alt in SC_INT_DETAILS
+)
 
 sc_body = header("fleet.html") + f"""
-<section class="sc-hero" aria-roledescription="carousel" aria-label="Mercedes-Benz S-Class — exterior gallery">
-  <div class="sc-hero__inner">
-    <div class="sc-hero__stage">
-      <div class="sc-hero__track">{sc_slides_html}</div>
-    </div>
-    <div class="sc-hero__caps">
-      <div class="sc-hero__caps-inner">
-        <div>
-          <div class="sc-hero__kicker">Mercedes-Benz S-Class</div>
-          <div class="sc-hero__taglines" aria-live="polite">{sc_taglines_html}</div>
-        </div>
-        <div class="sc-hero__ctas">
-          <a class="btn btn-ink" href="booking.html?vehicle=mb-s-class">Reserve the S-Class</a>
-        </div>
+<!-- HERO — single static exterior image (no rotation, no dots). Fits viewport minus header. -->
+<section class="sc-hero" aria-label="Mercedes-Benz S-Class">
+  <div class="sc-hero__stage">
+    <!-- TEMPORARY hero image — replace with real UMC S-Class photography. -->
+    <img class="sc-hero__img" src="assets/fleet/s-class/{SC_HERO_IMG[0]}" alt="{SC_HERO_IMG[1]}" fetchpriority="high">
+  </div>
+  <div class="sc-hero__caps">
+    <div class="sc-hero__caps-inner">
+      <div>
+        <div class="sc-hero__kicker">Mercedes-Benz S-Class</div>
+        <div class="sc-hero__tagline">{SC_HERO_TAGLINE}</div>
+      </div>
+      <div class="sc-hero__ctas">
+        <a class="btn btn-ink" href="booking.html?vehicle=mb-s-class">Reserve the S-Class</a>
       </div>
     </div>
-    <div class="sc-hero__dots" role="tablist" aria-label="Slide selector">{sc_dots_html}</div>
   </div>
 </section>
 
@@ -1236,11 +1223,17 @@ sc_body = header("fleet.html") + f"""
     <p class="lede">The rear of an S-Class is a private room that happens to move. <em>The light is warm, the line is straight, the world outside is muted.</em> Sit, recline, take a call &mdash; or stay silent.</p>
   </div>
   <div class="sc-int__canvas">
-    <div class="sc-int__plate">
-      <div class="sc-int__stage">
-        <!-- TEMPORARY interior image — replace with real UMC S-Class cabin photography. -->
+    <div class="sc-int__grid">
+      <!-- Left ~55-60% : primary hotspot image. TEMPORARY — to be replaced with HD interior
+           photo from Usman. When the new image arrives, re-pin SC_HOTSPOTS x/y % above to
+           match the actual features in the new photograph. -->
+      <div class="sc-int__primary">
         <img class="sc-int__photo" src="assets/fleet/s-class/interior.webp" alt="Mercedes-Benz S-Class rear cabin interior" loading="lazy">
         <div class="sc-int__spots">{sc_hotspots_html}</div>
+      </div>
+      <!-- Right ~40-45% : 2x2 grid of supporting cabin shots. No hotspots on these. -->
+      <div class="sc-int__details" aria-label="Cabin detail shots">
+        {sc_details_html}
       </div>
     </div>
   </div>
@@ -1265,43 +1258,60 @@ sc_body = header("fleet.html") + f"""
     </div>
     <article class="card">
       <div class="rows">
-        <div class="row"><span class="k">Passengers</span><span class="v">Up to 4</span></div>
-        <div class="row"><span class="k">Luggage</span>
+        <div class="row"><span class="k">Passengers</span>
           <span class="v">
-            <span class="lugv">Up to 2 medium suitcases</span>
-            <button type="button" class="sc-sg-trigger" aria-expanded="false" aria-controls="sc-sg" aria-haspopup="dialog">Size guide</button>
+            <span class="vmain">Up to 4</span>
+            <button type="button" class="sc-mt" aria-haspopup="dialog" aria-controls="sc-sd" aria-expanded="false">Seating detail</button>
           </span>
         </div>
-        <div class="row"><span class="k">Suited to</span><span class="v">Executive travel</span></div>
-      </div>
-      <div class="sc-paper__detail">
-        <div class="d"><b>Two travelling.</b><span>The rear bench gives each guest a full seat, with generous legroom.</span></div>
-        <div class="d"><b>Three travelling.</b><span>Two across the rear, the third in the front beside the chauffeur.</span></div>
+        <div class="row"><span class="k">Luggage</span>
+          <span class="v">
+            <span class="vmain">Up to 2 medium suitcases</span>
+            <button type="button" class="sc-mt" aria-haspopup="dialog" aria-controls="sc-sg" aria-expanded="false">Size guide</button>
+          </span>
+        </div>
+        <div class="row"><span class="k">Suited to</span><span class="v"><span class="vmain">Executive travel</span></span></div>
       </div>
       <p>The Mercedes&#8209;Benz S&#8209;Class is the reference point for chauffeur travel in Dubai. Reclining rear seats, a hushed cabin, independent rear&#8209;zone climate and discreet charging at every seat. Suited to airport arrivals from DXB or DWC, board meetings across the DIFC, Downtown and Dubai Marina, and any journey where the room you arrive in should feel like the room you left.</p>
     </article>
-    <!-- Size guide popup — accessible disclosure; closes on Esc, click-outside or close button. -->
-    <div class="sc-sg" id="sc-sg" role="dialog" aria-modal="false" aria-labelledby="sc-sg-title" hidden>
-      <div class="sc-sg__panel">
-        <button type="button" class="sc-sg__close" aria-label="Close size guide">&times;</button>
-        <span class="lbl">Size guide</span>
-        <h3 id="sc-sg-title">Medium suitcase (M)</h3>
-        <p>Roughly a standard check-in case &mdash; for example an Away Medium, Globe-Trotter Check-In Medium, or Rimowa Check-In.</p>
-        <dl class="sc-sg__rows">
-          <div><dt>Each, approximately</dt><dd>66 &times; 44 &times; 27 cm</dd></div>
-          <div><dt>In the boot</dt><dd>Two cases of this size</dd></div>
-        </dl>
-      </div>
-    </div>
   </div>
 </section>
+
+<!-- Size guide modal — centered, scrim backdrop, focus-trapped. -->
+<div class="sc-modal" id="sc-sg" role="dialog" aria-modal="true" aria-labelledby="sc-sg-title" hidden>
+  <div class="sc-modal__backdrop" data-modal-close></div>
+  <div class="sc-modal__panel" tabindex="-1">
+    <button type="button" class="sc-modal__close" aria-label="Close" data-modal-close>&times;</button>
+    <span class="lbl">Size guide</span>
+    <h3 id="sc-sg-title">Medium suitcase (M)</h3>
+    <p>Roughly a standard check-in case &mdash; for example an Away Medium, Globe-Trotter Check-In Medium, or Rimowa Check-In.</p>
+    <dl class="sc-modal__rows">
+      <div><dt>Each, approximately</dt><dd>66 &times; 44 &times; 27 cm</dd></div>
+      <div><dt>In the boot</dt><dd>Two cases of this size</dd></div>
+    </dl>
+  </div>
+</div>
+
+<!-- Seating detail modal — same pattern. -->
+<div class="sc-modal" id="sc-sd" role="dialog" aria-modal="true" aria-labelledby="sc-sd-title" hidden>
+  <div class="sc-modal__backdrop" data-modal-close></div>
+  <div class="sc-modal__panel" tabindex="-1">
+    <button type="button" class="sc-modal__close" aria-label="Close" data-modal-close>&times;</button>
+    <span class="lbl">Seating detail</span>
+    <h3 id="sc-sd-title">Who sits where</h3>
+    <dl class="sc-modal__rows sc-modal__rows--stack">
+      <div><dt>Two travelling</dt><dd>The rear bench gives each guest a full seat, with generous legroom.</dd></div>
+      <div><dt>Three travelling</dt><dd>Two across the rear, the third in the front beside the chauffeur.</dd></div>
+    </dl>
+  </div>
+</div>
 
 <section class="sc-chau">
   <div class="sc-chau__wrap">
     <div>
       <span class="lbl">The chauffeur</span>
-      <h2>It is chauffeur-driven.</h2>
-      <p>Every S-Class on our fleet travels with a chauffeur on UMC payroll. Vetted, trained and held to a single standard. They hold the door, they know the route, and they keep the cabin quiet until you choose to speak.</p>
+      <h2>Held to one standard.</h2>
+      <p>Every S-Class on our fleet travels with a chauffeur on UMC payroll. Vetted, trained, and bound to the same standing rules as the chauffeur before them. They hold the door, they know the route, and they keep the cabin quiet until you choose to speak.</p>
       <ul class="sc-chau__points">
         <li>Employed by UMC &mdash; not contracted, not supplied by a platform.</li>
         <li>Routes are planned before the engine starts; airport arrivals tracked from departure.</li>
@@ -1362,36 +1372,15 @@ sc_body = header("fleet.html") + f"""
 (function(){{
   var rm = matchMedia("(prefers-reduced-motion:reduce)").matches;
 
-  /* ---------- hero gallery ---------- */
-  var hero = document.querySelector(".sc-hero");
-  if(hero){{
-    var track = hero.querySelector(".sc-hero__track");
-    var slides = hero.querySelectorAll(".sc-hero__slide");
-    var dots = hero.querySelectorAll(".sc-hero__dots button");
-    var taglines = hero.querySelectorAll(".sc-hero__tagline");
-    var n = slides.length, i = 0, timer = null;
-    function go(k){{
-      i = (k + n) % n;
-      track.style.transform = "translateX(-" + (i * 100) + "%)";
-      dots.forEach(function(b, idx){{ b.classList.toggle("on", idx === i); b.setAttribute("aria-current", idx === i ? "true" : "false"); }});
-      taglines.forEach(function(el, idx){{ el.classList.toggle("on", idx === i); }});
-    }}
-    function step(){{ go(i + 1); }}
-    function play(){{ if(rm) return; stop(); timer = setInterval(step, 6200); }}
-    function stop(){{ if(timer){{ clearInterval(timer); timer = null; }} }}
-    dots.forEach(function(b, idx){{ b.addEventListener("click", function(){{ go(idx); play(); }}); }});
-    var sx = 0, dx = 0;
-    var stage = hero.querySelector(".sc-hero__stage");
-    if(stage){{
-      stage.addEventListener("touchstart", function(e){{ sx = e.touches[0].clientX; dx = 0; stop(); }}, {{passive:true}});
-      stage.addEventListener("touchmove", function(e){{ dx = e.touches[0].clientX - sx; }}, {{passive:true}});
-      stage.addEventListener("touchend", function(){{ if(Math.abs(dx) > 40) go(i + (dx < 0 ? 1 : -1)); play(); }}, {{passive:true}});
-    }}
-    hero.addEventListener("mouseenter", stop);
-    hero.addEventListener("mouseleave", play);
-    document.addEventListener("visibilitychange", function(){{ if(document.hidden){{ stop(); }} else {{ play(); }} }});
-    go(0); play();
+  /* ---------- set --header-h CSS variable so the hero fits viewport minus header ---------- */
+  var hdr = document.querySelector("header.site");
+  function setHeaderH(){{
+    if(!hdr) return;
+    document.documentElement.style.setProperty("--header-h", hdr.offsetHeight + "px");
   }}
+  setHeaderH();
+  window.addEventListener("resize", setHeaderH);
+  if(window.visualViewport) visualViewport.addEventListener("resize", setHeaderH);
 
   /* ---------- interior hotspots ---------- */
   var spots = document.querySelectorAll(".sc-int__spot button");
@@ -1409,31 +1398,51 @@ sc_body = header("fleet.html") + f"""
     }});
   }});
   document.addEventListener("click", function(e){{ if(!e.target.closest(".sc-int__spot")) closeAllSpots(); }});
-  document.addEventListener("keydown", function(e){{ if(e.key === "Escape") closeAllSpots(); }});
 
-  /* ---------- size guide popup ---------- */
-  var sgTrig = document.querySelector(".sc-sg-trigger");
-  var sg = document.getElementById("sc-sg");
-  var sgClose = sg ? sg.querySelector(".sc-sg__close") : null;
-  function sgOpen(){{
-    if(!sg) return;
-    sg.hidden = false;
-    requestAnimationFrame(function(){{ sg.classList.add("on"); }});
-    if(sgTrig) sgTrig.setAttribute("aria-expanded","true");
-    if(sgClose) sgClose.focus();
+  /* ---------- modals (size guide + seating detail) ---------- */
+  var openModal = null, lastTrigger = null;
+  function focusables(m){{
+    return m.querySelectorAll('button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
   }}
-  function sgShut(){{
-    if(!sg) return;
-    sg.classList.remove("on");
-    setTimeout(function(){{ sg.hidden = true; }}, rm ? 0 : 220);
-    if(sgTrig){{ sgTrig.setAttribute("aria-expanded","false"); sgTrig.focus(); }}
+  function openM(id, trig){{
+    var m = document.getElementById(id);
+    if(!m) return;
+    if(openModal) closeM();
+    openModal = m; lastTrigger = trig || null;
+    m.hidden = false;
+    document.body.classList.add("sc-no-scroll");
+    requestAnimationFrame(function(){{ m.classList.add("on"); }});
+    if(trig) trig.setAttribute("aria-expanded", "true");
+    var fs = focusables(m); if(fs.length) fs[0].focus();
   }}
-  if(sgTrig) sgTrig.addEventListener("click", function(e){{ e.stopPropagation(); if(sg.hidden) sgOpen(); else sgShut(); }});
-  if(sgClose) sgClose.addEventListener("click", sgShut);
-  document.addEventListener("click", function(e){{
-    if(sg && !sg.hidden && !e.target.closest(".sc-sg__panel") && !e.target.closest(".sc-sg-trigger")) sgShut();
+  function closeM(){{
+    if(!openModal) return;
+    var m = openModal, trig = lastTrigger;
+    m.classList.remove("on");
+    setTimeout(function(){{ m.hidden = true; }}, rm ? 0 : 240);
+    document.body.classList.remove("sc-no-scroll");
+    if(trig){{ trig.setAttribute("aria-expanded", "false"); trig.focus(); }}
+    openModal = null; lastTrigger = null;
+  }}
+  document.querySelectorAll(".sc-mt").forEach(function(b){{
+    b.addEventListener("click", function(){{ openM(b.getAttribute("aria-controls"), b); }});
   }});
-  document.addEventListener("keydown", function(e){{ if(e.key === "Escape" && sg && !sg.hidden) sgShut(); }});
+  document.querySelectorAll("[data-modal-close]").forEach(function(el){{
+    el.addEventListener("click", closeM);
+  }});
+  document.addEventListener("keydown", function(e){{
+    if(e.key === "Escape"){{
+      if(openModal) closeM();
+      else closeAllSpots();
+    }}
+    if(e.key === "Tab" && openModal){{
+      var fs = focusables(openModal);
+      if(!fs.length) return;
+      var first = fs[0], last = fs[fs.length - 1];
+      if(e.shiftKey && document.activeElement === first){{ e.preventDefault(); last.focus(); }}
+      else if(!e.shiftKey && document.activeElement === last){{ e.preventDefault(); first.focus(); }}
+    }}
+  }});
 }})();
 </script>
 """ + FOOTER + "</body></html>"

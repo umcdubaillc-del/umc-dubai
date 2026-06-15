@@ -10,7 +10,8 @@ const DEFAULT_FLEET = [
    desc:"The reference point for executive travel. Reclining rear seats, supreme quiet."},
   {id:"bmw-7",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/bmw.png",name:"BMW 7 Series",category:"Flagship Sedan",year:2024,seats:4,luggage:2,
    r10:2000,r5:1300,ra:600,visible:true,
-   img:"https://di-shared-assets.dealerinspire.com/legacy/rackspace/ldm-images/2024-BMW-7Series-Color-Dark-Graphite-Metallic.png",
+   /* TEMPORARY — replace with real UMC BMW 7 Series photography when supplied. */
+   img:"assets/fleet/bmw-7/card.png",photo:true,
    desc:"Commanding presence with a lounge-grade rear cabin."},
   {id:"cadillac-escalade",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/Cadillac-Logo-scaled.jpg",name:"Cadillac Escalade",category:"Luxury SUV",year:2024,seats:6,luggage:4,
    r10:2400,r5:1800,ra:850,visible:true,
@@ -22,7 +23,8 @@ const DEFAULT_FLEET = [
    desc:"Generous space for passengers and luggage alike."},
   {id:"mb-e-class",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/mercedes.png",name:"Mercedes-Benz E-Class",category:"Business Sedan",year:2025,seats:4,luggage:2,
    r10:1600,r5:1150,ra:400,visible:true,
-   img:"https://media.oneweb.mercedes-benz.com/images/dynamic/europe/ZA/214004/807/iris.png?q=COSY-EU-100-1713d0VXqaWFqtyO67PobzIr3eWsrrCsdRRzwQZQ9vZbMw3SGtxmFtsd1JpcUfp%251XGEuGdJ0l34xOB2NMEbApjI9I5uVKuQC31grkzNwP9m7jZcohKVFpW%25vq9ykyLRzG6Yax7NxrH1Kmln8ws8WoiZU51M4FGKwTg90hO6PDBSpSeWAtRtsd6hDcUfS8kXGEtTwJ0lLoJOB2aMRbApHYXI5usoDQC3UEpkzNGJkm7j0hIhKVB%25E%25vqA8TyLR5i2YaxCtqrH1gItn8wPbIoTnylpEzwQC3vT6khQZ27m%25k2tohKVUs9%25vq7vqyLRKLfYaxvbxrH1Ljln8wabdoiZHs2M4FN2rHAQqpn8onUuoiMol3M4TQ2NTmCI82R0s5jCSuoW5Ig9jP4HtHpBp%250oThUy0QKkeRlIMF&cp=8mhxDZy3qhkDFW2gqQWvpQ&&imgt=P27&bkgnd=9&pov=BE040&uni=m&im=Resize,width=400,gravity=North&cp=8mhxDZy3qhkDFW2gqQWvpQ",
+   /* TEMPORARY — replace with real UMC E-Class photography when supplied. */
+   img:"assets/fleet/e-class/card.png",photo:true,
    desc:"The businessman's benchmark, refined again."},
   {id:"lexus-es",marque:"https://umcdubai.ae/wp-content/uploads/2024/09/lexus.jpg",name:"Lexus ES",category:"Business Sedan",year:2024,seats:4,luggage:2,
    r10:1000,r5:700,ra:350,visible:true,

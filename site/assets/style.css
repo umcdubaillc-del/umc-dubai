@@ -704,7 +704,8 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 
 /* hero2 — homepage full-bleed image + scrim + floating form */
 .hero2{position:relative;min-height:660px;display:flex;align-items:center;padding:4.5rem 0 3.5rem}
-.h2bg{position:absolute;inset:0;background:url("https://images.unsplash.com/photo-1518684079-3c830dcef090?w=2000&q=80&auto=format&fit=crop") center 40%/cover no-repeat}
+/* TEMPORARY — competitor-sourced placeholder; replace with real UMC photography ASAP. */
+.h2bg{position:absolute;inset:0;background:url("assets/home/hero.jpg") center 50%/cover no-repeat}
 .h2scrim{position:absolute;inset:0;background:linear-gradient(100deg,rgba(20,15,9,.86) 0%,rgba(20,15,9,.62) 40%,rgba(20,15,9,.22) 72%,rgba(20,15,9,.38) 100%)}
 .h2grid{position:relative;z-index:1;display:grid;gap:2.5rem;align-items:center}
 @media(min-width:960px){.h2grid{grid-template-columns:1.05fr .95fr}}
