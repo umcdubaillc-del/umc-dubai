@@ -1143,17 +1143,6 @@ SC_INT_DETAILS = [
   ("hero-4.webp", "Cabin detail"),
   ("hero-5.webp", "Cabin detail"),
 ]
-# Hotspot pin coordinates (x%, y%) are placeholders against the temporary interior image.
-# RE-PIN against the new HD interior photo from Usman when it lands — the hotspot system
-# accepts any (x%, y%) per marker without code changes elsewhere.
-SC_HOTSPOTS = [
-  # (number, x%, y%, title, blurb, anchor: '', 'r', 'l', 'up')
-  (1, 50, 60, "Reclining rear seats", "Each rear seat reclines for distance journeys; bolstered headrest and adjustable footrest.", ""),
-  (2, 17, 34, "Privacy partition", "Glass partition raises on request &mdash; acoustic separation from the chauffeur compartment.", "l"),
-  (3, 50, 14, "Ambient lighting", "Continuous ceiling line, dimmable in warm or cool tones across the cabin.", ""),
-  (4, 80, 30, "Rear-zone climate", "Independent temperature for the rear; your chauffeur sets your preference before pick-up.", "r"),
-  (5, 78, 62, "USB-C charging", "Discreet fast-charge ports at each rear seat, with cables on board.", "r"),
-]
 # TO BE CONFIRMED BY USMAN — final amenity list and wording.
 SC_AMENITIES = [
   ('<svg viewBox="0 0 24 24"><path d="M10.2 2.5h3.6M12 2.5v3.4M9.6 9.2c-.7.8-1.1 1.7-1.1 2.8V19a2 2 0 0 0 2 2h3a2 2 0 0 0 2-2v-7c0-1.1-.4-2-1.1-2.8l-.9-1V5.9h-3v2.3z"/><path d="M8.5 13.5h7"/></svg>',
@@ -1170,24 +1159,10 @@ SC_AMENITIES = [
    "Quiet on request", "Spoken or in writing"),
 ]
 
-def sc_hotspot_html(h):
-    n, x, y, title, blurb, anchor = h
-    pop_class = "sc-int__pop" + ((" " + anchor) if anchor else "")
-    return (f'<div class="sc-int__spot" style="left:{x}%;top:{y}%">'
-            f'<button type="button" aria-expanded="false" aria-controls="sc-pop-{n}" aria-label="{title}">{n}</button>'
-            f'<div id="sc-pop-{n}" class="{pop_class}" role="dialog" aria-label="{title}">'
-            f'<b>{title}</b><span>{blurb}</span></div></div>')
-
-def sc_hotspot_li(h):
-    n, _x, _y, title, blurb, _a = h
-    return f'<li><span class="n">{n}</span><div><b>{title}</b><span>{blurb}</span></div></li>'
-
 def sc_amenity_cell(a):
     svg, label, meta = a
     return f'<div class="sc-am__cell"><span class="ico">{svg}</span><b>{label}</b><span class="meta">{meta}</span></div>'
 
-sc_hotspots_html = "".join(sc_hotspot_html(h) for h in SC_HOTSPOTS)
-sc_hotlist_html = "".join(sc_hotspot_li(h) for h in SC_HOTSPOTS)
 sc_amenities_html = "".join(sc_amenity_cell(a) for a in SC_AMENITIES)
 sc_details_html = "".join(
     f'<img class="sc-int__detail" src="assets/fleet/s-class/{src}" alt="{alt}" loading="lazy">'
