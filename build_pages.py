@@ -1224,20 +1224,17 @@ sc_body = header("fleet.html") + f"""
   </div>
   <div class="sc-int__canvas">
     <div class="sc-int__grid">
-      <!-- Left ~55-60% : primary hotspot image. TEMPORARY — to be replaced with HD interior
-           photo from Usman. When the new image arrives, re-pin SC_HOTSPOTS x/y % above to
-           match the actual features in the new photograph. -->
+      <!-- Left ~55-60% : primary cabin image. TEMPORARY — to be replaced with HD interior
+           photo from Usman. (Hotspot markers removed per request.) -->
       <div class="sc-int__primary">
         <img class="sc-int__photo" src="assets/fleet/s-class/interior.webp" alt="Mercedes-Benz S-Class rear cabin interior" loading="lazy">
-        <div class="sc-int__spots">{sc_hotspots_html}</div>
       </div>
-      <!-- Right ~40-45% : 2x2 grid of supporting cabin shots. No hotspots on these. -->
+      <!-- Right ~40-45% : 2x2 grid of supporting cabin shots. -->
       <div class="sc-int__details" aria-label="Cabin detail shots">
         {sc_details_html}
       </div>
     </div>
   </div>
-  <div class="sc-int__list" aria-label="Cabin features"><ol>{sc_hotlist_html}</ol></div>
 </section>
 
 <section class="sc-am" id="amenities">
@@ -1382,23 +1379,6 @@ sc_body = header("fleet.html") + f"""
   window.addEventListener("resize", setHeaderH);
   if(window.visualViewport) visualViewport.addEventListener("resize", setHeaderH);
 
-  /* ---------- interior hotspots ---------- */
-  var spots = document.querySelectorAll(".sc-int__spot button");
-  function closeAllSpots(){{ spots.forEach(function(b){{ b.setAttribute("aria-expanded", "false"); var p = b.parentElement.querySelector(".sc-int__pop"); if(p) p.classList.remove("on"); }}); }}
-  spots.forEach(function(b){{
-    b.addEventListener("click", function(e){{
-      e.stopPropagation();
-      var was = b.getAttribute("aria-expanded") === "true";
-      closeAllSpots();
-      if(!was){{
-        b.setAttribute("aria-expanded", "true");
-        var p = b.parentElement.querySelector(".sc-int__pop");
-        if(p) p.classList.add("on");
-      }}
-    }});
-  }});
-  document.addEventListener("click", function(e){{ if(!e.target.closest(".sc-int__spot")) closeAllSpots(); }});
-
   /* ---------- modals (size guide + seating detail) ---------- */
   var openModal = null, lastTrigger = null;
   function focusables(m){{
@@ -1431,10 +1411,7 @@ sc_body = header("fleet.html") + f"""
     el.addEventListener("click", closeM);
   }});
   document.addEventListener("keydown", function(e){{
-    if(e.key === "Escape"){{
-      if(openModal) closeM();
-      else closeAllSpots();
-    }}
+    if(e.key === "Escape" && openModal) closeM();
     if(e.key === "Tab" && openModal){{
       var fs = focusables(openModal);
       if(!fs.length) return;

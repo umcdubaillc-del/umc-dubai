@@ -76,20 +76,17 @@
   </div>
   <div class="sc-int__canvas">
     <div class="sc-int__grid">
-      <!-- Left ~55-60% : primary hotspot image. TEMPORARY — to be replaced with HD interior
-           photo from Usman. When the new image arrives, re-pin SC_HOTSPOTS x/y % above to
-           match the actual features in the new photograph. -->
+      <!-- Left ~55-60% : primary cabin image. TEMPORARY — to be replaced with HD interior
+           photo from Usman. (Hotspot markers removed per request.) -->
       <div class="sc-int__primary">
         <img class="sc-int__photo" src="assets/fleet/s-class/interior.webp" alt="Mercedes-Benz S-Class rear cabin interior" loading="lazy">
-        <div class="sc-int__spots"><div class="sc-int__spot" style="left:50%;top:60%"><button type="button" aria-expanded="false" aria-controls="sc-pop-1" aria-label="Reclining rear seats">1</button><div id="sc-pop-1" class="sc-int__pop" role="dialog" aria-label="Reclining rear seats"><b>Reclining rear seats</b><span>Each rear seat reclines for distance journeys; bolstered headrest and adjustable footrest.</span></div></div><div class="sc-int__spot" style="left:17%;top:34%"><button type="button" aria-expanded="false" aria-controls="sc-pop-2" aria-label="Privacy partition">2</button><div id="sc-pop-2" class="sc-int__pop l" role="dialog" aria-label="Privacy partition"><b>Privacy partition</b><span>Glass partition raises on request &mdash; acoustic separation from the chauffeur compartment.</span></div></div><div class="sc-int__spot" style="left:50%;top:14%"><button type="button" aria-expanded="false" aria-controls="sc-pop-3" aria-label="Ambient lighting">3</button><div id="sc-pop-3" class="sc-int__pop" role="dialog" aria-label="Ambient lighting"><b>Ambient lighting</b><span>Continuous ceiling line, dimmable in warm or cool tones across the cabin.</span></div></div><div class="sc-int__spot" style="left:80%;top:30%"><button type="button" aria-expanded="false" aria-controls="sc-pop-4" aria-label="Rear-zone climate">4</button><div id="sc-pop-4" class="sc-int__pop r" role="dialog" aria-label="Rear-zone climate"><b>Rear-zone climate</b><span>Independent temperature for the rear; your chauffeur sets your preference before pick-up.</span></div></div><div class="sc-int__spot" style="left:78%;top:62%"><button type="button" aria-expanded="false" aria-controls="sc-pop-5" aria-label="USB-C charging">5</button><div id="sc-pop-5" class="sc-int__pop r" role="dialog" aria-label="USB-C charging"><b>USB-C charging</b><span>Discreet fast-charge ports at each rear seat, with cables on board.</span></div></div></div>
       </div>
-      <!-- Right ~40-45% : 2x2 grid of supporting cabin shots. No hotspots on these. -->
+      <!-- Right ~40-45% : 2x2 grid of supporting cabin shots. -->
       <div class="sc-int__details" aria-label="Cabin detail shots">
         <img class="sc-int__detail" src="assets/fleet/s-class/hero-2.webp" alt="Cabin detail" loading="lazy"><img class="sc-int__detail" src="assets/fleet/s-class/hero-3.webp" alt="Cabin detail" loading="lazy"><img class="sc-int__detail" src="assets/fleet/s-class/hero-4.webp" alt="Cabin detail" loading="lazy"><img class="sc-int__detail" src="assets/fleet/s-class/hero-5.webp" alt="Cabin detail" loading="lazy">
       </div>
     </div>
   </div>
-  <div class="sc-int__list" aria-label="Cabin features"><ol><li><span class="n">1</span><div><b>Reclining rear seats</b><span>Each rear seat reclines for distance journeys; bolstered headrest and adjustable footrest.</span></div></li><li><span class="n">2</span><div><b>Privacy partition</b><span>Glass partition raises on request &mdash; acoustic separation from the chauffeur compartment.</span></div></li><li><span class="n">3</span><div><b>Ambient lighting</b><span>Continuous ceiling line, dimmable in warm or cool tones across the cabin.</span></div></li><li><span class="n">4</span><div><b>Rear-zone climate</b><span>Independent temperature for the rear; your chauffeur sets your preference before pick-up.</span></div></li><li><span class="n">5</span><div><b>USB-C charging</b><span>Discreet fast-charge ports at each rear seat, with cables on board.</span></div></li></ol></div>
 </section>
 
 <section class="sc-am" id="amenities">
@@ -234,23 +231,6 @@
   window.addEventListener("resize", setHeaderH);
   if(window.visualViewport) visualViewport.addEventListener("resize", setHeaderH);
 
-  /* ---------- interior hotspots ---------- */
-  var spots = document.querySelectorAll(".sc-int__spot button");
-  function closeAllSpots(){ spots.forEach(function(b){ b.setAttribute("aria-expanded", "false"); var p = b.parentElement.querySelector(".sc-int__pop"); if(p) p.classList.remove("on"); }); }
-  spots.forEach(function(b){
-    b.addEventListener("click", function(e){
-      e.stopPropagation();
-      var was = b.getAttribute("aria-expanded") === "true";
-      closeAllSpots();
-      if(!was){
-        b.setAttribute("aria-expanded", "true");
-        var p = b.parentElement.querySelector(".sc-int__pop");
-        if(p) p.classList.add("on");
-      }
-    });
-  });
-  document.addEventListener("click", function(e){ if(!e.target.closest(".sc-int__spot")) closeAllSpots(); });
-
   /* ---------- modals (size guide + seating detail) ---------- */
   var openModal = null, lastTrigger = null;
   function focusables(m){
@@ -283,10 +263,7 @@
     el.addEventListener("click", closeM);
   });
   document.addEventListener("keydown", function(e){
-    if(e.key === "Escape"){
-      if(openModal) closeM();
-      else closeAllSpots();
-    }
+    if(e.key === "Escape" && openModal) closeM();
     if(e.key === "Tab" && openModal){
       var fs = focusables(openModal);
       if(!fs.length) return;
