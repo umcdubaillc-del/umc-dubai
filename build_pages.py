@@ -49,14 +49,15 @@ def responsive_img(rel_path, css_class, alt, sizes_attr, loading="lazy", extra_a
     file is missing."""
     abs_src = SITE / 'assets' / 'fleet' / rel_path
     result = ensure_image_variants(abs_src)
-    plain_src = f'assets/fleet/{rel_path}'
+    # Root-absolute so srcset works from any page depth (e.g. /airport-transfers/dubai).
+    plain_src = f'/assets/fleet/{rel_path}'
     if not result:
         return f'<img class="{css_class}" src="{plain_src}" alt="{alt}" loading="{loading}"{extra_attrs}>'
     variants, nat_w = result
     parent = pathlib.Path(rel_path).parent
     stem = pathlib.Path(rel_path).stem
     ext = pathlib.Path(rel_path).suffix
-    parts = [f'assets/fleet/{parent}/{stem}-{w}{ext} {w}w' for w, _ in variants]
+    parts = [f'/assets/fleet/{parent}/{stem}-{w}{ext} {w}w' for w, _ in variants]
     parts.append(f'{plain_src} {nat_w}w')
     return (f'<img class="{css_class}" '
             f'srcset="{", ".join(parts)}" '
@@ -842,7 +843,7 @@ dubai_airport_body = header("airport-transfers/dubai") + f"""
   <div class="wrap">
     <span class="lbl">DXB &middot; DWC</span>
     <h1>Airport transfers in Dubai.</h1>
-    <p class="lede">Met at arrivals at DXB and DWC. Driven into Dubai without delay.</p>
+    <p class="lede">Both of Dubai&rsquo;s airports. One standard of arrival.</p>
     <div class="btns rv" style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
       <a class="btn btn-ink" href="/booking">Reserve your transfer</a>
     </div>
@@ -899,7 +900,7 @@ dubai_airport_body = header("airport-transfers/dubai") + f"""
   </div>
 </section>
 <section class="closing band-dark">
-  <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">Have the car waiting when you land.</h2>
+  <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">The car is there before you are.</h2>
   <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
 </section>
 """ + FOOTER + """

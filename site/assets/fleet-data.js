@@ -8,12 +8,12 @@ const DEFAULT_FLEET = [
    /* TEMPORARY — replace with real UMC S-Class photography when supplied.
       flipImg flips the source horizontally so the car faces left, matching the
       other fleet cards. */
-   img:"assets/fleet/s-class/card.webp",photo:true,flipImg:true,
+   img:"/assets/fleet/s-class/card.webp",photo:true,flipImg:true,
    desc:"The reference point for executive travel. Reclining rear seats, supreme quiet."},
   {id:"bmw-7",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/bmw.png",name:"BMW 7 Series",category:"Flagship Sedan",year:2024,seats:4,luggage:2,
    r10:2000,r5:1300,ra:600,visible:true,page:"/fleet/bmw-7-series",
    /* TEMPORARY — replace with real UMC BMW 7 Series photography when supplied. */
-   img:"assets/fleet/bmw-7/card.png",photo:true,
+   img:"/assets/fleet/bmw-7/card.png",photo:true,
    desc:"Commanding presence with a lounge-grade rear cabin."},
   {id:"cadillac-escalade",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/Cadillac-Logo-scaled.jpg",name:"Cadillac Escalade",category:"Luxury SUV",year:2024,seats:6,luggage:4,
    r10:2400,r5:1800,ra:850,visible:true,page:"/fleet/cadillac-escalade",
@@ -24,12 +24,12 @@ const DEFAULT_FLEET = [
    /* TEMPORARY — dark placeholder SVG, self-hosted because the previous
       cgi.gmc.com source 403'd and the card rendered as alt text. Replace with
       real UMC GMC Yukon Elevation XL photography when supplied. */
-   img:"assets/fleet/gmc-yukon-xl/card.svg",photo:true,
+   img:"/assets/fleet/gmc-yukon-xl/card.svg",photo:true,
    desc:"Generous space for passengers and luggage alike."},
   {id:"mb-e-class",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/mercedes.png",name:"Mercedes-Benz E-Class",category:"Business Sedan",year:2025,seats:4,luggage:2,
    r10:1600,r5:1150,ra:400,visible:true,page:"/fleet/e-class",
    /* TEMPORARY — replace with real UMC E-Class photography when supplied. */
-   img:"assets/fleet/e-class/card.png",photo:true,
+   img:"/assets/fleet/e-class/card.png",photo:true,
    desc:"The businessman's benchmark, refined again."},
   {id:"lexus-es",marque:"https://umcdubai.ae/wp-content/uploads/2024/09/lexus.jpg",name:"Lexus ES",category:"Business Sedan",year:2024,seats:4,luggage:2,
    r10:1000,r5:700,ra:350,visible:true,page:"/fleet/lexus-es",
