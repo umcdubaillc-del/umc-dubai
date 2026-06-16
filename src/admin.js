@@ -430,8 +430,12 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
 .doc .tot-box .r.grand span:last-child{font-family:Fraunces,Georgia,serif;color:var(--ink);font-size:1.3rem}
 .doc .tot-vat-note{font-size:9px;color:var(--muted);letter-spacing:.18em;text-transform:uppercase;margin-top:.5rem;text-align:right}
 
-/* Institutional 2-col fine-print band: Terms (wider) | Bank (narrower). */
-.doc .legal{display:grid;grid-template-columns:1.4fr 1fr;gap:2.2rem;margin-bottom:1.4rem;align-items:start;padding-top:1rem;border-top:1px solid var(--hair)}
+/* Institutional 2-col fine-print band: Terms (wider) | Bank (narrower).
+   margin-top:auto pins this band to the bottom of .dbody (which is a flex
+   column). The hairline above it travels with the band — when line items
+   are sparse there's whitespace between totals and this band, and as items
+   grow the band moves up until it sits directly under totals. */
+.doc .legal{display:grid;grid-template-columns:1.4fr 1fr;gap:2.2rem;margin:auto 0 1.4rem;align-items:start;padding-top:1rem;border-top:1px solid var(--hair)}
 .doc .legal h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .6rem}
 .doc .terms ol{padding-left:1.1rem;margin:0;color:var(--ink-soft);font-size:10.5px;line-height:1.6}
 .doc .terms ol li{margin-bottom:.3rem}
@@ -441,7 +445,9 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
 .doc .bank .v-iban{font-family:Fraunces,Georgia,serif;letter-spacing:.05em;color:var(--ink)}
 .doc .bank-note{font-size:10px;color:var(--muted);margin:.65rem 0 0;letter-spacing:.02em;line-height:1.55;font-style:italic}
 
-.doc .notes{margin-bottom:1.4rem;padding-top:1rem;border-top:1px solid var(--hair)}
+/* Notes sit between totals and the sticky legal band — no top border here so
+   the single hairline above the legal band stays the only horizontal divider. */
+.doc .notes{margin-bottom:.6rem;padding-top:.4rem}
 .doc .notes h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .45rem}
 .doc .notes p{color:var(--ink-soft);font-size:11px;margin:0;white-space:pre-wrap;line-height:1.6}
 
@@ -921,7 +927,10 @@ const PAGE_SCRIPT = `<script>
       +   '<div class="r grand"><span>Total</span><span>'+fmtMoney(r.total, state.currency)+'</span></div>'
       +   vatNoteFmt
       + '</div></div>'
-      // --- legal band: Terms (left, wider) | Bank transfer (right) ---
+      // --- (optional) notes flow between totals and the sticky legal band ---
+      + notesBlk
+      // --- legal band: Terms (left, wider) | Bank transfer (right) — pinned
+      //     to the bottom of .dbody via margin-top:auto in CSS. ---
       + '<div class="legal">'
       +   '<div class="terms"><h4>Terms &amp; Conditions</h4><ol>'
       +     TERMS.map(function(t){ return '<li>'+esc(t)+'</li>'; }).join("")
@@ -936,7 +945,6 @@ const PAGE_SCRIPT = `<script>
       +     '<p class="bank-note">For alternative payment arrangements, please contact our concierge.</p>'
       +   '</div>'
       + '</div>'
-      + notesBlk
       + '</div>'  // /.dbody
       // ============ ESPRESSO FOOTER ============
       // Only the website (phone + email are already on the body header with the
