@@ -351,66 +351,97 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
 .actions{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1rem}
 .status-line{font-size:12px;color:var(--muted);margin-top:.4rem;min-height:1.2em}
 
-/* Preview document */
-.preview-wrap{position:sticky;top:1.5rem}
-.doc{background:#fff;border:1px solid var(--hair);border-radius:3px;padding:2.6rem 2.4rem;color:var(--ink);font-family:Outfit,sans-serif;font-size:12px;line-height:1.55;min-height:1100px}
+/* ============== Preview document (institutional letterhead, v44d) =============== */
+/* Layout: espresso masthead strip (full-bleed, matches site footer band) → doc body
+   with editorial typography → espresso footer strip. The print-color-adjust is
+   critical so the dark bands carry into the saved PDF in Chromium/Safari. */
+/* The doc is rendered at its natural A4 width (794px ≈ 96dpi) so the layout
+   never reflows. fitDocToViewport() in the page script applies transform:scale
+   when the container is narrower, and compensates the wrapper height — the
+   structure stays intact, just visually scaled. (Print stylesheet drops the
+   transform so the saved PDF is full-size.) */
+.preview-wrap{position:sticky;top:1.5rem;overflow:hidden}
+.doc{width:794px;background:#fff;border:1px solid var(--hair);border-radius:3px;color:var(--ink);font-family:Outfit,sans-serif;font-size:12px;line-height:1.55;min-height:1100px;padding:0;overflow:hidden;box-shadow:0 30px 60px -36px rgba(34,27,20,.25);transform-origin:top left}
 
-/* Header band: logo + company stack on the left, doc meta + client stack on the right */
-.doc .dh{display:grid;grid-template-columns:1fr 1fr;gap:2rem;align-items:start;margin-bottom:1.6rem}
-.doc .dh-left{display:flex;flex-direction:column;gap:1.2rem}
-.doc .dh-right{display:flex;flex-direction:column;gap:1.2rem;align-items:flex-end;text-align:right}
+/* Top + bottom espresso bands — visual signature of the document. */
+.doc .dmast,.doc .dfoot{background:var(--espresso);color:#D9D0C0;padding:.95rem 2.4rem;font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact}
+.doc .dmast{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+.doc .dmast .sep{color:rgba(217,208,192,.32)}
+.doc .dmast .trn{margin-left:auto;font-family:Fraunces,Georgia,serif;letter-spacing:.06em;text-transform:none;color:#F6F1E7;font-size:11px}
+.doc .dfoot{text-align:center;font-size:10px;letter-spacing:.18em}
+.doc .dfoot .sep{color:rgba(217,208,192,.32);margin:0 .35rem}
 
-/* Stacked UMC — Dubai lockup */
+/* Body inside the strips. */
+.doc .dbody{padding:2.6rem 2.4rem 2rem}
+
+/* Header band: logo + company stack on the left, big editorial doc-type label + meta + client stack on the right. */
+.doc .dh{display:grid;grid-template-columns:1fr 1.1fr;gap:2.2rem;align-items:start;margin-bottom:1.8rem}
+.doc .dh-left{display:flex;flex-direction:column;gap:1.4rem}
+.doc .dh-right{display:flex;flex-direction:column;gap:1.4rem;align-items:flex-end;text-align:right}
+
+/* Stacked UMC — Dubai lockup. */
 .doc .lock{display:flex;flex-direction:column;align-items:flex-start;line-height:1}
-.doc .lock .uni{font-family:Marcellus,serif;font-size:1.55rem;letter-spacing:.36em;color:var(--ink)}
-.doc .lock .dash{width:28px;height:1px;background:var(--amber);margin:.6rem 0}
-.doc .lock .duo{font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.32em;text-transform:uppercase;color:var(--muted)}
+.doc .lock .uni{font-family:Marcellus,serif;font-size:1.7rem;letter-spacing:.36em;color:var(--ink)}
+.doc .lock .dash{width:30px;height:1px;background:var(--amber);margin:.65rem 0}
+.doc .lock .duo{font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.36em;text-transform:uppercase;color:var(--muted)}
 
-/* Company contact stack — sits directly under the lockup */
-.doc .from{font-size:11px;line-height:1.55;color:var(--ink-soft)}
-.doc .from .nm{font-family:Marcellus,serif;font-size:.98rem;color:var(--ink);margin-bottom:.25rem;line-height:1.25;letter-spacing:0}
+/* Company contact stack under the lockup. */
+.doc .from{font-size:11px;line-height:1.6;color:var(--ink-soft)}
 .doc .from .ln{display:block}
-.doc .from .trn{font-family:Fraunces,Georgia,serif;color:var(--ink);font-size:11.5px;letter-spacing:.04em;margin-top:.4rem;display:block}
 
-/* Doc meta — type, number, date — right-aligned */
-.doc .meta .t{font-family:Marcellus;font-size:1.55rem;color:var(--ink);margin-bottom:.15rem;letter-spacing:.04em;text-transform:uppercase}
-.doc .meta .n{font-family:Fraunces,Georgia,serif;color:var(--amber-deep);letter-spacing:.05em;font-size:1.05rem}
-.doc .meta .d{font-size:11px;color:var(--muted);letter-spacing:.05em;margin-top:.3rem}
+/* Editorial doc-type label — the visual headline of the document. */
+.doc .meta .t{font-family:Marcellus,serif;font-size:2.4rem;color:var(--ink);margin:0 0 .2rem;letter-spacing:.18em;text-transform:uppercase;line-height:1}
+.doc .meta .n{font-family:Fraunces,Georgia,serif;color:var(--amber-deep);letter-spacing:.05em;font-size:1.15rem;display:block;margin-top:.2rem}
+.doc .meta .d{font-size:10.5px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;margin-top:.4rem}
 
 /* Client block — right-aligned, sits under the doc meta */
-.doc .client{font-size:11.5px;line-height:1.55;color:var(--ink-soft);max-width:100%}
-.doc .client h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .4rem}
-.doc .client .nm{font-family:Marcellus;font-size:1.02rem;color:var(--ink);margin-bottom:.1rem;line-height:1.25}
+.doc .client{font-size:11.5px;line-height:1.6;color:var(--ink-soft);position:relative;padding-top:.85rem}
+.doc .client::before{content:"";position:absolute;top:0;right:0;width:30px;height:1px;background:var(--amber)}
+.doc .client h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .45rem}
+.doc .client .nm{font-family:Marcellus;font-size:1.05rem;color:var(--ink);margin-bottom:.15rem;line-height:1.25}
 .doc .client .ln{display:block}
 
-.doc .ar{border:0;border-top:1px solid var(--amber);width:36px;margin:0 0 1.4rem}
-
-.doc table.lines{width:100%;border-collapse:collapse;margin-bottom:1.2rem;font-size:11.5px}
-.doc table.lines thead th{font-family:Outfit;font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500;padding:.5rem .35rem;border-bottom:1px solid var(--ink-soft);text-align:left}
+/* Line items table — generous spacing, hairlines only. */
+.doc table.lines{width:100%;border-collapse:collapse;margin-bottom:1.4rem;font-size:11.5px}
+.doc table.lines thead th{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;padding:.6rem .35rem;border-top:1px solid var(--ink-soft);border-bottom:1px solid var(--ink-soft);text-align:left}
 .doc table.lines thead th.r{text-align:right}
-.doc table.lines tbody td{padding:.55rem .35rem;border-bottom:1px solid var(--hair);vertical-align:top;color:var(--ink);white-space:pre-wrap}
-.doc table.lines tbody td.r{text-align:right;font-variant-numeric:tabular-nums;white-space:normal}
-.doc .tot-wrap{display:flex;justify-content:flex-end;margin-bottom:1.6rem}
-.doc .tot-box{min-width:260px;border:0;font-size:12px}
-.doc .tot-box .r{display:flex;justify-content:space-between;padding:.3rem 0;color:var(--ink-soft);border-bottom:1px solid var(--hair);font-variant-numeric:tabular-nums}
-.doc .tot-box .r.grand{border-bottom:0;border-top:1px solid var(--ink-soft);padding-top:.55rem;margin-top:.2rem;color:var(--ink);font-family:Marcellus;font-size:1.1rem}
+.doc table.lines tbody td{padding:.75rem .35rem;border-bottom:1px solid var(--hair);vertical-align:top;color:var(--ink);white-space:pre-wrap}
+.doc table.lines tbody td.r{text-align:right;font-variant-numeric:tabular-nums;white-space:normal;font-family:Fraunces,Georgia,serif;letter-spacing:.02em;color:var(--ink-soft)}
 
-/* Institutional 2-col fine-print band: Terms (wider) | Bank (narrower) */
-.doc .legal{display:grid;grid-template-columns:1.4fr 1fr;gap:2rem;margin-bottom:1.2rem;align-items:start}
-.doc .legal h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .55rem}
-.doc .terms ol{padding-left:1.05rem;margin:0;color:var(--ink-soft);font-size:10.5px;line-height:1.55}
-.doc .terms ol li{margin-bottom:.25rem}
-.doc .bank table{font-size:10.5px;color:var(--ink-soft);line-height:1.55;border-collapse:collapse}
-.doc .bank table td{padding:0 .6rem .25rem 0;vertical-align:top}
+/* Totals box — Fraunces numerals, hairlines, Total in serif. */
+.doc .tot-wrap{display:flex;justify-content:flex-end;margin-bottom:1.8rem}
+.doc .tot-box{min-width:280px;border:0;font-size:12px}
+.doc .tot-box .r{display:flex;justify-content:space-between;padding:.4rem 0;color:var(--ink-soft);border-bottom:1px solid var(--hair);font-variant-numeric:tabular-nums}
+.doc .tot-box .r span:first-child{font-family:Outfit;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+.doc .tot-box .r span:last-child{font-family:Fraunces,Georgia,serif}
+.doc .tot-box .r.grand{border-bottom:0;border-top:1px solid var(--ink-soft);padding-top:.7rem;margin-top:.2rem;color:var(--ink);font-size:1.15rem}
+.doc .tot-box .r.grand span:first-child{font-family:Marcellus;font-size:1.05rem;letter-spacing:.06em;color:var(--ink);text-transform:uppercase}
+.doc .tot-box .r.grand span:last-child{font-family:Fraunces,Georgia,serif;color:var(--ink);font-size:1.3rem}
+.doc .tot-vat-note{font-size:9px;color:var(--muted);letter-spacing:.18em;text-transform:uppercase;margin-top:.5rem;text-align:right}
+
+/* Institutional 2-col fine-print band: Terms (wider) | Bank (narrower). */
+.doc .legal{display:grid;grid-template-columns:1.4fr 1fr;gap:2.2rem;margin-bottom:1.4rem;align-items:start;padding-top:1rem;border-top:1px solid var(--hair)}
+.doc .legal h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .6rem}
+.doc .terms ol{padding-left:1.1rem;margin:0;color:var(--ink-soft);font-size:10.5px;line-height:1.6}
+.doc .terms ol li{margin-bottom:.3rem}
+.doc .bank table{font-size:10.5px;color:var(--ink-soft);line-height:1.6;border-collapse:collapse}
+.doc .bank table td{padding:0 .6rem .3rem 0;vertical-align:top}
 .doc .bank table td.k{color:var(--muted);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;white-space:nowrap;padding-right:.85rem}
+.doc .bank .v-iban{font-family:Fraunces,Georgia,serif;letter-spacing:.05em;color:var(--ink)}
 
-.doc .notes{margin-bottom:1.2rem}
-.doc .notes h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .4rem}
-.doc .notes p{color:var(--ink-soft);font-size:11px;margin:0;white-space:pre-wrap}
+.doc .notes{margin-bottom:1.4rem;padding-top:1rem;border-top:1px solid var(--hair)}
+.doc .notes h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .45rem}
+.doc .notes p{color:var(--ink-soft);font-size:11px;margin:0;white-space:pre-wrap;line-height:1.6}
 
-.doc .footer{border-top:1px solid var(--hair);padding-top:.8rem;margin-top:1rem;color:var(--muted);font-size:10.5px;letter-spacing:.05em;text-align:center}
-.doc .footer span{padding:0 .35rem}
-.doc .footer .sep{color:var(--line);margin:0 .15rem}
+/* Checkbox row + email-recipients reveal (item 6). */
+.checkrow{display:flex;align-items:center;gap:.6rem;font-family:Outfit;font-size:13px;letter-spacing:0;text-transform:none;color:var(--ink);font-weight:400;cursor:pointer;padding:.4rem 0}
+.checkrow input[type=checkbox]{width:auto;margin:0;cursor:pointer;accent-color:var(--ink)}
+.email-recipients{margin-top:.7rem;padding:.85rem 1rem;background:var(--bone2);border:1px solid var(--hair);border-radius:3px}
+.email-recipients .hint{font-size:11.5px;color:var(--muted);margin:.5rem 0 0;line-height:1.5}
+
+/* Email output panel — clearer subject + to header. */
+.email-out .meta-row{margin-top:.5rem;display:grid;gap:.3rem;font-size:12px;color:var(--ink-soft)}
+.email-out .meta-row b{color:var(--muted);font-size:10px;letter-spacing:.22em;text-transform:uppercase;font-weight:500;font-family:Outfit}
 
 /* History */
 .history-wrap{padding:0 1.5rem 2rem}
@@ -429,14 +460,18 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
 .email-out textarea{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;min-height:140px;background:var(--bone2);resize:vertical}
 .email-out .row2{margin-top:.5rem}
 
-/* PRINT — show only the document, nothing else */
+/* PRINT — show only the document, nothing else. print-color-adjust:exact on the
+   espresso bands is essential or they print as plain white. */
 @media print {
-  @page { size: A4; margin: 14mm 14mm 16mm 14mm; }
+  @page { size: A4; margin: 0; }
+  *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   body { background:#fff; }
   header.top, .app .panel, .history-wrap, .email-out, .actions, .preview-wrap > .lbl, .status-line { display:none !important; }
   .app { grid-template-columns: 1fr !important; padding:0 !important; gap:0 !important; }
-  .preview-wrap { position:static !important; top:auto !important; }
-  .doc { border:0 !important; padding:0 !important; min-height:auto !important; box-shadow:none !important; }
+  .preview-wrap { position:static !important; top:auto !important; height:auto !important; overflow:visible !important; }
+  .doc { border:0 !important; min-height:auto !important; box-shadow:none !important; border-radius:0 !important; transform:none !important; width:100% !important; }
+  .doc .dmast, .doc .dfoot { padding-left:14mm !important; padding-right:14mm !important; }
+  .doc .dbody { padding:14mm 14mm 10mm !important; }
 }
 </style>
 </head>
@@ -542,16 +577,32 @@ function appShellHTML() {
       <div class="r total"><span>Total</span><span id="tTot">—</span></div>
     </div>
 
+    <div class="field" style="margin-top:1rem">
+      <label class="checkrow">
+        <input type="checkbox" id="fEmailTo">
+        <span>Email to client</span>
+      </label>
+      <div class="email-recipients" id="emailRecipientsWrap" hidden>
+        <label class="lbl">Recipient(s)</label>
+        <input id="fEmailRecipients" type="text" placeholder="client@example.com, finance@example.com">
+        <p class="hint">When you click Save &amp; Print PDF, the matching branded email body is generated below for copy-paste alongside the PDF attachment.</p>
+      </div>
+    </div>
+
     <div class="actions">
       <button type="button" class="btn" id="btnSavePrint">Save &amp; Print PDF</button>
-      <button type="button" class="btn btn-ghost" id="btnEmail">Generate client email</button>
       <button type="button" class="btn btn-ghost" id="btnNew">New</button>
     </div>
     <div class="status-line" id="status"></div>
 
     <div class="email-out" id="emailOut" hidden>
       <hr class="amber">
-      <h3>Client email — copy & send</h3>
+      <h3>Client email — copy &amp; send</h3>
+      <div class="meta-row">
+        <div><b>To</b> <span id="emailToShow"></span></div>
+        <div><b>Subject</b> <span id="emailSubjectShow"></span></div>
+      </div>
+      <hr class="hair">
       <small class="lbl">HTML body (paste into Gmail / Outlook)</small>
       <textarea id="emailHtml" readonly></textarea>
       <small class="lbl" style="margin-top:.8rem;display:block">Plain-text fallback</small>
@@ -782,7 +833,7 @@ const PAGE_SCRIPT = `<script>
   //   centered footer: umcdubai.ae · phone · email
   // Preserves description newlines (item 4 — typed via Enter in the textarea).
   function multiLine(s){
-    return String(s == null ? "" : s).split("\n").map(esc).join("<br>");
+    return String(s == null ? "" : s).split("\\n").map(esc).join("<br>");
   }
   function renderDoc(){
     const r = compute();
@@ -806,23 +857,35 @@ const PAGE_SCRIPT = `<script>
     const vatModeNote = state.vat_mode === "inclusive" ? '<div style="font-size:9px;color:#7A6F5F;letter-spacing:.16em;text-transform:uppercase;margin-top:.4rem">VAT inclusive — 5% included in line rates</div>' : '';
     const notesBlk = state.notes && state.notes.trim() ? '<div class="notes"><h4>Notes</h4><p>'+esc(state.notes)+'</p></div>' : '';
 
+    // discRow / vatNote with new classes
+    const discRowFmt = r.discount > 0 ? '<div class="r"><span>Discount</span><span>− '+fmtMoney(r.discount, state.currency)+'</span></div>' : '';
+    const vatNoteFmt = state.vat_mode === "inclusive" ? '<div class="tot-vat-note">VAT inclusive — 5% included in line rates</div>' : '';
+    const trnMast = isInv ? '<span class="trn">TRN '+COMPANY.trn+'</span>' : '';
+
     $("doc").innerHTML = ''
-      // --- header band: logo+company (left) · meta+client (right, right-aligned) ---
+      // ============ ESPRESSO MASTHEAD ============
+      + '<div class="dmast">'
+      +   '<span>'+esc(COMPANY.legal)+'</span>'
+      +   '<span class="sep">·</span>'
+      +   '<span>'+esc(COMPANY.addr)+'</span>'
+      +   trnMast
+      + '</div>'
+      // ============ DOC BODY ============
+      + '<div class="dbody">'
+      // --- header band: lockup + company (left) | doc-type + meta + client (right) ---
       + '<div class="dh">'
       +   '<div class="dh-left">'
       +     '<div class="lock"><div class="uni">UMC</div><div class="dash"></div><div class="duo">Dubai</div></div>'
       +     '<div class="from">'
-      +       '<div class="nm">'+esc(COMPANY.legal)+'</div>'
       +       '<span class="ln">'+esc(COMPANY.addr)+'</span>'
       +       '<span class="ln">'+esc(COMPANY.phone)+'</span>'
       +       '<span class="ln">'+esc(COMPANY.email)+'</span>'
-      +       trnRow
       +     '</div>'
       +   '</div>'
       +   '<div class="dh-right">'
       +     '<div class="meta">'
       +       '<div class="t">'+docLabel+'</div>'
-      +       '<div class="n">'+esc(state.number || ("UMC-…-####"))+'</div>'
+      +       '<span class="n">'+esc(state.number || ("UMC-…-####"))+'</span>'
       +       '<div class="d">'+esc(fmtDate(state.doc_date))+'</div>'
       +     '</div>'
       +     '<div class="client">'
@@ -832,7 +895,6 @@ const PAGE_SCRIPT = `<script>
       +     '</div>'
       +   '</div>'
       + '</div>'
-      + '<hr class="ar">'
       // --- line items ---
       + '<table class="lines">'
       +   '<thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Unit rate</th><th class="r">Amount</th></tr></thead>'
@@ -842,9 +904,9 @@ const PAGE_SCRIPT = `<script>
       + '<div class="tot-wrap"><div class="tot-box">'
       +   '<div class="r"><span>Net subtotal</span><span>'+fmtMoney(r.subtotal, state.currency)+'</span></div>'
       +   '<div class="r"><span>VAT 5%</span><span>'+fmtMoney(r.vat, state.currency)+'</span></div>'
-      +   discRow
+      +   discRowFmt
       +   '<div class="r grand"><span>Total</span><span>'+fmtMoney(r.total, state.currency)+'</span></div>'
-      +   vatModeNote
+      +   vatNoteFmt
       + '</div></div>'
       // --- legal band: Terms (left, wider) | Bank transfer (right) ---
       + '<div class="legal">'
@@ -854,15 +916,16 @@ const PAGE_SCRIPT = `<script>
       +   '<div class="bank"><h4>Payment — bank transfer</h4>'
       +     '<table>'
       +       '<tr><td class="k">Bank</td><td>'+esc(BANK.name)+'</td></tr>'
-      +       '<tr><td class="k">Account title</td><td>'+esc(BANK.title)+'</td></tr>'
-      +       '<tr><td class="k">IBAN</td><td>'+esc(BANK.iban)+'</td></tr>'
+      +       '<tr><td class="k">Account</td><td>'+esc(BANK.title)+'</td></tr>'
+      +       '<tr><td class="k">IBAN</td><td class="v-iban">'+esc(BANK.iban)+'</td></tr>'
       +       '<tr><td class="k">BIC</td><td>'+esc(BANK.bic)+'</td></tr>'
       +     '</table>'
       +   '</div>'
       + '</div>'
       + notesBlk
-      // --- footer: web · phone · email, centred ---
-      + '<div class="footer">'
+      + '</div>'  // /.dbody
+      // ============ ESPRESSO FOOTER ============
+      + '<div class="dfoot">'
       +   '<span>umcdubai.ae</span><span class="sep">·</span>'
       +   '<span>'+esc(COMPANY.phone)+'</span><span class="sep">·</span>'
       +   '<span>'+esc(COMPANY.email)+'</span>'
@@ -958,10 +1021,19 @@ const PAGE_SCRIPT = `<script>
     $("fNotes").addEventListener("input", function(e){ state.notes = e.target.value; renderDoc(); });
 
     $("btnSavePrint").addEventListener("click", onSavePrint);
-    $("btnEmail").addEventListener("click", onEmail);
     $("btnNew").addEventListener("click", onNew);
     $("btnLogout").addEventListener("click", onLogout);
     $("btnRefresh").addEventListener("click", loadHistory);
+
+    // Email-to-client checkbox: reveal recipients input; pre-fill with the
+    // client-email field if it is set and no override has been typed yet.
+    $("fEmailTo").addEventListener("change", function(e){
+      $("emailRecipientsWrap").hidden = !e.target.checked;
+      if(e.target.checked && !$("fEmailRecipients").value && state.client.email){
+        $("fEmailRecipients").value = state.client.email;
+      }
+      if(!e.target.checked){ $("emailOut").hidden = true; }
+    });
 
     $("copyHtml").addEventListener("click", function(){ copy($("emailHtml")); });
     $("copyText").addEventListener("click", function(){ copy($("emailText")); });
@@ -1010,18 +1082,23 @@ const PAGE_SCRIPT = `<script>
       }
       setStatus("Saved " + state.number + ". Opening print dialog …");
       loadHistory();
+
+      // Email-to-client (item 6): if checkbox on, generate the branded email
+      // body now and reveal the panel for copy-paste alongside the PDF.
+      if($("fEmailTo").checked){
+        const recipients = ($("fEmailRecipients").value || state.client.email || "").trim();
+        const em = buildEmail();
+        $("emailToShow").textContent = recipients || "(no recipient entered)";
+        $("emailSubjectShow").textContent = em.subject;
+        $("emailHtml").value = em.html;
+        $("emailText").value = em.text;
+        $("emailOut").hidden = false;
+      }
+
       const prev = document.title;
       document.title = state.number;
       setTimeout(function(){ window.print(); document.title = prev; }, 200);
     } catch(e){ setStatus("Save failed: " + (e.message || e)); }
-  }
-  function onEmail(){
-    const em = buildEmail();
-    $("emailHtml").value = em.html;
-    $("emailText").value = em.text;
-    $("emailOut").hidden = false;
-    setStatus("Email body generated. Copy + paste into Gmail / Outlook; subject: " + em.subject);
-    $("emailOut").scrollIntoView({behavior:"smooth", block:"start"});
   }
   function onNew(){
     state.client = { name:"", company:"", address:"", email:"" };
@@ -1029,8 +1106,10 @@ const PAGE_SCRIPT = `<script>
     state.discount = 0;
     state.notes = "";
     state.doc_date = new Date().toISOString().slice(0,10);
-    ["cName","cCompany","cAddress","cEmail","fDiscount","fNotes"].forEach(function(id){ $(id).value = ""; });
+    ["cName","cCompany","cAddress","cEmail","fDiscount","fNotes","fEmailRecipients"].forEach(function(id){ $(id).value = ""; });
     $("fDate").value = state.doc_date;
+    $("fEmailTo").checked = false;
+    $("emailRecipientsWrap").hidden = true;
     $("emailOut").hidden = true;
     renderLineRows(); renderTotals(); fetchNext(); renderDoc();
     setStatus("");
@@ -1100,6 +1179,26 @@ const PAGE_SCRIPT = `<script>
   }
 
   function setStatus(s){ $("status").textContent = s || ""; }
+
+  // Scale the A4-width doc to fit whatever column it sits in. Preserves the
+  // exact desktop layout — only visually shrinks. See the .preview-wrap CSS.
+  function fitDocToViewport(){
+    const wrap = document.querySelector(".preview-wrap");
+    const doc = $("doc");
+    if(!wrap || !doc) return;
+    doc.style.transform = ""; wrap.style.height = "";
+    const cw = wrap.clientWidth;
+    const docW = 794;
+    if(cw < docW){
+      const scale = cw / docW;
+      doc.style.transform = "scale(" + scale + ")";
+      wrap.style.height = (doc.offsetHeight * scale) + "px";
+    }
+  }
+  // Hook every render path so the scaled height stays accurate as content changes.
+  const _renderDoc = renderDoc;
+  renderDoc = function(){ _renderDoc(); fitDocToViewport(); };
+  window.addEventListener("resize", function(){ requestAnimationFrame(fitDocToViewport); });
 
   // ---------- boot
   $("fDate").value = state.doc_date;
