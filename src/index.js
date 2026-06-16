@@ -1,11 +1,15 @@
 /* (c) UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 
+import { handleAdmin } from "./admin.js";
+
 // Cloudflare Worker (with static assets) — entry point.
 //
 // Routing:
-//   POST /api/lead   → handleLead (lead capture: Resend email + Sheets webhook + Mailchimp)
-//   * /api/lead      → 405
-//   any other path   → env.ASSETS.fetch(request)   (serve from ./site)
+//   POST /api/lead         → handleLead (lead capture: Resend + Sheets + Mailchimp)
+//   * /api/lead            → 405
+//   /admin/billing*        → handleAdmin (internal quote/invoice generator; cookie-gated)
+//   /admin/api/billing*    → handleAdmin (JSON API for the billing tool; cookie-gated)
+//   any other path         → env.ASSETS.fetch(request)   (serve from ./site)
 //
 // The asset binding is declared in wrangler.jsonc (assets.binding = "ASSETS"). The
 // run_worker_first = ["/api/*"] config there ensures Cloudflare invokes this Worker
@@ -92,6 +96,11 @@ export default {
         });
       }
       return handleLead(request, env, ctx);
+    }
+    if (url.pathname === "/admin/billing" ||
+        url.pathname.startsWith("/admin/billing/") ||
+        url.pathname.startsWith("/admin/api/billing")) {
+      return handleAdmin(request, env);
     }
     return env.ASSETS.fetch(request);
   }

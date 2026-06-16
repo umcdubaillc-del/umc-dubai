@@ -50,6 +50,73 @@ If a new third-party tag is added via GTM, extend the CSP allowlist accordingly.
 - Sanity CMS for fleet data (replace fleet-data.js constants via getFleet/saveFleet)
 - Vecteezy S-Class: replace preview rendition with licensed file from the owner's account
 
+## Billing tool — quote & invoice generator (v44)
+Internal admin tool at **`/admin/billing`** on the Worker
+(`umc-dubai.umcdubaillc.workers.dev/admin/billing`). Not linked from the site;
+robots:noindex on the page itself. Single-user password-gated; persists to a
+Cloudflare D1 database (`BILLING_DB`); generates a print-ready PDF via the
+browser print dialog and a copy-pasteable HTML/text client email.
+
+### Required one-time owner setup
+1. **Create the D1 database**
+   ```
+   wrangler d1 create umc-billing
+   ```
+   Copy the `database_id` it prints, paste it into `wrangler.jsonc` →
+   `d1_databases[0].database_id` (replace `REPLACE_WITH_WRANGLER_D1_CREATE_OUTPUT`).
+2. **Apply the migration (optional — schema auto-creates on first request)**
+   ```
+   wrangler d1 migrations apply umc-billing --remote
+   ```
+3. **Set the admin password as a Worker secret**
+   ```
+   wrangler secret put ADMIN_PASSWORD
+   ```
+   (Or add it via Cloudflare dashboard → Workers & Pages → `umc-dubai` →
+   Settings → Variables and Secrets → Add → type Secret.) Without this set,
+   the login form refuses every password with a clear notice.
+4. **Deploy**
+   ```
+   wrangler deploy
+   ```
+   (Or just push to `main` — Cloudflare picks up the `database_id` and secret
+   on the next deploy.)
+
+### Architecture
+- `src/admin.js` — auth (cookie = `SHA256(ADMIN_PASSWORD + ":umc-billing-v1")`),
+  D1 schema bootstrap (CREATE TABLE IF NOT EXISTS on first request), the JSON
+  API surface, and the inline admin page HTML/CSS/JS.
+- `src/index.js` — routes `/admin/billing*` and `/admin/api/billing*` to
+  `handleAdmin`; everything else is unchanged.
+- `wrangler.jsonc` — adds `BILLING_DB` D1 binding and `/admin/*` to
+  `assets.run_worker_first` so the Worker handles these paths before the
+  static asset binding falls through to `./site`.
+- `migrations/0001_billing_documents.sql` — canonical schema; the
+  auto-create in code is the source of truth for the running schema.
+
+### Document numbering
+- `UMC-Q-####` for quotes; `UMC-INV-####` for invoices.
+- The next number is fetched server-side from `MAX(id)` per `doc_type`; the
+  number field in the form is **editable** (manual override is supported)
+  but the UNIQUE constraint blocks accidental duplicates with a 409 → the UI
+  re-fetches next and the user retries.
+
+### VAT math (UAE 5% standard rate)
+- **Exclusive**: `subtotal = Σ(qty × rate)`, `vat = subtotal × 0.05`,
+  `total = subtotal + vat`.
+- **Inclusive**: `total = Σ(qty × rate)`, `subtotal = total / 1.05`,
+  `vat = total − subtotal`.
+- The TRN (`104201356300003`) prints **only on invoices**; quotes show
+  the same VAT breakdown but no TRN. Client block is labelled
+  "Billed to" on invoices, "Quote made for" on quotes.
+
+### Email body
+Generated client-side as a copy-pasteable HTML block + plain-text
+fallback. **Not wired to Resend** for this build — Usman copies the HTML
+into Gmail/Outlook and attaches the PDF himself. Wiring it to the
+existing Resend integration is a follow-up (use the
+`sendClientReceipt`-style pattern in `src/index.js`).
+
 ## Standing image-sourcing rule (v42)
 When replacing or adding any site image (fleet cards, fleet-page heroes, interior
 shots, homepage hero, partner logos), use this preference order:
