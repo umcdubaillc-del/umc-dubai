@@ -369,13 +369,10 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
    bottom, not floating directly under the body). */
 .doc{width:794px;background:#fff;border:1px solid var(--hair);border-radius:3px;color:var(--ink);font-family:Outfit,sans-serif;font-size:12px;line-height:1.55;min-height:1123px;padding:0;overflow:hidden;box-shadow:0 30px 60px -36px rgba(34,27,20,.25);transform-origin:top left;display:flex;flex-direction:column}
 
-/* Espresso bands — top masthead + bottom footer. Both share font-size +
-   letter-spacing so they feel like one band style (item 5). */
-.doc .dmast,.doc .dfoot{background:var(--espresso);color:#D9D0C0;padding:.95rem 2.4rem;font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact;flex-shrink:0}
-.doc .dmast{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;justify-content:center}
-.doc .dmast.has-trn{justify-content:space-between}
-.doc .dmast .trn{font-family:Fraunces,Georgia,serif;letter-spacing:.06em;text-transform:none;color:#F6F1E7;font-size:10.5px}
-.doc .dfoot{text-align:center}
+/* Espresso footer band — classical letterhead silhouette: clean top edge,
+   branded foot (v44f — top masthead band removed; legal name + TRN now live
+   in the body header next to the lockup). */
+.doc .dfoot{background:var(--espresso);color:#D9D0C0;padding:.95rem 2.4rem;font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact;flex-shrink:0;text-align:center}
 
 /* Body fills available vertical space — pushes footer to the bottom edge. */
 .doc .dbody{padding:2.6rem 2.4rem 2rem;flex:1 1 auto;display:flex;flex-direction:column}
@@ -394,9 +391,14 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
 .doc .lock .dash{width:30px;height:1px;background:var(--amber);margin:.65rem 0}
 .doc .lock .duo{font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.36em;text-transform:uppercase;color:var(--muted)}
 
-/* Company contact stack under the lockup. */
-.doc .from{font-size:11px;line-height:1.6;color:var(--ink-soft)}
+/* Company contact stack under the lockup. The legal name sits as the first
+   line of the stack (Marcellus, slightly larger), then address / phone /
+   email each on their own line; the TRN tail line (Fraunces, ink colour)
+   appears only on invoices. */
+.doc .from{font-size:11px;line-height:1.65;color:var(--ink-soft)}
+.doc .from .nm{font-family:Marcellus,serif;font-size:.98rem;color:var(--ink);margin-bottom:.3rem;line-height:1.3;letter-spacing:0;display:block}
 .doc .from .ln{display:block}
+.doc .from .trn{font-family:Fraunces,Georgia,serif;color:var(--ink);font-size:11.5px;letter-spacing:.05em;margin-top:.45rem;display:block}
 
 /* Editorial doc-type label — the visual headline of the document. */
 .doc .meta .t{font-family:Marcellus,serif;font-size:2.4rem;color:var(--ink);margin:0 0 .2rem;letter-spacing:.18em;text-transform:uppercase;line-height:1}
@@ -483,7 +485,7 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
   .app { grid-template-columns: 1fr !important; padding:0 !important; gap:0 !important; }
   .preview-wrap { position:static !important; top:auto !important; height:auto !important; overflow:visible !important; }
   .doc { border:0 !important; min-height:auto !important; box-shadow:none !important; border-radius:0 !important; transform:none !important; width:100% !important; }
-  .doc .dmast, .doc .dfoot { padding-left:14mm !important; padding-right:14mm !important; }
+  .doc .dfoot { padding-left:14mm !important; padding-right:14mm !important; }
   .doc .dbody { padding:14mm 14mm 10mm !important; }
 }
 </style>
@@ -875,26 +877,22 @@ const PAGE_SCRIPT = `<script>
     // discRow / vatNote with new classes
     const discRowFmt = r.discount > 0 ? '<div class="r"><span>Discount</span><span>− '+fmtMoney(r.discount, state.currency)+'</span></div>' : '';
     const vatNoteFmt = state.vat_mode === "inclusive" ? '<div class="tot-vat-note">VAT inclusive — 5% included in line rates</div>' : '';
-    const trnMast = isInv ? '<span class="trn">TRN '+COMPANY.trn+'</span>' : '';
+    // TRN sits as the tail line of the address stack on invoices; quotes omit it.
+    const trnLine = isInv ? '<span class="trn">TRN '+COMPANY.trn+'</span>' : '';
 
     $("doc").innerHTML = ''
-      // ============ ESPRESSO MASTHEAD ============
-      // Quote: company-legal centred. Invoice: company-legal left, TRN right.
-      // Address removed per audit (it's already in the body header).
-      + '<div class="dmast'+(isInv ? ' has-trn' : '')+'">'
-      +   '<span>'+esc(COMPANY.legal)+'</span>'
-      +   trnMast
-      + '</div>'
-      // ============ DOC BODY ============
+      // ============ DOC BODY (no top masthead band, v44f) ============
       + '<div class="dbody">'
-      // --- header band: lockup + company (left) | doc-type + meta + client (right) ---
+      // --- header band: lockup + legal name + contact (left) | doc-type + meta + client (right) ---
       + '<div class="dh">'
       +   '<div class="dh-left">'
       +     '<div class="lock"><div class="uni">UMC</div><div class="dash"></div><div class="duo">Dubai</div></div>'
       +     '<div class="from">'
+      +       '<div class="nm">'+esc(COMPANY.legal)+'</div>'
       +       '<span class="ln">'+esc(COMPANY.addr)+'</span>'
       +       '<span class="ln">'+esc(COMPANY.phone)+'</span>'
       +       '<span class="ln">'+esc(COMPANY.email)+'</span>'
+      +       trnLine
       +     '</div>'
       +   '</div>'
       +   '<div class="dh-right">'
