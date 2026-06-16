@@ -2,6 +2,66 @@
 import json, pathlib
 HERE = pathlib.Path(__file__).resolve().parent
 SITE = HERE / "site"
+
+# ---------- responsive-image pipeline ----------
+# STANDING RULE: every interior image emits a srcset with small variants so the
+# browser does a gentle downscale instead of a brutal 5x reduction into a small
+# cell. The build generates the 360w + 720w variants on demand (LANCZOS, high-
+# quality JPEG/WebP). Future cars' interior images get this automatically — no
+# per-page wiring needed. (Diagnosed live: 1280->249 single-step crush is what
+# was causing the blocky mottling in dark/shadow areas on the V-Class details.)
+_INT_VARIANT_WIDTHS = (360, 720)
+_RESP_CACHE = {}
+def ensure_image_variants(src_path):
+    """Generate 360w + 720w variants if missing. Return [(w, name), ...]."""
+    src = pathlib.Path(src_path)
+    if not src.exists(): return []
+    key = str(src)
+    if key in _RESP_CACHE: return _RESP_CACHE[key]
+    try:
+        from PIL import Image
+    except ImportError:
+        _RESP_CACHE[key] = []
+        return []
+    img = None
+    out = []
+    nat_w = None
+    for tw in _INT_VARIANT_WIDTHS:
+        var = src.with_name(f'{src.stem}-{tw}{src.suffix}')
+        if not var.exists():
+            if img is None: img = Image.open(src).convert('RGB'); nat_w = img.size[0]
+            if tw >= img.size[0]: continue
+            th = round(img.size[1] * tw / img.size[0])
+            small = img.resize((tw, th), Image.LANCZOS)
+            if src.suffix.lower() == '.webp':
+                small.save(var, 'webp', quality=88)
+            else:
+                small.save(var, 'jpeg', quality=86, optimize=True, progressive=True)
+        out.append((tw, var.name))
+    if nat_w is None:
+        nat_w = Image.open(src).size[0]
+    _RESP_CACHE[key] = (out, nat_w)
+    return _RESP_CACHE[key]
+
+def responsive_img(rel_path, css_class, alt, sizes_attr, loading="lazy", extra_attrs=""):
+    """Emit an <img> with srcset for an interior image. rel_path is relative to
+    site/assets/fleet/. Falls back to a plain <img> if PIL is unavailable or the
+    file is missing."""
+    abs_src = SITE / 'assets' / 'fleet' / rel_path
+    result = ensure_image_variants(abs_src)
+    plain_src = f'assets/fleet/{rel_path}'
+    if not result:
+        return f'<img class="{css_class}" src="{plain_src}" alt="{alt}" loading="{loading}"{extra_attrs}>'
+    variants, nat_w = result
+    parent = pathlib.Path(rel_path).parent
+    stem = pathlib.Path(rel_path).stem
+    ext = pathlib.Path(rel_path).suffix
+    parts = [f'assets/fleet/{parent}/{stem}-{w}{ext} {w}w' for w, _ in variants]
+    parts.append(f'{plain_src} {nat_w}w')
+    return (f'<img class="{css_class}" '
+            f'srcset="{", ".join(parts)}" '
+            f'sizes="{sizes_attr}" '
+            f'src="{plain_src}" alt="{alt}" loading="{loading}"{extra_attrs}>')
 WA = "https://api.whatsapp.com/send?phone=971586497861&text=Hello%2C%20I%20would%20like%20to%20reserve%20a%20car%20with%20UMC%20Dubai."
 MAPS_KEY = "AIzaSyBx8uKzaCk5fFG8a0D8zqW82HLwOsb7px0"
 V = "1781395580"
@@ -1165,9 +1225,13 @@ def sc_amenity_cell(a):
 
 sc_amenities_html = "".join(sc_amenity_cell(a) for a in SC_AMENITIES)
 sc_details_html = "".join(
-    f'<img class="sc-int__detail" src="assets/fleet/s-class/{src}" alt="{alt}" loading="lazy">'
-    for src, alt in SC_INT_DETAILS
+    responsive_img(f"s-class/{src}", "sc-int__detail", f"{alt} {i+1}",
+                   sizes_attr="(max-width:560px) 90vw, (max-width:980px) 45vw, 280px")
+    for i, (src, alt) in enumerate(SC_INT_DETAILS)
 )
+sc_primary_html = responsive_img("s-class/interior.webp", "sc-int__photo",
+                                 "Mercedes-Benz S-Class rear cabin interior",
+                                 sizes_attr="(max-width:899px) 100vw, 720px")
 
 sc_body = header("fleet.html") + f"""
 <!-- HERO — single static exterior image (no rotation, no dots). Fits viewport minus header. -->
@@ -1202,7 +1266,7 @@ sc_body = header("fleet.html") + f"""
       <!-- Left ~55-60% : primary cabin image. TEMPORARY — to be replaced with HD interior
            photo from Usman. (Hotspot markers removed per request.) -->
       <div class="sc-int__primary">
-        <img class="sc-int__photo" src="assets/fleet/s-class/interior.webp" alt="Mercedes-Benz S-Class rear cabin interior" loading="lazy">
+        {sc_primary_html}
       </div>
       <!-- Right ~40-45% : 2x2 grid of supporting cabin shots. -->
       <div class="sc-int__details" aria-label="Cabin detail shots">
@@ -1675,16 +1739,20 @@ def render_fleet_page_body(car):
                    f'<img class="sc-hero__img" src="assets/fleet/{car["hero_img"]}" alt="{name} — exterior" fetchpriority="high" style="object-position:{op}">')
     else:
         hero_ph = fleet_placeholder(name + " — exterior", f"{cid}-hero", variant=0, css_class="sc-hero__img")
-    # Interior primary image
+    # Interior primary image — primary cell is ~712px on desktop, full-width below 980px.
     if car.get("interior_primary"):
-        int_primary_ph = (f'<!-- TEMPORARY interior image — replace with final UMC {name} cabin photography. -->'
-                          f'<img class="sc-int__photo" src="assets/fleet/{car["interior_primary"]}" alt="{name} — cabin" loading="lazy">')
+        int_primary_ph = ('<!-- TEMPORARY interior image. Generated 360w/720w variants for srcset. -->'
+                          + responsive_img(car["interior_primary"], "sc-int__photo",
+                                           f"{name} — cabin",
+                                           sizes_attr="(max-width:899px) 100vw, 720px"))
     else:
         int_primary_ph = fleet_placeholder(name + " — cabin", f"{cid}-cabin", variant=1, css_class="sc-int__photo")
-    # 2x2 detail grid
+    # 2x2 detail grid — each cell renders ~249px on desktop, ~45vw at tablet, ~90vw on phone.
     if car.get("interior_details"):
         int_details_ph = "".join(
-          f'<img class="sc-int__detail" src="assets/fleet/{p}" alt="{name} — cabin detail {i+1}" loading="lazy">'
+          responsive_img(p, "sc-int__detail",
+                         f"{name} — cabin detail {i+1}",
+                         sizes_attr="(max-width:560px) 90vw, (max-width:980px) 45vw, 280px")
           for i, p in enumerate(car["interior_details"])
         )
     else:
