@@ -22,16 +22,21 @@
     // /api/* — lead capture (existing). /admin/* — billing tool (v44).
     "run_worker_first": ["/api/*", "/admin/*"]
   },
-  // D1 binding for the billing tool (v44). The database_id placeholder MUST be
-  // replaced with the real id after `wrangler d1 create umc-billing` — until
-  // then the binding is invalid and the admin tool will error on first use.
-  // Schema auto-creates on first request via CREATE TABLE IF NOT EXISTS; the
+  // D1 binding for the billing tool (v44). Commented out at first deploy because
+  // Cloudflare requires a real UUID `database_id` at deploy time — a placeholder
+  // breaks the build. To activate:
+  //   1) wrangler d1 create umc-billing
+  //   2) uncomment the d1_databases block below and paste the printed
+  //      database_id into "database_id"
+  //   3) push to main (or wrangler deploy)
+  // Schema auto-creates on first request (CREATE TABLE IF NOT EXISTS); the
   // migrations/0001_billing_documents.sql file is the canonical paper trail.
-  "d1_databases": [
-    {
-      "binding": "BILLING_DB",
-      "database_name": "umc-billing",
-      "database_id": "REPLACE_WITH_WRANGLER_D1_CREATE_OUTPUT"
-    }
-  ]
+  //
+  // "d1_databases": [
+  //   {
+  //     "binding": "BILLING_DB",
+  //     "database_name": "umc-billing",
+  //     "database_id": "PASTE_DATABASE_ID_HERE"
+  //   }
+  // ]
 }

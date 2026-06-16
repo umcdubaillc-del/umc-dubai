@@ -58,29 +58,36 @@ Cloudflare D1 database (`BILLING_DB`); generates a print-ready PDF via the
 browser print dialog and a copy-pasteable HTML/text client email.
 
 ### Required one-time owner setup
+The Worker ships with the D1 binding **commented out** in `wrangler.jsonc`
+(Cloudflare rejects a deploy with a placeholder `database_id`). Activation
+is a one-time, three-command setup:
+
 1. **Create the D1 database**
    ```
    wrangler d1 create umc-billing
    ```
-   Copy the `database_id` it prints, paste it into `wrangler.jsonc` →
-   `d1_databases[0].database_id` (replace `REPLACE_WITH_WRANGLER_D1_CREATE_OUTPUT`).
-2. **Apply the migration (optional — schema auto-creates on first request)**
-   ```
-   wrangler d1 migrations apply umc-billing --remote
-   ```
+   Copy the `database_id` UUID it prints.
+2. **Uncomment the D1 binding** in `wrangler.jsonc` — there's a clearly
+   marked `// "d1_databases": [...]` block. Uncomment it (drop the `//`
+   prefixes on those 7 lines) and paste the `database_id` from step 1
+   into `"database_id": "PASTE_DATABASE_ID_HERE"`.
 3. **Set the admin password as a Worker secret**
    ```
    wrangler secret put ADMIN_PASSWORD
    ```
    (Or add it via Cloudflare dashboard → Workers & Pages → `umc-dubai` →
    Settings → Variables and Secrets → Add → type Secret.) Without this set,
-   the login form refuses every password with a clear notice.
+   the login form refuses every password with a clear "ADMIN_PASSWORD is
+   not configured" notice on the page.
 4. **Deploy**
    ```
    wrangler deploy
    ```
-   (Or just push to `main` — Cloudflare picks up the `database_id` and secret
-   on the next deploy.)
+   (Or push to `main` — Cloudflare picks up the binding and secret on the
+   next deploy.) Schema auto-creates on first request via
+   `CREATE TABLE IF NOT EXISTS`; the `migrations/0001_billing_documents.sql`
+   file is the canonical paper trail. To apply it explicitly:
+   `wrangler d1 migrations apply umc-billing --remote`.
 
 ### Architecture
 - `src/admin.js` — auth (cookie = `SHA256(ADMIN_PASSWORD + ":umc-billing-v1")`),

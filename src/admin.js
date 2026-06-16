@@ -82,6 +82,13 @@ function esc(s) {
 
 // ============================================================ D1
 
+function dbUnavailable() {
+  return json(
+    { ok: false, error: "BILLING_DB D1 binding is not configured on this Worker. Follow CLAUDE.md → Billing tool setup (create the D1 database, uncomment the d1_databases block in wrangler.jsonc, fill in database_id, redeploy)." },
+    503
+  );
+}
+
 async function ensureSchema(env) {
   if (!env.BILLING_DB) throw new Error("BILLING_DB binding is missing");
   if (SCHEMA_DONE.has(env)) return;
@@ -241,10 +248,11 @@ export async function handleAdmin(request, env) {
     return html(PAGE_HTML(authed, env));
   }
 
-  // 3) API surface (all require auth)
+  // 3) API surface (all require auth + the D1 binding)
   if (path.startsWith("/admin/api/billing")) {
     const authed = await isAuthed(request, env);
     if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
     if (path === "/admin/api/billing/next" && method === "GET") return handleNext(url, env);
     if (path === "/admin/api/billing" && method === "POST") return handleCreate(request, env);
     if (path === "/admin/api/billing" && method === "GET") return handleList(env);
