@@ -115,12 +115,44 @@ def head(title, desc, canon, extra=""):
 """
 
 def header(active):
-    items = [("index.html","Home"),("fleet.html","Fleet"),("airport-transfers.html","Airport Transfers"),
-             ("corporate.html","Corporate"),("events.html","Events"),("about.html","About"),("contact.html","Contact")]
+    # Each item: (href, label) for simple links, or (href, label, submenu) where
+    # submenu is a list of (subhref, sublabel, disabled) triples. Disabled items
+    # render as a non-clickable "soon" badge but still appear in the dropdown.
+    items = [
+      ("index.html", "Home"),
+      ("fleet.html", "Fleet"),
+      ("airport-transfers.html", "Airport Transfers", [
+        ("airport-transfers/dubai", "Dubai", False),
+        (None, "Abu Dhabi", True),
+        (None, "Sharjah", True),
+        (None, "Ras Al Khaimah", True),
+        (None, "Al Ain", True),
+      ]),
+      ("corporate.html", "Corporate"),
+      ("events.html", "Events"),
+      ("about.html", "About"),
+      ("contact.html", "Contact"),
+    ]
     parts = []
-    for h, t in items:
-        cls = ' class="on"' if h == active else ''
-        parts.append('<li><a href="' + h + '"' + cls + '>' + t + '</a></li>')
+    for item in items:
+        h, t = item[0], item[1]
+        sub = item[2] if len(item) > 2 else None
+        parent_on = (h == active) or (sub and any(s[0] and s[0] == active for s in sub))
+        a_cls = ' class="on"' if h == active else ''
+        if sub:
+            sub_li = []
+            for sh, st, dis in sub:
+                if dis:
+                    sub_li.append('<li><span class="off">' + st + ' <em>soon</em></span></li>')
+                else:
+                    cls = ' class="on"' if sh == active else ''
+                    sub_li.append('<li><a href="' + sh + '"' + cls + '>' + st + '</a></li>')
+            sub_html = '<ul class="submenu">' + "".join(sub_li) + '</ul>'
+            wrap_cls = ' class="has-sub' + (' on' if parent_on else '') + '"'
+            parts.append('<li' + wrap_cls + '><a href="' + h + '"' + a_cls + '>' + t +
+                         ' <span class="caret" aria-hidden="true">&#9662;</span></a>' + sub_html + '</li>')
+        else:
+            parts.append('<li><a href="' + h + '"' + a_cls + '>' + t + '</a></li>')
     nav = "".join(parts)
     return f"""<header class="site">
   <div class="topbar">
@@ -767,7 +799,102 @@ airport_body = header("airport-transfers.html") + f"""
 (SITE/"airport-transfers.html").write_text(
  head("Airport Transfer Dubai & UAE — Flight Tracked, Meet & Greet | UMC Dubai",
       "Fixed-price airport transfers across the UAE. Live flight tracking, meet & greet at baggage claim, 60 minutes waiting included. From AED 350, all-inclusive.",
-      "airport-transfers/dubai/", faq_schema(AIRPORT_FAQS)) + airport_body)
+      "airport-transfers/", faq_schema(AIRPORT_FAQS)) + airport_body)
+
+# ---------- airport-transfers / dubai (per-emirate page, v45 step 1) ----------
+# Same template as the master (header, hero, arrival protocol, included, fleet,
+# FAQ, closing band) — only the copy + airport codes change. Other emirates
+# follow in the same pattern. Per Usman's lock: NO layout/section/design changes.
+DUBAI_AIRPORT_FAQS = [
+ ("How does the meet &amp; greet work?",
+  "Your chauffeur waits in the arrivals hall with a name board, assists with your luggage and walks you to the car."),
+ ("What if my flight is delayed?",
+  "We track the flight from departure. If it is delayed, the booking moves with it and your chauffeur is there when you land."),
+ ("Is waiting time included?",
+  "Yes. Sixty minutes from the actual landing time is included with every airport transfer."),
+ ("What does the transfer rate include?",
+  "Your chauffeur, fuel, Salik and parking. Transfers ending outside Dubai carry an additional fee by vehicle type, stated in your quote."),
+ ("Can I add a stop on the way?",
+  "Yes. Additional stops are charged at AED 75 for each 30-minute interval."),
+ ("Which Dubai airports do you cover?",
+  "Both of Dubai's airports: Dubai International (DXB) and Al Maktoum International (DWC), at any hour of the day or night."),
+ ("Where in Dubai will you take me?",
+  "Across the city: DIFC, Downtown, Dubai Marina, Palm Jumeirah, Business Bay and any other Dubai address you provide."),
+]
+
+dubai_airport_body = header("airport-transfers/dubai") + f"""
+<section class="phero">
+  <div class="wrap">
+    <span class="lbl">DXB &middot; DWC</span>
+    <h1>Airport transfers in Dubai.</h1>
+    <p class="lede">Met at arrivals at DXB and DWC. Driven into Dubai without delay.</p>
+    <div class="btns rv" style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
+      <a class="btn btn-ink" href="booking.html">Reserve your transfer</a>
+    </div>
+  </div>
+  </section>
+{JL}
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">The arrival protocol</span><h2>From the arrivals hall to your door.</h2></div>
+    <p class="lede rv" style="text-align:center;max-width:55ch;margin:0 auto 2rem">Whether you land at Dubai International or Al Maktoum, the protocol is the same. Your chauffeur tracks the flight, waits in the arrivals hall, and is standing ready the moment you clear.</p>
+    <div class="timeline rv">
+      <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M21 15.5l-8-3V5.2a1.7 1.7 0 0 0-3.4 0v7.3l-6.6 2.5v2l6.6-1.4v3.6L7.5 21v1.4l4.8-1 4.8 1V21l-2.1-1.8v-3.6l6 1.3z"/></svg></div>
+        <div><h3>Tracked<span class="lbl">From departure</span></h3><p>We follow your flight from the moment it leaves the ground. A delay moves the booking, not your plans.</p></div></div>
+      <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><circle cx="12" cy="6.6" r="3.1"/><path d="M4.8 21c.8-4 3.6-6 7.2-6s6.4 2 7.2 6"/><path d="M10.7 12.4h2.6l-.5 1.5h-1.6z"/><path d="M11.3 13.9l-.8 3.6 1.5 2 1.5-2-.8-3.6"/></svg></div>
+        <div><h3>Met<span class="lbl">Arrivals hall</span></h3><p>Your chauffeur waits with a name board, greets you and assists with your luggage.</p></div></div>
+      <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M5 16l1.4-4.2A2 2 0 0 1 8.3 10h7.4a2 2 0 0 1 1.9 1.8L19 16M5 16h14M5 16v3h2v-2h10v2h2v-3"/><circle cx="8" cy="17.5" r=".4"/><circle cx="16" cy="17.5" r=".4"/></svg></div>
+        <div><h3>Seated<span class="lbl">At the kerb</span></h3><p>An immaculate car waits with the route already set, bottled water and chargers within reach.</p></div></div>
+      <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7M6.5 9.5V20h11V9.5"/><path d="M10.5 20v-5h3v5"/></svg></div>
+        <div><h3>Arrived<span class="lbl">Door to door</span></h3><p>Up to sixty minutes of waiting was already included, and the journey ends at your address in Dubai.</p></div></div>
+    </div>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">Included</span><h2>Attached to every journey.</h2></div>
+    <div class="tagwrap rv">
+      <div class="lugtag" role="list" aria-label="Included with every airport transfer">
+        <div class="tg-head"><span class="lbl">Airport service manifest</span><b>UMC</b></div>
+        <ul>
+          <li role="listitem"><b class="t">Arrival monitoring</b><span>Your flight is tracked from departure; the pick-up adjusts to the actual landing time.</span></li>
+          <li role="listitem"><b class="t">Reception</b><span>Your chauffeur waits in the arrivals hall with a name board and assists with luggage.</span></li>
+          <li role="listitem"><b class="t">Waiting time</b><span>Sixty minutes included at every airport before any additional charge is considered.</span></li>
+          <li role="listitem"><b class="t">Cabin provisions</b><span>Bottled water, device chargers and tissues, prepared before every pick-up.</span></li>
+          <li role="listitem"><b class="t">Cancellation</b><span>Released without charge up to 48 hours before the scheduled pick-up.</span></li>
+        </ul>
+        <div class="tg-foot"><span>No meter &middot; No surge</span><i>Priority handling</i></div>
+      </div>
+    </div>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap wide">
+    <div class="shead rv"><span class="lbl">The fleet</span><h2>Choose your car.</h2><p class="lede">A seamless transfer between the terminal and your hotel, residence or boardroom, in the car that suits the moment.</p></div>
+    <div class="fleet-grid" id="airportFleet"></div>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">Good to know</span><h2>Airport transfer questions</h2></div>
+    <div class="faq rv">{faq_details(DUBAI_AIRPORT_FAQS)}</div>
+  </div>
+</section>
+<section class="closing band-dark">
+  <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">Have the car waiting when you land.</h2>
+  <div class="btns rv"><a class="btn btn-ink" href="booking.html">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
+</section>
+""" + FOOTER + """
+<script>document.addEventListener("DOMContentLoaded",function(){renderFleet(document.getElementById("airportFleet"),{})});</script>
+</body></html>"""
+(SITE/"airport-transfers").mkdir(parents=True, exist_ok=True)
+(SITE/"airport-transfers"/"dubai.html").write_text(
+ head("Dubai Airport Transfer (DXB & DWC) — Chauffeur, Meet & Greet | UMC Dubai",
+      "Chauffeur-driven Dubai airport transfers from DXB and Al Maktoum (DWC). Meet & greet at arrivals, live flight tracking, 60 minutes waiting included.",
+      "airport-transfers/dubai/", faq_schema(DUBAI_AIRPORT_FAQS)) + dubai_airport_body)
 
 # ---------- corporate ----------
 # v27 T2 — replaced the v25 T3 "What your programme receives" 6-up grid and
@@ -2093,7 +2220,7 @@ for car in FLEET_PAGES_DRAFT:
     (SITE/"fleet").mkdir(parents=True, exist_ok=True)
     (SITE/"fleet"/f"{slug}.html").write_text(head_html + render_fleet_page_body(car))
 
-pages = ["", "fleet.html","fleet/s-class","fleet/bmw-7-series","fleet/e-class","fleet/lexus-es","fleet/cadillac-escalade","fleet/gmc-yukon-xl","fleet/v-class","fleet/sprinter","fleet/king-long","airport-transfers.html","inter-emirate.html","corporate.html","events.html","about.html","contact.html","booking.html","terms.html","privacy.html"]
+pages = ["", "fleet.html","fleet/s-class","fleet/bmw-7-series","fleet/e-class","fleet/lexus-es","fleet/cadillac-escalade","fleet/gmc-yukon-xl","fleet/v-class","fleet/sprinter","fleet/king-long","airport-transfers.html","airport-transfers/dubai","inter-emirate.html","corporate.html","events.html","about.html","contact.html","booking.html","terms.html","privacy.html"]
 urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><changefreq>weekly</changefreq></url>" for p in pages)
 (SITE/"sitemap.xml").write_text(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>')
 (SITE/"robots.txt").write_text("User-agent: *\nAllow: /\nSitemap: https://umcdubai.ae/sitemap.xml\n")

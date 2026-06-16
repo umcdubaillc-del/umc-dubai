@@ -64,6 +64,24 @@ nav.mainnav a:hover,nav.mainnav a.on{color:var(--ink);border-color:var(--amber)}
 }
 @media(min-width:860px){.burger{display:none}}
 
+/* ---------- submenu (Airport Transfers → emirates, v45) ---------- */
+nav.mainnav .has-sub{position:relative}
+nav.mainnav .caret{font-size:.55em;margin-left:.18em;opacity:.7}
+nav.mainnav .submenu{display:none;position:absolute;top:100%;left:50%;transform:translateX(-50%);background:var(--bone);border:1px solid var(--hair);padding:.45rem 0;min-width:200px;box-shadow:0 14px 32px -22px rgba(34,27,20,.35);z-index:65;list-style:none;flex-direction:column}
+nav.mainnav .has-sub:hover .submenu,nav.mainnav .has-sub:focus-within .submenu{display:flex}
+nav.mainnav .submenu li{display:block;width:100%}
+nav.mainnav .submenu a,nav.mainnav .submenu .off{display:block;text-align:left;font-size:.72rem;letter-spacing:.18em;padding:.55rem 1.25rem;color:var(--ink-soft);text-transform:uppercase;border-bottom:0;border:0}
+nav.mainnav .submenu a:hover{color:var(--ink);background:var(--bone2);border-color:transparent}
+nav.mainnav .submenu a.on{color:var(--ink)}
+nav.mainnav .submenu .off{color:var(--muted);cursor:default}
+nav.mainnav .submenu .off em{font-style:normal;font-size:.72em;letter-spacing:.18em;text-transform:uppercase;color:var(--amber-deep);margin-left:.5em}
+@media(max-width:859px){
+  nav.mainnav .has-sub{width:100%;text-align:center}
+  nav.mainnav .has-sub > a .caret{display:none}
+  nav.mainnav .submenu{display:flex;position:static;transform:none;border:0;box-shadow:none;padding:.1rem 0 .7rem;min-width:0;background:transparent;align-items:center}
+  nav.mainnav .submenu a,nav.mainnav .submenu .off{text-align:center;font-size:.72rem;padding:.45rem 0}
+}
+
 /* ---------- buttons ---------- */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;font-family:var(--sans);font-weight:500;font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;padding:1rem 1.7rem;border-radius:2px;border:1px solid var(--ink);cursor:pointer;transition:.22s;min-height:48px}
 .btn-ink{background:var(--ink);color:var(--bone)}
