@@ -372,15 +372,18 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
 /* Espresso footer band — classical letterhead silhouette: clean top edge,
    branded foot (v44f — top masthead band removed; legal name + TRN now live
    in the body header next to the lockup). */
-.doc .dfoot{background:var(--espresso);color:#D9D0C0;padding:.95rem 2.4rem;font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact;flex-shrink:0;text-align:center}
+.doc .dfoot{background:var(--espresso);color:#D9D0C0;padding:1.4rem 2.4rem 1.6rem;font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact;flex-shrink:0;text-align:center}
 
 /* Body fills available vertical space — pushes footer to the bottom edge. */
 .doc .dbody{padding:2.6rem 2.4rem 2rem;flex:1 1 auto;display:flex;flex-direction:column}
 
-/* Header band: logo + company stack on the left, big editorial doc-type label + meta + client stack on the right. */
+/* Header band: logo + company stack on the left, big editorial doc-type label + meta + client stack on the right.
+   gap:2.2rem inside each column = breathing room between the lockup and the
+   first content row underneath (legal name on the left, QUOTE / number / date
+   on the right) — they both drop a noticeable distance below the lockup line. */
 .doc .dh{display:grid;grid-template-columns:1fr 1.1fr;gap:2.2rem;align-items:start;margin-bottom:1.8rem}
-.doc .dh-left{display:flex;flex-direction:column;gap:1.4rem}
-.doc .dh-right{display:flex;flex-direction:column;gap:1.4rem;align-items:flex-end;text-align:right}
+.doc .dh-left{display:flex;flex-direction:column;gap:2.2rem}
+.doc .dh-right{display:flex;flex-direction:column;gap:2.2rem;align-items:flex-end;text-align:right}
 
 /* Stacked UMC — Dubai lockup. The container stays anchored to the top-left of
    the doc body, but the three elements (UMC, amber dash, Dubai) are centered
