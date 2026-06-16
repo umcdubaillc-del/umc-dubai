@@ -224,6 +224,16 @@ async function handleGetOne(id, env) {
   return json({ ok: true, item: row });
 }
 
+async function handleDelete(id, env) {
+  await ensureSchema(env);
+  const res = await env.BILLING_DB.prepare(
+    "DELETE FROM billing_documents WHERE id = ?"
+  ).bind(id).run();
+  // D1's run() returns { meta: { changes } } — 0 changes = no row matched.
+  if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
+  return json({ ok: true, id });
+}
+
 // ============================================================ dispatcher
 
 export async function handleAdmin(request, env) {
@@ -258,6 +268,7 @@ export async function handleAdmin(request, env) {
     if (path === "/admin/api/billing" && method === "GET") return handleList(env);
     const m = path.match(/^\/admin\/api\/billing\/(\d+)$/);
     if (m && method === "GET") return handleGetOne(parseInt(m[1], 10), env);
+    if (m && method === "DELETE") return handleDelete(parseInt(m[1], 10), env);
     return json({ ok: false, error: "not found" }, 404);
   }
 
@@ -305,6 +316,10 @@ button{cursor:pointer;border:0;background:transparent}
 .btn.btn-ghost{background:transparent;color:var(--ink)}
 .btn.btn-ghost:hover{background:var(--bone2)}
 .btn.btn-small{padding:.35rem .7rem;min-height:30px;font-size:12px}
+/* Danger variant for the history-row delete button. Stays a ghost button
+   until hover so it reads as a quiet option, not a primary action. */
+.btn.btn-danger{color:var(--amber-deep);border-color:var(--line);background:transparent}
+.btn.btn-danger:hover{color:var(--bone);background:var(--amber-deep);border-color:var(--amber-deep)}
 hr.hair{border:0;border-top:1px solid var(--hair);margin:1rem 0}
 hr.amber{border:0;border-top:1px solid var(--amber);width:32px;margin:1rem 0}
 
@@ -1163,15 +1178,37 @@ const PAGE_SCRIPT = `<script>
           + '<td>'+esc(fmtDate(x.doc_date))+'</td>'
           + '<td>'+esc(x.client_name || "")+(x.client_company?' <span style="color:#7A6F5F">('+esc(x.client_company)+')</span>':'')+'</td>'
           + '<td style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(x.total, x.currency))+'</td>'
-          + '<td style="text-align:right"><button type="button" class="btn btn-small btn-ghost" data-load="'+x.id+'">Re-open</button></td>'
+          + '<td style="text-align:right;white-space:nowrap">'
+          +   '<button type="button" class="btn btn-small btn-ghost" data-load="'+x.id+'">Re-open</button> '
+          +   '<button type="button" class="btn btn-small btn-danger" data-del="'+x.id+'" data-num="'+esc(x.number)+'" data-type="'+esc(x.doc_type)+'" title="Delete">×</button>'
+          + '</td>'
           + '</tr>';
       }).join("");
       tbody.addEventListener("click", function(e){
-        const b = e.target.closest("[data-load]"); if(!b) return;
-        e.preventDefault();
-        loadDoc(b.getAttribute("data-load"));
+        const loadB = e.target.closest("[data-load]");
+        const delB  = e.target.closest("[data-del]");
+        if(loadB){ e.preventDefault(); loadDoc(loadB.getAttribute("data-load")); return; }
+        if(delB){
+          e.preventDefault();
+          const num = delB.getAttribute("data-num");
+          const type = delB.getAttribute("data-type");
+          const warn = type === "invoice"
+            ? "Delete invoice " + num + " ?\\n\\nUAE VAT records typically require an unbroken invoice sequence — deleting this number will leave a gap. Only delete drafts or genuine duplicates."
+            : "Delete quote " + num + " ?\\n\\nThis cannot be undone.";
+          if(!confirm(warn)) return;
+          deleteDoc(delB.getAttribute("data-del"), num);
+        }
       }, { once: true });
     } catch(e){ setStatus("History load failed."); }
+  }
+  async function deleteDoc(id, num){
+    setStatus("Deleting " + (num || id) + " …");
+    try {
+      const r = await fetch("/admin/api/billing/" + id, { method: "DELETE" });
+      const j = await r.json();
+      if(j.ok){ setStatus("Deleted " + (num || id) + "."); loadHistory(); }
+      else { setStatus("Delete failed: " + (j.error || r.status)); }
+    } catch(e){ setStatus("Delete failed: " + (e.message || e)); }
   }
   async function loadDoc(id){
     setStatus("Loading " + id + " …");
