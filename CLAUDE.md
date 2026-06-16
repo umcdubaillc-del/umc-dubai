@@ -83,7 +83,7 @@ Operational rules:
 - When a clean replacement arrives, drop the corresponding `TEMPORARY` flag in
   the same commit that swaps the image.
 
-## Fleet-page archetypes (v42)
+## Fleet-page archetypes (v42, amenity split v43)
 `build_pages.py:FLEET_PAGES_DRAFT` is generated from a SHARED template
 (`render_fleet_page_body`) plus a per-car `archetype` field. Three archetypes,
 same brand system + components + CSS + JS + modals + responsive-image pipeline:
@@ -108,6 +108,20 @@ copy — those archetypes earn their place via space/group/configuration (B) or
 group movement at scale (C). Reason: the S-Class frame was being copied to
 vehicles where it didn't fit truthfully (a 19-seat Sprinter is not "a private
 room that happens to move").
+
+### Amenities (v43, orthogonal to archetype)
+Amenities are a SEPARATE dimension — `car["amenities"]`, not the archetype.
+Two lists; both rendered through `sc_amenity_cell` with identical icons:
+
+- `"full"` — Water, Phone chargers, **Tissues & wipes**, A clean cabin,
+  Climate your way (independent rear zone), Quiet on request.
+  Applied to **S-Class and BMW 7 Series only**.
+- `"standard"` (default) — same six items but **Tissues only (no wipes)**.
+  Applied to all other vehicles, including group transport.
+
+Set `"amenities":"full"` on a car's `FLEET_PAGES_DRAFT` entry to upgrade it
+to the full list; omit the field to get standard. S-Class renders separately
+and uses `sc_amenities_html` directly.
 
 ## Hard-won gotchas
 - Base `.btn` declares `min-height:48px` — any compact button variant MUST set `min-height:0` (min-height beats height in CSS, silently).
