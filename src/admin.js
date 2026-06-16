@@ -403,10 +403,13 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
 .doc .from .ln{display:block}
 .doc .from .trn{font-family:Fraunces,Georgia,serif;color:var(--ink);font-size:11.5px;letter-spacing:.05em;margin-top:.45rem;display:block}
 
-/* Editorial doc-type label — the visual headline of the document. */
+/* Editorial doc-type label — the visual headline of the document. .meta now
+   carries only the label + number; the date is hoisted out as its own
+   flex item under .dh-right so the column gap drops it to the legal-name
+   row on the left (item from v44i). */
 .doc .meta .t{font-family:Marcellus,serif;font-size:2.4rem;color:var(--ink);margin:0 0 .2rem;letter-spacing:.18em;text-transform:uppercase;line-height:1}
 .doc .meta .n{font-family:Fraunces,Georgia,serif;color:var(--amber-deep);letter-spacing:.05em;font-size:1.15rem;display:block;margin-top:.2rem}
-.doc .meta .d{font-size:10.5px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;margin-top:.4rem}
+.doc .dh-right .d{font-size:10.5px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase}
 
 /* Client block — right-aligned, sits under the doc meta */
 .doc .client{font-size:11.5px;line-height:1.6;color:var(--ink-soft);position:relative;padding-top:.85rem}
@@ -908,8 +911,8 @@ const PAGE_SCRIPT = `<script>
       +     '<div class="meta">'
       +       '<div class="t">'+docLabel+'</div>'
       +       '<span class="n">'+esc(state.number || ("UMC-…-####"))+'</span>'
-      +       '<div class="d">'+esc(fmtDate(state.doc_date))+'</div>'
       +     '</div>'
+      +     '<div class="d">'+esc(fmtDate(state.doc_date))+'</div>'
       +     '<div class="client">'
       +       '<h4>'+esc(clientLbl)+'</h4>'
       +       '<div class="nm">'+esc(c.name || "—")+'</div>'
