@@ -307,12 +307,14 @@ hr.hair{border:0;border-top:1px solid var(--hair);margin:1rem 0}
 hr.amber{border:0;border-top:1px solid var(--amber);width:32px;margin:1rem 0}
 
 /* Header */
-header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1rem 1.5rem;display:flex;align-items:center;justify-content:space-between}
+header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1rem 1.5rem;display:flex;align-items:center;justify-content:space-between;gap:1rem}
 .lockup{display:flex;align-items:center;gap:.9rem}
 .lockup .uni{font-family:Marcellus,serif;font-size:1.4rem;letter-spacing:.36em;color:var(--ink)}
 .lockup .dash{width:24px;height:1px;background:var(--amber)}
 .lockup .duo{font-family:Outfit,sans-serif;font-size:.7rem;letter-spacing:.3em;text-transform:uppercase;color:var(--muted)}
+.hdr-right{display:flex;align-items:center;gap:1rem}
 .crumb{font-family:Outfit,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+@media (max-width:560px){.crumb{display:none}}
 
 /* Login */
 .login{max-width:380px;margin:6rem auto;padding:2rem 2.25rem;background:var(--card);border:1px solid var(--hair);border-radius:4px}
@@ -336,6 +338,7 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
 .lt th,.lt td{padding:.5rem .35rem;text-align:left;font-size:13px;border-bottom:1px solid var(--hair);vertical-align:top}
 .lt th{font-family:Outfit;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);font-weight:500;border-bottom:1px solid var(--line);padding-bottom:.4rem}
 .lt input{padding:.4rem .5rem;font-size:13px}
+.lt textarea{padding:.4rem .5rem;font-size:13px;line-height:1.4;min-height:36px;resize:vertical;font-family:inherit}
 .lt td.qty input,.lt td.rate input,.lt td.tot input{text-align:right}
 .lt td.tot input{background:var(--bone2)}
 .lt td.del{width:32px;padding:.5rem 0;text-align:center}
@@ -351,37 +354,63 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
 /* Preview document */
 .preview-wrap{position:sticky;top:1.5rem}
 .doc{background:#fff;border:1px solid var(--hair);border-radius:3px;padding:2.6rem 2.4rem;color:var(--ink);font-family:Outfit,sans-serif;font-size:12px;line-height:1.55;min-height:1100px}
-.doc .dh{display:flex;justify-content:space-between;align-items:flex-start;gap:2rem;margin-bottom:1.4rem}
-.doc .lock{font-family:Marcellus,serif;font-size:1.2rem;letter-spacing:.36em;color:var(--ink)}
-.doc .lock .ds{font-family:Outfit,sans-serif;font-size:9px;letter-spacing:.3em;text-transform:uppercase;color:var(--muted);display:block;margin-top:.4rem}
-.doc .meta{text-align:right}
-.doc .meta .t{font-family:Marcellus;font-size:1.4rem;color:var(--ink);margin-bottom:.15rem}
-.doc .meta .n{font-family:Fraunces,Georgia,serif;color:var(--amber-deep);letter-spacing:.04em;font-size:1.05rem}
-.doc .meta .d{font-size:11px;color:var(--muted);letter-spacing:.05em;margin-top:.25rem}
-.doc .ar{border:0;border-top:1px solid var(--amber);width:36px;margin:1.4rem 0}
-.doc .blocks{display:grid;grid-template-columns:1fr 1fr;gap:1.4rem;margin-bottom:1.6rem}
-.doc .blk h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .4rem}
-.doc .blk .nm{font-family:Marcellus;font-size:1.05rem;color:var(--ink);margin-bottom:.1rem;line-height:1.25}
-.doc .blk div{color:var(--ink-soft);font-size:11.5px;line-height:1.55}
-.doc .blk .trn{font-family:Fraunces,Georgia,serif;color:var(--ink);font-size:11.5px;letter-spacing:.04em;margin-top:.35rem}
+
+/* Header band: logo + company stack on the left, doc meta + client stack on the right */
+.doc .dh{display:grid;grid-template-columns:1fr 1fr;gap:2rem;align-items:start;margin-bottom:1.6rem}
+.doc .dh-left{display:flex;flex-direction:column;gap:1.2rem}
+.doc .dh-right{display:flex;flex-direction:column;gap:1.2rem;align-items:flex-end;text-align:right}
+
+/* Stacked UMC — Dubai lockup */
+.doc .lock{display:flex;flex-direction:column;align-items:flex-start;line-height:1}
+.doc .lock .uni{font-family:Marcellus,serif;font-size:1.55rem;letter-spacing:.36em;color:var(--ink)}
+.doc .lock .dash{width:28px;height:1px;background:var(--amber);margin:.6rem 0}
+.doc .lock .duo{font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.32em;text-transform:uppercase;color:var(--muted)}
+
+/* Company contact stack — sits directly under the lockup */
+.doc .from{font-size:11px;line-height:1.55;color:var(--ink-soft)}
+.doc .from .nm{font-family:Marcellus,serif;font-size:.98rem;color:var(--ink);margin-bottom:.25rem;line-height:1.25;letter-spacing:0}
+.doc .from .ln{display:block}
+.doc .from .trn{font-family:Fraunces,Georgia,serif;color:var(--ink);font-size:11.5px;letter-spacing:.04em;margin-top:.4rem;display:block}
+
+/* Doc meta — type, number, date — right-aligned */
+.doc .meta .t{font-family:Marcellus;font-size:1.55rem;color:var(--ink);margin-bottom:.15rem;letter-spacing:.04em;text-transform:uppercase}
+.doc .meta .n{font-family:Fraunces,Georgia,serif;color:var(--amber-deep);letter-spacing:.05em;font-size:1.05rem}
+.doc .meta .d{font-size:11px;color:var(--muted);letter-spacing:.05em;margin-top:.3rem}
+
+/* Client block — right-aligned, sits under the doc meta */
+.doc .client{font-size:11.5px;line-height:1.55;color:var(--ink-soft);max-width:100%}
+.doc .client h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .4rem}
+.doc .client .nm{font-family:Marcellus;font-size:1.02rem;color:var(--ink);margin-bottom:.1rem;line-height:1.25}
+.doc .client .ln{display:block}
+
+.doc .ar{border:0;border-top:1px solid var(--amber);width:36px;margin:0 0 1.4rem}
+
 .doc table.lines{width:100%;border-collapse:collapse;margin-bottom:1.2rem;font-size:11.5px}
 .doc table.lines thead th{font-family:Outfit;font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500;padding:.5rem .35rem;border-bottom:1px solid var(--ink-soft);text-align:left}
 .doc table.lines thead th.r{text-align:right}
-.doc table.lines tbody td{padding:.55rem .35rem;border-bottom:1px solid var(--hair);vertical-align:top;color:var(--ink)}
-.doc table.lines tbody td.r{text-align:right;font-variant-numeric:tabular-nums}
-.doc .tot-wrap{display:flex;justify-content:flex-end;margin-bottom:1.4rem}
+.doc table.lines tbody td{padding:.55rem .35rem;border-bottom:1px solid var(--hair);vertical-align:top;color:var(--ink);white-space:pre-wrap}
+.doc table.lines tbody td.r{text-align:right;font-variant-numeric:tabular-nums;white-space:normal}
+.doc .tot-wrap{display:flex;justify-content:flex-end;margin-bottom:1.6rem}
 .doc .tot-box{min-width:260px;border:0;font-size:12px}
 .doc .tot-box .r{display:flex;justify-content:space-between;padding:.3rem 0;color:var(--ink-soft);border-bottom:1px solid var(--hair);font-variant-numeric:tabular-nums}
 .doc .tot-box .r.grand{border-bottom:0;border-top:1px solid var(--ink-soft);padding-top:.55rem;margin-top:.2rem;color:var(--ink);font-family:Marcellus;font-size:1.1rem}
-.doc .bank,.doc .terms,.doc .notes{margin-bottom:1.2rem}
-.doc .bank h4,.doc .terms h4,.doc .notes h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .4rem}
-.doc .bank table{font-size:11px;color:var(--ink-soft)}
-.doc .bank table td{padding:.18rem .6rem .18rem 0}
-.doc .bank table td.k{color:var(--muted);font-size:10px;letter-spacing:.16em;text-transform:uppercase;white-space:nowrap}
-.doc .terms ol{padding-left:1.05rem;margin:.2rem 0 0;color:var(--ink-soft);font-size:10.5px;line-height:1.55}
+
+/* Institutional 2-col fine-print band: Terms (wider) | Bank (narrower) */
+.doc .legal{display:grid;grid-template-columns:1.4fr 1fr;gap:2rem;margin-bottom:1.2rem;align-items:start}
+.doc .legal h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .55rem}
+.doc .terms ol{padding-left:1.05rem;margin:0;color:var(--ink-soft);font-size:10.5px;line-height:1.55}
 .doc .terms ol li{margin-bottom:.25rem}
+.doc .bank table{font-size:10.5px;color:var(--ink-soft);line-height:1.55;border-collapse:collapse}
+.doc .bank table td{padding:0 .6rem .25rem 0;vertical-align:top}
+.doc .bank table td.k{color:var(--muted);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;white-space:nowrap;padding-right:.85rem}
+
+.doc .notes{margin-bottom:1.2rem}
+.doc .notes h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .4rem}
 .doc .notes p{color:var(--ink-soft);font-size:11px;margin:0;white-space:pre-wrap}
-.doc .footer{border-top:1px solid var(--hair);padding-top:.8rem;margin-top:1rem;color:var(--muted);font-size:10px;letter-spacing:.06em;display:flex;justify-content:space-between}
+
+.doc .footer{border-top:1px solid var(--hair);padding-top:.8rem;margin-top:1rem;color:var(--muted);font-size:10.5px;letter-spacing:.05em;text-align:center}
+.doc .footer span{padding:0 .35rem}
+.doc .footer .sep{color:var(--line);margin:0 .15rem}
 
 /* History */
 .history-wrap{padding:0 1.5rem 2rem}
@@ -418,7 +447,10 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
     <span class="uni">UMC</span><span class="dash"></span>
     <span class="duo">Dubai · Billing</span>
   </div>
-  <div class="crumb">${authed ? "Internal — Quote &amp; Invoice generator" : "Sign-in required"}</div>
+  <div class="hdr-right">
+    <span class="crumb">${authed ? "Internal — Quote &amp; Invoice generator" : "Sign-in required"}</span>
+    ${authed ? `<button type="button" class="btn btn-small btn-ghost" id="btnLogout">Sign out</button>` : ""}
+  </div>
 </header>
 
 ${authed ? appShellHTML(adminMissing) : loginHTML(adminMissing)}
@@ -514,7 +546,6 @@ function appShellHTML() {
       <button type="button" class="btn" id="btnSavePrint">Save &amp; Print PDF</button>
       <button type="button" class="btn btn-ghost" id="btnEmail">Generate client email</button>
       <button type="button" class="btn btn-ghost" id="btnNew">New</button>
-      <button type="button" class="btn btn-ghost" id="btnLogout" style="margin-left:auto">Sign out</button>
     </div>
     <div class="status-line" id="status"></div>
 
@@ -661,27 +692,49 @@ const PAGE_SCRIPT = `<script>
   }
 
   // ---------- render: editor table
+  // Description is a <textarea> so Enter inserts a newline (item 4).
+  // inputmode=decimal on qty/rate makes mobile show a numeric keypad without
+  // the iOS spinner that mis-fires focus.
   function renderLineRows(){
     const tbody = $("ltBody");
     tbody.innerHTML = state.line_items.map(function(li, i){
       const tot = (Number(li.qty)||0) * (Number(li.rate)||0);
       return ''
         + '<tr data-i="'+i+'">'
-        + '<td><input data-k="description" type="text" value="'+esc(li.description)+'" placeholder="e.g. S-Class — DXB to DIFC"></td>'
-        + '<td class="qty"><input data-k="qty" type="number" step="0.01" min="0" value="'+li.qty+'"></td>'
-        + '<td class="rate"><input data-k="rate" type="number" step="0.01" min="0" value="'+li.rate+'"></td>'
+        + '<td><textarea data-k="description" rows="1" placeholder="e.g. S-Class — DXB to DIFC&#10;(Enter for a new line)">'+esc(li.description)+'</textarea></td>'
+        + '<td class="qty"><input data-k="qty" type="text" inputmode="decimal" pattern="[0-9.]*" value="'+li.qty+'"></td>'
+        + '<td class="rate"><input data-k="rate" type="text" inputmode="decimal" pattern="[0-9.]*" value="'+li.rate+'"></td>'
         + '<td class="tot"><input type="text" readonly value="'+tot.toFixed(2)+'"></td>'
         + '<td class="del"><button type="button" aria-label="Remove line" data-del="'+i+'">×</button></td>'
         + '</tr>';
     }).join("");
+    autoSizeTextareas();
+  }
+  function autoSizeTextareas(){
+    $("ltBody").querySelectorAll("textarea").forEach(function(t){
+      t.style.height = "auto"; t.style.height = (t.scrollHeight + 2) + "px";
+    });
   }
   function bindLineRows(){
+    // Critical: this handler MUST NOT re-render the row (innerHTML wipe destroys
+    // the focused input on mobile and the keyboard closes between keystrokes —
+    // exactly the bug being fixed in item 2). We update state, repaint just the
+    // total cell on this row, and re-render the doc preview + totals strip.
     $("ltBody").addEventListener("input", function(e){
       const tr = e.target.closest("tr"); if(!tr) return;
       const i = Number(tr.dataset.i); const k = e.target.dataset.k; if(k == null) return;
-      if(k === "qty" || k === "rate") state.line_items[i][k] = Number(e.target.value) || 0;
-      else state.line_items[i][k] = e.target.value;
-      renderLineRows();
+      if(k === "qty" || k === "rate"){
+        const raw = String(e.target.value).replace(/[^0-9.]/g, "");
+        state.line_items[i][k] = Number(raw) || 0;
+      } else {
+        state.line_items[i][k] = e.target.value;
+        if(e.target.tagName === "TEXTAREA"){ e.target.style.height = "auto"; e.target.style.height = (e.target.scrollHeight + 2) + "px"; }
+      }
+      const totInput = tr.querySelector("td.tot input");
+      if(totInput){
+        const t = (Number(state.line_items[i].qty)||0) * (Number(state.line_items[i].rate)||0);
+        totInput.value = t.toFixed(2);
+      }
       renderTotals();
       renderDoc();
     });
@@ -709,6 +762,28 @@ const PAGE_SCRIPT = `<script>
   }
 
   // ---------- render: doc preview
+  // Layout (institutional, matches site brand tokens):
+  //   ┌──────────────────────────┬────────────────────────────┐
+  //   │ UMC ─ Dubai              │           QUOTE / INVOICE  │
+  //   │ Company legal name       │           UMC-Q-0001       │
+  //   │ Address                  │           16 June 2026     │
+  //   │ Phone                    │                            │
+  //   │ Email                    │           Quote made for   │
+  //   │ [TRN if invoice]         │           Client name      │
+  //   │                          │           Client company   │
+  //   │                          │           Address          │
+  //   │                          │           Email            │
+  //   └──────────────────────────┴────────────────────────────┘
+  //   amber hairline
+  //   line items table
+  //   totals (right-aligned)
+  //   Terms (left, wider)  |  Bank transfer (right)
+  //   notes (if present)
+  //   centered footer: umcdubai.ae · phone · email
+  // Preserves description newlines (item 4 — typed via Enter in the textarea).
+  function multiLine(s){
+    return String(s == null ? "" : s).split("\n").map(esc).join("<br>");
+  }
   function renderDoc(){
     const r = compute();
     const isInv = state.doc_type === "invoice";
@@ -716,46 +791,54 @@ const PAGE_SCRIPT = `<script>
     const clientLbl = isInv ? "Billed to" : "Quote made for";
     $("lblClient").textContent = clientLbl;
     const c = state.client;
-    const clientLines = [c.name, c.company, c.address, c.email].filter(function(x){ return x && String(x).trim(); }).map(esc).join("<br>");
+    const clientLines = [c.company, c.address, c.email].filter(function(x){ return x && String(x).trim(); }).map(function(x){ return '<span class="ln">'+esc(x)+'</span>'; }).join("");
     const linesHtml = state.line_items.map(function(li, i){
       const t = (Number(li.qty)||0) * (Number(li.rate)||0);
       return '<tr>'
-        + '<td>'+esc(li.description || ('Line ' + (i+1)))+'</td>'
+        + '<td>'+multiLine(li.description || ('Line ' + (i+1)))+'</td>'
         + '<td class="r">'+(Number(li.qty)||0).toFixed(2)+'</td>'
         + '<td class="r">'+fmtMoney(Number(li.rate)||0, state.currency)+'</td>'
         + '<td class="r">'+fmtMoney(t, state.currency)+'</td>'
         + '</tr>';
     }).join("");
     const discRow = r.discount > 0 ? '<div class="r"><span>Discount</span><span>− '+fmtMoney(r.discount, state.currency)+'</span></div>' : '';
-    const trnRow = isInv ? '<div class="trn">TRN '+COMPANY.trn+'</div>' : '';
+    const trnRow = isInv ? '<span class="trn">TRN '+COMPANY.trn+'</span>' : '';
     const vatModeNote = state.vat_mode === "inclusive" ? '<div style="font-size:9px;color:#7A6F5F;letter-spacing:.16em;text-transform:uppercase;margin-top:.4rem">VAT inclusive — 5% included in line rates</div>' : '';
     const notesBlk = state.notes && state.notes.trim() ? '<div class="notes"><h4>Notes</h4><p>'+esc(state.notes)+'</p></div>' : '';
 
     $("doc").innerHTML = ''
+      // --- header band: logo+company (left) · meta+client (right, right-aligned) ---
       + '<div class="dh">'
-      +   '<div><div class="lock">UMC<span class="ds">Dubai</span></div></div>'
-      +   '<div class="meta">'
-      +     '<div class="t">'+docLabel+'</div>'
-      +     '<div class="n">'+esc(state.number || ("UMC-…-####"))+'</div>'
-      +     '<div class="d">'+esc(fmtDate(state.doc_date))+'</div>'
+      +   '<div class="dh-left">'
+      +     '<div class="lock"><div class="uni">UMC</div><div class="dash"></div><div class="duo">Dubai</div></div>'
+      +     '<div class="from">'
+      +       '<div class="nm">'+esc(COMPANY.legal)+'</div>'
+      +       '<span class="ln">'+esc(COMPANY.addr)+'</span>'
+      +       '<span class="ln">'+esc(COMPANY.phone)+'</span>'
+      +       '<span class="ln">'+esc(COMPANY.email)+'</span>'
+      +       trnRow
+      +     '</div>'
+      +   '</div>'
+      +   '<div class="dh-right">'
+      +     '<div class="meta">'
+      +       '<div class="t">'+docLabel+'</div>'
+      +       '<div class="n">'+esc(state.number || ("UMC-…-####"))+'</div>'
+      +       '<div class="d">'+esc(fmtDate(state.doc_date))+'</div>'
+      +     '</div>'
+      +     '<div class="client">'
+      +       '<h4>'+esc(clientLbl)+'</h4>'
+      +       '<div class="nm">'+esc(c.name || "—")+'</div>'
+      +       (clientLines || '<span class="ln">—</span>')
+      +     '</div>'
       +   '</div>'
       + '</div>'
       + '<hr class="ar">'
-      + '<div class="blocks">'
-      +   '<div class="blk"><h4>From</h4>'
-      +     '<div class="nm">'+esc(COMPANY.legal)+'</div>'
-      +     '<div>'+esc(COMPANY.addr)+'<br>'+esc(COMPANY.phone)+' · '+esc(COMPANY.email)+'</div>'
-      +     trnRow
-      +   '</div>'
-      +   '<div class="blk"><h4>'+esc(clientLbl)+'</h4>'
-      +     '<div class="nm">'+esc(c.name || "—")+'</div>'
-      +     '<div>'+ (clientLines || "—") +'</div>'
-      +   '</div>'
-      + '</div>'
+      // --- line items ---
       + '<table class="lines">'
       +   '<thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Unit rate</th><th class="r">Amount</th></tr></thead>'
       +   '<tbody>'+linesHtml+'</tbody>'
       + '</table>'
+      // --- totals ---
       + '<div class="tot-wrap"><div class="tot-box">'
       +   '<div class="r"><span>Net subtotal</span><span>'+fmtMoney(r.subtotal, state.currency)+'</span></div>'
       +   '<div class="r"><span>VAT 5%</span><span>'+fmtMoney(r.vat, state.currency)+'</span></div>'
@@ -763,17 +846,27 @@ const PAGE_SCRIPT = `<script>
       +   '<div class="r grand"><span>Total</span><span>'+fmtMoney(r.total, state.currency)+'</span></div>'
       +   vatModeNote
       + '</div></div>'
-      + '<div class="bank"><h4>Payment — bank transfer</h4>'
-      +   '<table><tr><td class="k">Bank</td><td>'+esc(BANK.name)+'</td></tr>'
-      +   '<tr><td class="k">Account title</td><td>'+esc(BANK.title)+'</td></tr>'
-      +   '<tr><td class="k">IBAN</td><td>'+esc(BANK.iban)+'</td></tr>'
-      +   '<tr><td class="k">BIC</td><td>'+esc(BANK.bic)+'</td></tr></table>'
+      // --- legal band: Terms (left, wider) | Bank transfer (right) ---
+      + '<div class="legal">'
+      +   '<div class="terms"><h4>Terms &amp; Conditions</h4><ol>'
+      +     TERMS.map(function(t){ return '<li>'+esc(t)+'</li>'; }).join("")
+      +   '</ol></div>'
+      +   '<div class="bank"><h4>Payment — bank transfer</h4>'
+      +     '<table>'
+      +       '<tr><td class="k">Bank</td><td>'+esc(BANK.name)+'</td></tr>'
+      +       '<tr><td class="k">Account title</td><td>'+esc(BANK.title)+'</td></tr>'
+      +       '<tr><td class="k">IBAN</td><td>'+esc(BANK.iban)+'</td></tr>'
+      +       '<tr><td class="k">BIC</td><td>'+esc(BANK.bic)+'</td></tr>'
+      +     '</table>'
+      +   '</div>'
       + '</div>'
       + notesBlk
-      + '<div class="terms"><h4>Terms &amp; Conditions</h4><ol>'
-      +   TERMS.map(function(t){ return '<li>'+esc(t)+'</li>'; }).join("")
-      + '</ol></div>'
-      + '<div class="footer"><span>'+esc(COMPANY.legal)+' · '+esc(COMPANY.addr)+'</span><span>'+esc(state.number || "")+'</span></div>';
+      // --- footer: web · phone · email, centred ---
+      + '<div class="footer">'
+      +   '<span>umcdubai.ae</span><span class="sep">·</span>'
+      +   '<span>'+esc(COMPANY.phone)+'</span><span class="sep">·</span>'
+      +   '<span>'+esc(COMPANY.email)+'</span>'
+      + '</div>';
   }
 
   // ---------- email body (HTML + text)
