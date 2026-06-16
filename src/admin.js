@@ -411,9 +411,9 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
 .doc .meta .n{font-family:Fraunces,Georgia,serif;color:var(--amber-deep);letter-spacing:.05em;font-size:1.15rem;display:block;margin-top:.2rem}
 .doc .dh-right .d{font-size:10.5px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase}
 
-/* Client block — right-aligned, sits under the doc meta */
-.doc .client{font-size:11.5px;line-height:1.6;color:var(--ink-soft);position:relative;padding-top:.85rem}
-.doc .client::before{content:"";position:absolute;top:0;right:0;width:30px;height:1px;background:var(--amber)}
+/* Client block — right-aligned, sits under the doc meta. No amber hairline
+   above the "Quote made for" / "Billed to" label (removed in v44j). */
+.doc .client{font-size:11.5px;line-height:1.6;color:var(--ink-soft)}
 .doc .client h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .45rem}
 .doc .client .nm{font-family:Marcellus;font-size:1.05rem;color:var(--ink);margin-bottom:.15rem;line-height:1.25}
 .doc .client .ln{display:block}
@@ -871,7 +871,10 @@ const PAGE_SCRIPT = `<script>
     const clientLbl = isInv ? "Billed to" : "Quote made for";
     $("lblClient").textContent = clientLbl;
     const c = state.client;
+    // Empty client fields render blank (no "—" dash) — matches how Address and
+    // Email already behaved; Company and Name now do the same (v44j).
     const clientLines = [c.company, c.address, c.email].filter(function(x){ return x && String(x).trim(); }).map(function(x){ return '<span class="ln">'+esc(x)+'</span>'; }).join("");
+    const clientName = c.name && String(c.name).trim() ? '<div class="nm">'+esc(c.name)+'</div>' : '';
     const linesHtml = state.line_items.map(function(li, i){
       const t = (Number(li.qty)||0) * (Number(li.rate)||0);
       return '<tr>'
@@ -915,8 +918,8 @@ const PAGE_SCRIPT = `<script>
       +     '<div class="d">'+esc(fmtDate(state.doc_date))+'</div>'
       +     '<div class="client">'
       +       '<h4>'+esc(clientLbl)+'</h4>'
-      +       '<div class="nm">'+esc(c.name || "—")+'</div>'
-      +       (clientLines || '<span class="ln">—</span>')
+      +       clientName
+      +       clientLines
       +     '</div>'
       +   '</div>'
       + '</div>'
