@@ -139,10 +139,10 @@ def header(active):
       ("fleet.html", "Fleet"),
       ("airport-transfers.html", "Airport Transfers", [
         ("airport-transfers/dubai", "Dubai", False),
-        (None, "Abu Dhabi", True),
-        (None, "Sharjah", True),
-        (None, "Ras Al Khaimah", True),
-        (None, "Al Ain", True),
+        ("airport-transfers/abu-dhabi", "Abu Dhabi", False),
+        ("airport-transfers/sharjah", "Sharjah", False),
+        ("airport-transfers/rak", "Ras Al Khaimah", False),
+        ("airport-transfers/al-ain", "Al Ain", False),
       ]),
       ("corporate.html", "Corporate"),
       ("events.html", "Events"),
@@ -368,7 +368,7 @@ ld_home = '<script type="application/ld+json">'+json.dumps({
  "description":"Luxury chauffeur service in Dubai and across the UAE: airport transfers, corporate chauffeur programmes, hourly and full-day private drivers.",
  "url":"https://umcdubai.ae/","telephone":"+971586497861","email":"contact@umcdubai.ae",
  "sameAs":["https://www.facebook.com/umcdubai","https://www.instagram.com/umcdubai"],
- "image":"https://umcdubai.ae/wp-content/uploads/2024/07/mercedes-benz-s-class-interior-1.jpg",
+ "image":"https://umcdubai.ae/assets/home/s-class-interior-meta.jpg",
  "areaServed":["Dubai","Abu Dhabi","Sharjah","Ras Al Khaimah","Al Ain","Umm Al Quwain"],
  "priceRange":"AED 350 - AED 2400","openingHours":"Mo-Su 00:00-24:00",
  "aggregateRating":{"@type":"AggregateRating","ratingValue":"5.0","reviewCount":"25"}})+'</script>'
@@ -817,11 +817,14 @@ airport_body = header("airport-transfers.html") + f"""
       "Fixed-price airport transfers across the UAE. Live flight tracking, meet & greet at baggage claim, 60 minutes waiting included. From AED 350, all-inclusive.",
       "airport-transfers/", faq_schema(AIRPORT_FAQS)) + airport_body)
 
-# ---------- airport-transfers / dubai (per-emirate page, v45 step 1) ----------
+# ---------- airport-transfers / per-emirate pages (v45 Dubai, v46 the other four) ----------
 # Same template as the master (header, hero, arrival protocol, included, fleet,
-# FAQ, closing band) — only the copy + airport codes change. Other emirates
-# follow in the same pattern. Per Usman's lock: NO layout/section/design changes.
-DUBAI_AIRPORT_FAQS = [
+# FAQ, closing band) — ONLY copy + airport codes change per emirate. Per Usman's
+# lock: NO layout/section/design changes. Each page references only its own
+# emirate's airports + destinations (cross-emirate mentions are explicit, e.g.
+# Sharjah/RAK/Al Ain note routing to/from Dubai where relevant). Distinct
+# institutional hero sub + closing-band heading per emirate.
+COMMON_AIRPORT_FAQS = [
  ("How does the meet &amp; greet work?",
   "Your chauffeur waits in the arrivals hall with a name board, assists with your luggage and walks you to the car."),
  ("What if my flight is delayed?",
@@ -832,18 +835,94 @@ DUBAI_AIRPORT_FAQS = [
   "Your chauffeur, fuel, Salik and parking. Transfers ending outside Dubai carry an additional fee by vehicle type, stated in your quote."),
  ("Can I add a stop on the way?",
   "Yes. Additional stops are charged at AED 75 for each 30-minute interval."),
- ("Which Dubai airports do you cover?",
-  "Both of Dubai's airports: Dubai International (DXB) and Al Maktoum International (DWC), at any hour of the day or night."),
- ("Where in Dubai will you take me?",
-  "Across the city: DIFC, Downtown, Dubai Marina, Palm Jumeirah, Business Bay and any other Dubai address you provide."),
 ]
 
-dubai_airport_body = header("airport-transfers/dubai") + f"""
+EMIRATES = [
+  {
+    "slug": "dubai", "name": "Dubai", "codes": "DXB &middot; DWC",
+    "h1": "Airport transfers in Dubai.",
+    "hero_sub": "From DXB or DWC, the city begins the moment you land.",
+    "lead": "Whether you land at Dubai International or Al Maktoum, the protocol is the same. Your chauffeur tracks the flight, waits in the arrivals hall, and is standing ready the moment you clear.",
+    "closing_heading": "The car is there before you are.",
+    "seo_title": "Dubai Airport Transfer (DXB & DWC) — Chauffeur, Meet & Greet | UMC Dubai",
+    "seo_meta": "Chauffeur-driven Dubai airport transfers from DXB and Al Maktoum (DWC). Meet & greet at arrivals, live flight tracking, 60 minutes waiting included.",
+    "faqs_extra": [
+      ("Which Dubai airports do you cover?",
+       "Both of Dubai's airports: Dubai International (DXB) and Al Maktoum International (DWC), at any hour of the day or night."),
+      ("Where in Dubai will you take me?",
+       "Across the city: DIFC, Downtown, Dubai Marina, Palm Jumeirah, Business Bay and any other Dubai address you provide."),
+    ],
+  },
+  {
+    "slug": "abu-dhabi", "name": "Abu Dhabi", "codes": "AUH",
+    "h1": "Airport transfers in Abu Dhabi.",
+    "hero_sub": "From Zayed International to the capital, at the pace the capital keeps.",
+    "lead": "Your chauffeur tracks the flight into Zayed International, waits in the arrivals hall, and is ready the moment you clear. Whether the journey ends at a ministry, a corporate office, or a hotel on the Corniche, the standard does not change.",
+    "closing_heading": "The capital, met properly.",
+    "seo_title": "Abu Dhabi Airport Transfer (AUH) — Chauffeur, Meet & Greet | UMC Dubai",
+    "seo_meta": "Chauffeur-driven Abu Dhabi airport transfers from Zayed International (AUH). Meet & greet at arrivals, live flight tracking, 60 minutes waiting included.",
+    "faqs_extra": [
+      ("Which Abu Dhabi airports do you cover?",
+       "We cover Zayed International Airport (AUH), the capital's principal airport."),
+      ("Where in Abu Dhabi will you take me?",
+       "Across the capital: the Corniche, Al Maryah and Al Reem islands, Yas Island, Saadiyat, the central business district, and any other Abu Dhabi address you provide."),
+    ],
+  },
+  {
+    "slug": "sharjah", "name": "Sharjah", "codes": "SHJ",
+    "h1": "Airport transfers in Sharjah.",
+    "hero_sub": "Met at Sharjah International. Driven on, wherever the day leads.",
+    "lead": "Your chauffeur tracks the flight into Sharjah International, meets you at arrivals, and takes the luggage. Many journeys from here run on into Dubai or across the northern emirates, and we plan the route accordingly.",
+    "closing_heading": "Arrival, without the wait.",
+    "seo_title": "Sharjah Airport Transfer (SHJ) — Chauffeur, Meet & Greet | UMC Dubai",
+    "seo_meta": "Chauffeur-driven Sharjah airport transfers from SHJ. Meet & greet at arrivals, onward into Dubai and the northern emirates, flight tracking included.",
+    "faqs_extra": [
+      ("Which Sharjah airports do you cover?",
+       "We cover Sharjah International Airport (SHJ), and routinely carry on into Dubai and the northern emirates from there."),
+      ("Where in Sharjah will you take me?",
+       "Across the emirate: the Heritage and Arts areas, Al Majaz, Al Qasba, and onward to Dubai and the northern emirates when the journey continues."),
+    ],
+  },
+  {
+    "slug": "rak", "name": "Ras Al Khaimah", "codes": "RKT",
+    "h1": "Airport transfers in Ras Al Khaimah.",
+    "hero_sub": "From RKT to the mountains and the shore, unhurried.",
+    "lead": "Your chauffeur tracks the flight into Ras Al Khaimah International, meets you at arrivals, and sees you to the car. From here the road runs to the resorts, the coast, and Jebel Jais, and we keep the journey calm and exact.",
+    "closing_heading": "The journey north, made easy.",
+    "seo_title": "Ras Al Khaimah Airport Transfer (RKT) — Chauffeur, Meet & Greet | UMC Dubai",
+    "seo_meta": "Chauffeur-driven Ras Al Khaimah airport transfers from RKT. Meet & greet at arrivals, on to the resorts, the coast and Jebel Jais. Flight tracking included.",
+    "faqs_extra": [
+      ("Which Ras Al Khaimah airports do you cover?",
+       "We cover Ras Al Khaimah International Airport (RKT). We also carry guests up from Dubai's airports to Ras Al Khaimah when the flight lands there instead."),
+      ("Where in Ras Al Khaimah will you take me?",
+       "Across the emirate: the beachfront resorts, Al Marjan Island, and Jebel Jais, alongside any other Ras Al Khaimah address you provide."),
+    ],
+  },
+  {
+    "slug": "al-ain", "name": "Al Ain", "codes": "AAN",
+    "h1": "Airport transfers in Al Ain.",
+    "hero_sub": "Into the garden city, quietly and on time.",
+    "lead": "Your chauffeur tracks the flight into Al Ain International, meets you at arrivals, and takes the luggage. Al Ain rewards an unhurried arrival, and that is exactly how we drive it.",
+    "closing_heading": "The garden city, met with care.",
+    "seo_title": "Al Ain Airport Transfer (AAN) — Chauffeur, Meet & Greet | UMC Dubai",
+    "seo_meta": "Chauffeur-driven Al Ain airport transfers from AAN. Meet & greet at arrivals, on into the garden city, oases and Jebel Hafeet. Flight tracking included.",
+    "faqs_extra": [
+      ("Which Al Ain airports do you cover?",
+       "We cover Al Ain International Airport (AAN). Many guests also travel to Al Ain by car from Dubai or Abu Dhabi, and we cover that route too."),
+      ("Where in Al Ain will you take me?",
+       "Across the garden city: the oases, Jebel Hafeet, the heritage sites, and the green inland streets, alongside any other Al Ain address you provide."),
+    ],
+  },
+]
+
+def render_emirate_airport_page(em):
+    faqs = COMMON_AIRPORT_FAQS + em["faqs_extra"]
+    body = header(f"airport-transfers/{em['slug']}") + f"""
 <section class="phero">
   <div class="wrap">
-    <span class="lbl">DXB &middot; DWC</span>
-    <h1>Airport transfers in Dubai.</h1>
-    <p class="lede">Both of Dubai&rsquo;s airports. One standard of arrival.</p>
+    <span class="lbl">{em['codes']}</span>
+    <h1>{em['h1']}</h1>
+    <p class="lede">{em['hero_sub']}</p>
     <div class="btns rv" style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
       <a class="btn btn-ink" href="/booking">Reserve your transfer</a>
     </div>
@@ -853,7 +932,7 @@ dubai_airport_body = header("airport-transfers/dubai") + f"""
 <section class="sec">
   <div class="wrap">
     <div class="shead rv"><span class="lbl">The arrival protocol</span><h2>From the arrivals hall to your door.</h2></div>
-    <p class="lede rv" style="text-align:center;max-width:55ch;margin:0 auto 2rem">Whether you land at Dubai International or Al Maktoum, the protocol is the same. Your chauffeur tracks the flight, waits in the arrivals hall, and is standing ready the moment you clear.</p>
+    <p class="lede rv" style="text-align:center;max-width:60ch;margin:0 auto 2rem">{em['lead']}</p>
     <div class="timeline rv">
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M21 15.5l-8-3V5.2a1.7 1.7 0 0 0-3.4 0v7.3l-6.6 2.5v2l6.6-1.4v3.6L7.5 21v1.4l4.8-1 4.8 1V21l-2.1-1.8v-3.6l6 1.3z"/></svg></div>
         <div><h3>Tracked<span class="lbl">From departure</span></h3><p>We follow your flight from the moment it leaves the ground. A delay moves the booking, not your plans.</p></div></div>
@@ -862,7 +941,7 @@ dubai_airport_body = header("airport-transfers/dubai") + f"""
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M5 16l1.4-4.2A2 2 0 0 1 8.3 10h7.4a2 2 0 0 1 1.9 1.8L19 16M5 16h14M5 16v3h2v-2h10v2h2v-3"/><circle cx="8" cy="17.5" r=".4"/><circle cx="16" cy="17.5" r=".4"/></svg></div>
         <div><h3>Seated<span class="lbl">At the kerb</span></h3><p>An immaculate car waits with the route already set, bottled water and chargers within reach.</p></div></div>
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7M6.5 9.5V20h11V9.5"/><path d="M10.5 20v-5h3v5"/></svg></div>
-        <div><h3>Arrived<span class="lbl">Door to door</span></h3><p>Up to sixty minutes of waiting was already included, and the journey ends at your address in Dubai.</p></div></div>
+        <div><h3>Arrived<span class="lbl">Door to door</span></h3><p>Up to sixty minutes of waiting was already included, and the journey ends at your address in {em['name']}.</p></div></div>
     </div>
   </div>
 </section>
@@ -896,21 +975,23 @@ dubai_airport_body = header("airport-transfers/dubai") + f"""
 <section class="sec">
   <div class="wrap">
     <div class="shead rv"><span class="lbl">Good to know</span><h2>Airport transfer questions</h2></div>
-    <div class="faq rv">{faq_details(DUBAI_AIRPORT_FAQS)}</div>
+    <div class="faq rv">{faq_details(faqs)}</div>
   </div>
 </section>
 <section class="closing band-dark">
-  <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">The car is there before you are.</h2>
+  <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">{em['closing_heading']}</h2>
   <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
 </section>
 """ + FOOTER + """
 <script>document.addEventListener("DOMContentLoaded",function(){renderFleet(document.getElementById("airportFleet"),{})});</script>
 </body></html>"""
-(SITE/"airport-transfers").mkdir(parents=True, exist_ok=True)
-(SITE/"airport-transfers"/"dubai.html").write_text(
- head("Dubai Airport Transfer (DXB & DWC) — Chauffeur, Meet & Greet | UMC Dubai",
-      "Chauffeur-driven Dubai airport transfers from DXB and Al Maktoum (DWC). Meet & greet at arrivals, live flight tracking, 60 minutes waiting included.",
-      "airport-transfers/dubai/", faq_schema(DUBAI_AIRPORT_FAQS)) + dubai_airport_body)
+    (SITE/"airport-transfers").mkdir(parents=True, exist_ok=True)
+    (SITE/"airport-transfers"/f"{em['slug']}.html").write_text(
+        head(em["seo_title"], em["seo_meta"],
+             f"airport-transfers/{em['slug']}/", faq_schema(faqs)) + body)
+
+for em in EMIRATES:
+    render_emirate_airport_page(em)
 
 # ---------- corporate ----------
 # v27 T2 — replaced the v25 T3 "What your programme receives" 6-up grid and
@@ -1010,7 +1091,7 @@ about_body = header("about.html") + f"""
   </div>
 </section>
 <figure class="frame wrap rv">
-  <img src="https://umcdubai.ae/wp-content/uploads/2024/07/mercedes-benz-s-class-rear-executive-seats-1-768x1365.jpg" alt="Executive rear seats — UMC Dubai chauffeur fleet" style="aspect-ratio:16/8;object-fit:cover" width="768" height="680">
+  <img src="/assets/home/s-class-rear-seats.jpg" alt="Executive rear seats — UMC Dubai chauffeur fleet" style="aspect-ratio:16/8;object-fit:cover" width="768" height="680">
   <figcaption class="lbl">Detail is the discipline</figcaption>
 </figure>
 <section class="closing band-dark numband-sec" style="padding:3.6rem 0">
@@ -2241,7 +2322,7 @@ for car in FLEET_PAGES_DRAFT:
     (SITE/"fleet").mkdir(parents=True, exist_ok=True)
     (SITE/"fleet"/f"{slug}.html").write_text(head_html + render_fleet_page_body(car))
 
-pages = ["", "fleet.html","fleet/s-class","fleet/bmw-7-series","fleet/e-class","fleet/lexus-es","fleet/cadillac-escalade","fleet/gmc-yukon-xl","fleet/v-class","fleet/sprinter","fleet/king-long","airport-transfers.html","airport-transfers/dubai","inter-emirate.html","corporate.html","events.html","about.html","contact.html","booking.html","terms.html","privacy.html"]
+pages = ["", "fleet.html","fleet/s-class","fleet/bmw-7-series","fleet/e-class","fleet/lexus-es","fleet/cadillac-escalade","fleet/gmc-yukon-xl","fleet/v-class","fleet/sprinter","fleet/king-long","airport-transfers.html","airport-transfers/dubai","airport-transfers/abu-dhabi","airport-transfers/sharjah","airport-transfers/rak","airport-transfers/al-ain","inter-emirate.html","corporate.html","events.html","about.html","contact.html","booking.html","terms.html","privacy.html"]
 urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><changefreq>weekly</changefreq></url>" for p in pages)
 (SITE/"sitemap.xml").write_text(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>')
 (SITE/"robots.txt").write_text("User-agent: *\nAllow: /\nSitemap: https://umcdubai.ae/sitemap.xml\n")

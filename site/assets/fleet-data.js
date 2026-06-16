@@ -3,47 +3,47 @@
 const UMC_FLEET_KEY = "umc_fleet";
 
 const DEFAULT_FLEET = [
-  {id:"mb-s-class",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/mercedes.png",name:"Mercedes-Benz S-Class",category:"Flagship Sedan",year:2024,seats:4,luggage:2,
+  {id:"mb-s-class",marque:"/assets/marques/mercedes.png",name:"Mercedes-Benz S-Class",category:"Flagship Sedan",year:2024,seats:4,luggage:2,
    r10:2400,r5:1800,ra:850,visible:true,page:"/fleet/s-class",
    /* TEMPORARY — replace with real UMC S-Class photography when supplied.
       flipImg flips the source horizontally so the car faces left, matching the
       other fleet cards. */
    img:"/assets/fleet/s-class/card.webp",photo:true,flipImg:true,
    desc:"The reference point for executive travel. Reclining rear seats, supreme quiet."},
-  {id:"bmw-7",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/bmw.png",name:"BMW 7 Series",category:"Flagship Sedan",year:2024,seats:4,luggage:2,
+  {id:"bmw-7",marque:"/assets/marques/bmw.png",name:"BMW 7 Series",category:"Flagship Sedan",year:2024,seats:4,luggage:2,
    r10:2000,r5:1300,ra:600,visible:true,page:"/fleet/bmw-7-series",
    /* TEMPORARY — replace with real UMC BMW 7 Series photography when supplied. */
    img:"/assets/fleet/bmw-7/card.png",photo:true,
    desc:"Commanding presence with a lounge-grade rear cabin."},
-  {id:"cadillac-escalade",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/Cadillac-Logo-scaled.jpg",name:"Cadillac Escalade",category:"Luxury SUV",year:2024,seats:6,luggage:4,
+  {id:"cadillac-escalade",marque:"/assets/marques/cadillac.jpg",name:"Cadillac Escalade",category:"Luxury SUV",year:2024,seats:6,luggage:4,
    r10:2400,r5:1800,ra:850,visible:true,page:"/fleet/cadillac-escalade",
    img:"https://shop.vipautoaccessories.com/cdn/shop/products/Profile_a3cdee2d-dcae-45a1-9ac0-67df4e3c3965_540x.jpg?v=1676323971",
    desc:"Seven seats of unmistakable American luxury."},
-  {id:"gmc-yukon-xl",marque:"https://umcdubai.ae/wp-content/uploads/2024/12/gmc.png",name:"GMC Yukon Elevation XL",category:"Executive SUV",year:2025,seats:6,luggage:5,
+  {id:"gmc-yukon-xl",marque:"/assets/marques/gmc.png",name:"GMC Yukon Elevation XL",category:"Executive SUV",year:2025,seats:6,luggage:5,
    r10:1400,r5:900,ra:550,visible:true,page:"/fleet/gmc-yukon-xl",
    /* TEMPORARY — dark placeholder SVG, self-hosted because the previous
       cgi.gmc.com source 403'd and the card rendered as alt text. Replace with
       real UMC GMC Yukon Elevation XL photography when supplied. */
    img:"/assets/fleet/gmc-yukon-xl/card.svg",photo:true,
    desc:"Generous space for passengers and luggage alike."},
-  {id:"mb-e-class",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/mercedes.png",name:"Mercedes-Benz E-Class",category:"Business Sedan",year:2025,seats:4,luggage:2,
+  {id:"mb-e-class",marque:"/assets/marques/mercedes.png",name:"Mercedes-Benz E-Class",category:"Business Sedan",year:2025,seats:4,luggage:2,
    r10:1600,r5:1150,ra:400,visible:true,page:"/fleet/e-class",
    /* TEMPORARY — replace with real UMC E-Class photography when supplied. */
    img:"/assets/fleet/e-class/card.png",photo:true,
    desc:"The businessman's benchmark, refined again."},
-  {id:"lexus-es",marque:"https://umcdubai.ae/wp-content/uploads/2024/09/lexus.jpg",name:"Lexus ES",category:"Business Sedan",year:2024,seats:4,luggage:2,
+  {id:"lexus-es",marque:"/assets/marques/lexus.jpg",name:"Lexus ES",category:"Business Sedan",year:2024,seats:4,luggage:2,
    r10:1000,r5:700,ra:350,visible:true,page:"/fleet/lexus-es",
    img:"https://www.lexusmontgomery.com/static/brand-lexus/vehicle/2024/LSh/LEX-LSH-MY24-0006.06.png",
    desc:"Quiet confidence and remarkable comfort."},
-  {id:"mb-v-class",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/mercedes.png",name:"Mercedes-Benz V-Class",category:"Luxury Van",year:2024,seats:7,luggage:5,
+  {id:"mb-v-class",marque:"/assets/marques/mercedes.png",name:"Mercedes-Benz V-Class",category:"Luxury Van",year:2024,seats:7,luggage:5,
    r10:1400,r5:1000,ra:500,visible:true,page:"/fleet/v-class",
    img:"https://corfuviptransfers.com/wp-content/uploads/2022/03/Mercedes-Benz-E-Class.png",
    desc:"First-class travel for up to seven, face to face."},
-  {id:"mb-sprinter",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/mercedes.png",name:"Mercedes-Benz Sprinter",category:"Executive Van",year:2025,seats:19,luggage:10,
+  {id:"mb-sprinter",marque:"/assets/marques/mercedes.png",name:"Mercedes-Benz Sprinter",category:"Executive Van",year:2025,seats:19,luggage:10,
    r10:null,r5:null,ra:null,visible:true,page:"/fleet/sprinter",
    img:"https://vehicle-images.carscommerce.inc/stock-images/chrome/3ebcb3939f837a801fdf17729968a53f.png",
    desc:"10, 13 or 19 seats for delegations and crews."},
-  {id:"king-long",marque:"https://umcdubai.ae/wp-content/uploads/2025/04/kinglong.png",name:"King Long Coach",category:"Luxury Coach",year:2025,seats:55,luggage:30,
+  {id:"king-long",marque:"/assets/marques/king-long.png",name:"King Long Coach",category:"Luxury Coach",year:2025,seats:55,luggage:30,
    r10:null,r5:null,ra:null,visible:true,page:"/fleet/king-long",
    img:"https://www.king-long.com/upload/image/2025-09/col29/1757570468794.png",
    desc:"35 or 55 seats for events and group movements."}
