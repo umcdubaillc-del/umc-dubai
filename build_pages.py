@@ -100,12 +100,12 @@ def head(title, desc, canon, extra=""):
 <meta name="twitter:image" content="{OG_BASE}/og-image.png">
 <meta name="msvalidate.01" content="1848923491E08E0A57EBF89D946D8B19">
 <meta name="facebook-domain-verification" content="sx2v5hd4o6p3f8ve51c385hcojspbn">
-<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://maps.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css?v={V}">
+<link rel="stylesheet" href="/assets/style.css?v={V}">
 {extra}
 {GTM_HEAD}
 </head>
@@ -113,6 +113,21 @@ def head(title, desc, canon, extra=""):
 <a class="skip" href="#main">Skip to content</a>
 {GTM_BODY}
 """
+
+def to_abs(h):
+    """Convert a relative-page key like 'index.html', 'fleet.html', or
+    'airport-transfers/dubai' to its root-absolute href. Critical: every
+    page emits root-absolute URLs so a page at subdirectory depth (e.g.
+    /airport-transfers/dubai) does NOT resolve assets against its own dir.
+    Earlier bug: relative 'assets/style.css' from /airport-transfers/dubai
+    resolved to /airport-transfers/assets/style.css → 404 → unstyled page."""
+    if h is None or h == "" or h.startswith(("http", "tel:", "mailto:", "#", "/")):
+        return h
+    if h == "index.html":
+        return "/"
+    if h.endswith(".html"):
+        return "/" + h[:-5]
+    return "/" + h
 
 def header(active):
     # Each item: (href, label) for simple links, or (href, label, submenu) where
@@ -146,20 +161,20 @@ def header(active):
                     sub_li.append('<li><span class="off">' + st + ' <em>soon</em></span></li>')
                 else:
                     cls = ' class="on"' if sh == active else ''
-                    sub_li.append('<li><a href="' + sh + '"' + cls + '>' + st + '</a></li>')
+                    sub_li.append('<li><a href="' + to_abs(sh) + '"' + cls + '>' + st + '</a></li>')
             sub_html = '<ul class="submenu">' + "".join(sub_li) + '</ul>'
             wrap_cls = ' class="has-sub' + (' on' if parent_on else '') + '"'
-            parts.append('<li' + wrap_cls + '><a href="' + h + '"' + a_cls + '>' + t +
+            parts.append('<li' + wrap_cls + '><a href="' + to_abs(h) + '"' + a_cls + '>' + t +
                          ' <span class="caret" aria-hidden="true">&#9662;</span></a>' + sub_html + '</li>')
         else:
-            parts.append('<li><a href="' + h + '"' + a_cls + '>' + t + '</a></li>')
+            parts.append('<li><a href="' + to_abs(h) + '"' + a_cls + '>' + t + '</a></li>')
     nav = "".join(parts)
     return f"""<header class="site">
   <div class="topbar">
     <div class="left"><button class="burger" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button></div>
-    <a class="masthead" href="index.html" aria-label="UMC Dubai — home"><span class="mark">UMC</span><span class="rule"></span><span class="sub">Dubai</span></a>
+    <a class="masthead" href="/" aria-label="UMC Dubai — home"><span class="mark">UMC</span><span class="rule"></span><span class="sub">Dubai</span></a>
     <div class="right">
-      <a class="pill" href="booking.html">Reserve</a>
+      <a class="pill" href="/booking">Reserve</a>
       <a class="top-phone" href="tel:+971586497861" aria-label="Call UMC Dubai"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg></a>
     </div>
   </div>
@@ -173,7 +188,7 @@ FOOTER = f"""</main>
   <div class="wrap">
     <div class="fgrid">
       <div>
-        <a class="masthead" href="index.html"><span class="mark">UMC</span><span class="rule"></span><span class="sub">Dubai</span></a>
+        <a class="masthead" href="/"><span class="mark">UMC</span><span class="rule"></span><span class="sub">Dubai</span></a>
         <p style="max-width:34ch;margin-top:1.2rem;font-size:.92rem">Luxury chauffeur service in Dubai and across the UAE. Airport transfers, corporate programmes, hourly and full-day hire — 24 hours a day.</p>
         <h4 style="margin-top:1.4rem">Payments</h4>
         {PAYLINE}
@@ -181,22 +196,22 @@ FOOTER = f"""</main>
       <div>
         <h4>Services</h4>
         <ul>
-          <li><a href="airport-transfers.html">Airport transfer Dubai</a></li>
-          <li><a href="corporate.html">Corporate chauffeur</a></li>
-          <li><a href="inter-emirate.html">Inter-emirate transfers</a></li>
-          <li><a href="events.html">Wedding &amp; event service</a></li>
-          <li><a href="fleet.html">Hourly &amp; daily hire</a></li>
-          <li><a href="booking.html">Reserve a car</a></li>
+          <li><a href="/airport-transfers">Airport transfer Dubai</a></li>
+          <li><a href="/corporate">Corporate chauffeur</a></li>
+          <li><a href="/inter-emirate">Inter-emirate transfers</a></li>
+          <li><a href="/events">Wedding &amp; event service</a></li>
+          <li><a href="/fleet">Hourly &amp; daily hire</a></li>
+          <li><a href="/booking">Reserve a car</a></li>
         </ul>
       </div>
       <div>
         <h4>Company</h4>
         <ul>
-          <li><a href="about.html">About UMC</a></li>
-          <li><a href="fleet.html">Our fleet</a></li>
-          <li><a href="contact.html">Contact</a></li>
-          <li><a href="terms.html">Terms &amp; conditions</a></li>
-          <li><a href="privacy.html">Privacy</a></li>
+          <li><a href="/about">About UMC</a></li>
+          <li><a href="/fleet">Our fleet</a></li>
+          <li><a href="/contact">Contact</a></li>
+          <li><a href="/terms">Terms &amp; conditions</a></li>
+          <li><a href="/privacy">Privacy</a></li>
         </ul>
       </div>
       <div>
@@ -222,8 +237,8 @@ FOOTER = f"""</main>
 <a class="wa-float" aria-label="WhatsApp UMC Dubai" target="_blank" rel="noopener" href="{WA}">
   <svg viewBox="0 0 32 32"><path d="M16 .8C7.6.8.8 7.6.8 16c0 2.7.7 5.3 2 7.6L.7 31.3l7.9-2.1c2.2 1.2 4.7 1.9 7.4 1.9 8.4 0 15.2-6.8 15.2-15.1S24.4.8 16 .8zm0 27.7c-2.4 0-4.7-.7-6.7-1.9l-.5-.3-4.7 1.2 1.3-4.6-.3-.5a12.4 12.4 0 0 1-1.9-6.6C3.2 9 8.9 3.3 16 3.3S28.8 9 28.8 16 23.1 28.5 16 28.5zm7-9.4c-.4-.2-2.3-1.1-2.6-1.2-.4-.1-.6-.2-.9.2-.3.4-1 1.2-1.2 1.5-.2.3-.4.3-.8.1-.4-.2-1.6-.6-3.1-1.9-1.1-1-1.9-2.2-2.1-2.6-.2-.4 0-.6.2-.8l.6-.7c.2-.2.3-.4.4-.6.1-.3 0-.5 0-.7l-1.2-2.8c-.3-.7-.6-.6-.9-.6h-.7c-.3 0-.7.1-1 .5-.4.4-1.3 1.3-1.3 3.2s1.4 3.7 1.6 4c.2.3 2.7 4.1 6.6 5.8.9.4 1.6.6 2.2.8.9.3 1.8.3 2.4.2.7-.1 2.3-.9 2.6-1.8.3-.9.3-1.7.2-1.8-.1-.2-.3-.3-.7-.5z"/></svg>
 </a>
-<script src="assets/fleet-data.js?v={V}"></script>
-<script src="assets/main.js?v={V}"></script>
+<script src="/assets/fleet-data.js?v={V}"></script>
+<script src="/assets/main.js?v={V}"></script>
 """
 
 JL = '<div class="jline" aria-hidden="true"><span class="n1"></span><span class="stem"></span><span class="n2"></span></div>'
@@ -409,7 +424,7 @@ index_body = header("index.html") + f"""
       <p class="lede">Detailed before every journey and driven by the same vetted chauffeurs, whichever car you choose. The standard never changes &mdash; only the car does.</p>
     </div>
     <div class="fleet-grid" id="homeFleet"></div>
-    <div class="center rv" style="margin-top:2.6rem"><a class="btn btn-ghost" href="fleet.html">View the complete fleet</a></div>
+    <div class="center rv" style="margin-top:2.6rem"><a class="btn btn-ghost" href="/fleet">View the complete fleet</a></div>
   </div>
 </section>
 
@@ -419,7 +434,7 @@ index_body = header("index.html") + f"""
   <div class="wrap">
     <div class="shead rv"><span class="lbl">Services</span><h2>One company. Every journey.</h2></div>
     <div class="svp rv" id="svpCar">
-      <a class="svp-row" href="airport-transfers.html">
+      <a class="svp-row" href="/airport-transfers">
         <span class="svp-num">01</span>
         <span class="svp-rule" aria-hidden="true"></span>
         <span class="svp-mid">
@@ -429,7 +444,7 @@ index_body = header("index.html") + f"""
         </span>
         <span class="svp-cta">Reserve</span>
       </a>
-      <a class="svp-row" href="booking.html?mode=hourly">
+      <a class="svp-row" href="/booking?mode=hourly">
         <span class="svp-num">02</span>
         <span class="svp-rule" aria-hidden="true"></span>
         <span class="svp-mid">
@@ -439,7 +454,7 @@ index_body = header("index.html") + f"""
         </span>
         <span class="svp-cta">Reserve</span>
       </a>
-      <a class="svp-row" href="corporate.html">
+      <a class="svp-row" href="/corporate">
         <span class="svp-num">03</span>
         <span class="svp-rule" aria-hidden="true"></span>
         <span class="svp-mid">
@@ -449,7 +464,7 @@ index_body = header("index.html") + f"""
         </span>
         <span class="svp-cta">Accounts</span>
       </a>
-      <a class="svp-row" href="inter-emirate.html">
+      <a class="svp-row" href="/inter-emirate">
         <span class="svp-num">04</span>
         <span class="svp-rule" aria-hidden="true"></span>
         <span class="svp-mid">
@@ -459,7 +474,7 @@ index_body = header("index.html") + f"""
         </span>
         <span class="svp-cta">Routes</span>
       </a>
-      <a class="svp-row" href="events.html">
+      <a class="svp-row" href="/events">
         <span class="svp-num">05</span>
         <span class="svp-rule" aria-hidden="true"></span>
         <span class="svp-mid">
@@ -496,7 +511,7 @@ index_body = header("index.html") + f"""
     <span class="lbl">Corporate</span>
     <h2 style="margin:.7rem 0">Executive travel, managed.</h2>
     <p class="lede" style="margin:0 auto 1.4rem">Consolidated invoicing, bookings on behalf of guests and one number that answers at any hour. Accounts are operational within 48 hours.</p>
-    <a class="btn-line" href="corporate.html">Open a corporate account</a>
+    <a class="btn-line" href="/corporate">Open a corporate account</a>
   </div>
 </section>
 
@@ -527,13 +542,13 @@ index_body = header("index.html") + f"""
     <span class="lbl">Reservations</span>
     <h2 class="rv">Arrive as intended.</h2>
     <div class="btns rv">
-      <a class="btn btn-ink" href="booking.html">Reserve your car</a>
+      <a class="btn btn-ink" href="/booking">Reserve your car</a>
       <a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a>
     </div>
   </div>
 </section>
 """ + FOOTER + """
-<script src="assets/vendor/flatpickr.min.js"></script>
+<script src="/assets/vendor/flatpickr.min.js"></script>
 <script async src="https://maps.googleapis.com/maps/api/js?key=""" + MAPS_KEY + """&libraries=places&callback=umcHomeMaps"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function(){
@@ -547,7 +562,7 @@ document.addEventListener("DOMContentLoaded", function(){
 (SITE/"index.html").write_text(
  head("Luxury Chauffeur Service in Dubai & the UAE | UMC Dubai",
       "UMC Dubai is the luxury chauffeur service trusted across the UAE. Airport transfers, corporate chauffeur and private drivers in Dubai &amp; the UAE — one all-inclusive rate, 24/7.",
-      "", ld_home + faq_schema(HOME_FAQS) + '<link rel="stylesheet" href="assets/vendor/flatpickr.min.css">') + index_body)
+      "", ld_home + faq_schema(HOME_FAQS) + '<link rel="stylesheet" href="/assets/vendor/flatpickr.min.css">') + index_body)
 
 # ---------- booking ----------
 booking_body = header("booking.html") + f"""
@@ -619,7 +634,7 @@ booking_body = header("booking.html") + f"""
               </div><span class="fhint phone-err"></span></div>
           </div>
           <div class="f"><label class="req" for="kEmail">Email</label><input id="kEmail" type="email" autocomplete="email" required><span class="fhint">Enter a valid email address, e.g. name@domain.com</span></div>
-                    <p class="bk-note" style="margin-top:1rem">By sending this request you agree to the <a href="terms.html" id="openTerms" style="border-bottom:1px solid var(--amber);color:var(--ink)">Terms of Service</a>.</p>
+                    <p class="bk-note" style="margin-top:1rem">By sending this request you agree to the <a href="/terms" id="openTerms" style="border-bottom:1px solid var(--amber);color:var(--ink)">Terms of Service</a>.</p>
           <button class="btn btn-ink" type="submit" id="btnConfirm" style="width:100%;margin-top:.7rem" disabled>Confirm reservation request</button>
           <p class="bk-note">Sending opens WhatsApp with your request pre-filled. Our concierge confirms availability and shares a secure payment link — nothing is charged online.</p>
         </div>
@@ -647,8 +662,8 @@ booking_body = header("booking.html") + f"""
   </div>
 </section>
 """ + TERMS_DLG + FOOTER + f"""
-<script src="assets/vendor/flatpickr.min.js"></script>
-<script src="assets/booking.js?v={V}"></script>
+<script src="/assets/vendor/flatpickr.min.js"></script>
+<script src="/assets/booking.js?v={V}"></script>
 <script async src="https://maps.googleapis.com/maps/api/js?key={MAPS_KEY}&libraries=places&callback=umcMapsInit"></script>
 </body>
 </html>"""
@@ -657,7 +672,7 @@ booking_body = header("booking.html") + f"""
  head("Reserve Your Car — Online Booking | UMC Dubai",
       "Reserve a chauffeur-driven car in Dubai in minutes. Route preview, flight tracking on airport transfers and a concierge confirmation within minutes, 24/7.",
       "online-booking/",
-      '<link rel="stylesheet" href="assets/vendor/flatpickr.min.css">') + booking_body)
+      '<link rel="stylesheet" href="/assets/vendor/flatpickr.min.css">') + booking_body)
 
 # ---------- fleet ----------
 fleet_body = header("fleet.html") + f"""
@@ -688,13 +703,13 @@ fleet_body = header("fleet.html") + f"""
     <div class="scen rv">
       <div class="sc"><svg viewBox="0 0 24 24"><path d="M21 15.5l-8-3V5.2a1.7 1.7 0 0 0-3.4 0v7.3l-6.6 2.5v2l6.6-1.4v3.6L7.5 21v1.4l4.8-1 4.8 1V21l-2.1-1.8v-3.6l6 1.3z"/></svg>
         <h3>The arrival</h3><p>Touching down at DXB after a long flight. Quiet, space and a chauffeur already waiting.</p>
-        <div class="pick"><a href="booking.html?vehicle=s-class">S-Class</a><a href="booking.html?vehicle=escalade">Escalade</a><a href="booking.html?vehicle=v-class">V-Class</a></div></div>
+        <div class="pick"><a href="/booking?vehicle=s-class">S-Class</a><a href="/booking?vehicle=escalade">Escalade</a><a href="/booking?vehicle=v-class">V-Class</a></div></div>
       <div class="sc"><svg viewBox="0 0 24 24"><path d="M9 11a3 3 0 1 0-3-3 3 3 0 0 0 3 3zM17 11a2.5 2.5 0 1 0-2.5-2.5A2.5 2.5 0 0 0 17 11z"/><path d="M2.5 20c.5-3.2 2.8-4.8 6.5-4.8s6 1.6 6.5 4.8M14.8 15.6c2.8.2 4.5 1.7 4.9 4.4"/></svg>
         <h3>The family season</h3><p>School pick-ups, the mall, the beach club. Seven seats, cases and a pushchair, one calm cabin.</p>
-        <div class="pick"><a href="booking.html?vehicle=v-class">V-Class</a><a href="booking.html?vehicle=yukon">Yukon XL</a></div></div>
+        <div class="pick"><a href="/booking?vehicle=v-class">V-Class</a><a href="/booking?vehicle=yukon">Yukon XL</a></div></div>
       <div class="sc"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="13" rx="2"/><path d="M3 9.5h18M8 18v2.5M16 18v2.5"/></svg>
         <h3>The roadshow</h3><p>Investor days and delegations. Multi-car movements coordinated to the minute under one contact.</p>
-        <div class="pick"><a href="booking.html?vehicle=sprinter">Sprinter</a><a href="contact.html?vehicle=Roadshow">Convoy desk</a></div></div>
+        <div class="pick"><a href="/booking?vehicle=sprinter">Sprinter</a><a href="/contact?vehicle=Roadshow">Convoy desk</a></div></div>
     </div>
   </div>
 </section>
@@ -707,7 +722,7 @@ fleet_body = header("fleet.html") + f"""
 </section>
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">The right car is the one that is ready.</h2>
-  <div class="btns rv"><a class="btn btn-ink" href="booking.html">Reserve your car</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
+  <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your car</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
 </section>
 """ + FOOTER + """
 <script>document.addEventListener("DOMContentLoaded",function(){renderFleet(document.getElementById("fleetAll"),{});
@@ -736,7 +751,7 @@ airport_body = header("airport-transfers.html") + f"""
     <h1>Airport transfers in Dubai &amp; the UAE</h1>
     <p class="lede">Met at arrivals. Driven without delay.</p>
     <div class="btns rv" style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
-      <a class="btn btn-ink" href="booking.html">Reserve your transfer</a>
+      <a class="btn btn-ink" href="/booking">Reserve your transfer</a>
     </div>
   </div>
   </section>
@@ -791,7 +806,7 @@ airport_body = header("airport-transfers.html") + f"""
 </section>
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">Have the car waiting when you land.</h2>
-  <div class="btns rv"><a class="btn btn-ink" href="booking.html">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
+  <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
 </section>
 """ + FOOTER + """
 <script>document.addEventListener("DOMContentLoaded",function(){renderFleet(document.getElementById("airportFleet"),{})});</script>
@@ -829,7 +844,7 @@ dubai_airport_body = header("airport-transfers/dubai") + f"""
     <h1>Airport transfers in Dubai.</h1>
     <p class="lede">Met at arrivals at DXB and DWC. Driven into Dubai without delay.</p>
     <div class="btns rv" style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
-      <a class="btn btn-ink" href="booking.html">Reserve your transfer</a>
+      <a class="btn btn-ink" href="/booking">Reserve your transfer</a>
     </div>
   </div>
   </section>
@@ -885,7 +900,7 @@ dubai_airport_body = header("airport-transfers/dubai") + f"""
 </section>
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">Have the car waiting when you land.</h2>
-  <div class="btns rv"><a class="btn btn-ink" href="booking.html">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
+  <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
 </section>
 """ + FOOTER + """
 <script>document.addEventListener("DOMContentLoaded",function(){renderFleet(document.getElementById("airportFleet"),{})});</script>
@@ -933,7 +948,7 @@ corp_body = header("corporate.html") + f"""
     <h1>Corporate chauffeur in Dubai &amp; the UAE</h1>
     <p class="lede">Ground transport your company can rely on. Confirmed cars, vetted chauffeurs, consolidated invoicing and a human on the line at any hour.</p>
     <div style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
-      <a class="btn btn-ink" href="contact.html?vehicle=Corporate%20Account">Open a corporate account</a>
+      <a class="btn btn-ink" href="/contact?vehicle=Corporate%20Account">Open a corporate account</a>
     </div>
   </div>
 </section>
@@ -962,7 +977,7 @@ corp_body = header("corporate.html") + f"""
       </div>
       <footer class="ds-foot">
         <span class="ds-foot-line">Held in confidence &middot; One account &middot; One standard</span>
-        <a class="ds-foot-cta" href="contact.html?vehicle=Corporate%20Account">Open an account &rarr;</a>
+        <a class="ds-foot-cta" href="/contact?vehicle=Corporate%20Account">Open an account &rarr;</a>
       </footer>
     </div>
   </div>
@@ -976,7 +991,7 @@ corp_body = header("corporate.html") + f"""
 </section>
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Corporate accounts</span><h2 class="rv">Your executives, moved without friction.</h2>
-  <div class="btns rv"><a class="btn btn-ink" href="contact.html?vehicle=Corporate%20Account">Open a corporate account</a><a class="btn btn-ghost" href="tel:+971586497861">Call the desk</a></div></div>
+  <div class="btns rv"><a class="btn btn-ink" href="/contact?vehicle=Corporate%20Account">Open a corporate account</a><a class="btn btn-ghost" href="tel:+971586497861">Call the desk</a></div></div>
 </section>
 """ + FOOTER + "</body></html>"
 (SITE/"corporate.html").write_text(
@@ -1027,7 +1042,7 @@ about_body = header("about.html") + f"""
 </section>
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">Judge us by a single journey.</h2>
-  <div class="btns rv"><a class="btn btn-ink" href="booking.html">Reserve your car</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
+  <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your car</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
 </section>
 """ + FOOTER + "</body></html>"
 (SITE/"about.html").write_text(
@@ -1044,7 +1059,7 @@ events_body = header("events.html") + f"""
     <h1>Arrivals worth remembering.</h1>
     <p class="lede">For the occasions that deserve more than a car: a coordinated fleet, one point of contact and a standard that holds from the first arrival to the last.</p>
     <div class="btns rv" style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
-      <a class="btn btn-ink" href="contact.html">Plan your occasion</a>
+      <a class="btn btn-ink" href="/contact">Plan your occasion</a>
     </div>
   </div>
 </section>
@@ -1076,7 +1091,7 @@ events_body = header("events.html") + f"""
       </div>
       <footer class="ds-foot">
         <span class="ds-foot-line">One movement &middot; One point of contact &middot; Nothing your guests see go wrong</span>
-        <a class="ds-foot-cta" href="contact.html">Plan your event &rarr;</a>
+        <a class="ds-foot-cta" href="/contact">Plan your event &rarr;</a>
       </footer>
     </div>
   </div>
@@ -1103,7 +1118,7 @@ events_body = header("events.html") + f"""
 </section>
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Occasions</span><h2 class="rv">Begin with the standard.</h2>
-  <div class="btns rv"><a class="btn btn-ink" href="contact.html">Plan your occasion</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{EVENTS_WA}">WhatsApp concierge</a></div></div>
+  <div class="btns rv"><a class="btn btn-ink" href="/contact">Plan your occasion</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{EVENTS_WA}">WhatsApp concierge</a></div></div>
 </section>
 """ + FOOTER + "</body></html>"
 (SITE/"events.html").write_text(
@@ -1268,7 +1283,7 @@ ie_body = header("airport-transfers.html").replace('class="on"','') + f"""
     <h1>Inter-emirate transfers</h1>
     <p class="lede">Dubai to Abu Dhabi and every emirate beyond. One car and one chauffeur, door to door.</p>
     <div style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
-      <a class="btn btn-ink" href="booking.html">Reserve your transfer</a>
+      <a class="btn btn-ink" href="/booking">Reserve your transfer</a>
     </div>
   </div>
 </section>
@@ -1299,7 +1314,7 @@ ie_body = header("airport-transfers.html").replace('class="on"','') + f"""
 </section>
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">One chauffeur, door to door.</h2>
-  <div class="btns rv"><a class="btn btn-ink" href="booking.html">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
+  <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
 </section>
 """ + FOOTER + "</body></html>"
 (SITE/"inter-emirate.html").write_text(
@@ -1313,8 +1328,8 @@ notfound = header("index.html").replace('class="on"','') + f"""
 <span class="lbl">404</span><h1>This road does not exist.</h1>
 <p class="lede">The page you were looking for has moved or never was. Your car, however, is ready.</p>
 <div style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
-<a class="btn btn-ink" href="index.html">Return home</a>
-<a class="btn btn-ghost" href="booking.html">Reserve your car</a>
+<a class="btn btn-ink" href="/">Return home</a>
+<a class="btn btn-ghost" href="/booking">Reserve your car</a>
 </div></div></section>
 """ + FOOTER + "</body></html>"
 (SITE/"404.html").write_text(head("Page Not Found | UMC Dubai","","404") + notfound)
@@ -1426,7 +1441,7 @@ sc_body = header("fleet.html") + f"""
 <section class="sc-hero" aria-label="Mercedes-Benz S-Class">
   <div class="sc-hero__stage">
     <!-- TEMPORARY hero image — replace with real UMC S-Class photography. -->
-    <img class="sc-hero__img" src="assets/fleet/s-class/{SC_HERO_IMG[0]}" alt="{SC_HERO_IMG[1]}" fetchpriority="high">
+    <img class="sc-hero__img" src="/assets/fleet/s-class/{SC_HERO_IMG[0]}" alt="{SC_HERO_IMG[1]}" fetchpriority="high">
   </div>
   <div class="sc-hero__caps">
     <div class="sc-hero__caps-inner">
@@ -1435,7 +1450,7 @@ sc_body = header("fleet.html") + f"""
         <div class="sc-hero__tagline">{SC_HERO_TAGLINE}</div>
       </div>
       <div class="sc-hero__ctas">
-        <a class="btn btn-ink" href="booking.html?vehicle=mb-s-class">Reserve the S-Class</a>
+        <a class="btn btn-ink" href="/booking?vehicle=mb-s-class">Reserve the S-Class</a>
       </div>
     </div>
   </div>
@@ -1554,7 +1569,7 @@ sc_body = header("fleet.html") + f"""
     <span class="lbl">Reservations</span>
     <h2 class="rv">Reserve the S-Class.</h2>
     <div class="btns rv">
-      <a class="btn btn-ink" href="booking.html?vehicle=mb-s-class">Reserve the S-Class</a>
+      <a class="btn btn-ink" href="/booking?vehicle=mb-s-class">Reserve the S-Class</a>
       <a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a>
     </div>
   </div>
@@ -1575,7 +1590,7 @@ sc_body = header("fleet.html") + f"""
         <div class="it"><span class="k">Passengers</span><span class="v">Up to 4</span></div>
         <div class="it"><span class="k">Luggage</span><span class="v">2 medium</span></div>
       </div>
-      <a class="btn-line" href="booking.html?vehicle=bmw-7">Reserve the 7 Series</a>
+      <a class="btn-line" href="/booking?vehicle=bmw-7">Reserve the 7 Series</a>
     </article>
     <article class="acard">
       <div class="marque-row"><span class="mk">Mercedes-Benz</span><span class="dash"></span><span>Luxury Van</span></div>
@@ -1586,7 +1601,7 @@ sc_body = header("fleet.html") + f"""
         <div class="it"><span class="k">Passengers</span><span class="v">Up to 7</span></div>
         <div class="it"><span class="k">Luggage</span><span class="v">5 large</span></div>
       </div>
-      <a class="btn-line" href="booking.html?vehicle=mb-v-class">Reserve the V-Class</a>
+      <a class="btn-line" href="/booking?vehicle=mb-v-class">Reserve the V-Class</a>
     </article>
   </div>
 </section>
@@ -1671,7 +1686,7 @@ sc_body = header("fleet.html") + f"""
 sc_head = head("Mercedes S-Class Chauffeur in Dubai &mdash; The Reference Standard | UMC Dubai",
                "Chauffeur-driven Mercedes-Benz S-Class in Dubai and across the UAE: reclining rear seats, hushed cabin, vetted UMC chauffeur. Reserve in minutes.",
                "fleet/s-class/",
-               f'<link rel="stylesheet" href="assets/s-class.css?v={V}">')
+               f'<link rel="stylesheet" href="/assets/s-class.css?v={V}">')
 sc_head = sc_head.replace('<title>', '<base href="/">\n<title>', 1)
 (SITE/"fleet").mkdir(parents=True, exist_ok=True)
 (SITE/"fleet"/"s-class.html").write_text(sc_head + sc_body)
@@ -1919,6 +1934,11 @@ def fleet_placeholder(label, slot, variant=0, css_class="sc-hero__img"):
     )
 
 def render_acard(c):
+    # c["page"] is stored without a leading slash so it can also be used as the
+    # canonical path (head() prepends https://umcdubai.ae/ to it). For the link
+    # in the also-consider card we need a root-absolute href so the link works
+    # from any page depth.
+    page_abs = c["page"] if c["page"].startswith("/") else "/" + c["page"]
     return (
       '<article class="acard">'
       f'<div class="marque-row"><span class="mk">{c["marque"]}</span><span class="dash"></span><span>{c["category"]}</span></div>'
@@ -1929,7 +1949,7 @@ def render_acard(c):
       f'<div class="it"><span class="k">Passengers</span><span class="v">Up to {c["pax"]}</span></div>'
       f'<div class="it"><span class="k">Luggage</span><span class="v">{c["luggage"]}</span></div>'
       '</div>'
-      f'<a class="btn-line" href="{c["page"]}">{c["reserve_label"]}</a>'
+      f'<a class="btn-line" href="{page_abs}">{c["reserve_label"]}</a>'
       '</article>'
     )
 
@@ -1949,7 +1969,7 @@ def render_fleet_page_body(car):
     if car.get("hero_img"):
         op = car.get("hero_object_pos", "50% 50%")
         hero_ph = (f'<!-- TEMPORARY hero image — replace with final UMC {name} photography. -->'
-                   f'<img class="sc-hero__img" src="assets/fleet/{car["hero_img"]}" alt="{name} — exterior" fetchpriority="high" style="object-position:{op}">')
+                   f'<img class="sc-hero__img" src="/assets/fleet/{car["hero_img"]}" alt="{name} — exterior" fetchpriority="high" style="object-position:{op}">')
     else:
         hero_ph = fleet_placeholder(name + " — exterior", f"{cid}-hero", variant=0, css_class="sc-hero__img")
     # Interior primary image — primary cell is ~712px on desktop, full-width below 980px.
@@ -2006,7 +2026,7 @@ def render_fleet_page_body(car):
         {hero_sub_html}
       </div>
       <div class="sc-hero__ctas">
-        <a class="btn btn-ink" href="booking.html?vehicle={cid}">{cta_label}</a>
+        <a class="btn btn-ink" href="/booking?vehicle={cid}">{cta_label}</a>
       </div>
     </div>
   </div>
@@ -2121,7 +2141,7 @@ def render_fleet_page_body(car):
     <span class="lbl">Reservations</span>
     <h2 class="rv">{cta_label}.</h2>
     <div class="btns rv">
-      <a class="btn btn-ink" href="booking.html?vehicle={cid}">{cta_label}</a>
+      <a class="btn btn-ink" href="/booking?vehicle={cid}">{cta_label}</a>
       <a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a>
     </div>
   </div>
@@ -2214,7 +2234,7 @@ for car in FLEET_PAGES_DRAFT:
         car["title_seo"],
         car["meta_seo"],
         info["page"] + "/",
-        f'<link rel="stylesheet" href="assets/s-class.css?v={V}">'
+        f'<link rel="stylesheet" href="/assets/s-class.css?v={V}">'
     )
     head_html = head_html.replace('<title>', '<base href="/">\n<title>', 1)
     (SITE/"fleet").mkdir(parents=True, exist_ok=True)
