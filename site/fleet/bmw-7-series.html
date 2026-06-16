@@ -200,6 +200,21 @@
   window.addEventListener("resize", setHeaderH);
   if(window.visualViewport) visualViewport.addEventListener("resize", setHeaderH);
 
+  /* ---------- subtle load-in reveal (hero immediately; sections on intersection) ---------- */
+  var hero = document.querySelector(".sc-hero");
+  if(hero) requestAnimationFrame(function(){ hero.classList.add("sc-in"); });
+  var revealTargets = document.querySelectorAll(".sc-int,.sc-am,.sc-paper,.sc-chau,.sc-also,.closing.band-dark");
+  if(!rm && "IntersectionObserver" in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if(e.isIntersecting){ e.target.classList.add("sc-in"); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.1, rootMargin: "0px 0px -8% 0px" });
+    revealTargets.forEach(function(t){ io.observe(t); });
+  } else {
+    revealTargets.forEach(function(t){ t.classList.add("sc-in"); });
+  }
+
   /* ---------- modals (size guide + seating detail) ---------- */
   var openModal = null, lastTrigger = null;
   function focusables(m){

@@ -8,42 +8,60 @@
 /* ---------- shared: lock body scroll while a modal is open ---------- */
 body.sc-no-scroll{overflow:hidden}
 
-/* ---------- 1 · HERO — single static exterior image, fits viewport ---------- */
+/* ---------- subtle institutional load-in: hero reveals on paint, sections
+   on scroll. Restrained: opacity + small translateY, ~500ms ease-out. ---------- */
+.sc-hero,.sc-int,.sc-am,.sc-paper,.sc-chau,.sc-also,.closing.band-dark{
+  opacity:0;transform:translateY(8px);
+  transition:opacity .55s cubic-bezier(.2,.6,.2,1), transform .55s cubic-bezier(.2,.6,.2,1);
+}
+.sc-hero.sc-in,.sc-int.sc-in,.sc-am.sc-in,.sc-paper.sc-in,.sc-chau.sc-in,.sc-also.sc-in,.closing.sc-in{
+  opacity:1;transform:translateY(0);
+}
+@media (prefers-reduced-motion:reduce){
+  .sc-hero,.sc-int,.sc-am,.sc-paper,.sc-chau,.sc-also,.closing.band-dark{
+    opacity:1;transform:none;transition:none;
+  }
+}
+
+/* ---------- 1 · HERO — image area + dedicated text band (no overlap) ---------- */
+/* The hero is a flex column:
+     .sc-hero__stage (image, takes available space, cover-cropped) +
+     .sc-hero__caps  (text band, solid ink, kicker -> tagline -> CTA).
+   The text never sits over the car or chauffeur. The image fades into the
+   ink band via a gradient at its bottom edge for visual continuity. */
 .sc-hero{position:relative;background:var(--ink);overflow:hidden;border-bottom:1px solid var(--hair);
-  /* fill the viewport minus the sticky header — JS sets --header-h precisely. */
+  display:flex;flex-direction:column;
   height:calc(100vh - var(--header-h, 96px));
   height:calc(100svh - var(--header-h, 96px));
-  max-height:860px;min-height:520px}
-.sc-hero__stage{position:absolute;inset:0}
+  max-height:900px;min-height:560px}
+.sc-hero__stage{position:relative;flex:1 1 auto;min-height:0;overflow:hidden}
 .sc-hero__img{width:100%;height:100%;display:block;object-fit:cover;
-  /* Crop band positioned so the chauffeur's head and the car body stay framed
-     and the dead foreground paving drops below the caption band. */
-  object-position:50% 32%}
-/* Mobile: image is scaled to fill viewport height, so width overflows.
-   Shift X right so the chauffeur (on the right of the source) stays in frame. */
-@media (max-width:720px){
-  .sc-hero__img{object-position:78% 32%}
-}
-/* On the narrowest phones, scaled image width gets closer to viewport width,
-   so the right-shift needs to be sharper to keep the chauffeur visible. */
-@media (max-width:380px){
-  .sc-hero__img{object-position:88% 32%}
-}
-.sc-hero__stage::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg, rgba(34,27,20,0) 36%, rgba(34,27,20,.45) 78%, rgba(34,27,20,.82) 100%);pointer-events:none}
+  /* Slightly bottom-anchored — shows the chauffeur from head through most of his
+     body; the text band sits below the image so no figure-vs-headline collision. */
+  object-position:50% 42%}
+@media (max-width:720px){.sc-hero__img{object-position:72% 42%}}
+@media (max-width:380px){.sc-hero__img{object-position:82% 42%}}
+.sc-hero__stage::after{content:"";position:absolute;left:0;right:0;bottom:0;height:36%;
+  background:linear-gradient(to bottom,
+    rgba(34,27,20,0) 0%,
+    rgba(34,27,20,.32) 45%,
+    rgba(34,27,20,.78) 85%,
+    var(--ink) 100%);
+  pointer-events:none}
 
-.sc-hero__caps{position:absolute;left:0;right:0;bottom:0;padding:clamp(1.4rem,4vw,2.8rem) clamp(1.4rem,5vw,3.6rem) clamp(1.6rem,4vw,2.8rem);z-index:4;color:var(--bone);pointer-events:none}
-.sc-hero__caps-inner{max-width:var(--wrap);margin:0 auto;display:grid;grid-template-columns:1fr auto;align-items:end;gap:2.4rem}
-.sc-hero__kicker{font-family:var(--sans);font-weight:500;font-size:.72rem;letter-spacing:.42em;text-transform:uppercase;color:#E0894A;margin-bottom:1rem}
-.sc-hero__tagline{font-family:var(--serif);font-weight:400;font-size:clamp(1.6rem,4.4vw,3rem);line-height:1.12;letter-spacing:.005em;color:var(--bone);max-width:24ch}
-.sc-hero__sub{margin-top:1rem;font-family:var(--sans);font-weight:300;font-size:clamp(.92rem,1.4vw,1.05rem);line-height:1.5;color:#CBBFA9;max-width:48ch}
-.sc-hero__ctas{display:flex;gap:.7rem;flex-wrap:wrap;pointer-events:auto;align-items:center}
+.sc-hero__caps{position:relative;flex:0 0 auto;background:var(--ink);color:var(--bone);
+  padding:clamp(1.3rem,2.4vw,2rem) clamp(1.4rem,5vw,3.6rem) clamp(1.6rem,3vw,2.4rem)}
+.sc-hero__caps-inner{max-width:var(--wrap);margin:0 auto;display:grid;grid-template-columns:1fr auto;align-items:end;gap:2rem}
+.sc-hero__kicker{font-family:var(--sans);font-weight:500;font-size:.72rem;letter-spacing:.42em;text-transform:uppercase;color:#E0894A;margin-bottom:.7rem}
+.sc-hero__tagline{font-family:var(--serif);font-weight:400;font-size:clamp(1.45rem,3.6vw,2.3rem);line-height:1.16;letter-spacing:.005em;color:var(--bone);max-width:24ch}
+.sc-hero__sub{margin-top:.6rem;font-family:var(--sans);font-weight:300;font-size:clamp(.88rem,1.2vw,.98rem);line-height:1.5;color:#CBBFA9;max-width:48ch}
+.sc-hero__ctas{display:flex;gap:.7rem;flex-wrap:wrap;align-items:center}
 .sc-hero__ctas .btn-ink{background:var(--bone);color:var(--ink);border-color:var(--bone)}
 .sc-hero__ctas .btn-ink:hover{background:#fff}
 
 @media (max-width:720px){
-  .sc-hero{max-height:none}
-  .sc-hero__caps-inner{grid-template-columns:1fr;gap:1.2rem}
-  .sc-hero__caps{padding-bottom:clamp(1.4rem,4vw,1.8rem)}
+  .sc-hero__caps-inner{grid-template-columns:1fr;gap:1rem}
+  .sc-hero__caps{padding:1.1rem clamp(1.1rem,4vw,1.6rem) 1.3rem}
 }
 
 /* ---------- 2 · INTERIOR — primary hotspot image (left) + 2x2 detail grid (right) ---------- */
@@ -59,18 +77,24 @@ body.sc-no-scroll{overflow:hidden}
 .sc-int__grid{display:grid;grid-template-columns:1fr;gap:1rem;align-items:stretch}
 @media (min-width:900px){.sc-int__grid{grid-template-columns:1.35fr 1fr;gap:1rem}}
 
-/* Primary cabin image */
-.sc-int__primary{position:relative;background:var(--card);border:1px solid var(--hair);border-radius:3px;overflow:hidden;line-height:0;min-height:0}
-.sc-int__photo{display:block;width:100%;height:100%;aspect-ratio:16/10;object-fit:cover;background:var(--bone-2)}
-@media (min-width:900px){.sc-int__photo{aspect-ratio:auto;height:100%}}
+/* Primary cabin image — 16/9 aspect matches the source image (no crop), and
+   the math (1.35fr primary at 16/9 + 1fr details at 4/3 over two rows) makes
+   the column bottoms land at the same line without forcing the cells to a
+   weird portrait shape that softens the small images. */
+.sc-int__primary{position:relative;background:var(--card);border:1px solid var(--hair);border-radius:3px;overflow:hidden;line-height:0;transition:transform .35s cubic-bezier(.2,.6,.2,1)}
+.sc-int__primary:hover{transform:translateY(-1px)}
+.sc-int__photo{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;background:var(--bone-2)}
 
-/* 2x2 detail grid — aligns bottom edge with the primary image on desktop */
-.sc-int__details{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:.8rem;line-height:0;min-height:0}
-.sc-int__detail{display:block;width:100%;height:100%;min-height:0;object-fit:cover;background:var(--bone-2);border:1px solid var(--hair);border-radius:3px;transition:transform .35s cubic-bezier(.2,.6,.2,1)}
+/* 2x2 detail grid — cells at 4/3 aspect (closer to the source's 16/9 than the
+   stretched 1.19/1 cells we had, so the small images stay crisp). */
+.sc-int__details{display:grid;grid-template-columns:1fr 1fr;gap:.8rem;line-height:0;align-content:start}
+.sc-int__detail{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:cover;background:var(--bone-2);border:1px solid var(--hair);border-radius:3px;transition:transform .35s cubic-bezier(.2,.6,.2,1)}
 .sc-int__detail:hover{transform:translateY(-1px)}
-@media (max-width:899px){.sc-int__detail{aspect-ratio:4/3}}
 @media (max-width:560px){.sc-int__detail{aspect-ratio:1/1}}
-@media (prefers-reduced-motion:reduce){.sc-int__detail{transition:none}.sc-int__detail:hover{transform:none}}
+@media (prefers-reduced-motion:reduce){
+  .sc-int__primary,.sc-int__detail{transition:none}
+  .sc-int__primary:hover,.sc-int__detail:hover{transform:none}
+}
 
 /* ---------- 3 · AMENITIES — square cards, 3x2 desktop ---------- */
 .sc-am{padding:clamp(3rem,7vw,5rem) 0;background:var(--bone-2);border-block:1px solid var(--hair)}
@@ -168,10 +192,9 @@ body.sc-no-scroll{overflow:hidden}
 .sc-also__head h2{font-size:clamp(1.5rem,3.4vw,2rem)}
 .sc-also__grid{max-width:var(--wrap);margin:0 auto;padding:0 clamp(1.1rem,4vw,2rem);display:grid;gap:1.4rem;grid-template-columns:1fr}
 @media (min-width:720px){.sc-also__grid{grid-template-columns:1fr 1fr;gap:1.6rem}}
-.sc-also .acard{position:relative;background:var(--card);border:1px solid var(--hair);border-radius:3px;padding:clamp(1.6rem,3vw,2.2rem) clamp(1.6rem,3vw,2.4rem) clamp(1.7rem,3vw,2.4rem);display:grid;gap:1rem;transition:transform .35s cubic-bezier(.2,.6,.2,1), border-color .35s ease;overflow:hidden}
-.sc-also .acard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--amber);transform:scaleY(0);transform-origin:top;transition:transform .45s cubic-bezier(.2,.6,.2,1)}
-.sc-also .acard:hover{transform:translateY(-2px);border-color:rgba(34,27,20,.22)}
-.sc-also .acard:hover::before{transform:scaleY(1)}
+/* Match the site-standard vcard hover (translateY + soft shadow). No left-edge rail. */
+.sc-also .acard{position:relative;background:var(--card);border:1px solid var(--hair);border-radius:3px;padding:clamp(1.6rem,3vw,2.2rem) clamp(1.6rem,3vw,2.4rem) clamp(1.7rem,3vw,2.4rem);display:grid;gap:1rem;transition:transform .25s ease, box-shadow .35s ease;overflow:hidden}
+.sc-also .acard:hover{transform:translateY(-3px);box-shadow:0 22px 44px -26px rgba(34,27,20,.4)}
 .sc-also .acard .marque-row{display:flex;align-items:center;gap:.85rem;font-family:var(--sans);font-weight:500;font-size:.66rem;letter-spacing:.32em;text-transform:uppercase;color:var(--muted)}
 .sc-also .acard .marque-row .mk{font-family:var(--serif);font-style:italic;font-size:.78rem;letter-spacing:.04em;color:var(--ink-soft);text-transform:none}
 .sc-also .acard .marque-row .dash{width:18px;height:1px;background:var(--line)}
@@ -182,5 +205,7 @@ body.sc-no-scroll{overflow:hidden}
 .sc-also .acard .stats .it{display:flex;flex-direction:column;gap:.2rem}
 .sc-also .acard .stats .k{font-family:var(--sans);font-weight:500;font-size:.62rem;letter-spacing:.24em;text-transform:uppercase;color:var(--muted)}
 .sc-also .acard .stats .v{font-family:var(--serif);font-size:1.1rem;color:var(--ink);line-height:1}
-.sc-also .acard .btn-line{margin-top:.6rem;align-self:start}
-@media (prefers-reduced-motion:reduce){.sc-also .acard,.sc-also .acard::before{transition:none}.sc-also .acard:hover{transform:none}}
+/* In a grid item, inline-flex still gets stretched horizontally; justify-self
+   constrains the link to the width of its text so the underline hugs it. */
+.sc-also .acard .btn-line{margin-top:.6rem;justify-self:start;width:auto}
+@media (prefers-reduced-motion:reduce){.sc-also .acard{transition:none}.sc-also .acard:hover{transform:none;box-shadow:none}}

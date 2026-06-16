@@ -124,6 +124,7 @@ nav.mainnav a:hover,nav.mainnav a.on{color:var(--ink);border-color:var(--amber)}
 .vcard .vimg{aspect-ratio:16/10;display:flex;align-items:center;justify-content:center;background:transparent;overflow:hidden}
 .vcard .vimg img{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;mix-blend-mode:multiply;transition:transform .6s ease}
 .vcard .vimg.photo img{mix-blend-mode:normal}
+.vcard .vimg.flip img{transform:scaleX(-1)}
 .vcard .vbody{padding:1.15rem 1.2rem 1.3rem}
 .vcard h3{font-size:1.3rem;margin-bottom:.2rem}
 .vcard h3 a{color:inherit;text-decoration:none;transition:color .2s}
@@ -706,8 +707,10 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 
 /* hero2 — homepage full-bleed image + scrim + floating form */
 .hero2{position:relative;min-height:660px;display:flex;align-items:center;padding:4.5rem 0 3.5rem}
-/* TEMPORARY — competitor-sourced placeholder; replace with real UMC photography ASAP. */
-.h2bg{position:absolute;inset:0;background:url("assets/home/hero.jpg") center 50%/cover no-repeat}
+/* TEMPORARY — competitor-sourced placeholder; replace with real UMC photography ASAP.
+   NOTE: style.css is served from /assets/, so url() is resolved RELATIVE TO /assets/.
+   Root-absolute paths required to avoid /assets/assets/ doubling. */
+.h2bg{position:absolute;inset:0;background:url("/assets/home/hero.jpg") center 50%/cover no-repeat}
 .h2scrim{position:absolute;inset:0;background:linear-gradient(100deg,rgba(20,15,9,.86) 0%,rgba(20,15,9,.62) 40%,rgba(20,15,9,.22) 72%,rgba(20,15,9,.38) 100%)}
 .h2grid{position:relative;z-index:1;display:grid;gap:2.5rem;align-items:center}
 @media(min-width:960px){.h2grid{grid-template-columns:1.05fr .95fr}}
