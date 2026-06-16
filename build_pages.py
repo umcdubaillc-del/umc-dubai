@@ -1411,7 +1411,479 @@ sc_head = sc_head.replace('<title>', '<base href="/">\n<title>', 1)
 (SITE/"fleet"/"s-class.html").write_text(sc_head + sc_body)
 
 # ---------- sitemap & robots & headers ----------
-pages = ["", "fleet.html","fleet/s-class","airport-transfers.html","inter-emirate.html","corporate.html","events.html","about.html","contact.html","booking.html","terms.html","privacy.html"]
+# ---------- additional fleet model pages (S-Class is generated above) ----------
+# ALL_CARS: lookup for every fleet vehicle. Used by the also-consider renderer
+# and by fleet-data.js (URLs propagated below) to wire card links. The S-Class
+# entry mirrors its already-published treatment; that page is NOT re-rendered.
+ALL_CARS = {
+  "mb-s-class": {
+    "name": "Mercedes-Benz S-Class", "marque": "Mercedes-Benz", "category": "Flagship Sedan",
+    "page": "fleet/s-class", "strap": "The reference standard.",
+    "ac_body": "The reference point for executive travel in Dubai &mdash; reclining rear seats, a hushed cabin.",
+    "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the S-Class",
+  },
+  "bmw-7": {
+    "name": "BMW 7 Series", "marque": "Bayerische Motoren Werke", "category": "Flagship Sedan",
+    "page": "fleet/bmw-7-series", "strap": "Composure, engineered.",
+    "ac_body": "An equally composed flagship sedan for clients who prefer the seven to the star.",
+    "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the 7 Series",
+  },
+  "mb-e-class": {
+    "name": "Mercedes-Benz E-Class", "marque": "Mercedes-Benz", "category": "Business Sedan",
+    "page": "fleet/e-class", "strap": "The quiet professional.",
+    "ac_body": "The business saloon that moves people who matter, without announcing it.",
+    "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the E-Class",
+  },
+  "lexus-es": {
+    "name": "Lexus ES", "marque": "Lexus", "category": "Business Sedan",
+    "page": "fleet/lexus-es", "strap": "Stillness, as standard.",
+    "ac_body": "Japanese refinement and exceptional quiet &mdash; luxury as the absence of disturbance.",
+    "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the Lexus ES",
+  },
+  "cadillac-escalade": {
+    "name": "Cadillac Escalade", "marque": "Cadillac", "category": "Luxury SUV",
+    "page": "fleet/cadillac-escalade", "strap": "Arrival, with presence.",
+    "ac_body": "Full-size American SUV &mdash; presence at the kerb, room for the party and the luggage.",
+    "pax": 7, "luggage": "4 large", "reserve_label": "Reserve the Escalade",
+  },
+  "gmc-yukon-xl": {
+    "name": "GMC Yukon Elevation XL", "marque": "GMC", "category": "Executive SUV",
+    "page": "fleet/gmc-yukon-xl", "strap": "Space, without compromise.",
+    "ac_body": "Long-wheelbase SUV for the full car and the full boot.",
+    "pax": 6, "luggage": "5 large", "reserve_label": "Reserve the Yukon XL",
+  },
+  "mb-v-class": {
+    "name": "Mercedes-Benz V-Class", "marque": "Mercedes-Benz", "category": "Luxury Van",
+    "page": "fleet/v-class", "strap": "A room that travels together.",
+    "ac_body": "Captain&rsquo;s chairs facing each other for up to seven &mdash; conversation as part of the journey.",
+    "pax": 7, "luggage": "5 large", "reserve_label": "Reserve the V-Class",
+  },
+  "mb-sprinter": {
+    "name": "Mercedes-Benz Sprinter", "marque": "Mercedes-Benz", "category": "Executive Van",
+    "page": "fleet/sprinter", "strap": "The group, moved well.",
+    "ac_body": "Premium group transport for delegations, teams and events.",
+    "pax": 19, "luggage": "10 bags", "reserve_label": "Reserve the Sprinter",
+  },
+  "king-long": {
+    "name": "King Long Coach", "marque": "King Long", "category": "Coach",
+    "page": "fleet/king-long", "strap": "Every guest, one standard.",
+    "ac_body": "Full coach for conferences, events and large delegations.",
+    "pax": 55, "luggage": "30 bags", "reserve_label": "Reserve the coach",
+  },
+}
+
+# DRAFT scaffolds — Usman + team to refine per-car.
+FLEET_PAGES_DRAFT = [
+  {"id":"bmw-7",
+   "title_seo":"BMW 7 Series Chauffeur in Dubai &mdash; Flagship Sedan | UMC Dubai",
+   "meta_seo":"Chauffeur-driven BMW 7 Series in Dubai. Composed flagship sedan, vetted UMC chauffeur. Reserve in minutes.",
+   "tagline":"Composure, engineered.",
+   "hero_sub":"The executive saloon for those who know the difference. Quiet authority, precisely built.",
+   "interior_heading":"The considered cabin.",
+   "interior_intro":"The rear of a 7 Series is arranged around the passenger &mdash; space, silence and control, each placed with intent. The city continues; you are apart from it.",
+   "chauffeur_heading":"The standard arrives with the car.",
+   "suited_to":"Executive travel",
+   "luggage_label":"Up to 2 medium suitcases","luggage_kind":"medium","luggage_count":2,
+   "seating_items":[
+     ("Two travelling","The rear bench gives each guest a full seat, with generous legroom."),
+     ("Three travelling","Two across the rear, the third in the front beside the chauffeur."),
+   ],
+   "seo_body":"The BMW 7 Series stands as Munich&rsquo;s answer to the executive saloon &mdash; composed, engineered to a fine degree, and quiet in its authority. Reclining rear seats, controlled climate and discreet charging at every seat. Suited to airport arrivals from DXB or DWC, board meetings across the DIFC, Downtown and Dubai Marina, and the journey where the room you arrive in should feel like the room you left.",
+   "also_consider":["mb-s-class","mb-e-class"]},
+
+  {"id":"mb-e-class",
+   "title_seo":"Mercedes E-Class Chauffeur in Dubai &mdash; Business Sedan | UMC Dubai",
+   "meta_seo":"Chauffeur-driven Mercedes-Benz E-Class in Dubai. The business sedan of choice for daily executive transfers.",
+   "tagline":"The quiet professional.",
+   "hero_sub":"The business saloon that does the daily work of moving people who matter &mdash; without announcing it.",
+   "interior_heading":"Room enough to work.",
+   "interior_intro":"A composed, well-ordered cabin for the meeting you are heading to and the one you have just left. Space to think; quiet to do it in.",
+   "chauffeur_heading":"Held to one standard.",
+   "suited_to":"Daily business transfers",
+   "luggage_label":"Up to 2 medium suitcases","luggage_kind":"medium","luggage_count":2,
+   "seating_items":[
+     ("Two travelling","The rear bench gives each guest a full seat, with generous legroom."),
+     ("Three travelling","Two across the rear, the third in the front beside the chauffeur."),
+   ],
+   "seo_body":"The Mercedes-Benz E-Class is the business sedan of the Dubai professional class &mdash; composed, dependable, quietly equipped. Controlled climate, generous rear-seat space, and the same chauffeur standard as the rest of the fleet. Suited to daily transfers, between-meetings journeys, and the airport runs that need to be dignified without ceremony.",
+   "also_consider":["mb-s-class","bmw-7"]},
+
+  {"id":"lexus-es",
+   "title_seo":"Lexus ES Chauffeur in Dubai &mdash; Business Sedan | UMC Dubai",
+   "meta_seo":"Chauffeur-driven Lexus ES in Dubai. Japanese refinement, exceptional quiet, vetted UMC chauffeur.",
+   "tagline":"Stillness, as standard.",
+   "hero_sub":"A saloon built around quiet &mdash; the Japanese idea that true luxury is the absence of disturbance.",
+   "interior_heading":"The cabin that asks nothing of you.",
+   "interior_intro":"Hushed, even-tempered, considered down to the last surface. The ES is for the passenger who wants the journey to simply disappear.",
+   "chauffeur_heading":"Held to one standard.",
+   "suited_to":"Executive travel",
+   "luggage_label":"Up to 2 medium suitcases","luggage_kind":"medium","luggage_count":2,
+   "seating_items":[
+     ("Two travelling","The rear bench gives each guest a full seat, with generous legroom."),
+     ("Three travelling","Two across the rear, the third in the front beside the chauffeur."),
+   ],
+   "seo_body":"The Lexus ES is built around the Japanese principle that true luxury is the absence of disturbance &mdash; a hushed cabin, an even-tempered ride, and considered surfaces throughout. Suited to executive transfers, longer journeys, and any client who values quiet over presence.",
+   "also_consider":["mb-e-class","mb-s-class"]},
+
+  {"id":"cadillac-escalade",
+   "title_seo":"Cadillac Escalade Chauffeur in Dubai &mdash; Luxury SUV | UMC Dubai",
+   "meta_seo":"Chauffeur-driven Cadillac Escalade in Dubai. Full-size luxury SUV for group arrivals and family transfers.",
+   "tagline":"Arrival, with presence.",
+   "hero_sub":"The full-size SUV for those who travel with people, with luggage, or with the need to be seen arriving &mdash; and the room to do all three.",
+   "interior_heading":"Command, in the back.",
+   "interior_intro":"Elevated, broad and commanding, the Escalade carries a party of guests in the same composure a saloon gives one. Height, space, and an unmistakable presence at the kerb.",
+   "chauffeur_heading":"Held to one standard.",
+   "suited_to":"Group arrivals and airport runs",
+   "luggage_label":"Up to 4 large suitcases","luggage_kind":"large","luggage_count":4,
+   "seating_items":[
+     ("Up to seven","Configured across three rows &mdash; chauffeur and front-row passenger; second-row captain&rsquo;s chairs; a third-row bench for two."),
+     ("Luggage","Behind the third row, expandable by folding the third-row bench."),
+   ],
+   "seo_body":"The Cadillac Escalade is the full-size American luxury SUV &mdash; presence at the kerb, room for the party and the luggage, and a cabin that takes long distance comfortably. Suited to group arrivals from DXB or DWC, family transfers, and the journey where space matters as much as service.",
+   "also_consider":["gmc-yukon-xl","mb-v-class"]},
+
+  {"id":"gmc-yukon-xl",
+   "title_seo":"GMC Yukon Elevation XL Chauffeur in Dubai &mdash; Executive SUV | UMC Dubai",
+   "meta_seo":"Chauffeur-driven GMC Yukon Elevation XL in Dubai. Long-wheelbase SUV for delegations and full-luggage transfers.",
+   "tagline":"Space, without compromise.",
+   "hero_sub":"The long-wheelbase SUV for the full car and the full boot &mdash; delegations, families, and the airport run that carries everything.",
+   "interior_heading":"Room for the whole party.",
+   "interior_intro":"Three rows, genuine luggage space behind them, and a cabin that keeps its composure however full it is. Built for the journeys a saloon cannot take.",
+   "chauffeur_heading":"Held to one standard.",
+   "suited_to":"Family and delegation transfers",
+   "luggage_label":"Up to 5 large suitcases","luggage_kind":"large","luggage_count":5,
+   "seating_items":[
+     ("Up to six","Across three rows in the long-wheelbase body; second-row captain&rsquo;s chairs are standard."),
+     ("Luggage","Generous space behind the third row with the seats upright."),
+   ],
+   "seo_body":"The GMC Yukon Elevation XL combines long-wheelbase passenger room with genuine luggage space behind the third row. Suited to delegations travelling with full luggage, families heading to or from the airport, and the journey that has to carry everything in one car.",
+   "also_consider":["cadillac-escalade","mb-v-class"]},
+
+  {"id":"mb-v-class",
+   "title_seo":"Mercedes V-Class Chauffeur in Dubai &mdash; Luxury Van | UMC Dubai",
+   "meta_seo":"Chauffeur-driven Mercedes-Benz V-Class in Dubai. Captain&rsquo;s chairs for up to seven, face-to-face seating.",
+   "tagline":"A room that travels together.",
+   "hero_sub":"When the group moves as one &mdash; a cabin arranged for conversation, where everyone faces in rather than forward.",
+   "interior_heading":"The shared cabin.",
+   "interior_intro":"Not a back seat but a room &mdash; generous, sociable, and built so a travelling party arrives together, having spent the journey in each other&rsquo;s company rather than in rows.",
+   "chauffeur_heading":"Held to one standard.",
+   "suited_to":"Group travel &mdash; face-to-face",
+   "luggage_label":"Up to 5 large suitcases","luggage_kind":"large","luggage_count":5,
+   "seating_items":[
+     ("Captain&rsquo;s chairs","Two facing rearward, two facing forward in the rear cabin &mdash; a sociable, face-to-face arrangement."),
+     ("Total capacity","Up to seven passengers, including the front cabin."),
+   ],
+   "seo_body":"The Mercedes-Benz V-Class is the conversational people-mover &mdash; captain&rsquo;s chairs facing each other in the rear cabin, generous luggage, and the same chauffeur standard as the saloons. Suited to family travel, group transfers, and the journey that is meant to be spent in company rather than in rows.",
+   "also_consider":["gmc-yukon-xl","mb-sprinter"]},
+
+  {"id":"mb-sprinter",
+   "title_seo":"Mercedes Sprinter Chauffeur in Dubai &mdash; Executive Van | UMC Dubai",
+   "meta_seo":"Chauffeur-driven Mercedes-Benz Sprinter in Dubai. Premium group transport, 19-passenger capacity, vetted UMC chauffeur.",
+   "tagline":"The group, moved well.",
+   "hero_sub":"Premium group transport for delegations, teams and events &mdash; the capacity of a coach with the manners of a Mercedes.",
+   "interior_heading":"Comfort, at scale.",
+   "interior_intro":"A cabin that treats nineteen passengers with the care a saloon gives four &mdash; proper seating, climate, and quiet, for the corporate move that has to arrive together and composed.",
+   "chauffeur_heading":"Held to one standard.",
+   "suited_to":"Corporate group transport",
+   "luggage_label":"Up to 10 large bags","luggage_kind":"bag","luggage_count":10,
+   "seating_items":[
+     ("Up to nineteen","Forward-facing seats across multiple rows, with aisle access throughout."),
+     ("Storage","Overhead and rear-cabin luggage stowage."),
+   ],
+   "seo_body":"The Mercedes-Benz Sprinter is the executive minibus &mdash; coach-scale capacity with the manners of a Mercedes. Forward-facing rows, aisle access, and integrated climate. Suited to corporate group transport, event shuttles, and the team that has to arrive together and composed.",
+   "also_consider":["mb-v-class","king-long"]},
+
+  {"id":"king-long",
+   "title_seo":"King Long Coach Chauffeur in Dubai &mdash; Full Coach | UMC Dubai",
+   "meta_seo":"King Long coach with chauffeur in Dubai for conferences, events and large delegations. UMC standard, 55-passenger capacity.",
+   "tagline":"Every guest, one standard.",
+   "hero_sub":"Full-size coach travel for conferences, events and large delegations &mdash; scale handled with the same standard we hold for a single car.",
+   "interior_heading":"Scale, kept civil.",
+   "interior_intro":"A full coach, prepared and staffed to the standard of the rest of the fleet. When the movement is large, the experience should not feel like it.",
+   "chauffeur_heading":"Held to one standard.",
+   "suited_to":"Large delegations and events",
+   "luggage_label":"Up to 30 bags","luggage_kind":"bag","luggage_count":30,
+   "seating_items":[
+     ("Full-coach seating","Fifty-five forward-facing seats across multiple rows."),
+     ("Storage","Overhead racks and an under-floor compartment."),
+   ],
+   "seo_body":"The King Long coach is full-scale coach transport, prepared and staffed to the same standard as the rest of the UMC fleet. Forward-facing rows of seats, overhead storage and integrated climate. Suited to conferences, large events, and the delegations that move at scale.",
+   "also_consider":["mb-sprinter","mb-v-class"]},
+]
+
+def fleet_placeholder(label, slot, variant=0, css_class="sc-hero__img"):
+    """Inline SVG placeholder for a fleet-page image (swap for real photography later)."""
+    rot = (variant * 30) % 360
+    return (
+      f'<svg class="{css_class}" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Placeholder: {label}">'
+      f'<defs><linearGradient id="fp-{slot}" x1="0" y1="0" x2="1" y2="1" gradientTransform="rotate({rot})">'
+      '<stop offset="0" stop-color="#231B12"/><stop offset="1" stop-color="#4A4136"/>'
+      '</linearGradient></defs>'
+      f'<rect width="1600" height="900" fill="url(#fp-{slot})"/>'
+      '<g font-family="Outfit, sans-serif" fill="#F6F1E7" text-anchor="middle">'
+      '<text x="800" y="430" font-size="22" letter-spacing="6" opacity=".45">PLACEHOLDER</text>'
+      '<text x="800" y="468" font-size="13" letter-spacing="3" opacity=".3">REPLACE WITH REAL PHOTOGRAPHY</text>'
+      f'<text x="800" y="510" font-family="Marcellus, serif" font-size="22" opacity=".48">{label}</text>'
+      '</g></svg>'
+    )
+
+def render_acard(c):
+    return (
+      '<article class="acard">'
+      f'<div class="marque-row"><span class="mk">{c["marque"]}</span><span class="dash"></span><span>{c["category"]}</span></div>'
+      f'<h3>{c["name"]}</h3>'
+      f'<div class="strap">{c["strap"]}</div>'
+      f'<p>{c["ac_body"]}</p>'
+      '<div class="stats">'
+      f'<div class="it"><span class="k">Passengers</span><span class="v">Up to {c["pax"]}</span></div>'
+      f'<div class="it"><span class="k">Luggage</span><span class="v">{c["luggage"]}</span></div>'
+      '</div>'
+      f'<a class="btn-line" href="{c["page"]}">{c["reserve_label"]}</a>'
+      '</article>'
+    )
+
+def render_fleet_page_body(car):
+    info = ALL_CARS[car["id"]]
+    cid = car["id"]; name = info["name"]
+    hero_ph = fleet_placeholder(name + " — exterior", f"{cid}-hero", variant=0, css_class="sc-hero__img")
+    int_primary_ph = fleet_placeholder(name + " — cabin", f"{cid}-cabin", variant=1, css_class="sc-int__photo")
+    int_details_ph = "".join(
+      fleet_placeholder(name + f" — detail {i+1}", f"{cid}-det-{i+1}", variant=(i+2) % 4, css_class="sc-int__detail")
+      for i in range(4)
+    )
+    hero_sub_html = f'<div class="sc-hero__sub">{car["hero_sub"]}</div>' if car.get("hero_sub") else ""
+    seating_html = "".join(f'<div><dt>{dt}</dt><dd>{dd}</dd></div>' for dt, dd in car["seating_items"])
+    kind = car.get("luggage_kind", "medium"); lcount = car.get("luggage_count", 2)
+    if kind == "medium":
+        sg_title = "Medium suitcase (M)"
+        sg_intro = "Roughly a standard check-in case &mdash; for example an Away Medium, Globe-Trotter Check-In Medium, or Rimowa Check-In."
+        sg_rows = [("Each, approximately", "66 &times; 44 &times; 27 cm"), ("In the boot", f"Up to {lcount} cases of this size")]
+    elif kind == "large":
+        sg_title = "Large suitcase (L)"
+        sg_intro = "Roughly an upright 28-inch case &mdash; for example an Away Large, Tumi Voyageur Continental, or Rimowa Original Check-In Large."
+        sg_rows = [("Each, approximately", "76 &times; 52 &times; 30 cm"), ("In the boot", f"Up to {lcount} cases of this size")]
+    else:
+        sg_title = "Mixed luggage"
+        sg_intro = "Cabin storage is configured for a mix of cabin-size bags and check-in cases up to large; total capacity reflects the realistic load for the vehicle."
+        sg_rows = [("Total capacity", f"Up to {lcount} bags"), ("Notes", "Mix of overhead and rear / under-floor storage; arranged on arrival.")]
+    sg_rows_html = "".join(f'<div><dt>{k}</dt><dd>{v}</dd></div>' for k, v in sg_rows)
+    ac_html = "".join(render_acard(ALL_CARS[other]) for other in car["also_consider"])
+    chauffeur_heading = car.get("chauffeur_heading", "Held to one standard.")
+    cta_label = info["reserve_label"]
+    return header("fleet.html") + f"""
+<section class="sc-hero" aria-label="{name}">
+  <div class="sc-hero__stage">
+    <!-- PLACEHOLDER hero — replace with real UMC {name} photography. -->
+    {hero_ph}
+  </div>
+  <div class="sc-hero__caps">
+    <div class="sc-hero__caps-inner">
+      <div>
+        <div class="sc-hero__kicker">{info["marque"]}</div>
+        <div class="sc-hero__tagline">{car["tagline"]}</div>
+        {hero_sub_html}
+      </div>
+      <div class="sc-hero__ctas">
+        <a class="btn btn-ink" href="booking.html?vehicle={cid}">{cta_label}</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sc-int" id="interior">
+  <div class="sc-int__head">
+    <div>
+      <span class="lbl">The interior</span>
+      <h2>{car["interior_heading"]}</h2>
+    </div>
+    <p class="lede">{car["interior_intro"]}</p>
+  </div>
+  <div class="sc-int__canvas">
+    <div class="sc-int__grid">
+      <div class="sc-int__primary">
+        <!-- PLACEHOLDER interior image — replace with real UMC {name} cabin photography. -->
+        {int_primary_ph}
+      </div>
+      <div class="sc-int__details" aria-label="Cabin detail shots">
+        <!-- PLACEHOLDER detail images — replace with real UMC {name} cabin shots. -->
+        {int_details_ph}
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sc-am" id="amenities">
+  <div class="sc-am__head">
+    <span class="lbl">On board</span>
+    <h2>Provided in every cabin.</h2>
+    <p class="lede">Included in the rate. Stocked before pick-up and replenished between journeys.</p>
+  </div>
+  <!-- TO BE CONFIRMED BY USMAN — final amenity list and wording -->
+  <div class="sc-am__grid" role="list">{sc_amenities_html}</div>
+</section>
+
+<section class="sc-paper" id="on-paper">
+  <div class="sc-paper__wrap">
+    <div class="sc-paper__head">
+      <span class="lbl">On paper</span>
+      <h2>The plain facts.</h2>
+    </div>
+    <article class="card">
+      <div class="rows">
+        <div class="row"><span class="k">Passengers</span>
+          <span class="v">
+            <span class="vmain">Up to {info["pax"]}</span>
+            <button type="button" class="sc-mt" aria-haspopup="dialog" aria-controls="sc-sd" aria-expanded="false">Seating detail</button>
+          </span>
+        </div>
+        <div class="row"><span class="k">Luggage</span>
+          <span class="v">
+            <span class="vmain">{car["luggage_label"]}</span>
+            <button type="button" class="sc-mt" aria-haspopup="dialog" aria-controls="sc-sg" aria-expanded="false">Size guide</button>
+          </span>
+        </div>
+        <div class="row"><span class="k">Suited to</span><span class="v"><span class="vmain">{car["suited_to"]}</span></span></div>
+      </div>
+      <p>{car["seo_body"]}</p>
+    </article>
+  </div>
+</section>
+
+<div class="sc-modal" id="sc-sg" role="dialog" aria-modal="true" aria-labelledby="sc-sg-title" hidden>
+  <div class="sc-modal__backdrop" data-modal-close></div>
+  <div class="sc-modal__panel" tabindex="-1">
+    <button type="button" class="sc-modal__close" aria-label="Close" data-modal-close>&times;</button>
+    <span class="lbl">Size guide</span>
+    <h3 id="sc-sg-title">{sg_title}</h3>
+    <p>{sg_intro}</p>
+    <dl class="sc-modal__rows">
+      {sg_rows_html}
+    </dl>
+  </div>
+</div>
+
+<div class="sc-modal" id="sc-sd" role="dialog" aria-modal="true" aria-labelledby="sc-sd-title" hidden>
+  <div class="sc-modal__backdrop" data-modal-close></div>
+  <div class="sc-modal__panel" tabindex="-1">
+    <button type="button" class="sc-modal__close" aria-label="Close" data-modal-close>&times;</button>
+    <span class="lbl">Seating detail</span>
+    <h3 id="sc-sd-title">Who sits where</h3>
+    <dl class="sc-modal__rows sc-modal__rows--stack">
+      {seating_html}
+    </dl>
+  </div>
+</div>
+
+<section class="sc-chau">
+  <div class="sc-chau__wrap">
+    <div>
+      <span class="lbl">The chauffeur</span>
+      <h2>{chauffeur_heading}</h2>
+      <p>Every {name} on our fleet travels with a chauffeur on UMC payroll. Vetted, trained, and held to a single standard. They hold the door, they know the route, and they keep the cabin quiet until you choose to speak.</p>
+      <ul class="sc-chau__points">
+        <li>Employed by UMC &mdash; not contracted, not supplied by a platform.</li>
+        <li>Routes are planned before the engine starts; airport arrivals tracked from departure.</li>
+        <li>Silence is the standing instruction; conversation on request.</li>
+      </ul>
+    </div>
+    <aside class="sc-chau__quote">
+      <span class="lbl">House standard</span>
+      <blockquote>&ldquo;The standard is not the car. It is the person who arrives with it.&rdquo;</blockquote>
+      <div class="attr"><span class="dash"></span>UMC Operations &bull; Dubai</div>
+    </aside>
+  </div>
+</section>
+
+<section class="closing band-dark">
+  <div class="wrap">
+    <span class="lbl">Reservations</span>
+    <h2 class="rv">{cta_label}.</h2>
+    <div class="btns rv">
+      <a class="btn btn-ink" href="booking.html?vehicle={cid}">{cta_label}</a>
+      <a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a>
+    </div>
+  </div>
+</section>
+
+<section class="sc-also">
+  <div class="sc-also__head">
+    <span class="lbl">Also consider</span>
+    <h2>Other vehicles in this class of service.</h2>
+  </div>
+  <div class="sc-also__grid">
+    {ac_html}
+  </div>
+</section>
+
+<script>
+(function(){{
+  var rm = matchMedia("(prefers-reduced-motion:reduce)").matches;
+  var hdr = document.querySelector("header.site");
+  function setHeaderH(){{ if(hdr) document.documentElement.style.setProperty("--header-h", hdr.offsetHeight + "px"); }}
+  setHeaderH();
+  window.addEventListener("resize", setHeaderH);
+  if(window.visualViewport) visualViewport.addEventListener("resize", setHeaderH);
+
+  /* ---------- modals (size guide + seating detail) ---------- */
+  var openModal = null, lastTrigger = null;
+  function focusables(m){{
+    return m.querySelectorAll('button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+  }}
+  function openM(id, trig){{
+    var m = document.getElementById(id);
+    if(!m) return;
+    if(openModal) closeM();
+    openModal = m; lastTrigger = trig || null;
+    m.hidden = false;
+    document.body.classList.add("sc-no-scroll");
+    requestAnimationFrame(function(){{ m.classList.add("on"); }});
+    if(trig) trig.setAttribute("aria-expanded", "true");
+    var fs = focusables(m); if(fs.length) fs[0].focus();
+  }}
+  function closeM(){{
+    if(!openModal) return;
+    var m = openModal, trig = lastTrigger;
+    m.classList.remove("on");
+    setTimeout(function(){{ m.hidden = true; }}, rm ? 0 : 240);
+    document.body.classList.remove("sc-no-scroll");
+    if(trig){{ trig.setAttribute("aria-expanded", "false"); trig.focus(); }}
+    openModal = null; lastTrigger = null;
+  }}
+  document.querySelectorAll(".sc-mt").forEach(function(b){{
+    b.addEventListener("click", function(){{ openM(b.getAttribute("aria-controls"), b); }});
+  }});
+  document.querySelectorAll("[data-modal-close]").forEach(function(el){{
+    el.addEventListener("click", closeM);
+  }});
+  document.addEventListener("keydown", function(e){{
+    if(e.key === "Escape" && openModal) closeM();
+    if(e.key === "Tab" && openModal){{
+      var fs = focusables(openModal);
+      if(!fs.length) return;
+      var first = fs[0], last = fs[fs.length - 1];
+      if(e.shiftKey && document.activeElement === first){{ e.preventDefault(); last.focus(); }}
+      else if(!e.shiftKey && document.activeElement === last){{ e.preventDefault(); first.focus(); }}
+    }}
+  }});
+}})();
+</script>
+""" + FOOTER + "</body></html>"
+
+# Write the 7 draft fleet pages.
+for car in FLEET_PAGES_DRAFT:
+    info = ALL_CARS[car["id"]]
+    slug = info["page"].split("/")[-1]
+    head_html = head(
+        car["title_seo"],
+        car["meta_seo"],
+        info["page"] + "/",
+        f'<link rel="stylesheet" href="assets/s-class.css?v={V}">'
+    )
+    head_html = head_html.replace('<title>', '<base href="/">\n<title>', 1)
+    (SITE/"fleet").mkdir(parents=True, exist_ok=True)
+    (SITE/"fleet"/f"{slug}.html").write_text(head_html + render_fleet_page_body(car))
+
+pages = ["", "fleet.html","fleet/s-class","fleet/bmw-7-series","fleet/e-class","fleet/lexus-es","fleet/cadillac-escalade","fleet/gmc-yukon-xl","fleet/v-class","fleet/sprinter","fleet/king-long","airport-transfers.html","inter-emirate.html","corporate.html","events.html","about.html","contact.html","booking.html","terms.html","privacy.html"]
 urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><changefreq>weekly</changefreq></url>" for p in pages)
 (SITE/"sitemap.xml").write_text(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>')
 (SITE/"robots.txt").write_text("User-agent: *\nAllow: /\nSitemap: https://umcdubai.ae/sitemap.xml\n")

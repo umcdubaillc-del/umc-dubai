@@ -35,6 +35,7 @@ body.sc-no-scroll{overflow:hidden}
 .sc-hero__caps-inner{max-width:var(--wrap);margin:0 auto;display:grid;grid-template-columns:1fr auto;align-items:end;gap:2.4rem}
 .sc-hero__kicker{font-family:var(--sans);font-weight:500;font-size:.72rem;letter-spacing:.42em;text-transform:uppercase;color:#E0894A;margin-bottom:1rem}
 .sc-hero__tagline{font-family:var(--serif);font-weight:400;font-size:clamp(1.6rem,4.4vw,3rem);line-height:1.12;letter-spacing:.005em;color:var(--bone);max-width:24ch}
+.sc-hero__sub{margin-top:1rem;font-family:var(--sans);font-weight:300;font-size:clamp(.92rem,1.4vw,1.05rem);line-height:1.5;color:#CBBFA9;max-width:48ch}
 .sc-hero__ctas{display:flex;gap:.7rem;flex-wrap:wrap;pointer-events:auto;align-items:center}
 .sc-hero__ctas .btn-ink{background:var(--bone);color:var(--ink);border-color:var(--bone)}
 .sc-hero__ctas .btn-ink:hover{background:#fff}

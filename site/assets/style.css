@@ -126,6 +126,8 @@ nav.mainnav a:hover,nav.mainnav a.on{color:var(--ink);border-color:var(--amber)}
 .vcard .vimg.photo img{mix-blend-mode:normal}
 .vcard .vbody{padding:1.15rem 1.2rem 1.3rem}
 .vcard h3{font-size:1.3rem;margin-bottom:.2rem}
+.vcard h3 a{color:inherit;text-decoration:none;transition:color .2s}
+.vcard h3 a:hover{color:var(--amber-deep)}
 .vcard .vmeta{font-size:.82rem;color:var(--muted);display:flex;gap:1rem;margin-bottom:.7rem}
 .vcard .vprice{display:flex;align-items:baseline;gap:.45rem;border-top:1px solid var(--hair);padding-top:.8rem}
 .vcard .vprice .from{font-size:.66rem;letter-spacing:.24em;text-transform:uppercase;color:var(--muted)}
