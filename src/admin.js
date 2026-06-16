@@ -294,8 +294,10 @@ h1{font-size:1.75rem}
 h2{font-size:1.25rem}
 h3{font-size:1.05rem}
 small,.lbl{font-family:Outfit,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500}
-input,select,textarea,button{font-family:inherit;color:inherit;font-size:14px}
-input,select,textarea{background:var(--card);border:1px solid var(--hair);border-radius:3px;padding:.55rem .65rem;width:100%;transition:border-color .15s}
+input,select,textarea,button{font-family:inherit;color:inherit;font-size:16px}
+/* font-size:16px (not the design-system 14px) so mobile Safari does NOT auto-zoom
+   when an input is focused; the page would otherwise sign-in already half-zoomed. */
+input,select,textarea{background:var(--card);border:1px solid var(--hair);border-radius:3px;padding:.55rem .65rem;width:100%;transition:border-color .15s;font-size:16px}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--ink-soft)}
 button{cursor:pointer;border:0;background:transparent}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;padding:.6rem 1rem;border:1px solid var(--ink);border-radius:3px;background:var(--ink);color:var(--bone);font-weight:500;font-size:13px;letter-spacing:.04em;transition:background .2s,color .2s,transform .2s;min-height:44px}
@@ -306,12 +308,13 @@ button{cursor:pointer;border:0;background:transparent}
 hr.hair{border:0;border-top:1px solid var(--hair);margin:1rem 0}
 hr.amber{border:0;border-top:1px solid var(--amber);width:32px;margin:1rem 0}
 
-/* Header */
+/* Header — vertical UMC / dash / Dubai · Billing lockup, matches the site
+   header and the PDF body lockup (item 7 from the latest round). */
 header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1rem 1.5rem;display:flex;align-items:center;justify-content:space-between;gap:1rem}
-.lockup{display:flex;align-items:center;gap:.9rem}
-.lockup .uni{font-family:Marcellus,serif;font-size:1.4rem;letter-spacing:.36em;color:var(--ink)}
+.lockup{display:flex;flex-direction:column;align-items:center;gap:.4rem;line-height:1}
+.lockup .uni{font-family:Marcellus,serif;font-size:1.25rem;letter-spacing:.36em;color:var(--ink)}
 .lockup .dash{width:24px;height:1px;background:var(--amber)}
-.lockup .duo{font-family:Outfit,sans-serif;font-size:.7rem;letter-spacing:.3em;text-transform:uppercase;color:var(--muted)}
+.lockup .duo{font-family:Outfit,sans-serif;font-size:.65rem;letter-spacing:.3em;text-transform:uppercase;color:var(--muted)}
 .hdr-right{display:flex;align-items:center;gap:1rem}
 .crumb{font-family:Outfit,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
 @media (max-width:560px){.crumb{display:none}}
@@ -361,26 +364,32 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
    structure stays intact, just visually scaled. (Print stylesheet drops the
    transform so the saved PDF is full-size.) */
 .preview-wrap{position:sticky;top:1.5rem;overflow:hidden}
-.doc{width:794px;background:#fff;border:1px solid var(--hair);border-radius:3px;color:var(--ink);font-family:Outfit,sans-serif;font-size:12px;line-height:1.55;min-height:1100px;padding:0;overflow:hidden;box-shadow:0 30px 60px -36px rgba(34,27,20,.25);transform-origin:top left}
+/* display:flex+column with min-height = A4 pushes the espresso footer band to
+   the BOTTOM of the page regardless of content length (item 4 — sticky to A4
+   bottom, not floating directly under the body). */
+.doc{width:794px;background:#fff;border:1px solid var(--hair);border-radius:3px;color:var(--ink);font-family:Outfit,sans-serif;font-size:12px;line-height:1.55;min-height:1123px;padding:0;overflow:hidden;box-shadow:0 30px 60px -36px rgba(34,27,20,.25);transform-origin:top left;display:flex;flex-direction:column}
 
-/* Top + bottom espresso bands — visual signature of the document. */
-.doc .dmast,.doc .dfoot{background:var(--espresso);color:#D9D0C0;padding:.95rem 2.4rem;font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact}
-.doc .dmast{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
-.doc .dmast .sep{color:rgba(217,208,192,.32)}
-.doc .dmast .trn{margin-left:auto;font-family:Fraunces,Georgia,serif;letter-spacing:.06em;text-transform:none;color:#F6F1E7;font-size:11px}
-.doc .dfoot{text-align:center;font-size:10px;letter-spacing:.18em}
-.doc .dfoot .sep{color:rgba(217,208,192,.32);margin:0 .35rem}
+/* Espresso bands — top masthead + bottom footer. Both share font-size +
+   letter-spacing so they feel like one band style (item 5). */
+.doc .dmast,.doc .dfoot{background:var(--espresso);color:#D9D0C0;padding:.95rem 2.4rem;font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact;flex-shrink:0}
+.doc .dmast{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;justify-content:center}
+.doc .dmast.has-trn{justify-content:space-between}
+.doc .dmast .trn{font-family:Fraunces,Georgia,serif;letter-spacing:.06em;text-transform:none;color:#F6F1E7;font-size:10.5px}
+.doc .dfoot{text-align:center}
 
-/* Body inside the strips. */
-.doc .dbody{padding:2.6rem 2.4rem 2rem}
+/* Body fills available vertical space — pushes footer to the bottom edge. */
+.doc .dbody{padding:2.6rem 2.4rem 2rem;flex:1 1 auto;display:flex;flex-direction:column}
 
 /* Header band: logo + company stack on the left, big editorial doc-type label + meta + client stack on the right. */
 .doc .dh{display:grid;grid-template-columns:1fr 1.1fr;gap:2.2rem;align-items:start;margin-bottom:1.8rem}
 .doc .dh-left{display:flex;flex-direction:column;gap:1.4rem}
 .doc .dh-right{display:flex;flex-direction:column;gap:1.4rem;align-items:flex-end;text-align:right}
 
-/* Stacked UMC — Dubai lockup. */
-.doc .lock{display:flex;flex-direction:column;align-items:flex-start;line-height:1}
+/* Stacked UMC — Dubai lockup. The container stays anchored to the top-left of
+   the doc body, but the three elements (UMC, amber dash, Dubai) are centered
+   within the stack so the short dash sits visually under the centre of "UMC"
+   (item 2 — elements centred to each other; position on the doc unchanged). */
+.doc .lock{display:flex;flex-direction:column;align-items:center;line-height:1;width:max-content}
 .doc .lock .uni{font-family:Marcellus,serif;font-size:1.7rem;letter-spacing:.36em;color:var(--ink)}
 .doc .lock .dash{width:30px;height:1px;background:var(--amber);margin:.65rem 0}
 .doc .lock .duo{font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.36em;text-transform:uppercase;color:var(--muted)}
@@ -428,6 +437,7 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
 .doc .bank table td{padding:0 .6rem .3rem 0;vertical-align:top}
 .doc .bank table td.k{color:var(--muted);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;white-space:nowrap;padding-right:.85rem}
 .doc .bank .v-iban{font-family:Fraunces,Georgia,serif;letter-spacing:.05em;color:var(--ink)}
+.doc .bank-note{font-size:10px;color:var(--muted);margin:.65rem 0 0;letter-spacing:.02em;line-height:1.55;font-style:italic}
 
 .doc .notes{margin-bottom:1.4rem;padding-top:1rem;border-top:1px solid var(--hair)}
 .doc .notes h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .45rem}
@@ -443,10 +453,13 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
 .email-out .meta-row{margin-top:.5rem;display:grid;gap:.3rem;font-size:12px;color:var(--ink-soft)}
 .email-out .meta-row b{color:var(--muted);font-size:10px;letter-spacing:.22em;text-transform:uppercase;font-weight:500;font-family:Outfit}
 
-/* History */
+/* History — horizontal scroll on narrow viewports so the Re-open button can't
+   push the page wider than the screen (item 6). The wrapper clips; only the
+   table scrolls. The outer page never gets a horizontal scrollbar. */
 .history-wrap{padding:0 1.5rem 2rem}
-.history{background:var(--card);border:1px solid var(--hair);border-radius:4px;padding:1.25rem}
-.history table{width:100%;border-collapse:collapse;font-size:13px}
+.history{background:var(--card);border:1px solid var(--hair);border-radius:4px;padding:1.25rem;overflow:hidden}
+.history .hist-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -.5rem;padding:0 .5rem}
+.history table{width:100%;min-width:520px;border-collapse:collapse;font-size:13px}
 .history th{font-family:Outfit;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);font-weight:500;padding:.5rem .4rem;text-align:left;border-bottom:1px solid var(--line)}
 .history td{padding:.5rem .4rem;border-bottom:1px solid var(--hair);color:var(--ink-soft);vertical-align:top}
 .history td a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--amber)}
@@ -627,10 +640,12 @@ function appShellHTML() {
       <h2>Document history</h2>
       <button type="button" class="btn btn-small btn-ghost" id="btnRefresh">Refresh</button>
     </div>
-    <table>
-      <thead><tr><th>Number</th><th>Type</th><th>Date</th><th>Client</th><th style="text-align:right">Total</th><th></th></tr></thead>
-      <tbody id="histBody"></tbody>
-    </table>
+    <div class="hist-scroll">
+      <table>
+        <thead><tr><th>Number</th><th>Type</th><th>Date</th><th>Client</th><th style="text-align:right">Total</th><th></th></tr></thead>
+        <tbody id="histBody"></tbody>
+      </table>
+    </div>
     <div class="empty" id="histEmpty" hidden>No documents yet.</div>
   </div>
 </section>`;
@@ -864,10 +879,10 @@ const PAGE_SCRIPT = `<script>
 
     $("doc").innerHTML = ''
       // ============ ESPRESSO MASTHEAD ============
-      + '<div class="dmast">'
+      // Quote: company-legal centred. Invoice: company-legal left, TRN right.
+      // Address removed per audit (it's already in the body header).
+      + '<div class="dmast'+(isInv ? ' has-trn' : '')+'">'
       +   '<span>'+esc(COMPANY.legal)+'</span>'
-      +   '<span class="sep">·</span>'
-      +   '<span>'+esc(COMPANY.addr)+'</span>'
       +   trnMast
       + '</div>'
       // ============ DOC BODY ============
@@ -920,16 +935,16 @@ const PAGE_SCRIPT = `<script>
       +       '<tr><td class="k">IBAN</td><td class="v-iban">'+esc(BANK.iban)+'</td></tr>'
       +       '<tr><td class="k">BIC</td><td>'+esc(BANK.bic)+'</td></tr>'
       +     '</table>'
+      +     '<p class="bank-note">For alternative payment arrangements, please contact our concierge.</p>'
       +   '</div>'
       + '</div>'
       + notesBlk
       + '</div>'  // /.dbody
       // ============ ESPRESSO FOOTER ============
-      + '<div class="dfoot">'
-      +   '<span>umcdubai.ae</span><span class="sep">·</span>'
-      +   '<span>'+esc(COMPANY.phone)+'</span><span class="sep">·</span>'
-      +   '<span>'+esc(COMPANY.email)+'</span>'
-      + '</div>';
+      // Only the website (phone + email are already on the body header with the
+      // company name; the footer stays a single line, centred, same font-size
+      // as the masthead). Sticks to the bottom of the A4 page via flex column.
+      + '<div class="dfoot">umcdubai.ae</div>';
   }
 
   // ---------- email body (HTML + text)
