@@ -29,11 +29,12 @@ body.sc-no-scroll{overflow:hidden}
      .sc-hero__caps  (text band, solid ink, kicker -> tagline -> CTA).
    The text never sits over the car or chauffeur. The image fades into the
    ink band via a gradient at its bottom edge for visual continuity. */
+/* Stable hero height: clamp so widening the viewport (ultrawide) cannot
+   shrink the hero. Range 640-820 across all widths/heights. */
 .sc-hero{position:relative;background:var(--ink);overflow:hidden;border-bottom:1px solid var(--hair);
   display:flex;flex-direction:column;
-  height:calc(100vh - var(--header-h, 96px));
-  height:calc(100svh - var(--header-h, 96px));
-  max-height:900px;min-height:560px}
+  height:clamp(640px, calc(100vh - var(--header-h, 96px)), 820px);
+  height:clamp(640px, calc(100svh - var(--header-h, 96px)), 820px)}
 .sc-hero__stage{position:relative;flex:1 1 auto;min-height:0;overflow:hidden}
 .sc-hero__img{width:100%;height:100%;display:block;object-fit:cover;
   /* Slightly bottom-anchored — shows the chauffeur from head through most of his
@@ -73,7 +74,9 @@ body.sc-no-scroll{overflow:hidden}
 .sc-int__head .lede{font-size:1.04rem;color:var(--ink-soft);max-width:50ch;line-height:1.62}
 .sc-int__head .lede em{font-style:italic;color:var(--ink)}
 
-.sc-int__canvas{max-width:1240px;margin:0 auto;padding:0 clamp(1.1rem,4vw,2rem)}
+/* Cap so detail cells stop scaling up past the 1000-px-wide source images
+   on ultrawide displays. Sensible default — tune live on the 3440 display. */
+.sc-int__canvas{max-width:1280px;margin:0 auto;padding:0 clamp(1.1rem,4vw,2rem)}
 .sc-int__grid{display:grid;grid-template-columns:1fr;gap:1rem;align-items:stretch}
 @media (min-width:900px){.sc-int__grid{grid-template-columns:1.35fr 1fr;gap:1rem}}
 

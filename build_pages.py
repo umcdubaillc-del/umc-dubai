@@ -1579,6 +1579,13 @@ FLEET_PAGES_DRAFT = [
    "meta_seo":"Chauffeur-driven Mercedes-Benz V-Class in Dubai. Captain&rsquo;s chairs for up to seven, face-to-face seating.",
    "tagline":"A room that travels together.",
    "hero_sub":"When the group moves as one &mdash; a cabin arranged for conversation, where everyone faces in rather than forward.",
+   # Real V-Class photography self-hosted in assets/fleet/v-class/. TEMPORARY:
+   # source has excess space to the right of the van — object-position 35% biases
+   # the visible crop leftward so the van sits centered in frame.
+   "hero_img":"v-class/hero.jpg",
+   "hero_object_pos":"35% 50%",
+   "interior_primary":"v-class/interior.jpg",
+   "interior_details":["v-class/detail-1.jpg","v-class/detail-2.jpg","v-class/detail-3.jpg","v-class/detail-4.jpg"],
    "interior_heading":"The shared cabin.",
    "interior_intro":"Not a back seat but a room &mdash; generous, sociable, and built so a travelling party arrives together, having spent the journey in each other&rsquo;s company rather than in rows.",
    "chauffeur_heading":"Held to one standard.",
@@ -1660,12 +1667,31 @@ def render_acard(c):
 def render_fleet_page_body(car):
     info = ALL_CARS[car["id"]]
     cid = car["id"]; name = info["name"]
-    hero_ph = fleet_placeholder(name + " — exterior", f"{cid}-hero", variant=0, css_class="sc-hero__img")
-    int_primary_ph = fleet_placeholder(name + " — cabin", f"{cid}-cabin", variant=1, css_class="sc-int__photo")
-    int_details_ph = "".join(
-      fleet_placeholder(name + f" — detail {i+1}", f"{cid}-det-{i+1}", variant=(i+2) % 4, css_class="sc-int__detail")
-      for i in range(4)
-    )
+    # Hero image: real if supplied (with optional per-car object-position),
+    # else a tasteful SVG placeholder marked TEMPORARY.
+    if car.get("hero_img"):
+        op = car.get("hero_object_pos", "50% 50%")
+        hero_ph = (f'<!-- TEMPORARY hero image — replace with final UMC {name} photography. -->'
+                   f'<img class="sc-hero__img" src="assets/fleet/{car["hero_img"]}" alt="{name} — exterior" fetchpriority="high" style="object-position:{op}">')
+    else:
+        hero_ph = fleet_placeholder(name + " — exterior", f"{cid}-hero", variant=0, css_class="sc-hero__img")
+    # Interior primary image
+    if car.get("interior_primary"):
+        int_primary_ph = (f'<!-- TEMPORARY interior image — replace with final UMC {name} cabin photography. -->'
+                          f'<img class="sc-int__photo" src="assets/fleet/{car["interior_primary"]}" alt="{name} — cabin" loading="lazy">')
+    else:
+        int_primary_ph = fleet_placeholder(name + " — cabin", f"{cid}-cabin", variant=1, css_class="sc-int__photo")
+    # 2x2 detail grid
+    if car.get("interior_details"):
+        int_details_ph = "".join(
+          f'<img class="sc-int__detail" src="assets/fleet/{p}" alt="{name} — cabin detail {i+1}" loading="lazy">'
+          for i, p in enumerate(car["interior_details"])
+        )
+    else:
+        int_details_ph = "".join(
+          fleet_placeholder(name + f" — detail {i+1}", f"{cid}-det-{i+1}", variant=(i+2) % 4, css_class="sc-int__detail")
+          for i in range(4)
+        )
     hero_sub_html = f'<div class="sc-hero__sub">{car["hero_sub"]}</div>' if car.get("hero_sub") else ""
     seating_html = "".join(f'<div><dt>{dt}</dt><dd>{dd}</dd></div>' for dt, dd in car["seating_items"])
     kind = car.get("luggage_kind", "medium"); lcount = car.get("luggage_count", 2)
