@@ -21,7 +21,10 @@ const DEFAULT_FLEET = [
    desc:"Seven seats of unmistakable American luxury."},
   {id:"gmc-yukon-xl",marque:"https://umcdubai.ae/wp-content/uploads/2024/12/gmc.png",name:"GMC Yukon Elevation XL",category:"Executive SUV",year:2025,seats:6,luggage:5,
    r10:1400,r5:900,ra:550,visible:true,page:"fleet/gmc-yukon-xl",
-   img:"https://cgi.gmc.com/mmgprod-us/dynres/prove/image.gen?i=2025/TK10906/TK10906__4SA/GBAgmds2.jpg&v=deg43&std=true&country=US&removeCat=&BYO=true&background=&transparentBackgroundPng=true",
+   /* TEMPORARY — dark placeholder SVG, self-hosted because the previous
+      cgi.gmc.com source 403'd and the card rendered as alt text. Replace with
+      real UMC GMC Yukon Elevation XL photography when supplied. */
+   img:"assets/fleet/gmc-yukon-xl/card.svg",photo:true,
    desc:"Generous space for passengers and luggage alike."},
   {id:"mb-e-class",marque:"https://umcdubai.ae/wp-content/uploads/2024/10/mercedes.png",name:"Mercedes-Benz E-Class",category:"Business Sedan",year:2025,seats:4,luggage:2,
    r10:1600,r5:1150,ra:400,visible:true,page:"fleet/e-class",

@@ -50,6 +50,65 @@ If a new third-party tag is added via GTM, extend the CSP allowlist accordingly.
 - Sanity CMS for fleet data (replace fleet-data.js constants via getFleet/saveFleet)
 - Vecteezy S-Class: replace preview rendition with licensed file from the owner's account
 
+## Standing image-sourcing rule (v42)
+When replacing or adding any site image (fleet cards, fleet-page heroes, interior
+shots, homepage hero, partner logos), use this preference order:
+
+1. **UMC-owned photography** of the actual UMC vehicle / venue / chauffeur.
+2. **Free-for-commercial-use stock** — preferred sources are **Pexels** and
+   **Pixabay** (both license images for commercial use, no attribution required).
+3. **Licensed-and-purchased** stock (Vecteezy/iStock under a paid licence held
+   by UMC).
+4. Everything else is OUT — including hot-linked competitor sites, dealer asset
+   CDNs, manufacturer press CDNs that may 403, and any image whose licence we
+   cannot evidence.
+
+Operational rules:
+- **Always self-host.** Download once, commit under
+  `site/assets/fleet/<car>/` (or `site/assets/home/`, etc.) and reference by
+  relative path. Never hot-link from another origin — they 403, watermark, or
+  vanish (the GMC Yukon cgi.gmc.com source did exactly this).
+- **Always run through the responsive-image pipeline** in `build_pages.py`
+  (`responsive_img()` + `ensure_image_variants()`). 360w / 720w LANCZOS variants
+  are generated automatically; the browser picks via srcset. Single-step
+  downscales from a large source into a small cell cause the blocky mottling we
+  diagnosed on the V-Class details at v40.
+- **Hero art-direction is manual.** A correctly composed hero crop (centred
+  vehicle, balanced margins, chauffeur head in frame) takes a per-car decision —
+  set `hero_img` + `hero_object_pos` per the V-Class precedent.
+- **If a slot has no clean image yet,** use a neutral dark placeholder
+  (`site/assets/fleet/<car>/card.svg` matching the brand gradient
+  `#231B12 → #4A4136`) and flag it `TEMPORARY` in a comment. **Do not** introduce
+  a new hot-linked competitor/manufacturer image as a placeholder.
+- When a clean replacement arrives, drop the corresponding `TEMPORARY` flag in
+  the same commit that swaps the image.
+
+## Fleet-page archetypes (v42)
+`build_pages.py:FLEET_PAGES_DRAFT` is generated from a SHARED template
+(`render_fleet_page_body`) plus a per-car `archetype` field. Three archetypes,
+same brand system + components + CSS + JS + modals + responsive-image pipeline:
+
+| Archetype | Vehicles | Interior label | Amenity heading | Config row | Seating modal | Chauffeur close |
+|---|---|---|---|---|---|---|
+| `sedan` | S-Class*, BMW 7, E-Class, Lexus ES | "The interior" | "Provided in every cabin." | no | "Who sits where" | "they keep the cabin quiet until you choose to speak" |
+| `suv` | Cadillac Escalade, GMC Yukon XL, V-Class | "The interior" | "Provided in every cabin." | yes | "Who sits where" | "they keep the cabin composed, however full it is" |
+| `group` | Sprinter, King Long Coach | "On board" | "Comfort, at scale." | yes | "Cabin layout" | "they keep the group on time" |
+
+*S-Class has its own dedicated render block (lines ~1236–1490). The other 8
+share `render_fleet_page_body(car)`.
+
+Archetypes control the *frame* — each car still carries its own `tagline`,
+`hero_sub`, `interior_heading`, `interior_intro`, `seating_items`, `seo_body`,
+and (for `suv`/`group`) `configuration_label`. Add a new car: append an entry
+to `FLEET_PAGES_DRAFT`, set `archetype`, write the per-car copy, and the page
+generates with the right frame.
+
+Do NOT reintroduce "quiet room" / solo-passenger framing into `suv` or `group`
+copy — those archetypes earn their place via space/group/configuration (B) or
+group movement at scale (C). Reason: the S-Class frame was being copied to
+vehicles where it didn't fit truthfully (a 19-seat Sprinter is not "a private
+room that happens to move").
+
 ## Hard-won gotchas
 - Base `.btn` declares `min-height:48px` — any compact button variant MUST set `min-height:0` (min-height beats height in CSS, silently).
 - Python re.sub replacement strings convert \\b to a literal backspace byte; never patch JS regexes through re.sub templates.

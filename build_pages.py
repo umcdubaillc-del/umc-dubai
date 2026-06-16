@@ -1224,6 +1224,68 @@ def sc_amenity_cell(a):
     return f'<div class="sc-am__cell"><span class="ico">{svg}</span><b>{label}</b><span class="meta">{meta}</span></div>'
 
 sc_amenities_html = "".join(sc_amenity_cell(a) for a in SC_AMENITIES)
+
+# ---------- archetype configuration (per-class page structure) ----------
+# Each fleet page renders one of three archetypes:
+#   sedan  — executive/business sedans (S-Class, BMW 7 Series, E-Class, Lexus ES)
+#   suv    — SUVs and people-movers (Escalade, Yukon XL, V-Class)
+#   group  — group transport (Sprinter, King Long Coach)
+# All three share the brand system, components, CSS, JS, modals and responsive-
+# image pipeline. The archetype controls per-class section LABELS, amenity items,
+# whether the on-paper card adds a Configuration row (seat layout is a selling
+# point for B and C; for sedans it is not), and small wording in the chauffeur
+# section. Each car still carries its own h2, lede, seating_items and seo_body —
+# the archetype is the *frame*, the per-car copy is the *content*.
+
+GROUP_AMENITIES = [
+  ('<svg viewBox="0 0 24 24"><path d="M10.2 2.5h3.6M12 2.5v3.4M9.6 9.2c-.7.8-1.1 1.7-1.1 2.8V19a2 2 0 0 0 2 2h3a2 2 0 0 0 2-2v-7c0-1.1-.4-2-1.1-2.8l-.9-1V5.9h-3v2.3z"/><path d="M8.5 13.5h7"/></svg>',
+   "Water", "Provided across the cabin"),
+  ('<svg viewBox="0 0 24 24"><path d="M13 2.5L5.5 13H11l-1 8.5L17.5 11H12z"/></svg>',
+   "USB charging", "Along the rows"),
+  ('<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.2"/><path d="M12 4v2.4M12 17.6V20M4 12h2.4M17.6 12H20M6.3 6.3l1.7 1.7M16 16l1.7 1.7M6.3 17.7L8 16M16 8l1.7-1.7"/></svg>',
+   "Climate", "Multi-zone across the cabin"),
+  ('<svg viewBox="0 0 24 24"><path d="M12 3c0 2.5-3 3.5-3 6.5a3 3 0 0 0 6 0C15 6.5 12 5.5 12 3z"/><path d="M5 14c0 3 3 5 7 5s7-2 7-5"/><path d="M6 18l1.4 2M18 18l-1.4 2"/></svg>',
+   "A clean cabin", "Detailed between journeys"),
+  ('<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="1"/><path d="M3 11h18M8 6V4h8v2"/></svg>',
+   "Luggage stowage", "Overhead and under-floor"),
+  ('<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M5 21v-1a7 7 0 0 1 14 0v1"/></svg>',
+   "Driver standard", "On UMC payroll &mdash; the same standard as the saloons"),
+]
+group_amenities_html = "".join(sc_amenity_cell(a) for a in GROUP_AMENITIES)
+
+ARCHETYPES = {
+  "sedan": {
+    "int_lbl": "The interior",
+    "am_heading": "Provided in every cabin.",
+    "am_lede": "Included in the rate. Stocked before pick-up and replenished between journeys.",
+    "am_html": sc_amenities_html,
+    "config_row": False,
+    "sd_title": "Who sits where",
+    "chauffeur_close": "they keep the cabin quiet until you choose to speak",
+    "chau_point_silence": "Silence is the standing instruction; conversation on request.",
+  },
+  "suv": {
+    "int_lbl": "The interior",
+    "am_heading": "Provided in every cabin.",
+    "am_lede": "Included in the rate. Stocked before pick-up and replenished between journeys.",
+    "am_html": sc_amenities_html,
+    "config_row": True,
+    "sd_title": "Who sits where",
+    "chauffeur_close": "they keep the cabin composed, however full it is",
+    "chau_point_silence": "Silence is the standing instruction; conversation on request.",
+  },
+  "group": {
+    "int_lbl": "On board",
+    "am_heading": "Comfort, at scale.",
+    "am_lede": "Standing equipment across the cabin &mdash; for delegations, events, and corporate moves that have to arrive together.",
+    "am_html": group_amenities_html,
+    "config_row": True,
+    "sd_title": "Cabin layout",
+    "chauffeur_close": "they keep the group on time",
+    "chau_point_silence": "Briefed on the run sheet; in contact with operations as the move progresses.",
+  },
+}
+
 sc_details_html = "".join(
     responsive_img(f"s-class/{src}", "sc-int__detail", f"{alt} {i+1}",
                    sizes_attr="(max-width:560px) 90vw, (max-width:980px) 45vw, 280px")
@@ -1554,6 +1616,7 @@ ALL_CARS = {
 # DRAFT scaffolds — Usman + team to refine per-car.
 FLEET_PAGES_DRAFT = [
   {"id":"bmw-7",
+   "archetype":"sedan",
    "title_seo":"BMW 7 Series Chauffeur in Dubai &mdash; Flagship Sedan | UMC Dubai",
    "meta_seo":"Chauffeur-driven BMW 7 Series in Dubai. Composed flagship sedan, vetted UMC chauffeur. Reserve in minutes.",
    "tagline":"Composure, engineered.",
@@ -1571,6 +1634,7 @@ FLEET_PAGES_DRAFT = [
    "also_consider":["mb-s-class","mb-e-class"]},
 
   {"id":"mb-e-class",
+   "archetype":"sedan",
    "title_seo":"Mercedes E-Class Chauffeur in Dubai &mdash; Business Sedan | UMC Dubai",
    "meta_seo":"Chauffeur-driven Mercedes-Benz E-Class in Dubai. The business sedan of choice for daily executive transfers.",
    "tagline":"The quiet professional.",
@@ -1588,6 +1652,7 @@ FLEET_PAGES_DRAFT = [
    "also_consider":["mb-s-class","bmw-7"]},
 
   {"id":"lexus-es",
+   "archetype":"sedan",
    "title_seo":"Lexus ES Chauffeur in Dubai &mdash; Business Sedan | UMC Dubai",
    "meta_seo":"Chauffeur-driven Lexus ES in Dubai. Japanese refinement, exceptional quiet, vetted UMC chauffeur.",
    "tagline":"Stillness, as standard.",
@@ -1605,6 +1670,10 @@ FLEET_PAGES_DRAFT = [
    "also_consider":["mb-e-class","mb-s-class"]},
 
   {"id":"cadillac-escalade",
+   "archetype":"suv",
+   # DRAFT ASSUMPTION — configuration: three-row long-wheelbase US-spec.
+   # Final seat layout to be confirmed against the UMC fleet specification.
+   "configuration_label":"Three rows &mdash; front cabin; second-row captain&rsquo;s chairs; third-row bench.",
    "title_seo":"Cadillac Escalade Chauffeur in Dubai &mdash; Luxury SUV | UMC Dubai",
    "meta_seo":"Chauffeur-driven Cadillac Escalade in Dubai. Full-size luxury SUV for group arrivals and family transfers.",
    "tagline":"Arrival, with presence.",
@@ -1622,6 +1691,10 @@ FLEET_PAGES_DRAFT = [
    "also_consider":["gmc-yukon-xl","mb-v-class"]},
 
   {"id":"gmc-yukon-xl",
+   "archetype":"suv",
+   # DRAFT ASSUMPTION — configuration: long-wheelbase XL body, second-row
+   # captain's chairs (typical UAE-spec Elevation). To confirm with the fleet.
+   "configuration_label":"Three rows in a long-wheelbase body &mdash; second-row captain&rsquo;s chairs.",
    "title_seo":"GMC Yukon Elevation XL Chauffeur in Dubai &mdash; Executive SUV | UMC Dubai",
    "meta_seo":"Chauffeur-driven GMC Yukon Elevation XL in Dubai. Long-wheelbase SUV for delegations and full-luggage transfers.",
    "tagline":"Space, without compromise.",
@@ -1639,6 +1712,10 @@ FLEET_PAGES_DRAFT = [
    "also_consider":["cadillac-escalade","mb-v-class"]},
 
   {"id":"mb-v-class",
+   "archetype":"suv",
+   # DRAFT ASSUMPTION — configuration: face-to-face captain's chairs in the rear
+   # cabin (the V-Class first-class layout). To confirm with the fleet spec.
+   "configuration_label":"Captain&rsquo;s chairs facing each other in the rear cabin &mdash; sociable, face-to-face.",
    "title_seo":"Mercedes V-Class Chauffeur in Dubai &mdash; Luxury Van | UMC Dubai",
    "meta_seo":"Chauffeur-driven Mercedes-Benz V-Class in Dubai. Captain&rsquo;s chairs for up to seven, face-to-face seating.",
    "tagline":"A room that travels together.",
@@ -1663,6 +1740,11 @@ FLEET_PAGES_DRAFT = [
    "also_consider":["gmc-yukon-xl","mb-sprinter"]},
 
   {"id":"mb-sprinter",
+   "archetype":"group",
+   # DRAFT ASSUMPTION — configuration: forward-facing rows, aisle access, with
+   # overhead luggage stowage. Sprinter body is offered in 10/13/19-seat
+   # variants; the 19-seat figure here matches ALL_CARS["mb-sprinter"]["pax"].
+   "configuration_label":"Forward-facing rows; aisle access; overhead luggage stowage.",
    "title_seo":"Mercedes Sprinter Chauffeur in Dubai &mdash; Executive Van | UMC Dubai",
    "meta_seo":"Chauffeur-driven Mercedes-Benz Sprinter in Dubai. Premium group transport, 19-passenger capacity, vetted UMC chauffeur.",
    "tagline":"The group, moved well.",
@@ -1680,6 +1762,11 @@ FLEET_PAGES_DRAFT = [
    "also_consider":["mb-v-class","king-long"]},
 
   {"id":"king-long",
+   "archetype":"group",
+   # DRAFT ASSUMPTION — configuration: full-coach 55-seat layout with overhead
+   # racks and under-floor compartment. Coach is offered in 35/55-seat variants;
+   # 55 matches ALL_CARS["king-long"]["pax"].
+   "configuration_label":"Forward-facing rows; overhead racks; under-floor compartment.",
    "title_seo":"King Long Coach Chauffeur in Dubai &mdash; Full Coach | UMC Dubai",
    "meta_seo":"King Long coach with chauffeur in Dubai for conferences, events and large delegations. UMC standard, 55-passenger capacity.",
    "tagline":"Every guest, one standard.",
@@ -1731,6 +1818,13 @@ def render_acard(c):
 def render_fleet_page_body(car):
     info = ALL_CARS[car["id"]]
     cid = car["id"]; name = info["name"]
+    arc = ARCHETYPES[car.get("archetype", "sedan")]
+    config_row_html = ""
+    if arc["config_row"] and car.get("configuration_label"):
+        config_row_html = (
+          '<div class="row"><span class="k">Configuration</span>'
+          f'<span class="v"><span class="vmain">{car["configuration_label"]}</span></span></div>'
+        )
     # Hero image: real if supplied (with optional per-car object-position),
     # else a tasteful SVG placeholder marked TEMPORARY.
     if car.get("hero_img"):
@@ -1802,7 +1896,7 @@ def render_fleet_page_body(car):
 <section class="sc-int" id="interior">
   <div class="sc-int__head">
     <div>
-      <span class="lbl">The interior</span>
+      <span class="lbl">{arc["int_lbl"]}</span>
       <h2>{car["interior_heading"]}</h2>
     </div>
     <p class="lede">{car["interior_intro"]}</p>
@@ -1824,11 +1918,11 @@ def render_fleet_page_body(car):
 <section class="sc-am" id="amenities">
   <div class="sc-am__head">
     <span class="lbl">On board</span>
-    <h2>Provided in every cabin.</h2>
-    <p class="lede">Included in the rate. Stocked before pick-up and replenished between journeys.</p>
+    <h2>{arc["am_heading"]}</h2>
+    <p class="lede">{arc["am_lede"]}</p>
   </div>
   <!-- TO BE CONFIRMED BY USMAN — final amenity list and wording -->
-  <div class="sc-am__grid" role="list">{sc_amenities_html}</div>
+  <div class="sc-am__grid" role="list">{arc["am_html"]}</div>
 </section>
 
 <section class="sc-paper" id="on-paper">
@@ -1851,6 +1945,7 @@ def render_fleet_page_body(car):
             <button type="button" class="sc-mt" aria-haspopup="dialog" aria-controls="sc-sg" aria-expanded="false">Size guide</button>
           </span>
         </div>
+        {config_row_html}
         <div class="row"><span class="k">Suited to</span><span class="v"><span class="vmain">{car["suited_to"]}</span></span></div>
       </div>
       <p>{car["seo_body"]}</p>
@@ -1876,7 +1971,7 @@ def render_fleet_page_body(car):
   <div class="sc-modal__panel" tabindex="-1">
     <button type="button" class="sc-modal__close" aria-label="Close" data-modal-close>&times;</button>
     <span class="lbl">Seating detail</span>
-    <h3 id="sc-sd-title">Who sits where</h3>
+    <h3 id="sc-sd-title">{arc["sd_title"]}</h3>
     <dl class="sc-modal__rows sc-modal__rows--stack">
       {seating_html}
     </dl>
@@ -1888,11 +1983,11 @@ def render_fleet_page_body(car):
     <div>
       <span class="lbl">The chauffeur</span>
       <h2>{chauffeur_heading}</h2>
-      <p>Every {name} on our fleet travels with a chauffeur on UMC payroll. Vetted, trained, and held to a single standard. They hold the door, they know the route, and they keep the cabin quiet until you choose to speak.</p>
+      <p>Every {name} on our fleet travels with a chauffeur on UMC payroll. Vetted, trained, and held to a single standard. They hold the door, they know the route, and {arc["chauffeur_close"]}.</p>
       <ul class="sc-chau__points">
         <li>Employed by UMC &mdash; not contracted, not supplied by a platform.</li>
         <li>Routes are planned before the engine starts; airport arrivals tracked from departure.</li>
-        <li>Silence is the standing instruction; conversation on request.</li>
+        <li>{arc["chau_point_silence"]}</li>
       </ul>
     </div>
     <aside class="sc-chau__quote">
