@@ -165,8 +165,14 @@ def header(active):
                     sub_li.append('<li><a href="' + to_abs(sh) + '"' + cls + '>' + st + '</a></li>')
             sub_html = '<ul class="submenu">' + "".join(sub_li) + '</ul>'
             wrap_cls = ' class="has-sub' + (' on' if parent_on else '') + '"'
+            # Mobile collapse: the parent <a> remains a real link (tap navigates).
+            # The sub-toggle button is hidden on desktop (hover opens .submenu)
+            # and visible on mobile, where it toggles .has-sub.open to expand.
             parts.append('<li' + wrap_cls + '><a href="' + to_abs(h) + '"' + a_cls + '>' + t +
-                         ' <span class="caret" aria-hidden="true">&#9662;</span></a>' + sub_html + '</li>')
+                         ' <span class="caret" aria-hidden="true">&#9662;</span></a>' +
+                         '<button class="sub-toggle" type="button" aria-expanded="false" aria-label="Toggle ' + t + ' submenu">' +
+                         '<span class="caret" aria-hidden="true">&#9662;</span></button>' +
+                         sub_html + '</li>')
         else:
             parts.append('<li><a href="' + to_abs(h) + '"' + a_cls + '>' + t + '</a></li>')
     nav = "".join(parts)

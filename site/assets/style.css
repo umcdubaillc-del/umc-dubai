@@ -75,10 +75,20 @@ nav.mainnav .submenu a:hover{color:var(--ink);background:var(--bone2);border-col
 nav.mainnav .submenu a.on{color:var(--ink)}
 nav.mainnav .submenu .off{color:var(--muted);cursor:default}
 nav.mainnav .submenu .off em{font-style:normal;font-size:.72em;letter-spacing:.18em;text-transform:uppercase;color:var(--amber-deep);margin-left:.5em}
+/* Desktop: sub-toggle button is invisible; hover on .has-sub opens the submenu. */
+nav.mainnav .sub-toggle{display:none}
 @media(max-width:859px){
-  nav.mainnav .has-sub{width:100%;text-align:center}
+  /* Mobile: parent link stays a real link (tap navigates). The sub-toggle button
+     is the tap target that expands the submenu via .has-sub.open in main.js. */
+  nav.mainnav .has-sub{width:100%;text-align:center;position:relative}
+  nav.mainnav .has-sub > a{display:inline-block}
   nav.mainnav .has-sub > a .caret{display:none}
-  nav.mainnav .submenu{display:flex;position:static;transform:none;border:0;box-shadow:none;padding:.1rem 0 .7rem;min-width:0;background:transparent;align-items:center}
+  nav.mainnav .sub-toggle{display:inline-flex;align-items:center;justify-content:center;position:absolute;top:0;right:.6rem;background:transparent;border:0;color:var(--ink-soft);padding:.45rem .55rem;min-height:44px;min-width:44px;cursor:pointer}
+  nav.mainnav .sub-toggle .caret{display:inline-block;font-size:.85rem;transition:transform .2s ease}
+  nav.mainnav .has-sub.open > .sub-toggle .caret{transform:rotate(180deg)}
+  nav.mainnav .has-sub:hover .submenu,nav.mainnav .has-sub:focus-within .submenu{display:none}
+  nav.mainnav .submenu{display:none;position:static;transform:none;border:0;box-shadow:none;padding:.1rem 0 .7rem;min-width:0;background:transparent;flex-direction:column;align-items:center}
+  nav.mainnav .has-sub.open .submenu{display:flex}
   nav.mainnav .submenu a,nav.mainnav .submenu .off{text-align:center;font-size:.72rem;padding:.45rem 0}
 }
 

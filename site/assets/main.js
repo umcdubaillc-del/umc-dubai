@@ -63,7 +63,21 @@ window.umcPhone = {
       const open = nav.classList.toggle("open");
       burger.setAttribute("aria-expanded", open);
     });
-    nav.addEventListener("click", e=>{ if(e.target.tagName==="A"){ nav.classList.remove("open"); burger.setAttribute("aria-expanded","false"); }});
+    nav.addEventListener("click", e=>{
+      // Mobile submenu: tap on the chevron button toggles its parent .has-sub.
+      // The parent <a> remains a normal link (tap navigates to the section page).
+      const tog = e.target.closest && e.target.closest(".sub-toggle");
+      if(tog){
+        e.preventDefault();
+        const li = tog.closest(".has-sub");
+        if(li){
+          const open = li.classList.toggle("open");
+          tog.setAttribute("aria-expanded", open);
+        }
+        return;
+      }
+      if(e.target.tagName==="A"){ nav.classList.remove("open"); burger.setAttribute("aria-expanded","false"); }
+    });
   }
 
   // sticky header state + reserve pill
