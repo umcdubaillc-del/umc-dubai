@@ -17,7 +17,7 @@ const DEFAULT_FLEET = [
    desc:"Commanding presence with a lounge-grade rear cabin."},
   {id:"cadillac-escalade",marque:"/assets/marques/cadillac.jpg",name:"Cadillac Escalade",category:"Luxury SUV",year:2024,seats:6,luggage:4,
    r10:2400,r5:1800,ra:850,visible:true,page:"/fleet/cadillac-escalade",
-   img:"/assets/fleet/cadillac-escalade/card.png",photo:true,
+   img:"/assets/fleet/cadillac-escalade/card.jpg",photo:true,
    desc:"Seven seats of unmistakable American luxury."},
   {id:"gmc-yukon-xl",marque:"/assets/marques/gmc.png",name:"GMC Yukon Elevation XL",category:"Executive SUV",year:2025,seats:6,luggage:5,
    r10:1400,r5:900,ra:550,visible:true,page:"/fleet/gmc-yukon-xl",
@@ -30,22 +30,19 @@ const DEFAULT_FLEET = [
    desc:"The businessman's benchmark, refined again."},
   {id:"lexus-es",marque:"/assets/marques/lexus.jpg",name:"Lexus ES",category:"Business Sedan",year:2024,seats:4,luggage:2,
    r10:1000,r5:700,ra:350,visible:true,page:"/fleet/lexus-es",
-   /* TEMPORARY — clean dark placeholder; awaiting real UMC Lexus ES photography. */
-   img:"/assets/fleet/lexus-es/card.svg",photo:true,
+   img:"/assets/fleet/lexus-es/card.png",photo:true,
    desc:"Quiet confidence and remarkable comfort."},
   {id:"mb-v-class",marque:"/assets/marques/mercedes.png",name:"Mercedes-Benz V-Class",category:"Luxury Van",year:2024,seats:7,luggage:5,
    r10:1400,r5:1000,ra:500,visible:true,page:"/fleet/v-class",
-   img:"/assets/fleet/v-class/card.jpg",photo:true,
+   img:"/assets/fleet/v-class/card.png",photo:true,
    desc:"First-class travel for up to seven, face to face."},
   {id:"mb-sprinter",marque:"/assets/marques/mercedes.png",name:"Mercedes-Benz Sprinter",category:"Executive Van",year:2025,seats:19,luggage:10,
    r10:null,r5:null,ra:null,visible:true,page:"/fleet/sprinter",
-   /* TEMPORARY — clean dark placeholder; awaiting real UMC Sprinter photography. */
-   img:"/assets/fleet/sprinter/card.svg",photo:true,
+   img:"/assets/fleet/sprinter/card.png",photo:true,
    desc:"10, 13 or 19 seats for delegations and crews."},
   {id:"king-long",marque:"/assets/marques/king-long.png",name:"King Long Coach",category:"Luxury Coach",year:2025,seats:55,luggage:30,
    r10:null,r5:null,ra:null,visible:true,page:"/fleet/king-long",
-   /* TEMPORARY — clean dark placeholder; awaiting real UMC King Long photography. */
-   img:"/assets/fleet/king-long/card.svg",photo:true,
+   img:"/assets/fleet/king-long/card.png",photo:true,
    desc:"35 or 55 seats for events and group movements."}
 ];
 
