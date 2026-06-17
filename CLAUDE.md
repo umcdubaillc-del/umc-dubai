@@ -124,6 +124,29 @@ into Gmail/Outlook and attaches the PDF himself. Wiring it to the
 existing Resend integration is a follow-up (use the
 `sendClientReceipt`-style pattern in `src/index.js`).
 
+## Standing rule — NO external image hot-links (v47)
+EVERY image rendered in an emitted page must be self-hosted under
+`/assets/...` and referenced root-absolute. No exceptions:
+
+- No `umcdubai.ae/wp-content/...` — the old WP site is being decommissioned;
+  any reference to it will 404 at cutover.
+- No `cgi.gmc.com`, no `corfuviptransfers.com`, no manufacturer/dealer/stock
+  hosts — they 403, redirect, watermark, or vanish without warning.
+- This applies to: card images (`fleet-data.js` `img:`), brand marques
+  (`fleet-data.js` `marque:`), `<img src>` in any page body, `og:image` /
+  schema `image`, srcset variant URLs, favicon, manifest icons.
+- Legitimate external **links** (social profile URLs, WhatsApp, maps) are
+  fine; **images** are not.
+
+Audit before any release with `grep -rE 'wp-content|cgi\.gmc\.com|http://|"https://[^"]*\.(png|jpe?g|webp|svg|gif)"' build_pages.py site/assets/fleet-data.js site/*.html site/fleet/*.html site/airport-transfers/*.html`. The only matches that should appear are:
+preconnect to `fonts.googleapis.com`, the Resend/Mailchimp API calls in
+`src/index.js`, and the OG_BASE URL (which is itself a UMC-owned URL).
+
+Fleet card images flow through the responsive pipeline: build_pages.py
+generates 360w + 720w variants for every `site/assets/fleet/<car>/card.<ext>`
+raster file; `renderFleet()` in `fleet-data.js` emits srcset by naming
+convention. SVG placeholders are vector and need no variants.
+
 ## Standing image-sourcing rule (v42)
 When replacing or adding any site image (fleet cards, fleet-page heroes, interior
 shots, homepage hero, partner logos), use this preference order:
