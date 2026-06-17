@@ -2339,4 +2339,20 @@ urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><changefreq>weekly</chan
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 """)
+import shutil as _shutil_variants
+# Generate 360w + 720w variants for every fleet card source image so renderFleet()
+# in fleet-data.js can emit srcset by naming convention. Walks every raster file
+# under site/assets/fleet/<car>/ and skips files that are themselves variants
+# (filenames ending in -360 / -720). SVGs are vector and need no variants.
+# Belt-and-suspenders: cardImg() in fleet-data.js hard-codes a 360w + 720w srcset,
+# so when a source is smaller than a target width (ensure_image_variants would
+# skip it) we copy the source verbatim so the URL exists. Safer than a 404.
+for card in (SITE/"assets"/"fleet").glob("*/*"):
+    if card.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"): continue
+    if card.stem.endswith("-360") or card.stem.endswith("-720"): continue
+    ensure_image_variants(card)
+    for w in (360, 720):
+        var = card.with_name(f"{card.stem}-{w}{card.suffix}")
+        if not var.exists():
+            _shutil_variants.copy2(card, var)
 print("all pages written")

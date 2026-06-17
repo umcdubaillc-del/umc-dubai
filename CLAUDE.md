@@ -157,6 +157,25 @@ Operational rules:
 - When a clean replacement arrives, drop the corresponding `TEMPORARY` flag in
   the same commit that swaps the image.
 
+### NO external image hot-links (v48)
+Every image in an emitted page must be self-hosted under `/assets/...`,
+referenced as a root-absolute URL, and processed through the responsive
+pipeline. Hot-linked external image URLs in `site/assets/fleet-data.js` or
+emitted HTML are out — they 403, watermark, change without notice, and leak
+trust signals to unrelated origins. The only acceptable absolute https image
+URLs are the OG image and the LocalBusiness schema image (both on UMC-owned
+domains, because OG/schema require absolute URLs).
+
+Audit grep before release — these should ALL return zero hits:
+```
+grep -nE 'img:"https?://' site/assets/fleet-data.js
+grep -nrE '<img [^>]*src="https?://' site/   # except og-image / schema
+```
+If a download fails during a refresh, STOP that one and report it — do not
+substitute another image, do not scrape a different host, do not auto-generate
+a placeholder unless explicitly requested. (This rule exists because the v47
+attempt substituted images without authorisation and had to be fully reverted.)
+
 ## Fleet-page archetypes (v42, amenity split v43)
 `build_pages.py:FLEET_PAGES_DRAFT` is generated from a SHARED template
 (`render_fleet_page_body`) plus a per-car `archetype` field. Three archetypes,
