@@ -2339,10 +2339,4 @@ urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><changefreq>weekly</chan
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 """)
-# Generate 360w + 720w variants for every fleet card image so the cards in
-# fleet-data.js can emit srcset by naming convention. SVGs are vector and need
-# no variants. Safe to re-run — ensure_image_variants skips files that exist.
-for card in (SITE/"assets"/"fleet").glob("*/card.*"):
-    if card.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
-        ensure_image_variants(card)
 print("all pages written")
