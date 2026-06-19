@@ -40,8 +40,12 @@ body.sc-no-scroll{overflow:hidden}
   /* Slightly bottom-anchored — shows the chauffeur from head through most of his
      body; the text band sits below the image so no figure-vs-headline collision. */
   object-position:50% 42%}
-@media (max-width:720px){.sc-hero__img{object-position:72% 42%}}
-@media (max-width:380px){.sc-hero__img{object-position:82% 42%}}
+/* Mobile hero crop: per-car override via inline --hero-pos-mobile on the <img>
+   (set in build_pages.py from car["hero_object_pos_mobile"]); falls back to the
+   shared chauffeur-aware default. V-Class uses 50% 50% so the van sits centred
+   on phones — the desktop 35% 50% crop pushes it too far left at small widths. */
+@media (max-width:720px){.sc-hero__img{object-position:var(--hero-pos-mobile,72% 42%)}}
+@media (max-width:380px){.sc-hero__img{object-position:var(--hero-pos-mobile,82% 42%)}}
 .sc-hero__stage::after{content:"";position:absolute;left:0;right:0;bottom:0;height:36%;
   background:linear-gradient(to bottom,
     rgba(34,27,20,0) 0%,
@@ -194,7 +198,13 @@ body.sc-no-scroll{overflow:hidden}
 .sc-also__head .lbl{display:inline-block;margin-bottom:.8rem}
 .sc-also__head h2{font-size:clamp(1.5rem,3.4vw,2rem)}
 .sc-also__grid{max-width:var(--wrap);margin:0 auto;padding:0 clamp(1.1rem,4vw,2rem);display:grid;gap:1.4rem;grid-template-columns:1fr}
-@media (min-width:720px){.sc-also__grid{grid-template-columns:1fr 1fr;gap:1.6rem}}
+@media (min-width:720px){
+  .sc-also__grid{grid-template-columns:1fr 1fr;gap:1.6rem}
+  /* When the strict same-class taxonomy yields only one mate (S-Class, BMW 7,
+     E-Class, Lexus ES, Sprinter, King Long), centre the single card in a
+     capped column instead of leaving it left-aligned in a 2-col grid. */
+  .sc-also__grid:has(> .acard:only-child){grid-template-columns:minmax(0,560px);justify-content:center}
+}
 /* Match the site-standard vcard hover (translateY + soft shadow). No left-edge rail. */
 .sc-also .acard{position:relative;background:var(--card);border:1px solid var(--hair);border-radius:3px;padding:clamp(1.6rem,3vw,2.2rem) clamp(1.6rem,3vw,2.4rem) clamp(1.7rem,3vw,2.4rem);display:grid;gap:1rem;transition:transform .25s ease, box-shadow .35s ease;overflow:hidden}
 .sc-also .acard:hover{transform:translateY(-3px);box-shadow:0 22px 44px -26px rgba(34,27,20,.4)}

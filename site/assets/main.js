@@ -80,6 +80,37 @@ window.umcPhone = {
     });
   }
 
+  // Payments "+" disclosure (v48c): hover/focus opens via CSS on desktop;
+  // tap toggles .is-open so the popover stays visible after a touch. Tap-away,
+  // blur and Esc dismiss. The button keeps aria-expanded in sync so screen
+  // readers track the state.
+  document.querySelectorAll(".payline .payplus").forEach(function(btn){
+    const wrap = btn.closest(".paywrap");
+    if(!wrap) return;
+    btn.addEventListener("click", function(e){
+      e.stopPropagation();
+      const open = wrap.classList.toggle("is-open");
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+  });
+  document.addEventListener("click", function(e){
+    document.querySelectorAll(".payline .paywrap.is-open").forEach(function(w){
+      if(!w.contains(e.target)){
+        w.classList.remove("is-open");
+        const b = w.querySelector(".payplus");
+        if(b) b.setAttribute("aria-expanded","false");
+      }
+    });
+  });
+  document.addEventListener("keydown", function(e){
+    if(e.key !== "Escape") return;
+    document.querySelectorAll(".payline .paywrap.is-open").forEach(function(w){
+      w.classList.remove("is-open");
+      const b = w.querySelector(".payplus");
+      if(b){ b.setAttribute("aria-expanded","false"); b.focus(); }
+    });
+  });
+
   // sticky header state + reserve pill
   const header = document.querySelector("header.site");
   if(header){
