@@ -13,7 +13,20 @@ SITE = HERE / "site"
 _INT_VARIANT_WIDTHS = (360, 720)
 _RESP_CACHE = {}
 def ensure_image_variants(src_path):
-    """Generate 360w + 720w variants if missing. Return [(w, name), ...]."""
+    """Generate 360w + 720w variants if missing. Return [(w, name), ...].
+
+    v50: alpha-aware. Previously called .convert('RGB') unconditionally and
+    then wrote a JPEG into the source's file extension (so PNG sources became
+    JPEG bytes with a .png suffix, and the alpha-zero areas of a transparent
+    source baked out to whatever RGB happened to be at those pixels — often
+    (0,0,0) -> visible BLACK BACKGROUND on the rendered card). Now:
+      - PNG source  -> PNG variant, alpha preserved
+      - WebP source -> WebP variant, alpha preserved
+      - JPEG source -> JPEG variant, alpha flattened onto WHITE (not black);
+                       white multiplies down to the card's bone tone via the
+                       existing .vcard .vimg img mix-blend-mode:multiply rule,
+                       so JPEG cards visually match the transparent ones.
+    """
     src = pathlib.Path(src_path)
     if not src.exists(): return []
     key = str(src)
@@ -23,19 +36,31 @@ def ensure_image_variants(src_path):
     except ImportError:
         _RESP_CACHE[key] = []
         return []
-    img = None
+    src_img = None
     out = []
     nat_w = None
+    ext = src.suffix.lower()
     for tw in _INT_VARIANT_WIDTHS:
         var = src.with_name(f'{src.stem}-{tw}{src.suffix}')
         if not var.exists():
-            if img is None: img = Image.open(src).convert('RGB'); nat_w = img.size[0]
-            if tw >= img.size[0]: continue
-            th = round(img.size[1] * tw / img.size[0])
-            small = img.resize((tw, th), Image.LANCZOS)
-            if src.suffix.lower() == '.webp':
+            if src_img is None:
+                src_img = Image.open(src)
+                nat_w = src_img.size[0]
+            if tw >= src_img.size[0]: continue
+            th = round(src_img.size[1] * tw / src_img.size[0])
+            small = src_img.resize((tw, th), Image.LANCZOS)
+            if ext == '.webp':
                 small.save(var, 'webp', quality=88)
+            elif ext == '.png':
+                small.save(var, 'png', optimize=True)
             else:
+                if small.mode in ('RGBA', 'LA'):
+                    bg = Image.new('RGB', small.size, (255, 255, 255))
+                    mask = small.split()[-1] if small.mode == 'RGBA' else None
+                    bg.paste(small, mask=mask)
+                    small = bg
+                elif small.mode != 'RGB':
+                    small = small.convert('RGB')
                 small.save(var, 'jpeg', quality=86, optimize=True, progressive=True)
         out.append((tw, var.name))
     if nat_w is None:

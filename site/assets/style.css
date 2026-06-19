@@ -772,9 +772,13 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
   padding:clamp(1.2rem,3vw,2rem) clamp(1.1rem,4vw,2rem);
   display:flex;flex-direction:column;min-height:660px;gap:1.4rem}
 @media(min-width:960px){
-  .h2grid{justify-content:space-between}
-  .h2form{align-self:flex-start;width:100%;max-width:460px;order:0}
-  .h2copy{align-self:flex-start;color:var(--bone);max-width:50ch;order:1}
+  /* v50: desktop hero is a two-column grid — copy block on the LEFT
+     (kicker + H1 + lede) and the booking form on the RIGHT, both
+     vertically centred. Restores the side-by-side layout that the v40
+     pinned-column treatment collapsed. */
+  .h2grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,460px);gap:2.5rem;align-items:center;justify-content:space-between;min-height:660px}
+  .h2copy{color:var(--bone);max-width:50ch}
+  .h2form{width:100%;max-width:460px;justify-self:end}
 }
 .h2copy h1{color:var(--bone);font-size:clamp(2.4rem,4.6vw,3.7rem);line-height:1.08;margin:.6rem 0 .9rem;letter-spacing:.005em;text-shadow:0 2px 18px rgba(0,0,0,.35)}
 .h2copy .lede{color:#D9D0C0;max-width:46ch;text-shadow:0 1px 14px rgba(0,0,0,.4)}
