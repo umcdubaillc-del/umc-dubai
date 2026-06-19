@@ -37,9 +37,10 @@ body.sc-no-scroll{overflow:hidden}
   height:clamp(640px, calc(100svh - var(--header-h, 96px)), 820px)}
 .sc-hero__stage{position:relative;flex:1 1 auto;min-height:0;overflow:hidden}
 .sc-hero__img{width:100%;height:100%;display:block;object-fit:cover;
-  /* Slightly bottom-anchored — shows the chauffeur from head through most of his
-     body; the text band sits below the image so no figure-vs-headline collision. */
-  object-position:50% 42%}
+  /* v49 live-measured: source 1536x720 in a 640px hero with cover -> 175px
+     vertical overflow. 42% was clipping the chauffeur's head; 20% reveals
+     the full head AND keeps the shoes visible at the bottom. */
+  object-position:50% 20%}
 /* Mobile hero crop: per-car override via inline --hero-pos-mobile on the <img>
    (set in build_pages.py from car["hero_object_pos_mobile"]); falls back to the
    shared chauffeur-aware default. V-Class uses 50% 50% so the van sits centred

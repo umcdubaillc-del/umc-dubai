@@ -111,6 +111,57 @@ window.umcPhone = {
     });
   });
 
+  // /about stats band: animate each .n number from 0 to its target the first
+  // time the band scrolls into view. Uses requestAnimationFrame with an
+  // easeOutCubic curve over ~1.5s; the <sup> suffix (★, +, /7) is preserved
+  // by writing only into the inner .num <span>. prefers-reduced-motion: skip
+  // the animation and show the final values immediately.
+  (function(){
+    const band = document.querySelector(".numband");
+    if(!band) return;
+    const ns = band.querySelectorAll(".n[data-count]");
+    if(!ns.length) return;
+    const reduce = matchMedia("(prefers-reduced-motion:reduce)").matches;
+    function format(val, n){
+      const decimals = parseInt(n.dataset.decimals || "0", 10);
+      let s = val.toFixed(decimals);
+      if(n.dataset.commas === "1"){
+        const parts = s.split(".");
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        s = parts.join(".");
+      }
+      return s;
+    }
+    function animate(n){
+      const target = parseFloat(n.dataset.count);
+      const span = n.querySelector(".num");
+      if(!span || isNaN(target)) return;
+      if(reduce){ span.textContent = format(target, n); return; }
+      const duration = 1500;
+      const start = performance.now();
+      function tick(t){
+        const progress = Math.min((t - start) / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        span.textContent = format(target * eased, n);
+        if(progress < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }
+    if("IntersectionObserver" in window){
+      const io = new IntersectionObserver(function(entries){
+        entries.forEach(function(e){
+          if(e.isIntersecting){
+            ns.forEach(animate);
+            io.disconnect();
+          }
+        });
+      }, {threshold:0.35});
+      io.observe(band);
+    } else {
+      ns.forEach(animate);
+    }
+  })();
+
   // sticky header state + reserve pill
   const header = document.querySelector("header.site");
   if(header){

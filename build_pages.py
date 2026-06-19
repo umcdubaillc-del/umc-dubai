@@ -392,11 +392,11 @@ index_body = header("index.html") + f"""
   <div class="h2scrim"></div>
   <div class="wrap h2grid">
     <div class="h2copy">
+      <span class="kicker"><i class="kdot kdot-open"></i><i class="krule"></i><em>Serving all seven emirates</em><i class="krule"></i><i class="kdot kdot-fill"></i></span>
       <h1>Chauffeur driven, without compromise.</h1>
       <p class="lede">Immaculate cars, vetted chauffeurs and a concierge that answers at any hour.</p>
     </div>
     <div class="h2form">
-      <span class="kicker h2form__kicker"><i class="kdot kdot-open"></i><i class="krule"></i><em>Serving all seven emirates</em><i class="krule"></i><i class="kdot kdot-fill"></i></span>
       <form class="book" id="bookForm" aria-label="Reserve a car">
         <div class="seg" role="tablist">
           <button type="button" class="on" data-mode="transfer">Transfer</button>
@@ -1049,32 +1049,31 @@ corp_body = header("corporate.html") + f"""
 {JL}
 <section class="sec">
   <div class="wrap">
-    <article class="ledger rv">
-      <header class="lg-cover">
-        <span class="lg-mark">UMC Dubai &middot; Client Ledger</span>
-        <div class="lg-coverL">
-          <h2 class="lg-title">Your account, on file.</h2>
-          <p class="lg-intro">One agreement covers how your company moves. Everything below is held on your account and applied to every journey.</p>
+    <div class="dossier acctfile rv">
+      <header class="ds-head">
+        <div class="ds-headL">
+          <span class="ds-kicker">UMC Dubai &mdash; Corporate Account</span>
+          <h2 class="ds-title">Your account, on file.</h2>
+          <p class="ds-intro">One agreement covers how your company moves. Everything below is held on your account and applied to every journey.</p>
         </div>
-        <div class="lg-stamp" aria-hidden="true">
-          <div class="lg-stamp-row"><span class="k">Account</span><span class="v">Corporate</span></div>
-          <div class="lg-stamp-row"><span class="k">Status</span><span class="v amb">Open &middot; Held on file</span></div>
+        <div class="ds-stamp" aria-hidden="true">
+          <div class="ds-stamp-row"><span class="k">Account</span><span class="v">Corporate</span></div>
+          <div class="ds-stamp-row"><span class="k">Status</span><span class="v amb">Open</span></div>
         </div>
       </header>
-      <ol class="lg-rows">
-        <li class="lg-row"><span class="lg-n">01</span><div class="lg-body"><h3 class="lg-h">On account</h3><p class="lg-p">A dedicated account contact, consolidated monthly invoicing with per-journey breakdowns, and cost-centre references on request.</p></div></li>
-        <li class="lg-row"><span class="lg-n">02</span><div class="lg-body"><h3 class="lg-h">Book for anyone</h3><p class="lg-p">Assistants and travel managers reserve for executives and guests in minutes by phone, WhatsApp or email. A name board waits at every arrival.</p></div></li>
-        <li class="lg-row"><span class="lg-n">03</span><div class="lg-body"><h3 class="lg-h">Vetted and accountable</h3><p class="lg-p">Employed and background-checked chauffeurs in maintained late-model vehicles, with live flight tracking and a human escalation path at any hour.</p></div></li>
-        <li class="lg-row"><span class="lg-n">04</span><div class="lg-body"><h3 class="lg-h">Movements, to the minute</h3><p class="lg-p">Investor roadshows, delegations and multi-car convoys coordinated under a single point of contact.</p></div></li>
-        <li class="lg-row"><span class="lg-n">05</span><div class="lg-body"><h3 class="lg-h">Confidential by default</h3><p class="lg-p">Our chauffeurs serve senior executives daily. Conversations, documents and itineraries stay in the car.</p></div></li>
-        <li class="lg-row"><span class="lg-n">06</span><div class="lg-body"><h3 class="lg-h">Fixed corporate rates</h3><p class="lg-p">Agreed rates that include the chauffeur, fuel, Salik and parking, so finance sees no surprises.</p></div></li>
-      </ol>
-      <footer class="lg-foot">
-        <span class="lg-foot-line">Held in confidence &middot; Signed UMC Dubai</span>
-        <span class="lg-seal" aria-hidden="true">UMC</span>
-        <a class="lg-foot-cta" href="/contact?vehicle=Corporate%20Account">Open an account &rarr;</a>
+      <div class="acct-grid">
+        <div class="acct-item"><div class="acct-meta"><span class="acct-num">01</span><span class="acct-cat">Account</span></div><h3 class="acct-title">One account, one invoice</h3><p class="acct-desc">A dedicated account contact, consolidated monthly invoicing with per-journey breakdowns, and cost-centre references on request.</p></div>
+        <div class="acct-item"><div class="acct-meta"><span class="acct-num">02</span><span class="acct-cat">Booking</span></div><h3 class="acct-title">Book for anyone</h3><p class="acct-desc">Assistants and travel managers reserve for executives and guests in minutes by phone, WhatsApp or email. A name board waits at every arrival.</p></div>
+        <div class="acct-item"><div class="acct-meta"><span class="acct-num">03</span><span class="acct-cat">Duty of care</span></div><h3 class="acct-title">Vetted and accountable</h3><p class="acct-desc">Employed and background-checked chauffeurs in maintained late-model vehicles, with live flight tracking and a human escalation path at any hour.</p></div>
+        <div class="acct-item"><div class="acct-meta"><span class="acct-num">04</span><span class="acct-cat">Roadshows</span></div><h3 class="acct-title">Movements, to the minute</h3><p class="acct-desc">Investor roadshows, delegations and multi-car convoys coordinated under a single point of contact.</p></div>
+        <div class="acct-item"><div class="acct-meta"><span class="acct-num">05</span><span class="acct-cat">Discretion</span></div><h3 class="acct-title">Confidential by default</h3><p class="acct-desc">Our chauffeurs serve senior executives daily. Conversations, documents and itineraries stay in the car.</p></div>
+        <div class="acct-item"><div class="acct-meta"><span class="acct-num">06</span><span class="acct-cat">Certainty</span></div><h3 class="acct-title">Fixed corporate rates</h3><p class="acct-desc">Agreed rates that include the chauffeur, fuel, Salik and parking, so finance sees no surprises.</p></div>
+      </div>
+      <footer class="ds-foot">
+        <span class="ds-foot-line">Held in confidence &middot; One account &middot; One standard</span>
+        <a class="ds-foot-cta" href="/contact?vehicle=Corporate%20Account">Open an account &rarr;</a>
       </footer>
-    </article>
+    </div>
   </div>
 </section>
 {JL}
@@ -1110,10 +1109,10 @@ about_body = header("about.html") + f"""
 <section class="closing band-dark numband-sec" style="padding:3.6rem 0">
   <div class="wrap">
     <div class="numband rv">
-      <div><div class="n">5.0<sup>&#9733;</sup></div><div class="d">Google rating</div></div>
-      <div><div class="n">2,500<sup>+</sup></div><div class="d">Clients served</div></div>
-      <div><div class="n">7</div><div class="d">Emirates covered</div></div>
-      <div><div class="n">24<sup>/7</sup></div><div class="d">Concierge desk</div></div>
+      <div><div class="n" data-count="5" data-decimals="1"><span class="num">5.0</span><sup>&#9733;</sup></div><div class="d">Google rating</div></div>
+      <div><div class="n" data-count="2500" data-commas="1"><span class="num">2,500</span><sup>+</sup></div><div class="d">Clients served</div></div>
+      <div><div class="n" data-count="7"><span class="num">7</span></div><div class="d">Emirates covered</div></div>
+      <div><div class="n" data-count="24"><span class="num">24</span><sup>/7</sup></div><div class="d">Concierge desk</div></div>
     </div>
   </div>
 </section>
@@ -1161,35 +1160,34 @@ events_body = header("events.html") + f"""
 {JL}
 <section class="sec">
   <div class="wrap">
-    <article class="programme rv">
-      <header class="pg-cover">
-        <span class="pg-mark">UMC Dubai</span>
-        <div class="pg-orn" aria-hidden="true"><span class="pg-orn-glyph">&#10086;</span></div>
-        <h2 class="pg-title">Programme of Arrivals.</h2>
-        <p class="pg-intro">From a single car to a convoy of more than a hundred, across one day or many. Every vehicle planned, staged and timed as one movement, your coordinator working alongside ours.</p>
-        <div class="pg-orn" aria-hidden="true"><span class="pg-orn-glyph">&#10086;</span></div>
+    <div class="dossier flmove rv">
+      <header class="ds-head">
+        <div class="ds-headL">
+          <span class="ds-kicker">UMC Dubai &mdash; Fleet Movement Order</span>
+          <h2 class="ds-title">A fleet in formation, however large.</h2>
+          <p class="ds-intro">From a single car to a convoy of more than a hundred, across one day or many. Every vehicle planned, staged and timed as one movement, your coordinator working alongside ours.</p>
+        </div>
+        <div class="ds-stamp" aria-hidden="true">
+          <div class="ds-stamp-row"><span class="k">Fleet</span><span class="v">1&ndash;100+</span></div>
+          <div class="ds-stamp-row"><span class="k">Duration</span><span class="v">Single / multi-day</span></div>
+          <div class="ds-stamp-row"><span class="k">Status</span><span class="v amb">Ready</span></div>
+        </div>
       </header>
-      <dl class="pg-meta">
-        <div><dt>Occasion</dt><dd>Wedding, gala, private celebration</dd></div>
-        <div><dt>Fleet</dt><dd>1 to 100+ vehicles</dd></div>
-        <div><dt>Coordination</dt><dd>One point of contact</dd></div>
-      </dl>
-      <ol class="pg-order" aria-label="Order of arrivals">
-        <li class="pg-step"><span class="pg-rn">I</span><div class="pg-body"><h3 class="pg-h">Enquiry</h3><p class="pg-p">You tell us the occasion and the guests. We quote the fleet, and add cars as the plan grows.</p></div></li>
-        <li class="pg-step"><span class="pg-rn">II</span><div class="pg-body"><h3 class="pg-h">Planning</h3><p class="pg-p">Your coordinator and ours agree every movement: airport arrivals, shuttles, each car assigned to its party, hour by hour.</p></div></li>
-        <li class="pg-step"><span class="pg-rn">III</span><div class="pg-body"><h3 class="pg-h">Execution</h3><p class="pg-p">Every car staged on site to schedule, moving in formation under a single point of contact.</p></div></li>
-        <li class="pg-step"><span class="pg-rn">IV</span><div class="pg-body"><h3 class="pg-h">Held in reserve</h3><p class="pg-p">Spare cars on standby for the unplanned, so a change of guest or schedule is never a problem you see.</p></div></li>
-      </ol>
-      <div class="pg-notes">
-        <div><span class="pg-notes-k">Coordination</span><p>Your coordinator briefs ours once. From there the entire vehicle layer is ours to run.</p></div>
-        <div><span class="pg-notes-k">The fleet</span><p>Rolls-Royce, limousines, S-Class, a matched fleet of any marque. You name it, we arrange it.</p></div>
+      <div class="fm-rows">
+        <div class="fm-row"><div class="fm-label"><span class="fm-title">Enquiry</span><span class="fm-sub">Phase 01</span></div><p class="fm-desc">You tell us the occasion and the guests. We quote the fleet, and add cars as the plan grows.</p><span class="fm-tag">Quoted</span></div>
+        <div class="fm-row"><div class="fm-label"><span class="fm-title">Planning</span><span class="fm-sub">Phase 02</span></div><p class="fm-desc">Your coordinator and ours agree every movement: airport arrivals, shuttles, each car assigned to its party, hour by hour.</p><span class="fm-tag">Scheduled</span></div>
+        <div class="fm-row"><div class="fm-label"><span class="fm-title">Execution</span><span class="fm-sub">Phase 03</span></div><p class="fm-desc">Every car staged on site to schedule, moving in formation under a single point of contact.</p><span class="fm-tag">Staged</span></div>
+        <div class="fm-row"><div class="fm-label"><span class="fm-title">Held in reserve</span><span class="fm-sub">Standby</span></div><p class="fm-desc">Spare cars on standby for the unplanned, so a change of guest or schedule is never a problem you see.</p><span class="fm-tag">Reserve</span></div>
       </div>
-      <footer class="pg-foot">
-        <div class="pg-orn" aria-hidden="true"><span class="pg-orn-glyph">&#10086;</span></div>
-        <span class="pg-foot-line">One movement &middot; One point of contact &middot; Nothing your guests see go wrong</span>
-        <a class="pg-foot-cta" href="/contact">Plan your event &rarr;</a>
+      <div class="fm-pair">
+        <div><span class="fm-pair-lbl">Coordination</span><p>Your coordinator briefs ours once. From there the entire vehicle layer is ours to run.</p></div>
+        <div><span class="fm-pair-lbl">The fleet</span><p>Rolls-Royce, limousines, S-Class, a matched fleet of any marque. You name it, we arrange it.</p></div>
+      </div>
+      <footer class="ds-foot">
+        <span class="ds-foot-line">One movement &middot; One point of contact &middot; Nothing your guests see go wrong</span>
+        <a class="ds-foot-cta" href="/contact">Plan your event &rarr;</a>
       </footer>
-    </article>
+    </div>
   </div>
 </section>
 {JL}
@@ -1942,11 +1940,14 @@ FLEET_PAGES_DRAFT = [
    "meta_seo":"Chauffeur-driven Mercedes-Benz V-Class in Dubai. Captain&rsquo;s chairs for up to seven, face-to-face seating.",
    "tagline":"A room that travels together.",
    "hero_sub":"When the group moves as one &mdash; a cabin arranged for conversation, where everyone faces in rather than forward.",
-   # Real V-Class photography self-hosted in assets/fleet/v-class/. TEMPORARY:
-   # source has excess space to the right of the van — object-position 35% biases
-   # the visible crop leftward so the van sits centered in frame.
+   # Real V-Class photography self-hosted in assets/fleet/v-class/. v49
+   # live-measured: source 1895x1813 (nearly square) in a wide-short hero;
+   # at 1440 desktop the horizontal overflow is 0 (full width shown) so X is
+   # a no-op, only Y crops. 50% 58% is the lock — both tyres fully visible
+   # with ground beneath, van framed, roofline intact. Mobile container is
+   # portrait so X matters and 50% centres the van.
    "hero_img":"v-class/hero.jpg",
-   "hero_object_pos":"35% 50%",
+   "hero_object_pos":"50% 58%",
    "hero_object_pos_mobile":"50% 50%",
    "interior_primary":"v-class/interior.jpg",
    "interior_details":["v-class/detail-1.jpg","v-class/detail-2.jpg","v-class/detail-3.jpg","v-class/detail-4.jpg"],

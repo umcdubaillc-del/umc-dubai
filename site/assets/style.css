@@ -150,7 +150,13 @@ nav.mainnav .sub-toggle{display:none}
 .vcard{background:var(--card);border:1px solid var(--hair);border-radius:3px;overflow:hidden}
 /* fleet image presentation: uniform box + transparent feel via multiply blend (v13) */
 .vcard .vimg{aspect-ratio:16/10;display:flex;align-items:center;justify-content:center;background:transparent;overflow:hidden}
-.vcard .vimg img{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;mix-blend-mode:multiply;transition:transform .6s ease}
+/* v49: object-fit COVER so every card fills the 16:10 frame uniformly,
+   regardless of source aspect or background — no more floating-on-white on
+   the cutout PNGs, no letterboxing across the grid. The wrapper has
+   overflow:hidden so cover crops cleanly; the .vcard:hover .vimg.flip img
+   rule already combines scaleX(-1) with the hover scale, so the .6s
+   transition runs on hover only, not on initial render. */
+.vcard .vimg img{width:100%;height:100%;object-fit:cover;mix-blend-mode:multiply;transition:transform .6s ease}
 .vcard .vimg.photo img{mix-blend-mode:normal}
 .vcard .vimg.flip img{transform:scaleX(-1)}
 /* The shared .vcard:hover .vimg img zoom would otherwise REPLACE scaleX(-1)
@@ -773,20 +779,23 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 .h2copy h1{color:var(--bone);font-size:clamp(2.4rem,4.6vw,3.7rem);line-height:1.08;margin:.6rem 0 .9rem;letter-spacing:.005em;text-shadow:0 2px 18px rgba(0,0,0,.35)}
 .h2copy .lede{color:#D9D0C0;max-width:46ch;text-shadow:0 1px 14px rgba(0,0,0,.4)}
 .h2copy .kicker{color:#E0894A}
-.h2form{display:flex;flex-direction:column}
-/* Kicker sits directly above the form, separated by one paragraph's gap (~1.55em
-   so the rhythm reads like the space between two lines in a paragraph). */
-.h2form__kicker{margin:0 0 1.55em;align-self:flex-start}
 .h2form .book{background:var(--bone);border:1px solid var(--line);border-radius:6px;box-shadow:0 40px 80px -32px rgba(0,0,0,.55);padding:1.4rem}
 @media(max-width:959px){
-  /* mobile hero: compact banner up top + form card below on bone (unchanged) */
+  /* mobile hero: compact banner up top + form card below on bone */
   .hero2{min-height:380px;padding:2rem 0 2.4rem}
   .h2bg{height:380px;bottom:auto}
   .h2scrim{height:380px;bottom:auto;background:linear-gradient(180deg,rgba(20,15,9,.45) 0%,rgba(20,15,9,.66) 55%,rgba(20,15,9,.88) 100%)}
-  .h2grid{min-height:auto;padding:0 clamp(1rem,4vw,1.4rem);gap:0}
-  .h2copy{min-height:300px;display:flex;flex-direction:column;justify-content:center;padding:1rem 0 .8rem;order:0}
-  .h2copy h1{font-size:clamp(1.9rem,7.4vw,2.6rem)}
-  .h2form{margin-top:-2.2rem;position:relative;z-index:2;order:1}
+  .h2grid{min-height:auto;padding:1rem clamp(1rem,4vw,1.4rem) 0;gap:0}
+  /* v49 mobile-only: the kicker stays in .h2copy in the markup (desktop
+     pre-Q5 layout preserved); on mobile we ungroup .h2copy via display:contents
+     so its children become direct flex items of .h2grid, then visually reorder
+     them h1 -> lede -> kicker -> form. The kicker sits directly above the form
+     with ~1.55em (one paragraph line) of breathing room. */
+  .h2copy{display:contents}
+  .h2copy h1{order:1;font-size:clamp(1.9rem,7.4vw,2.6rem);margin:1rem 0 .6rem}
+  .h2copy .lede{order:2}
+  .h2copy .kicker{order:3;align-self:flex-start;margin:1.35em 0 1.55em}
+  .h2form{order:4;position:relative;z-index:2}
   .h2form .book{box-shadow:0 24px 48px -24px rgba(0,0,0,.35)}
 }
 
@@ -927,106 +936,70 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 /* ===================== v27 ===================== */
 /* signature dossier: shared shell for Corporate Account File + Fleet Movement Order
    institutional document language — espresso 2px frame, bone inner, mono clerical labels */
-/* ---------- Client Ledger Card (corporate page, v48c) ----------
-   The corporate page reads as a private members' club ledger entry: bone-card
-   stock with an inner double-rule frame, a brass-seal corner in the foot, six
-   numbered rows with leader-dotted divisions. Distinct from the Programme of
-   Arrivals on the events page so the two pages read as two different artefacts. */
-.ledger{max-width:980px;margin:0 auto;background:var(--card);border:2px solid var(--espresso);border-radius:11px;padding:clamp(1.8rem,3.8vw,2.6rem);position:relative}
-.ledger::before{content:"";position:absolute;inset:8px;border:1px solid var(--hair);border-radius:7px;pointer-events:none}
-.ledger > *{position:relative}
-.ledger .lg-cover{display:grid;grid-template-columns:1fr auto;gap:2rem;align-items:start;margin-bottom:1.6rem;padding-bottom:1.4rem;border-bottom:1px solid var(--line)}
-.ledger .lg-mark{grid-column:1/-1;display:block;font-family:var(--mono);font-size:.66rem;letter-spacing:.28em;color:var(--amber-deep);text-transform:uppercase;margin-bottom:.4rem}
-.ledger .lg-coverL{min-width:0}
-.ledger .lg-title{font-family:var(--serif);font-weight:400;color:var(--ink);font-size:clamp(1.55rem,3.4vw,2.05rem);line-height:1.18;letter-spacing:.01em;margin-bottom:.7rem}
-.ledger .lg-intro{font-size:.95rem;color:var(--muted);line-height:1.62;max-width:50ch}
-.ledger .lg-stamp{flex:0 0 auto;border:1px solid var(--line);border-radius:4px;padding:.7rem 1rem;min-width:212px;background:rgba(34,27,20,.025);align-self:start}
-.ledger .lg-stamp-row{display:flex;justify-content:space-between;align-items:baseline;gap:1.4rem;font-family:var(--mono);font-size:.64rem;letter-spacing:.18em;text-transform:uppercase;padding:.34rem 0}
-.ledger .lg-stamp-row + .lg-stamp-row{border-top:1px dashed var(--hair)}
-.ledger .lg-stamp-row .k{color:var(--muted)}
-.ledger .lg-stamp-row .v{color:var(--ink)}
-.ledger .lg-stamp-row .v.amb{color:var(--amber-deep)}
-.ledger .lg-rows{list-style:none;padding:0;margin:0}
-.ledger .lg-row{display:grid;grid-template-columns:64px 1fr;gap:1.3rem;align-items:baseline;padding:1.05rem 0;border-bottom:1px dashed var(--hair)}
-.ledger .lg-row:last-child{border-bottom:0}
-.ledger .lg-n{font-family:var(--mono);font-size:.72rem;letter-spacing:.22em;color:var(--amber-deep);padding-top:.32rem}
-.ledger .lg-body{display:flex;flex-direction:column;gap:.4rem;min-width:0}
-.ledger .lg-h{font-family:var(--serif);font-weight:400;font-size:1.07rem;color:var(--ink);line-height:1.3}
-.ledger .lg-p{font-size:.85rem;color:var(--ink-soft);line-height:1.62}
-.ledger .lg-foot{display:grid;grid-template-columns:1fr auto auto;gap:1.4rem;align-items:center;margin-top:1.7rem;padding-top:1.25rem;border-top:1px solid var(--line)}
-.ledger .lg-foot-line{font-family:var(--mono);font-size:.6rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);line-height:1.5}
-.ledger .lg-seal{display:inline-flex;align-items:center;justify-content:center;width:54px;height:54px;border:1.5px solid var(--amber);border-radius:50%;font-family:var(--serif);font-size:.78rem;letter-spacing:.14em;color:var(--amber-deep);background:rgba(199,91,18,.04)}
-.ledger .lg-foot-cta{font-family:var(--mono);font-size:.7rem;letter-spacing:.22em;text-transform:uppercase;color:var(--amber-deep);border-bottom:1px solid var(--amber);padding-bottom:2px;transition:color .25s cubic-bezier(.32,.72,0,1),letter-spacing .25s cubic-bezier(.32,.72,0,1);white-space:nowrap}
-.ledger .lg-foot-cta:hover{color:var(--amber);letter-spacing:.24em}
-
-/* ---------- Programme of Arrivals (events page, v48c) ----------
-   The events page reads as a ceremonial printed programme: centred bone paper,
-   floret-ornament rules between sections, Roman-numeral order of arrivals,
-   no grid. Quieter and more vertical than the corporate ledger. */
-.programme{max-width:780px;margin:0 auto;background:var(--bone);border:1px solid var(--line);padding:clamp(2.2rem,4vw,3rem);position:relative;text-align:center}
-.programme .pg-cover{margin-bottom:1.6rem}
-.programme .pg-mark{display:block;font-family:var(--mono);font-size:.7rem;letter-spacing:.32em;color:var(--amber-deep);text-transform:uppercase;margin-bottom:.95rem}
-.programme .pg-orn{display:flex;align-items:center;justify-content:center;gap:.55rem;color:var(--muted);margin:.6rem auto 1rem;max-width:340px}
-.programme .pg-orn::before,.programme .pg-orn::after{content:"";flex:1 1 auto;height:1px;background:linear-gradient(90deg,transparent,var(--hair),transparent)}
-.programme .pg-orn-glyph{display:inline-block;color:var(--amber-deep);font-size:.95rem;line-height:1}
-.programme .pg-title{font-family:var(--serif);font-weight:400;color:var(--ink);font-size:clamp(1.75rem,3.8vw,2.3rem);line-height:1.18;letter-spacing:.012em;margin:.4rem 0 .7rem}
-.programme .pg-intro{font-size:.94rem;color:var(--muted);line-height:1.62;max-width:46ch;margin:0 auto}
-.programme .pg-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:.85rem 0;margin:1.6rem 0 1.9rem;text-align:left}
-.programme .pg-meta > div{padding:0 1rem;border-right:1px dashed var(--hair)}
-.programme .pg-meta > div:last-child{border-right:0}
-.programme .pg-meta dt{font-family:var(--mono);font-size:.6rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin-bottom:.35rem}
-.programme .pg-meta dd{font-family:var(--serif);font-weight:400;font-size:.92rem;color:var(--ink);line-height:1.35;margin:0}
-.programme .pg-order{list-style:none;padding:0;margin:0 auto;max-width:560px;text-align:left}
-.programme .pg-step{display:grid;grid-template-columns:64px 1fr;gap:1.3rem;align-items:baseline;padding:1.05rem 0}
-.programme .pg-step + .pg-step{border-top:1px dashed var(--hair)}
-.programme .pg-rn{font-family:var(--serif);font-style:italic;font-size:1.2rem;color:var(--amber-deep);letter-spacing:.03em;padding-top:.05rem;text-align:right}
-.programme .pg-h{font-family:var(--serif);font-weight:400;font-size:1.07rem;color:var(--ink);line-height:1.3;margin-bottom:.35rem}
-.programme .pg-p{font-size:.86rem;color:var(--ink-soft);line-height:1.62}
-.programme .pg-notes{display:grid;grid-template-columns:1fr 1fr;gap:0;margin:1.8rem auto 0;max-width:560px;padding-top:1.25rem;border-top:1px solid var(--line);text-align:left}
-.programme .pg-notes > div{padding:0 1.2rem}
-.programme .pg-notes > div:first-child{padding-left:0;border-right:1px dashed var(--hair)}
-.programme .pg-notes > div:last-child{padding-right:0}
-.programme .pg-notes-k{display:block;font-family:var(--mono);font-size:.6rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem}
-.programme .pg-notes p{font-size:.84rem;color:var(--ink-soft);line-height:1.62}
-.programme .pg-foot{margin-top:1.9rem;padding-top:1.4rem;border-top:1px solid var(--line)}
-.programme .pg-foot-line{display:block;font-family:var(--mono);font-size:.62rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);line-height:1.5;margin:1rem 0}
-.programme .pg-foot-cta{display:inline-block;font-family:var(--mono);font-size:.7rem;letter-spacing:.22em;text-transform:uppercase;color:var(--amber-deep);border-bottom:1px solid var(--amber);padding-bottom:2px;margin-top:.4rem;transition:color .25s cubic-bezier(.32,.72,0,1),letter-spacing .25s cubic-bezier(.32,.72,0,1)}
-.programme .pg-foot-cta:hover{color:var(--amber);letter-spacing:.24em}
+.dossier{max-width:980px;margin:0 auto;background:var(--card);border:2px solid var(--espresso);border-radius:11px;padding:clamp(1.6rem,3.5vw,2.4rem);position:relative}
+.dossier .ds-head{display:flex;justify-content:space-between;align-items:flex-start;gap:2rem;flex-wrap:wrap;margin-bottom:1.7rem}
+.dossier .ds-headL{flex:1 1 360px;min-width:0}
+.dossier .ds-kicker{display:block;font-family:var(--mono);font-size:.66rem;letter-spacing:.22em;color:var(--amber-deep);text-transform:uppercase;margin-bottom:.85rem}
+.dossier .ds-title{font-family:var(--serif);font-weight:400;color:var(--ink);font-size:clamp(1.55rem,3.4vw,2.05rem);line-height:1.18;letter-spacing:.01em;margin-bottom:.7rem}
+.dossier .ds-intro{font-size:.95rem;color:var(--muted);line-height:1.62;max-width:50ch}
+.dossier .ds-stamp{flex:0 0 auto;border:1px solid var(--line);border-radius:4px;padding:.7rem 1rem;min-width:212px;background:rgba(34,27,20,.025)}
+.dossier .ds-stamp-row{display:flex;justify-content:space-between;align-items:baseline;gap:1.4rem;font-family:var(--mono);font-size:.64rem;letter-spacing:.18em;text-transform:uppercase;padding:.34rem 0}
+.dossier .ds-stamp-row + .ds-stamp-row{border-top:1px dashed var(--hair)}
+.dossier .ds-stamp-row .k{color:var(--muted)}
+.dossier .ds-stamp-row .v{color:var(--ink)}
+.dossier .ds-stamp-row .v.amb{color:var(--amber-deep)}
+.dossier .ds-foot{display:flex;justify-content:space-between;align-items:center;gap:1.5rem;flex-wrap:wrap;margin-top:1.7rem;padding-top:1.25rem;border-top:1px solid var(--line)}
+.dossier .ds-foot-line{font-family:var(--mono);font-size:.6rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);line-height:1.5}
+.dossier .ds-foot-cta{font-family:var(--mono);font-size:.7rem;letter-spacing:.22em;text-transform:uppercase;color:var(--amber-deep);border-bottom:1px solid var(--amber);padding-bottom:2px;transition:color .25s cubic-bezier(.32,.72,0,1),letter-spacing .25s cubic-bezier(.32,.72,0,1);white-space:nowrap}
+.dossier .ds-foot-cta:hover{color:var(--amber);letter-spacing:.24em}
 
 /* T2 — corporate account file: 2 × 3 provisions */
+.acct-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 2.4rem;padding-top:.2rem;border-top:1px solid var(--line)}
+.acct-item{display:flex;flex-direction:column;gap:.5rem;padding:1.1rem 0;border-bottom:1px solid var(--hair)}
+.acct-item:nth-last-child(-n+2){border-bottom:0}
+.acct-item .acct-meta{display:flex;align-items:baseline;gap:.85rem;font-family:var(--mono);font-size:.62rem;letter-spacing:.22em;text-transform:uppercase}
+.acct-item .acct-num{color:var(--amber-deep)}
+.acct-item .acct-cat{color:var(--muted)}
+.acct-item .acct-title{font-family:var(--serif);font-weight:400;font-size:1.07rem;color:var(--ink);line-height:1.3;margin-top:.05rem}
+.acct-item .acct-desc{font-size:.82rem;color:var(--ink-soft);line-height:1.62}
 
 /* T3 — events fleet movement order: 4 phase rows + 2-column pair */
+.fm-rows{display:grid;gap:0;padding-top:.2rem;border-top:1px solid var(--line)}
+.fm-row{display:grid;grid-template-columns:135px 1fr 90px;gap:1.6rem;align-items:start;padding:1.05rem 0;border-bottom:1px solid var(--hair)}
+.fm-row:last-child{border-bottom:0}
+.fm-row .fm-title{display:block;font-family:var(--serif);font-weight:400;font-size:1rem;color:var(--ink);line-height:1.25}
+.fm-row .fm-sub{display:block;margin-top:.35rem;font-family:var(--mono);font-size:.6rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+.fm-row .fm-desc{font-size:.85rem;color:var(--ink-soft);line-height:1.62;padding-top:.05rem}
+.fm-row .fm-tag{justify-self:end;align-self:start;font-family:var(--mono);font-size:.62rem;letter-spacing:.22em;text-transform:uppercase;color:var(--amber-deep);padding-top:.1rem}
+.fm-pair{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid var(--line)}
+.fm-pair > div{padding:0 1.3rem}
+.fm-pair > div:first-child{padding-left:0;border-right:1px solid var(--hair)}
+.fm-pair > div:last-child{padding-right:0}
+.fm-pair .fm-pair-lbl{display:block;font-family:var(--mono);font-size:.62rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin-bottom:.5rem}
+.fm-pair p{font-size:.85rem;color:var(--ink-soft);line-height:1.62}
 
-/* ledger + programme — mobile collapse (v48c). Most traffic is mobile; the two
-   documents both need to read as deliberate printed artefacts down here too. */
+/* mobile collapse (T2 + T3) — most traffic is mobile; this stack must look deliberate */
 @media(max-width:720px){
-  .ledger{border-radius:8px;padding:1.4rem 1.15rem 1.5rem;border-width:1.5px;max-width:none}
-  .ledger::before{inset:6px;border-radius:6px}
-  .ledger .lg-cover{grid-template-columns:1fr;gap:1.1rem;margin-bottom:1.25rem;padding-bottom:1.05rem}
-  .ledger .lg-mark{margin-bottom:.15rem;font-size:.62rem;letter-spacing:.24em}
-  .ledger .lg-title{font-size:1.5rem;margin-bottom:.5rem}
-  .ledger .lg-intro{font-size:.9rem;max-width:none}
-  .ledger .lg-stamp{align-self:stretch;min-width:0;padding:.55rem .8rem}
-  .ledger .lg-stamp-row{font-size:.6rem;letter-spacing:.16em;gap:1rem;padding:.28rem 0}
-  .ledger .lg-row{grid-template-columns:42px 1fr;gap:.85rem;padding:.85rem 0}
-  .ledger .lg-h{font-size:1rem}
-  .ledger .lg-foot{grid-template-columns:1fr;gap:.9rem;text-align:center;justify-items:center}
-  .ledger .lg-foot-line{font-size:.56rem;letter-spacing:.2em}
-  .ledger .lg-foot-cta{font-size:.66rem}
-  .programme{padding:1.6rem 1.25rem 1.8rem;max-width:none}
-  .programme .pg-mark{font-size:.64rem;letter-spacing:.28em}
-  .programme .pg-title{font-size:1.6rem}
-  .programme .pg-intro{font-size:.9rem;max-width:none}
-  .programme .pg-meta{grid-template-columns:1fr;gap:0;padding:.4rem 0;margin:1.2rem 0 1.4rem}
-  .programme .pg-meta > div{padding:.55rem 0;border-right:0;border-bottom:1px dashed var(--hair)}
-  .programme .pg-meta > div:last-child{border-bottom:0}
-  .programme .pg-step{grid-template-columns:46px 1fr;gap:.8rem;padding:.85rem 0}
-  .programme .pg-rn{font-size:1.05rem}
-  .programme .pg-h{font-size:1rem}
-  .programme .pg-notes{grid-template-columns:1fr;gap:0;margin-top:1.4rem;padding-top:.95rem}
-  .programme .pg-notes > div{padding:.55rem 0;border-right:0;border-bottom:1px dashed var(--hair)}
-  .programme .pg-notes > div:last-child{padding-bottom:0;border-bottom:0}
-  .programme .pg-foot-line{font-size:.56rem;letter-spacing:.2em}
-  .programme .pg-foot-cta{font-size:.66rem}
+  .dossier{border-radius:8px;padding:1.25rem 1.1rem 1.35rem;border-width:1.5px;max-width:none}
+  .dossier .ds-head{flex-direction:column;gap:1.05rem;margin-bottom:1.25rem}
+  .dossier .ds-headL{flex:1 1 100%}
+  .dossier .ds-kicker{margin-bottom:.7rem;font-size:.62rem;letter-spacing:.2em}
+  .dossier .ds-title{font-size:1.5rem;margin-bottom:.55rem}
+  .dossier .ds-intro{font-size:.9rem;max-width:none}
+  .dossier .ds-stamp{align-self:stretch;min-width:0;padding:.55rem .8rem}
+  .dossier .ds-stamp-row{font-size:.6rem;letter-spacing:.16em;gap:1rem;padding:.28rem 0}
+  .dossier .ds-foot{flex-direction:column;align-items:flex-start;gap:.9rem;margin-top:1.25rem;padding-top:1rem}
+  .dossier .ds-foot-line{font-size:.56rem;letter-spacing:.2em}
+  .dossier .ds-foot-cta{font-size:.66rem}
+  .acct-grid{grid-template-columns:1fr;gap:0}
+  .acct-item{padding:.9rem 0}
+  .acct-item:nth-last-child(-n+2){border-bottom:1px solid var(--hair)}
+  .acct-item:last-child{border-bottom:0}
+  .acct-item .acct-title{font-size:1rem}
+  .fm-row{grid-template-columns:1fr;gap:.45rem;padding:.95rem 0}
+  .fm-row .fm-tag{justify-self:start;padding-top:.05rem}
+  .fm-pair{grid-template-columns:1fr;gap:1rem;margin-top:1.25rem;padding-top:1rem}
+  .fm-pair > div{padding:0}
+  .fm-pair > div:first-child{border-right:0;padding-bottom:1rem;border-bottom:1px solid var(--hair)}
 }
 
