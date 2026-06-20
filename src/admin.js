@@ -116,6 +116,24 @@ async function ensureSchema(env) {
   await env.BILLING_DB.prepare(
     `CREATE INDEX IF NOT EXISTS idx_billing_type_id ON billing_documents (doc_type, id DESC)`
   ).run();
+  // v52 — add columns for quote->invoice conversion (source_quote_number) and
+  // Nomod payment link integration (nomod_link_*). SQLite ALTER TABLE has no
+  // IF NOT EXISTS for ADD COLUMN, so each column is attempted and a duplicate
+  // error is swallowed. Schema is idempotent across deploys.
+  for (const col of [
+    "source_quote_number TEXT",
+    "nomod_link_id TEXT",
+    "nomod_link_url TEXT",
+    "nomod_link_created_at TEXT",
+  ]) {
+    try {
+      await env.BILLING_DB.prepare(`ALTER TABLE billing_documents ADD COLUMN ${col}`).run();
+    } catch (e) {
+      // duplicate column or other ALTER error — only swallow the duplicate case
+      const msg = (e && (e.message || String(e))) || "";
+      if (!/duplicate column|already exists/i.test(msg)) throw e;
+    }
+  }
   SCHEMA_DONE.add(env);
 }
 
@@ -208,7 +226,8 @@ async function handleCreate(request, env) {
 async function handleList(env) {
   await ensureSchema(env);
   const { results } = await env.BILLING_DB.prepare(
-    `SELECT id, doc_type, number, doc_date, client_name, client_company, currency, total, created_at
+    `SELECT id, doc_type, number, doc_date, client_name, client_company, currency, total,
+            source_quote_number, nomod_link_id, nomod_link_url, nomod_link_created_at, created_at
      FROM billing_documents ORDER BY id DESC LIMIT 500`
   ).all();
   return json({ ok: true, items: results || [] });
@@ -232,6 +251,163 @@ async function handleDelete(id, env) {
   // D1's run() returns { meta: { changes } } — 0 changes = no row matched.
   if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
   return json({ ok: true, id });
+}
+
+// ============================================================ v52: quote -> invoice conversion
+//
+// A quote and an invoice are distinct documents with distinct number series.
+// Converting a quote ISSUES a new invoice (next UMC-INV-####, today's date,
+// TRN visible at print time, source_quote_number stamped for audit) without
+// touching the original quote. The quote stays in history as it was.
+
+async function handleConvertToInvoice(id, env) {
+  await ensureSchema(env);
+  const src = await env.BILLING_DB.prepare(
+    "SELECT * FROM billing_documents WHERE id = ?"
+  ).bind(id).first();
+  if (!src) return json({ ok: false, error: "not found" }, 404);
+  if (src.doc_type !== "quote") {
+    return json({ ok: false, error: "only quotes can be converted to invoices" }, 400);
+  }
+  const newNumber = await nextNumber(env, "invoice");
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    const res = await env.BILLING_DB.prepare(
+      `INSERT INTO billing_documents
+        (doc_type, number, doc_date, client_name, client_company, client_address, client_email,
+         currency, vat_mode, line_items, discount, subtotal, vat, total, notes, source_quote_number)
+       VALUES ('invoice', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      newNumber, today,
+      src.client_name, src.client_company, src.client_address, src.client_email,
+      src.currency, src.vat_mode, src.line_items, src.discount,
+      src.subtotal, src.vat, src.total, src.notes, src.number
+    ).run();
+    const newId = res && res.meta && res.meta.last_row_id;
+    return json({ ok: true, id: newId, number: newNumber, source_quote_number: src.number });
+  } catch (e) {
+    const msg = (e && (e.message || String(e))) || "db error";
+    if (/UNIQUE/i.test(msg)) return json({ ok: false, error: "duplicate invoice number — please refresh and retry", detail: msg }, 409);
+    return json({ ok: false, error: "db error during convert", detail: msg }, 500);
+  }
+}
+
+// ============================================================ v52: Nomod payment links
+//
+// Nomod (api.nomod.com/v1/links) takes itemised inputs and computes the link
+// total from them. Tax is not a separate field, so we send each invoice line
+// item as a Nomod item (unit price, qty) AND append one extra item
+// `VAT (5%)` so the link's customer-facing total equals the invoice grand
+// total exactly. Itemised + an explicit VAT line gives the customer a clean
+// breakdown on the Nomod page.
+//
+// The three boolean toggles below are wired so Usman can flip them in one
+// place after his Nomod partnership terms confirm the right combination.
+// Defaults reasoned in the v52 brief:
+//   allow_service_fee = false  -> customer pays exactly the invoice amount
+//   allow_tabby       = true   -> BNPL allowed; merchant still receives full amount
+//   allow_tamara      = true   -> as above
+
+const NOMOD_ALLOW_SERVICE_FEE = false;
+const NOMOD_ALLOW_TABBY       = true;
+const NOMOD_ALLOW_TAMARA      = true;
+const NOMOD_API_URL           = "https://api.nomod.com/v1/links";
+const PUBLIC_ORIGIN           = "https://umc-dubai.umcdubaillc.workers.dev";
+
+async function handlePaymentLink(id, env, opts) {
+  opts = opts || {};
+  await ensureSchema(env);
+  const inv = await env.BILLING_DB.prepare(
+    "SELECT * FROM billing_documents WHERE id = ?"
+  ).bind(id).first();
+  if (!inv) return json({ ok: false, error: "not found" }, 404);
+  if (inv.doc_type !== "invoice") {
+    return json({ ok: false, error: "payment links are issued for invoices only — convert the quote first" }, 400);
+  }
+  if (inv.nomod_link_url && !opts.regenerate) {
+    return json({ ok: true, url: inv.nomod_link_url, id: inv.nomod_link_id, reused: true });
+  }
+  if (!env.NOMOD_API_KEY) {
+    return json({
+      ok: false,
+      error: "NOMOD_API_KEY not configured on this Worker. Run `npx wrangler secret put NOMOD_API_KEY` (Usman generates the key in the Nomod app under Connect and Manage Integrations).",
+    }, 503);
+  }
+
+  // Items: each invoice line as a Nomod item + one VAT (5%) line so the link
+  // total = invoice.total exactly (subtotal + vat). amounts are decimal
+  // strings (Nomod docs example uses string form like "10.00").
+  let line_items;
+  try { line_items = JSON.parse(inv.line_items) || []; } catch { line_items = []; }
+  const items = line_items.map((li) => ({
+    name: String(li.description || "Item").slice(0, 60) || "Item",
+    amount: Number(li.rate || 0).toFixed(2),
+    quantity: Math.max(1, parseInt(li.qty, 10) || 1),
+  }));
+  if (Number(inv.vat) > 0) {
+    items.push({ name: "VAT (5%)", amount: Number(inv.vat).toFixed(2), quantity: 1 });
+  }
+
+  const note = `Payment for UMC In Bound Tour Operator LLC invoice ${inv.number}`.slice(0, 280);
+  const body = {
+    currency: String(inv.currency || "AED"),
+    items,
+    title: String(inv.number).slice(0, 50),
+    note,
+    success_url: PUBLIC_ORIGIN + "/?paid=" + encodeURIComponent(inv.number),
+    failure_url: PUBLIC_ORIGIN + "/contact?invoice=" + encodeURIComponent(inv.number),
+    allow_service_fee: NOMOD_ALLOW_SERVICE_FEE,
+    allow_tabby:       NOMOD_ALLOW_TABBY,
+    allow_tamara:      NOMOD_ALLOW_TAMARA,
+  };
+
+  let nomodRes;
+  let nomodBody = null;
+  try {
+    nomodRes = await fetch(NOMOD_API_URL, {
+      method: "POST",
+      headers: {
+        "X-API-KEY": env.NOMOD_API_KEY,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const text = await nomodRes.text();
+    try { nomodBody = JSON.parse(text); }
+    catch { nomodBody = { _raw: text }; }
+  } catch (e) {
+    const detail = (e && e.message) || String(e);
+    console.log("Nomod request failed (network):", detail);
+    return json({ ok: false, error: "Nomod request failed (network)", detail }, 502);
+  }
+  if (!nomodRes.ok || !nomodBody || !nomodBody.url) {
+    const detail = (nomodBody && (nomodBody.message || nomodBody.error || JSON.stringify(nomodBody))) || `HTTP ${nomodRes.status}`;
+    console.log("Nomod rejected:", nomodRes.status, detail);
+    return json({ ok: false, error: `Nomod rejected the request: ${detail}`, status: nomodRes.status }, 502);
+  }
+  const createdAt = new Date().toISOString();
+  try {
+    await env.BILLING_DB.prepare(
+      `UPDATE billing_documents
+       SET nomod_link_id = ?, nomod_link_url = ?, nomod_link_created_at = ?
+       WHERE id = ?`
+    ).bind(nomodBody.id || null, nomodBody.url, createdAt, id).run();
+  } catch (e) {
+    // Link was created on Nomod but the DB write failed — surface the URL so
+    // it isn't lost and warn the admin so Usman can manually note it.
+    return json({
+      ok: true, url: nomodBody.url, id: nomodBody.id, created_at: createdAt,
+      warning: "Link created but DB persistence failed: " + ((e && e.message) || String(e)),
+    });
+  }
+  return json({
+    ok: true,
+    url: nomodBody.url,
+    id: nomodBody.id,
+    created_at: createdAt,
+    regenerated: !!opts.regenerate,
+  });
 }
 
 // ============================================================ dispatcher
@@ -269,6 +445,13 @@ export async function handleAdmin(request, env) {
     const m = path.match(/^\/admin\/api\/billing\/(\d+)$/);
     if (m && method === "GET") return handleGetOne(parseInt(m[1], 10), env);
     if (m && method === "DELETE") return handleDelete(parseInt(m[1], 10), env);
+    const convM = path.match(/^\/admin\/api\/billing\/(\d+)\/convert$/);
+    if (convM && method === "POST") return handleConvertToInvoice(parseInt(convM[1], 10), env);
+    const linkM = path.match(/^\/admin\/api\/billing\/(\d+)\/payment-link$/);
+    if (linkM && method === "POST") {
+      const regenerate = url.searchParams.get("regenerate") === "1";
+      return handlePaymentLink(parseInt(linkM[1], 10), env, { regenerate });
+    }
     return json({ ok: false, error: "not found" }, 404);
   }
 
@@ -494,6 +677,13 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
 .history td a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--amber)}
 .history .pill{display:inline-block;font-size:10px;letter-spacing:.16em;text-transform:uppercase;padding:.18rem .55rem;border:1px solid var(--line);border-radius:30px;color:var(--ink-soft)}
 .history .pill.inv{border-color:var(--amber);color:var(--amber-deep)}
+/* v52: little affordances for the new history actions. */
+.history .hist-src{display:inline-block;margin-left:.25rem;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.history .hist-link{margin-top:.25rem;font-size:11px;line-height:1.35;font-family:Outfit,system-ui,sans-serif}
+.history .hist-link a{border-bottom:1px dotted var(--amber);word-break:break-all}
+.history .hist-actions{text-align:right}
+.history .hist-actions .btn{margin-left:.25rem}
+.history .hist-actions .btn:first-child{margin-left:0}
 .empty{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
 
 /* Email body box */
@@ -738,7 +928,8 @@ const PAGE_SCRIPT = `<script>
     client: { name:"", company:"", address:"", email:"" },
     line_items: [{ description:"", qty:1, rate:0 }],
     discount: 0,
-    notes: ""
+    notes: "",
+    source_quote_number: null
   };
 
   // ---------- helpers
@@ -931,6 +1122,7 @@ const PAGE_SCRIPT = `<script>
       +       '<span class="n">'+esc(state.number || ("UMC-…-####"))+'</span>'
       +     '</div>'
       +     '<div class="d">'+esc(fmtDate(state.doc_date))+'</div>'
+      +     (isInv && state.source_quote_number ? '<div class="d" style="font-size:10px;letter-spacing:.16em;color:var(--muted);text-transform:uppercase;margin-top:.15rem">Converted from quote '+esc(state.source_quote_number)+'</div>' : '')
       +     '<div class="client">'
       +       '<h4>'+esc(clientLbl)+'</h4>'
       +       clientName
@@ -1150,6 +1342,7 @@ const PAGE_SCRIPT = `<script>
     state.line_items = [{ description:"", qty:1, rate:0 }];
     state.discount = 0;
     state.notes = "";
+    state.source_quote_number = null;
     state.doc_date = new Date().toISOString().slice(0,10);
     ["cName","cCompany","cAddress","cEmail","fDiscount","fNotes","fEmailRecipients"].forEach(function(id){ $(id).value = ""; });
     $("fDate").value = state.doc_date;
@@ -1172,21 +1365,64 @@ const PAGE_SCRIPT = `<script>
       if(!j.ok || !j.items || !j.items.length){ tbody.innerHTML = ""; empty.hidden = false; return; }
       empty.hidden = true;
       tbody.innerHTML = j.items.map(function(x){
+        const isQuote   = x.doc_type === "quote";
+        const isInvoice = x.doc_type === "invoice";
+        const hasLink   = !!x.nomod_link_url;
+        const linkPreview = hasLink
+          ? '<div class="hist-link"><a href="'+esc(x.nomod_link_url)+'" target="_blank" rel="noopener noreferrer" title="'+esc(x.nomod_link_url)+'">'+esc(x.nomod_link_url.replace(/^https?:\\/\\//,'').slice(0,40))+(x.nomod_link_url.length>48?'…':'')+'</a></div>'
+          : '';
+        const srcTag = x.source_quote_number
+          ? ' <span class="hist-src" title="Converted from '+esc(x.source_quote_number)+'">&larr; '+esc(x.source_quote_number)+'</span>'
+          : '';
+        const actions = [];
+        actions.push('<button type="button" class="btn btn-small btn-ghost" data-load="'+x.id+'">Re-open</button>');
+        if(isQuote){
+          actions.push('<button type="button" class="btn btn-small btn-ghost" data-convert="'+x.id+'" data-num="'+esc(x.number)+'" title="Issue a new invoice (next UMC-INV-####) with this quote\\'s client and items — the quote stays in history.">Convert to invoice</button>');
+        }
+        if(isInvoice){
+          if(hasLink){
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-copy="'+esc(x.nomod_link_url)+'" title="Copy payment link to clipboard">Copy payment link</button>');
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-link="'+x.id+'" data-num="'+esc(x.number)+'" data-regen="1" title="Regenerate the payment link (creates a new one and overwrites the saved URL)">Regenerate</button>');
+          } else {
+            actions.push('<button type="button" class="btn btn-small btn-ink" data-link="'+x.id+'" data-num="'+esc(x.number)+'" title="Create a Nomod payment link for this invoice">Generate payment link</button>');
+          }
+        }
+        actions.push('<button type="button" class="btn btn-small btn-danger" data-del="'+x.id+'" data-num="'+esc(x.number)+'" data-type="'+esc(x.doc_type)+'" title="Delete">×</button>');
         return '<tr>'
-          + '<td><a href="#" data-load="'+x.id+'">'+esc(x.number)+'</a></td>'
-          + '<td><span class="pill '+(x.doc_type==='invoice'?'inv':'')+'">'+x.doc_type+'</span></td>'
+          + '<td><a href="#" data-load="'+x.id+'">'+esc(x.number)+'</a>'+srcTag+linkPreview+'</td>'
+          + '<td><span class="pill '+(isInvoice?'inv':'')+'">'+x.doc_type+'</span></td>'
           + '<td>'+esc(fmtDate(x.doc_date))+'</td>'
           + '<td>'+esc(x.client_name || "")+(x.client_company?' <span style="color:#7A6F5F">('+esc(x.client_company)+')</span>':'')+'</td>'
           + '<td style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(x.total, x.currency))+'</td>'
-          + '<td style="text-align:right;white-space:nowrap">'
-          +   '<button type="button" class="btn btn-small btn-ghost" data-load="'+x.id+'">Re-open</button> '
-          +   '<button type="button" class="btn btn-small btn-danger" data-del="'+x.id+'" data-num="'+esc(x.number)+'" data-type="'+esc(x.doc_type)+'" title="Delete">×</button>'
-          + '</td>'
+          + '<td style="text-align:right;white-space:nowrap" class="hist-actions">'+actions.join(' ')+'</td>'
           + '</tr>';
       }).join("");
       tbody.addEventListener("click", function(e){
         const loadB = e.target.closest("[data-load]");
         const delB  = e.target.closest("[data-del]");
+        const convB = e.target.closest("[data-convert]");
+        const linkB = e.target.closest("[data-link]");
+        const copyB = e.target.closest("[data-copy]");
+        if(copyB){
+          e.preventDefault();
+          const u = copyB.getAttribute("data-copy");
+          copyToClipboard(u).then(function(ok){ setStatus(ok ? "Payment link copied." : "Copy failed."); });
+          return;
+        }
+        if(convB){
+          e.preventDefault();
+          convertQuote(convB.getAttribute("data-convert"), convB.getAttribute("data-num"));
+          return;
+        }
+        if(linkB){
+          e.preventDefault();
+          generatePaymentLink(
+            linkB.getAttribute("data-link"),
+            linkB.getAttribute("data-num"),
+            linkB.getAttribute("data-regen") === "1"
+          );
+          return;
+        }
         if(loadB){ e.preventDefault(); loadDoc(loadB.getAttribute("data-load")); return; }
         if(delB){
           e.preventDefault();
@@ -1200,6 +1436,45 @@ const PAGE_SCRIPT = `<script>
         }
       }, { once: true });
     } catch(e){ setStatus("History load failed."); }
+  }
+  function copyToClipboard(text){
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      return navigator.clipboard.writeText(text).then(function(){ return true; }).catch(function(){ return false; });
+    }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.left = "-9999px";
+      document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return Promise.resolve(!!ok);
+    } catch { return Promise.resolve(false); }
+  }
+  async function convertQuote(id, num){
+    if(!confirm("Convert quote " + num + " to an invoice?\\n\\nA new invoice will be created with the next UMC-INV-#### number, today's date, and the TRN — copying this quote's client, line items, currency, discount and totals. The original quote stays in history unchanged.")) return;
+    setStatus("Converting " + num + " …");
+    try {
+      const r = await fetch("/admin/api/billing/" + id + "/convert", { method: "POST" });
+      const j = await r.json();
+      if(!j.ok){ setStatus("Convert failed: " + (j.error || r.status)); return; }
+      setStatus("Created invoice " + j.number + " from " + num + ". Loading it …");
+      await loadHistory();
+      await loadDoc(j.id);
+    } catch(e){ setStatus("Convert failed: " + (e.message || e)); }
+  }
+  async function generatePaymentLink(id, num, regen){
+    if(regen && !confirm("Regenerate the payment link for " + num + "?\\n\\nThe existing link will be replaced with a new one and overwritten in the record.")) return;
+    setStatus((regen ? "Regenerating" : "Generating") + " payment link for " + num + " …");
+    try {
+      const r = await fetch("/admin/api/billing/" + id + "/payment-link" + (regen ? "?regenerate=1" : ""), { method: "POST" });
+      const j = await r.json();
+      if(!j.ok){ setStatus("Payment link failed: " + (j.error || r.status)); return; }
+      setStatus("Payment link ready for " + num + (j.reused ? " (existing link reused)" : "") + ".");
+      await loadHistory();
+      // Convenience: auto-copy so Usman can paste straight away
+      const ok = await copyToClipboard(j.url);
+      if(ok) setStatus("Payment link copied to clipboard (" + num + ").");
+    } catch(e){ setStatus("Payment link failed: " + (e.message || e)); }
   }
   async function deleteDoc(id, num){
     setStatus("Deleting " + (num || id) + " …");
@@ -1227,6 +1502,7 @@ const PAGE_SCRIPT = `<script>
       if(!state.line_items.length) state.line_items = [{ description:"", qty:1, rate:0 }];
       state.discount = Number(x.discount) || 0;
       state.notes = x.notes || "";
+      state.source_quote_number = x.source_quote_number || null;
       // reflect into UI
       $("tQuote").classList.toggle("on", state.doc_type === "quote");
       $("tInvoice").classList.toggle("on", state.doc_type === "invoice");
