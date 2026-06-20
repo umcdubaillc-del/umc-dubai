@@ -134,6 +134,21 @@ async function ensureSchema(env) {
       if (!/duplicate column|already exists/i.test(msg)) throw e;
     }
   }
+  // v53 — standalone Nomod payment links (Links tab). A separate table keeps
+  // the billing_documents schema clean (a link has no client, items or VAT
+  // surface — it's a one-line collect-this-amount artefact).
+  await env.BILLING_DB.prepare(
+    `CREATE TABLE IF NOT EXISTS payment_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      amount REAL NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'AED',
+      note TEXT,
+      nomod_link_id TEXT,
+      nomod_link_url TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`
+  ).run();
   SCHEMA_DONE.add(env);
 }
 
@@ -314,6 +329,40 @@ const NOMOD_ALLOW_TAMARA      = true;
 const NOMOD_API_URL           = "https://api.nomod.com/v1/links";
 const PUBLIC_ORIGIN           = "https://umc-dubai.umcdubaillc.workers.dev";
 
+// Single source of truth for calling Nomod. Used by both the invoice-attached
+// payment-link endpoint AND the standalone-Links-tab endpoint, so the three
+// toggles above always apply uniformly.
+async function nomodCreateLink(env, payload) {
+  if (!env.NOMOD_API_KEY) {
+    return { ok: false, status: 503,
+      error: "NOMOD_API_KEY not configured on this Worker. Run `npx wrangler secret put NOMOD_API_KEY` (Usman generates the key in the Nomod app under Connect and Manage Integrations)." };
+  }
+  let res, body = null;
+  try {
+    res = await fetch(NOMOD_API_URL, {
+      method: "POST",
+      headers: {
+        "X-API-KEY": env.NOMOD_API_KEY,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    try { body = JSON.parse(text); } catch { body = { _raw: text }; }
+  } catch (e) {
+    const detail = (e && e.message) || String(e);
+    console.log("Nomod request failed (network):", detail);
+    return { ok: false, status: 502, error: "Nomod request failed (network)", detail };
+  }
+  if (!res.ok || !body || !body.url) {
+    const detail = (body && (body.message || body.error || JSON.stringify(body))) || `HTTP ${res.status}`;
+    console.log("Nomod rejected:", res.status, detail);
+    return { ok: false, status: 502, error: `Nomod rejected the request: ${detail}` };
+  }
+  return { ok: true, data: body };
+}
+
 async function handlePaymentLink(id, env, opts) {
   opts = opts || {};
   await ensureSchema(env);
@@ -327,13 +376,6 @@ async function handlePaymentLink(id, env, opts) {
   if (inv.nomod_link_url && !opts.regenerate) {
     return json({ ok: true, url: inv.nomod_link_url, id: inv.nomod_link_id, reused: true });
   }
-  if (!env.NOMOD_API_KEY) {
-    return json({
-      ok: false,
-      error: "NOMOD_API_KEY not configured on this Worker. Run `npx wrangler secret put NOMOD_API_KEY` (Usman generates the key in the Nomod app under Connect and Manage Integrations).",
-    }, 503);
-  }
-
   // Items: each invoice line as a Nomod item + one VAT (5%) line so the link
   // total = invoice.total exactly (subtotal + vat). amounts are decimal
   // strings (Nomod docs example uses string form like "10.00").
@@ -347,45 +389,20 @@ async function handlePaymentLink(id, env, opts) {
   if (Number(inv.vat) > 0) {
     items.push({ name: "VAT (5%)", amount: Number(inv.vat).toFixed(2), quantity: 1 });
   }
-
-  const note = `Payment for UMC In Bound Tour Operator LLC invoice ${inv.number}`.slice(0, 280);
-  const body = {
+  const payload = {
     currency: String(inv.currency || "AED"),
     items,
     title: String(inv.number).slice(0, 50),
-    note,
+    note: `Payment for UMC In Bound Tour Operator LLC invoice ${inv.number}`.slice(0, 280),
     success_url: PUBLIC_ORIGIN + "/?paid=" + encodeURIComponent(inv.number),
     failure_url: PUBLIC_ORIGIN + "/contact?invoice=" + encodeURIComponent(inv.number),
     allow_service_fee: NOMOD_ALLOW_SERVICE_FEE,
     allow_tabby:       NOMOD_ALLOW_TABBY,
     allow_tamara:      NOMOD_ALLOW_TAMARA,
   };
-
-  let nomodRes;
-  let nomodBody = null;
-  try {
-    nomodRes = await fetch(NOMOD_API_URL, {
-      method: "POST",
-      headers: {
-        "X-API-KEY": env.NOMOD_API_KEY,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    const text = await nomodRes.text();
-    try { nomodBody = JSON.parse(text); }
-    catch { nomodBody = { _raw: text }; }
-  } catch (e) {
-    const detail = (e && e.message) || String(e);
-    console.log("Nomod request failed (network):", detail);
-    return json({ ok: false, error: "Nomod request failed (network)", detail }, 502);
-  }
-  if (!nomodRes.ok || !nomodBody || !nomodBody.url) {
-    const detail = (nomodBody && (nomodBody.message || nomodBody.error || JSON.stringify(nomodBody))) || `HTTP ${nomodRes.status}`;
-    console.log("Nomod rejected:", nomodRes.status, detail);
-    return json({ ok: false, error: `Nomod rejected the request: ${detail}`, status: nomodRes.status }, 502);
-  }
+  const nm = await nomodCreateLink(env, payload);
+  if (!nm.ok) return json({ ok: false, error: nm.error, detail: nm.detail }, nm.status || 502);
+  const nomodBody = nm.data;
   const createdAt = new Date().toISOString();
   try {
     await env.BILLING_DB.prepare(
@@ -394,8 +411,6 @@ async function handlePaymentLink(id, env, opts) {
        WHERE id = ?`
     ).bind(nomodBody.id || null, nomodBody.url, createdAt, id).run();
   } catch (e) {
-    // Link was created on Nomod but the DB write failed — surface the URL so
-    // it isn't lost and warn the admin so Usman can manually note it.
     return json({
       ok: true, url: nomodBody.url, id: nomodBody.id, created_at: createdAt,
       warning: "Link created but DB persistence failed: " + ((e && e.message) || String(e)),
@@ -408,6 +423,74 @@ async function handlePaymentLink(id, env, opts) {
     created_at: createdAt,
     regenerated: !!opts.regenerate,
   });
+}
+
+// ============================================================ v53: standalone Nomod links (Links tab)
+//
+// A "standalone" link is just a Nomod payment URL with a title and an amount —
+// no invoice, no client record, no VAT row. Usman uses these for deposits,
+// ad-hoc charges or quick WhatsApp collections. The Links tab posts here.
+
+async function handleCreateStandaloneLink(request, env) {
+  await ensureSchema(env);
+  let b;
+  try {
+    const raw = await request.text();
+    if (raw.length > 8192) return json({ ok: false, error: "payload too large" }, 400);
+    b = JSON.parse(raw);
+  } catch { return json({ ok: false, error: "bad json" }, 400); }
+  const title = String((b && b.title) || "").trim();
+  const amount = Number(b && b.amount);
+  const currency = String((b && b.currency) || "AED").trim() || "AED";
+  const note = String((b && b.note) || "").trim();
+  if (!title) return json({ ok: false, error: "title is required" }, 400);
+  if (!isFinite(amount) || amount <= 0) return json({ ok: false, error: "amount must be a positive number" }, 400);
+  const payload = {
+    currency,
+    items: [{ name: title.slice(0, 60), amount: amount.toFixed(2), quantity: 1 }],
+    title: title.slice(0, 50),
+    note: (note || `Payment to UMC In Bound Tour Operator LLC — ${title}`).slice(0, 280),
+    success_url: PUBLIC_ORIGIN + "/?paid=" + encodeURIComponent(title),
+    failure_url: PUBLIC_ORIGIN + "/contact?ref=" + encodeURIComponent(title),
+    allow_service_fee: NOMOD_ALLOW_SERVICE_FEE,
+    allow_tabby:       NOMOD_ALLOW_TABBY,
+    allow_tamara:      NOMOD_ALLOW_TAMARA,
+  };
+  const nm = await nomodCreateLink(env, payload);
+  if (!nm.ok) return json({ ok: false, error: nm.error, detail: nm.detail }, nm.status || 502);
+  const nomodBody = nm.data;
+  try {
+    const ins = await env.BILLING_DB.prepare(
+      `INSERT INTO payment_links (title, amount, currency, note, nomod_link_id, nomod_link_url)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(title, amount, currency, note || null, nomodBody.id || null, nomodBody.url).run();
+    const id = ins && ins.meta && ins.meta.last_row_id;
+    return json({ ok: true, id, url: nomodBody.url, nomod_id: nomodBody.id });
+  } catch (e) {
+    // Link is live on Nomod even if our DB write failed — return it.
+    return json({
+      ok: true, url: nomodBody.url, nomod_id: nomodBody.id,
+      warning: "Link created but DB persistence failed: " + ((e && e.message) || String(e)),
+    });
+  }
+}
+
+async function handleListLinks(env) {
+  await ensureSchema(env);
+  const { results } = await env.BILLING_DB.prepare(
+    `SELECT id, title, amount, currency, note, nomod_link_id, nomod_link_url, created_at
+     FROM payment_links ORDER BY id DESC LIMIT 500`
+  ).all();
+  return json({ ok: true, items: results || [] });
+}
+
+async function handleDeleteLink(id, env) {
+  await ensureSchema(env);
+  const res = await env.BILLING_DB.prepare(
+    "DELETE FROM payment_links WHERE id = ?"
+  ).bind(id).run();
+  if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
+  return json({ ok: true, id });
 }
 
 // ============================================================ dispatcher
@@ -452,6 +535,18 @@ export async function handleAdmin(request, env) {
       const regenerate = url.searchParams.get("regenerate") === "1";
       return handlePaymentLink(parseInt(linkM[1], 10), env, { regenerate });
     }
+    return json({ ok: false, error: "not found" }, 404);
+  }
+
+  // v53 — standalone Nomod links (Links tab in /admin/billing)
+  if (path.startsWith("/admin/api/links")) {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    if (path === "/admin/api/links" && method === "GET") return handleListLinks(env);
+    if (path === "/admin/api/links" && method === "POST") return handleCreateStandaloneLink(request, env);
+    const lm = path.match(/^\/admin\/api\/links\/(\d+)$/);
+    if (lm && method === "DELETE") return handleDeleteLink(parseInt(lm[1], 10), env);
     return json({ ok: false, error: "not found" }, 404);
   }
 
@@ -509,6 +604,23 @@ hr.amber{border:0;border-top:1px solid var(--amber);width:32px;margin:1rem 0}
 /* Header — vertical UMC / dash / Dubai · Billing lockup, matches the site
    header and the PDF body lockup (item 7 from the latest round). */
 header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1rem 1.5rem;display:flex;align-items:center;justify-content:space-between;gap:1rem}
+
+/* ============ v53 Phase 2: tabbed app shell ============
+   The /admin/billing surface is now three tabs — Create, Documents, Links —
+   under a persistent UMC masthead. Active tab marked with amber underline +
+   ink text; inactive tabs muted. A disabled "Payments" tab is kept as a
+   visible seam for the reconciliation view that comes next. */
+nav.tabbar{background:var(--card);border-bottom:1px solid var(--hair);padding:0 1.5rem;display:flex;gap:0;align-items:stretch;overflow-x:auto;-webkit-overflow-scrolling:touch}
+nav.tabbar .tab{position:relative;padding:.9rem 1.4rem;font-family:Outfit,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);background:transparent;border:0;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .2s ease,border-color .2s ease;min-height:44px;white-space:nowrap;display:inline-flex;align-items:center;gap:.5rem}
+nav.tabbar .tab:hover:not([disabled]){color:var(--ink)}
+nav.tabbar .tab:focus-visible{outline:none;color:var(--ink);border-bottom-color:var(--amber)}
+nav.tabbar .tab.on{color:var(--ink);border-bottom-color:var(--amber)}
+nav.tabbar .tab[disabled]{color:var(--hair);cursor:not-allowed}
+nav.tabbar .tab[disabled] .tab-soon{color:var(--hair);border-color:var(--hair)}
+nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);border:1px solid var(--hair);padding:.1rem .35rem;border-radius:2px;text-transform:uppercase}
+.tab-panel{display:none}
+.tab-panel.on{display:block}
+@media(prefers-reduced-motion:reduce){nav.tabbar .tab{transition:none}}
 .lockup{display:flex;flex-direction:column;align-items:center;gap:.4rem;line-height:1}
 .lockup .uni{font-family:Marcellus,serif;font-size:1.25rem;letter-spacing:.36em;color:var(--ink)}
 .lockup .dash{width:24px;height:1px;background:var(--amber)}
@@ -684,6 +796,27 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
 .history .hist-actions{text-align:right}
 .history .hist-actions .btn{margin-left:.25rem}
 .history .hist-actions .btn:first-child{margin-left:0}
+
+/* v53 Phase 2: Documents tab header + filter bar */
+.history-wrap{padding:1.5rem}
+.history .hist-head{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:1rem;flex-wrap:wrap}
+.history .hist-head h2{margin-bottom:.25rem}
+.history .hist-sub{font-size:12.5px;color:var(--muted);max-width:60ch;margin:0}
+.history .hist-filterbar{display:flex;justify-content:space-between;align-items:flex-end;gap:1rem;flex-wrap:wrap;margin:0 0 .8rem;padding:.7rem 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
+.history .hist-search{flex:1 1 280px;min-width:0}
+.history .hist-search input{padding:.45rem .6rem;font-size:13px}
+.history .hist-typefilter{display:inline-flex;border:1px solid var(--hair);border-radius:3px;background:var(--bone2);padding:2px;gap:0}
+.history .hist-typefilter .seg{padding:.4rem .9rem;font-family:Outfit;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);background:transparent;border:0;border-radius:2px;min-height:32px;cursor:pointer;transition:background .2s,color .2s}
+.history .hist-typefilter .seg.on{background:var(--ink);color:var(--bone)}
+.history .hist-status{display:inline-block;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+.history .hist-status.linked{color:var(--amber-deep)}
+.history .empty{padding:1.5rem .5rem;color:var(--muted);font-size:13px;text-align:center;border-top:1px solid var(--hair)}
+
+/* v53 Phase 2: Links tab layout */
+.links-page{padding:1.5rem;display:grid;gap:1.5rem;max-width:920px;margin:0 auto}
+.links-page > .panel{max-width:560px}
+.links-page .actions{margin-top:.6rem}
+.links-page .history-wrap{padding:0}
 .empty{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
 
 /* Email body box */
@@ -715,7 +848,7 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
     <span class="duo">Dubai · Billing</span>
   </div>
   <div class="hdr-right">
-    <span class="crumb">${authed ? "Internal — Quote &amp; Invoice generator" : "Sign-in required"}</span>
+    <span class="crumb">${authed ? "Internal &middot; Billing workspace" : "Sign-in required"}</span>
     ${authed ? `<button type="button" class="btn btn-small btn-ghost" id="btnLogout">Sign out</button>` : ""}
   </div>
 </header>
@@ -743,6 +876,14 @@ function loginHTML(adminMissing) {
 
 function appShellHTML() {
   return `
+<nav class="tabbar" role="tablist" aria-label="Billing sections">
+  <button type="button" class="tab on" role="tab" aria-selected="true"  data-tab="create"    id="tabBtnCreate">Create</button>
+  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="documents" id="tabBtnDocuments">Documents</button>
+  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="links"     id="tabBtnLinks">Links</button>
+  <button type="button" class="tab"    role="tab" aria-selected="false" disabled                                  title="Coming next: paid / unpaid reconciliation">Payments<span class="tab-soon">Soon</span></button>
+</nav>
+
+<section id="tab-create" class="tab-panel on" role="tabpanel" aria-labelledby="tabBtnCreate">
 <main class="app">
 
   <section class="panel" aria-label="Editor">
@@ -852,22 +993,90 @@ function appShellHTML() {
   </section>
 
 </main>
+</section><!-- /#tab-create -->
 
+<section id="tab-documents" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnDocuments" hidden>
 <section class="history-wrap">
   <div class="history">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem">
-      <h2>Document history</h2>
+    <div class="hist-head">
+      <div>
+        <h2>Documents</h2>
+        <p class="hist-sub">The institutional ledger — every quote and invoice issued, ordered most recent first.</p>
+      </div>
       <button type="button" class="btn btn-small btn-ghost" id="btnRefresh">Refresh</button>
+    </div>
+    <div class="hist-filterbar">
+      <div class="hist-search">
+        <label class="lbl" for="histSearch">Search</label>
+        <input id="histSearch" type="search" placeholder="Number, client, company …" autocomplete="off">
+      </div>
+      <div class="hist-typefilter" role="tablist" aria-label="Filter by type">
+        <button type="button" class="seg on" data-typefilter="all">All</button>
+        <button type="button" class="seg"     data-typefilter="quote">Quotes</button>
+        <button type="button" class="seg"     data-typefilter="invoice">Invoices</button>
+      </div>
     </div>
     <div class="hist-scroll">
       <table>
-        <thead><tr><th>Number</th><th>Type</th><th>Date</th><th>Client</th><th style="text-align:right">Total</th><th></th></tr></thead>
+        <thead><tr><th>Number</th><th>Type</th><th>Date</th><th>Client</th><th style="text-align:right">Total</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
         <tbody id="histBody"></tbody>
       </table>
     </div>
     <div class="empty" id="histEmpty" hidden>No documents yet.</div>
   </div>
-</section>`;
+</section>
+</section><!-- /#tab-documents -->
+
+<section id="tab-links" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnLinks" hidden>
+<div class="links-page">
+
+  <section class="panel" aria-label="Create a standalone payment link">
+    <h2>New payment link</h2>
+    <p class="hist-sub">Create a Nomod link without a full invoice &mdash; for deposits, ad-hoc charges or quick WhatsApp collection. <b>Enter the total amount to collect.</b></p>
+
+    <div class="field"><label class="lbl" for="lkTitle">Title</label><input id="lkTitle" type="text" placeholder="Deposit &middot; Mr Smith &middot; 18 Jun 2026" maxlength="50" autocomplete="off"></div>
+
+    <div class="row2">
+      <div class="field"><label class="lbl" for="lkAmount">Amount</label><input id="lkAmount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
+      <div class="field">
+        <label class="lbl" for="lkCurrency">Currency</label>
+        <select id="lkCurrency">
+          <option value="AED" selected>AED &mdash; UAE Dirham</option>
+          <option value="USD">USD &mdash; US Dollar</option>
+          <option value="EUR">EUR &mdash; Euro</option>
+          <option value="GBP">GBP &mdash; Pound Sterling</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field"><label class="lbl" for="lkNote">Note (optional)</label><textarea id="lkNote" rows="2" maxlength="280" placeholder="Shown on the Nomod payment page"></textarea></div>
+
+    <div class="actions">
+      <button type="button" class="btn" id="lkCreate">Create payment link</button>
+    </div>
+    <div class="status-line" id="lkStatus"></div>
+  </section>
+
+  <div class="history">
+    <div class="hist-head">
+      <div>
+        <h2>Standalone links</h2>
+        <p class="hist-sub">Payment links not attached to an invoice. Use for deposits, ad-hoc charges and WhatsApp collection.</p>
+      </div>
+      <button type="button" class="btn btn-small btn-ghost" id="lkRefresh">Refresh</button>
+    </div>
+    <div class="hist-scroll">
+      <table>
+        <thead><tr><th>Title</th><th style="text-align:right">Amount</th><th>Created</th><th>Link</th><th style="text-align:right">Actions</th></tr></thead>
+        <tbody id="lkBody"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="lkEmpty" hidden>No standalone links yet.</div>
+  </div>
+
+</div>
+</section><!-- /#tab-links -->
+`;
 }
 
 const LOGIN_SCRIPT = `<script>
@@ -1262,6 +1471,151 @@ const PAGE_SCRIPT = `<script>
     $("btnLogout").addEventListener("click", onLogout);
     $("btnRefresh").addEventListener("click", loadHistory);
 
+    // ---------- v53 Phase 2: tabbed app shell ----------
+    // Tabs are buttons in nav.tabbar; their data-tab matches a panel id
+    // (tab-<name>). Switching is purely client-side — no full reload — but
+    // each tab's data still comes from the existing /admin/api endpoints.
+    const tabs = document.querySelectorAll("nav.tabbar .tab[data-tab]");
+    function switchTab(name){
+      tabs.forEach(function(b){
+        const on = b.getAttribute("data-tab") === name;
+        b.classList.toggle("on", on);
+        b.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      ["create","documents","links"].forEach(function(n){
+        const el = document.getElementById("tab-" + n);
+        if(!el) return;
+        const on = n === name;
+        el.classList.toggle("on", on);
+        if(on){ el.removeAttribute("hidden"); } else { el.setAttribute("hidden",""); }
+      });
+      if(name === "documents") loadHistory();
+      if(name === "links") loadLinks();
+      // Re-fit the preview if Create came back into view — its sticky/scale
+      // calc only runs while it's visible.
+      if(name === "create" && typeof fitDocToViewport === "function") fitDocToViewport();
+    }
+    tabs.forEach(function(b){
+      b.addEventListener("click", function(){ switchTab(b.getAttribute("data-tab")); });
+    });
+
+    // ---------- v53 Phase 2: history type-filter + search ----------
+    // Client-side filtering keeps the API surface unchanged. State lives on
+    // the tbody as data-attributes so loadHistory() can re-apply after a
+    // refresh without losing the user's current selection.
+    const histBody = $("histBody");
+    const histSearch = $("histSearch");
+    document.querySelectorAll(".hist-typefilter .seg").forEach(function(b){
+      b.addEventListener("click", function(){
+        document.querySelectorAll(".hist-typefilter .seg").forEach(function(s){ s.classList.toggle("on", s === b); });
+        if(histBody) histBody.dataset.typeFilter = b.getAttribute("data-typefilter") || "all";
+        applyHistoryFilter();
+      });
+    });
+    if(histSearch){
+      let t = null;
+      histSearch.addEventListener("input", function(){
+        if(t) clearTimeout(t);
+        t = setTimeout(function(){
+          if(histBody) histBody.dataset.qFilter = (histSearch.value || "").trim().toLowerCase();
+          applyHistoryFilter();
+        }, 80);
+      });
+    }
+    function applyHistoryFilter(){
+      if(!histBody) return;
+      const t = (histBody.dataset.typeFilter || "all").toLowerCase();
+      const q = (histBody.dataset.qFilter || "").toLowerCase();
+      histBody.querySelectorAll("tr").forEach(function(tr){
+        const rowType = (tr.getAttribute("data-doctype") || "").toLowerCase();
+        const rowText = (tr.getAttribute("data-searchtext") || "").toLowerCase();
+        const okT = t === "all" || rowType === t;
+        const okQ = !q || rowText.indexOf(q) !== -1;
+        tr.style.display = (okT && okQ) ? "" : "none";
+      });
+    }
+
+    // ---------- v53 Phase 2: Links tab logic ----------
+    $("lkRefresh").addEventListener("click", loadLinks);
+    $("lkCreate").addEventListener("click", createStandaloneLink);
+    let linksLoaded = false;
+    async function loadLinks(){
+      try {
+        const r = await fetch("/admin/api/links");
+        const j = await r.json();
+        const tbody = $("lkBody");
+        const empty = $("lkEmpty");
+        if(!j.ok || !j.items || !j.items.length){ tbody.innerHTML = ""; empty.hidden = false; linksLoaded = true; return; }
+        empty.hidden = true;
+        tbody.innerHTML = j.items.map(function(x){
+          const u = String(x.nomod_link_url || "");
+          const shortU = u.replace(/^https?:\\/\\//,'').slice(0,42) + (u.length > 50 ? '…' : '');
+          return '<tr>'
+            + '<td>'+esc(x.title)+(x.note ? '<div class="hist-link" style="color:var(--muted)">'+esc(x.note)+'</div>' : '')+'</td>'
+            + '<td style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(Number(x.amount), x.currency))+'</td>'
+            + '<td>'+esc(fmtDate(x.created_at))+'</td>'
+            + '<td><div class="hist-link"><a href="'+esc(u)+'" target="_blank" rel="noopener noreferrer" title="'+esc(u)+'">'+esc(shortU)+'</a></div></td>'
+            + '<td class="hist-actions">'
+            +   '<button type="button" class="btn btn-small btn-ghost" data-lkcopy="'+esc(u)+'" title="Copy link to clipboard">Copy link</button> '
+            +   '<button type="button" class="btn btn-small btn-danger" data-lkdel="'+x.id+'" data-lktitle="'+esc(x.title)+'" title="Delete this link from the record (the Nomod URL itself stays live)">&times;</button>'
+            + '</td>'
+            + '</tr>';
+        }).join("");
+        tbody.addEventListener("click", function(e){
+          const cp = e.target.closest("[data-lkcopy]");
+          const dl = e.target.closest("[data-lkdel]");
+          if(cp){
+            e.preventDefault();
+            copyToClipboard(cp.getAttribute("data-lkcopy")).then(function(ok){
+              setLkStatus(ok ? "Link copied." : "Copy failed.");
+            });
+            return;
+          }
+          if(dl){
+            e.preventDefault();
+            const title = dl.getAttribute("data-lktitle") || "this link";
+            if(!confirm("Remove " + title + " from the standalone-links record?\\n\\nThe Nomod payment URL itself stays live — Usman, anyone with the link can still pay until it expires on Nomod. This only removes it from your local record.")) return;
+            deleteStandaloneLink(dl.getAttribute("data-lkdel"));
+          }
+        }, { once: true });
+        linksLoaded = true;
+      } catch(e){ setLkStatus("Links load failed."); }
+    }
+    function setLkStatus(s){ const el = $("lkStatus"); if(el) el.textContent = s; }
+    async function createStandaloneLink(){
+      const title = $("lkTitle").value.trim();
+      const amount = Number($("lkAmount").value);
+      const currency = $("lkCurrency").value;
+      const note = $("lkNote").value.trim();
+      if(!title){ setLkStatus("Title is required."); $("lkTitle").focus(); return; }
+      if(!isFinite(amount) || amount <= 0){ setLkStatus("Amount must be a positive number."); $("lkAmount").focus(); return; }
+      setLkStatus("Creating payment link via Nomod …");
+      $("lkCreate").disabled = true;
+      try {
+        const r = await fetch("/admin/api/links", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, amount, currency, note })
+        });
+        const j = await r.json();
+        if(!j.ok){ setLkStatus("Failed: " + (j.error || r.status)); return; }
+        setLkStatus("Link created. Copying …");
+        const ok = await copyToClipboard(j.url);
+        setLkStatus(ok ? "Link created and copied to clipboard." : "Link created. (Auto-copy unavailable; use Copy link.)");
+        $("lkTitle").value = ""; $("lkAmount").value = ""; $("lkNote").value = "";
+        await loadLinks();
+      } catch(e){ setLkStatus("Failed: " + (e.message || e)); }
+      finally { $("lkCreate").disabled = false; }
+    }
+    async function deleteStandaloneLink(id){
+      try {
+        const r = await fetch("/admin/api/links/" + id, { method: "DELETE" });
+        const j = await r.json();
+        if(j.ok){ setLkStatus("Removed."); loadLinks(); }
+        else { setLkStatus("Delete failed: " + (j.error || r.status)); }
+      } catch(e){ setLkStatus("Delete failed: " + (e.message || e)); }
+    }
+
     // Email-to-client checkbox: reveal recipients input; pre-fill with the
     // client-email field if it is set and no override has been typed yet.
     $("fEmailTo").addEventListener("change", function(e){
@@ -1388,15 +1742,21 @@ const PAGE_SCRIPT = `<script>
           }
         }
         actions.push('<button type="button" class="btn btn-small btn-danger" data-del="'+x.id+'" data-num="'+esc(x.number)+'" data-type="'+esc(x.doc_type)+'" title="Delete">×</button>');
-        return '<tr>'
+        const statusTxt = isInvoice
+          ? (hasLink ? '<span class="hist-status linked">Link sent</span>' : '<span class="hist-status">&mdash;</span>')
+          : (x.source_quote_number ? '<span class="hist-status">Converted</span>' : '<span class="hist-status">&mdash;</span>');
+        const searchText = [x.number, x.client_name || "", x.client_company || "", x.source_quote_number || ""].join(" ");
+        return '<tr data-doctype="'+esc(x.doc_type)+'" data-searchtext="'+esc(searchText)+'">'
           + '<td><a href="#" data-load="'+x.id+'">'+esc(x.number)+'</a>'+srcTag+linkPreview+'</td>'
           + '<td><span class="pill '+(isInvoice?'inv':'')+'">'+x.doc_type+'</span></td>'
           + '<td>'+esc(fmtDate(x.doc_date))+'</td>'
           + '<td>'+esc(x.client_name || "")+(x.client_company?' <span style="color:#7A6F5F">('+esc(x.client_company)+')</span>':'')+'</td>'
           + '<td style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(x.total, x.currency))+'</td>'
+          + '<td>'+statusTxt+'</td>'
           + '<td style="text-align:right;white-space:nowrap" class="hist-actions">'+actions.join(' ')+'</td>'
           + '</tr>';
       }).join("");
+      applyHistoryFilter();
       tbody.addEventListener("click", function(e){
         const loadB = e.target.closest("[data-load]");
         const delB  = e.target.closest("[data-del]");
