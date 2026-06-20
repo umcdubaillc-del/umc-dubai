@@ -152,25 +152,64 @@ async function ensureSchema(env) {
   SCHEMA_DONE.add(env);
 }
 
+// v54 — description hygiene shared by the Nomod payload (server-side) and
+// the doc preview / PDF (client-side; see the JS counterpart in PAGE_SCRIPT).
+// Two repairs:
+//   "16 June th"  -> "16th June"   (ordinal stranded after the month)
+//   "16 June nd"  -> "16nd June"   (same family — preserve user's suffix)
+// then a short-name extractor that takes the lead phrase (everything before
+// "From:" / " — " / " - "), collapses whitespace and caps at 50 chars so the
+// Nomod item.name never overflows and gets truncated mid-route.
+const _MONTHS_RE = "January|February|March|April|May|June|July|August|September|October|November|December";
+function cleanDescription(s) {
+  if (!s) return "";
+  return String(s).replace(
+    new RegExp(`(\\d{1,2})\\s+(${_MONTHS_RE})\\s+(th|st|nd|rd)\\b`, "gi"),
+    function(_, day, month, ord) { return day + ord.toLowerCase() + " " + month; }
+  );
+}
+function shortItemName(desc) {
+  const cleaned = cleanDescription(desc || "");
+  const lead = cleaned
+    .split(/\bFrom[:\s]/i)[0]
+    .split(/\s[—–-]\s/)[0]
+    .replace(/\s+/g, " ")
+    .trim();
+  const out = (lead || cleaned).slice(0, 50).trim();
+  return out || "Service";
+}
+
 const PREFIX = { quote: "UMC-Q-", invoice: "UMC-INV-" };
+
+// v54 — start each series from a higher base so the next quote/invoice doesn't
+// signal "first one ever". Change here to slide either series forward; the
+// next-number logic floors at the base AND stays above the max existing number
+// in the table, so flipping the base later never produces a collision.
+const NUMBER_BASE = { quote: 1001, invoice: 1001 };
 
 function pad4(n) { return String(n).padStart(4, "0"); }
 
-function nextFromExisting(existing, type) {
-  const pref = PREFIX[type];
-  if (!existing) return pref + "0001";
-  const m = String(existing).match(/(\d+)\s*$/);
-  const n = m ? parseInt(m[1], 10) + 1 : 1;
-  return pref + pad4(n);
+function nextFromExisting(existingNumeric, type) {
+  // existingNumeric: highest integer suffix already on disk for this type, or 0.
+  const base = NUMBER_BASE[type] || 1;
+  const next = Math.max(Number(existingNumeric || 0) + 1, base);
+  return PREFIX[type] + pad4(next);
 }
 
 async function nextNumber(env, type) {
   if (!PREFIX[type]) throw new Error("invalid type");
   await ensureSchema(env);
+  // Compute the highest integer suffix actually present for this type. SQLite
+  // is happy to CAST a SUBSTR to integer; non-numeric suffixes fall through as 0.
+  // This stays correct even if records were entered out of insertion order or
+  // the base was bumped after old low-numbered records already existed.
+  const prefLen = PREFIX[type].length;
   const row = await env.BILLING_DB.prepare(
-    "SELECT number FROM billing_documents WHERE doc_type = ? ORDER BY id DESC LIMIT 1"
-  ).bind(type).first();
-  return nextFromExisting(row && row.number, type);
+    `SELECT MAX(CAST(SUBSTR(number, ?) AS INTEGER)) AS maxn
+     FROM billing_documents WHERE doc_type = ?`
+  ).bind(prefLen + 1, type).first();
+  const maxN = row && row.maxn != null ? Number(row.maxn) : 0;
+  return nextFromExisting(maxN, type);
 }
 
 // ============================================================ route handlers
@@ -376,18 +415,47 @@ async function handlePaymentLink(id, env, opts) {
   if (inv.nomod_link_url && !opts.regenerate) {
     return json({ ok: true, url: inv.nomod_link_url, id: inv.nomod_link_id, reused: true });
   }
-  // Items: each invoice line as a Nomod item + one VAT (5%) line so the link
-  // total = invoice.total exactly (subtotal + vat). amounts are decimal
-  // strings (Nomod docs example uses string form like "10.00").
+  // v54 critical fix: VAT comes from Nomod's own account tax setting (5%),
+  // not from us. We previously also pushed a "VAT (5%)" line into the items
+  // array — Nomod then taxed that line too, producing 1,050 + 5% = 1,102.50
+  // on a 1,050 invoice. The fix: send NET (VAT-exclusive) line items only,
+  // no VAT line. Nomod adds 5% once -> link total == invoice grand total.
+  //
+  // CRITICAL DEPENDENCY: the Nomod merchant account this Worker talks to has
+  // a 5% account tax configured and applied to every link. If that setting
+  // is ever changed or removed, this code WILL under/over-charge — keep the
+  // Nomod account tax and this code in sync, or restore an explicit VAT
+  // item (and switch off the account tax) as the inverse approach.
   let line_items;
   try { line_items = JSON.parse(inv.line_items) || []; } catch { line_items = []; }
-  const items = line_items.map((li) => ({
-    name: String(li.description || "Item").slice(0, 60) || "Item",
-    amount: Number(li.rate || 0).toFixed(2),
-    quantity: Math.max(1, parseInt(li.qty, 10) || 1),
-  }));
-  if (Number(inv.vat) > 0) {
-    items.push({ name: "VAT (5%)", amount: Number(inv.vat).toFixed(2), quantity: 1 });
+  const vatMode = String(inv.vat_mode || "exclusive");
+  const discount = Math.max(0, Number(inv.discount) || 0);
+  // Target NET amount Nomod's items must sum to so that NET * 1.05 = invoice
+  // grand total. inv.total is the persisted invoice total INCLUDING VAT and
+  // INCLUDING discount, in both vat modes.
+  const targetNet = Number(inv.total) / 1.05;
+  // Build per-line items at NET unit price. Exclusive: stored rate IS net.
+  // Inclusive: stored rate is gross of 5%, so divide by 1.05 to get net.
+  // Discount changes the relationship between the line sum and the target,
+  // so when discount > 0 we collapse to one consolidated item that hits the
+  // target exactly (cleaner than scaling per-line amounts).
+  let items;
+  if (discount > 0) {
+    items = [{
+      name: ("Invoice " + String(inv.number)).slice(0, 50) || "Invoice",
+      amount: targetNet.toFixed(2),
+      quantity: 1,
+    }];
+  } else {
+    items = line_items.map((li) => {
+      const rate = Number(li.rate || 0);
+      const net = vatMode === "inclusive" ? rate / 1.05 : rate;
+      return {
+        name: shortItemName(li.description),
+        amount: Number(net).toFixed(2),
+        quantity: Math.max(1, parseInt(li.qty, 10) || 1),
+      };
+    });
   }
   const payload = {
     currency: String(inv.currency || "AED"),
@@ -445,9 +513,13 @@ async function handleCreateStandaloneLink(request, env) {
   const note = String((b && b.note) || "").trim();
   if (!title) return json({ ok: false, error: "title is required" }, 400);
   if (!isFinite(amount) || amount <= 0) return json({ ok: false, error: "amount must be a positive number" }, 400);
+  // v54: customer pays exactly `amount` (the "total to collect" the user
+  // entered). Nomod account tax is 5%, so we send NET = amount / 1.05.
+  // Nomod then adds its 5% and the customer's total lands at `amount`.
+  const netAmount = Number(amount) / 1.05;
   const payload = {
     currency,
-    items: [{ name: title.slice(0, 60), amount: amount.toFixed(2), quantity: 1 }],
+    items: [{ name: shortItemName(title), amount: netAmount.toFixed(2), quantity: 1 }],
     title: title.slice(0, 50),
     note: (note || `Payment to UMC In Bound Tour Operator LLC — ${title}`).slice(0, 280),
     success_url: PUBLIC_ORIGIN + "/?paid=" + encodeURIComponent(title),
@@ -1157,6 +1229,19 @@ const PAGE_SCRIPT = `<script>
       return new Date(s + "T12:00:00").toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" });
     } catch(e){ return s; }
   }
+  // v54: description hygiene. Mirrors the server-side cleanDescription helper
+  // so the PDF/preview reads the same way the Nomod link does. Fixes the
+  // "16 June th" -> "16th June" ordinal-stranded-after-month bug at render
+  // time so the live preview, the printed PDF, and the Nomod page all agree
+  // on a clean line description — without rewriting stored records.
+  function cleanDescription(s){
+    if(!s) return "";
+    const months = "January|February|March|April|May|June|July|August|September|October|November|December";
+    return String(s).replace(
+      new RegExp("(\\\\d{1,2})\\\\s+("+months+")\\\\s+(th|st|nd|rd)\\\\b","gi"),
+      function(_, day, month, ord){ return day+ord.toLowerCase()+" "+month; }
+    );
+  }
   function esc(s){
     return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return ({"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","'":"&#39;"})[c]; });
   }
@@ -1293,7 +1378,7 @@ const PAGE_SCRIPT = `<script>
     const linesHtml = state.line_items.map(function(li, i){
       const t = (Number(li.qty)||0) * (Number(li.rate)||0);
       return '<tr>'
-        + '<td>'+multiLine(li.description || ('Line ' + (i+1)))+'</td>'
+        + '<td>'+multiLine(cleanDescription(li.description) || ('Line ' + (i+1)))+'</td>'
         + '<td class="r">'+(Number(li.qty)||0).toFixed(2)+'</td>'
         + '<td class="r">'+fmtMoney(Number(li.rate)||0, state.currency)+'</td>'
         + '<td class="r">'+fmtMoney(t, state.currency)+'</td>'
