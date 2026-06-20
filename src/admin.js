@@ -199,15 +199,19 @@ function nextFromExisting(existingNumeric, type) {
 async function nextNumber(env, type) {
   if (!PREFIX[type]) throw new Error("invalid type");
   await ensureSchema(env);
-  // Compute the highest integer suffix actually present for this type. SQLite
-  // is happy to CAST a SUBSTR to integer; non-numeric suffixes fall through as 0.
-  // This stays correct even if records were entered out of insertion order or
-  // the base was bumped after old low-numbered records already existed.
-  const prefLen = PREFIX[type].length;
+  // v55 — SHARED pool across both series. A given numeric must not be
+  // independently issued to both a quote AND an invoice; the next number
+  // (whether for a new quote or a new invoice) is one above the highest
+  // numeric used by EITHER series. The convert-quote-to-invoice path is the
+  // only intentional cross-series share, and it bypasses this function.
+  const qLen = PREFIX.quote.length;
+  const iLen = PREFIX.invoice.length;
   const row = await env.BILLING_DB.prepare(
-    `SELECT MAX(CAST(SUBSTR(number, ?) AS INTEGER)) AS maxn
-     FROM billing_documents WHERE doc_type = ?`
-  ).bind(prefLen + 1, type).first();
+    `SELECT MAX(CAST(
+       SUBSTR(number, CASE WHEN doc_type = 'quote' THEN ? ELSE ? END)
+     AS INTEGER)) AS maxn
+     FROM billing_documents`
+  ).bind(qLen + 1, iLen + 1).first();
   const maxN = row && row.maxn != null ? Number(row.maxn) : 0;
   return nextFromExisting(maxN, type);
 }
@@ -279,10 +283,19 @@ async function handleCreate(request, env) {
 
 async function handleList(env) {
   await ensureSchema(env);
+  // v55 — join each row with its converted-invoice number (for quotes that
+  // have been converted) so the UI can swap the "Convert to invoice" button
+  // for a "Converted → UMC-INV-####" indicator. The correlated subquery
+  // returns NULL for invoices and for un-converted quotes.
   const { results } = await env.BILLING_DB.prepare(
-    `SELECT id, doc_type, number, doc_date, client_name, client_company, currency, total,
-            source_quote_number, nomod_link_id, nomod_link_url, nomod_link_created_at, created_at
-     FROM billing_documents ORDER BY id DESC LIMIT 500`
+    `SELECT b.id, b.doc_type, b.number, b.doc_date, b.client_name, b.client_company,
+            b.currency, b.total, b.source_quote_number, b.nomod_link_id,
+            b.nomod_link_url, b.nomod_link_created_at, b.created_at,
+            (SELECT i.number FROM billing_documents i
+              WHERE i.doc_type = 'invoice' AND i.source_quote_number = b.number
+              LIMIT 1) AS converted_invoice_number
+     FROM billing_documents b
+     ORDER BY b.id DESC LIMIT 500`
   ).all();
   return json({ ok: true, items: results || [] });
 }
@@ -323,7 +336,26 @@ async function handleConvertToInvoice(id, env) {
   if (src.doc_type !== "quote") {
     return json({ ok: false, error: "only quotes can be converted to invoices" }, 400);
   }
-  const newNumber = await nextNumber(env, "invoice");
+  // v55 — refuse a double-convert. Once a quote has an invoice issued from it,
+  // no further invoice may be created from the same quote (server-enforced so
+  // a stale UI button or a direct API call cannot bypass it).
+  const existing = await env.BILLING_DB.prepare(
+    "SELECT id, number FROM billing_documents WHERE doc_type = 'invoice' AND source_quote_number = ? LIMIT 1"
+  ).bind(src.number).first();
+  if (existing) {
+    return json({
+      ok: false,
+      error: `Quote ${src.number} has already been converted to invoice ${existing.number}.`,
+      invoice_id: existing.id, invoice_number: existing.number
+    }, 409);
+  }
+  // v55 — the converted invoice SHARES the quote's numeric so the pair is
+  // visually obvious (UMC-Q-1024 -> UMC-INV-1024). This is the only case
+  // where a numeric appears in both series; it's an intentional pair, not a
+  // collision against the shared-pool rule.
+  const m = String(src.number).match(/(\d+)\s*$/);
+  if (!m) return json({ ok: false, error: "Cannot extract numeric from source quote number." }, 500);
+  const newNumber = PREFIX.invoice + m[1];
   const today = new Date().toISOString().slice(0, 10);
   try {
     const res = await env.BILLING_DB.prepare(
@@ -504,42 +536,93 @@ async function handleCreateStandaloneLink(request, env) {
   let b;
   try {
     const raw = await request.text();
-    if (raw.length > 8192) return json({ ok: false, error: "payload too large" }, 400);
+    if (raw.length > 32768) return json({ ok: false, error: "payload too large" }, 400);
     b = JSON.parse(raw);
   } catch { return json({ ok: false, error: "bad json" }, 400); }
+
   const title = String((b && b.title) || "").trim();
-  const amount = Number(b && b.amount);
   const currency = String((b && b.currency) || "AED").trim() || "AED";
   const note = String((b && b.note) || "").trim();
   if (!title) return json({ ok: false, error: "title is required" }, 400);
-  if (!isFinite(amount) || amount <= 0) return json({ ok: false, error: "amount must be a positive number" }, 400);
-  // v54: customer pays exactly `amount` (the "total to collect" the user
-  // entered). Nomod account tax is 5%, so we send NET = amount / 1.05.
-  // Nomod then adds its 5% and the customer's total lands at `amount`.
-  const netAmount = Number(amount) / 1.05;
+
+  // v55 — operator types NET amounts (matching how invoice items are sent).
+  // Nomod's account tax adds 5% on top; the customer pays NET * 1.05. The
+  // UI states this explicitly under the live Total. v54's "type the total,
+  // we divide by 1.05" behaviour is reversed here for consistency.
+  const items_in = Array.isArray(b && b.items) ? b.items : null;
+  let items, netSum = 0;
+  if (items_in && items_in.length) {
+    items = items_in.map(function(it) {
+      const name  = String((it && it.name)  || "Item").trim();
+      const price = Number((it && it.price) || 0);
+      if (!isFinite(price) || price < 0) return null;
+      const qty   = Math.max(1, parseInt(it && it.quantity, 10) || 1);
+      netSum += price * qty;
+      return { name: shortItemName(name) || "Item", amount: price.toFixed(2), quantity: qty };
+    }).filter(Boolean);
+  } else {
+    // Backwards-compat: v52/54-shaped { amount } single-line payload.
+    const amount = Number(b && b.amount);
+    if (!isFinite(amount) || amount <= 0) return json({ ok: false, error: "items[] (with positive price) or amount required" }, 400);
+    items = [{ name: shortItemName(title) || "Service", amount: amount.toFixed(2), quantity: 1 }];
+    netSum = amount;
+  }
+  if (!items.length || netSum <= 0) return json({ ok: false, error: "at least one item with a positive price is required" }, 400);
+
+  const allow_tabby  = b && b.allow_tabby  !== false;   // default ON
+  const allow_tamara = b && b.allow_tamara !== false;   // default ON
+  const allow_tip    = !!(b && b.allow_tip);            // default OFF
+  const ship_req     = !!(b && b.shipping_required);    // default OFF
+  const expiry_date  = (b && b.expiry_date) ? String(b.expiry_date).slice(0, 10) : null;
+
+  const disc = (b && b.discount) || {};
+  const discPctRaw  = disc.mode === "percentage" ? Number(disc.value) : 0;
+  const discFlatRaw = disc.mode === "flat"       ? Number(disc.value) : 0;
+  const discount_pct  = isFinite(discPctRaw)  ? Math.max(0, Math.min(100, discPctRaw)) : 0;
+  const discount_flat = isFinite(discFlatRaw) ? Math.max(0, discFlatRaw)               : 0;
+
+  // Nomod create-link has discount_percentage natively. Flat discounts have
+  // no native field, so we collapse to a single NET item at (netSum - flat),
+  // which matches the customer total bar-for-bar after Nomod adds 5%.
+  let payloadItems = items;
+  if (discount_flat > 0) {
+    const target = Math.max(0, netSum - discount_flat);
+    payloadItems = [{ name: shortItemName(title) || "Service", amount: target.toFixed(2), quantity: 1 }];
+  }
+
   const payload = {
     currency,
-    items: [{ name: shortItemName(title), amount: netAmount.toFixed(2), quantity: 1 }],
+    items: payloadItems,
     title: title.slice(0, 50),
     note: (note || `Payment to UMC In Bound Tour Operator LLC — ${title}`).slice(0, 280),
     success_url: PUBLIC_ORIGIN + "/?paid=" + encodeURIComponent(title),
     failure_url: PUBLIC_ORIGIN + "/contact?ref=" + encodeURIComponent(title),
     allow_service_fee: NOMOD_ALLOW_SERVICE_FEE,
-    allow_tabby:       NOMOD_ALLOW_TABBY,
-    allow_tamara:      NOMOD_ALLOW_TAMARA,
+    allow_tabby,
+    allow_tamara,
   };
+  if (allow_tip) payload.allow_tip = true;
+  if (ship_req)  payload.shipping_address_required = true;
+  if (discount_pct > 0) payload.discount_percentage = discount_pct;
+  if (expiry_date)      payload.expiry_date = expiry_date;
+
   const nm = await nomodCreateLink(env, payload);
   if (!nm.ok) return json({ ok: false, error: nm.error, detail: nm.detail }, nm.status || 502);
   const nomodBody = nm.data;
+
+  // Persisted amount = the NET we sent (so the table shows what was charged
+  // pre-Nomod-VAT). The "+5% Nomod" line is implicit, matching the form copy.
+  const persistedNet = (discount_flat > 0) ? Math.max(0, netSum - discount_flat)
+                    : (discount_pct  > 0) ? netSum * (1 - discount_pct/100)
+                    : netSum;
   try {
     const ins = await env.BILLING_DB.prepare(
       `INSERT INTO payment_links (title, amount, currency, note, nomod_link_id, nomod_link_url)
        VALUES (?, ?, ?, ?, ?, ?)`
-    ).bind(title, amount, currency, note || null, nomodBody.id || null, nomodBody.url).run();
+    ).bind(title, persistedNet, currency, note || null, nomodBody.id || null, nomodBody.url).run();
     const id = ins && ins.meta && ins.meta.last_row_id;
-    return json({ ok: true, id, url: nomodBody.url, nomod_id: nomodBody.id });
+    return json({ ok: true, id, url: nomodBody.url, nomod_id: nomodBody.id, amount: persistedNet });
   } catch (e) {
-    // Link is live on Nomod even if our DB write failed — return it.
     return json({
       ok: true, url: nomodBody.url, nomod_id: nomodBody.id,
       warning: "Link created but DB persistence failed: " + ((e && e.message) || String(e)),
@@ -886,9 +969,65 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 
 /* v53 Phase 2: Links tab layout */
 .links-page{padding:1.5rem;display:grid;gap:1.5rem;max-width:920px;margin:0 auto}
-.links-page > .panel{max-width:560px}
+.links-page > .panel{max-width:640px}
 .links-page .actions{margin-top:.6rem}
 .links-page .history-wrap{padding:0}
+
+/* v55 — "Converted -> UMC-INV-####" label that replaces the Convert button
+   once the conversion has happened. Quiet typographic affordance, no chrome. */
+.history .hist-converted{display:inline-block;font-family:Outfit;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--amber-deep);padding:.32rem .55rem;border:1px dashed var(--hair);border-radius:3px;background:transparent}
+
+/* v55 — Links tab: items editor + discount toggle + payment toggles.
+   Same visual language as the Create panel (.field, .lbl, hr.hair) so the
+   two read as one workspace. */
+.lk-items{margin:.4rem 0 .8rem;display:grid;gap:.6rem}
+.lk-item-row{display:grid;grid-template-columns:1fr 140px 32px;gap:.5rem;align-items:start}
+.lk-item-row textarea,.lk-item-row input{font-size:14px}
+.lk-item-row .del{align-self:center;background:transparent;color:var(--muted);font-size:18px;line-height:1;min-height:0;border:0;padding:.25rem 0}
+.lk-item-row .del:hover{color:var(--amber-deep)}
+.lk-add{font-size:12px;color:var(--ink-soft);background:var(--bone2);padding:.5rem .8rem;border:1px dashed var(--line);border-radius:3px;width:100%;letter-spacing:.05em;margin-top:.2rem;cursor:pointer;min-height:36px}
+.lk-disc{display:grid;grid-template-columns:auto 1fr;gap:.6rem;align-items:end}
+.lk-disc-toggle{display:inline-flex;border:1px solid var(--hair);border-radius:3px;padding:2px;background:var(--bone2);gap:0}
+.lk-disc-toggle button{padding:.4rem .75rem;font-family:Outfit;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);background:transparent;border:0;border-radius:2px;min-height:32px;cursor:pointer}
+.lk-disc-toggle button.on{background:var(--ink);color:var(--bone)}
+.lk-totals{margin-top:.6rem;display:grid;gap:.25rem;font-size:13px}
+.lk-totals .r{display:flex;justify-content:space-between;padding:.25rem 0;color:var(--ink-soft)}
+.lk-totals .r.tot{padding-top:.55rem;border-top:1px solid var(--hair);color:var(--ink);font-family:Marcellus;font-size:1.05rem}
+.lk-vat-note{font-size:11px;color:var(--muted);letter-spacing:.04em;padding:.4rem 0 0}
+.lk-toggles{display:grid;gap:.55rem;margin:.4rem 0}
+.lk-toggle{display:flex;align-items:center;gap:.6rem;font-size:13px;color:var(--ink-soft);cursor:pointer;padding:.2rem 0}
+.lk-toggle input{width:auto;margin:0;flex:0 0 auto;accent-color:var(--ink)}
+.lk-toggle small{display:block;color:var(--muted);font-size:11px;letter-spacing:.04em;margin-top:.1rem}
+
+/* v55 — Documents + Links mobile card-stack. At narrow widths the tables
+   reflow to vertical record cards (label : value), so nothing overflows
+   horizontally at 360-430px. data-lbl on each <td> drives the label. */
+@media (max-width: 619px){
+  .history-wrap{padding:1rem}
+  .history{padding:1rem}
+  .history .hist-scroll{margin:0;padding:0}
+  .history table{display:block;min-width:0;border-collapse:separate}
+  .history thead{display:none}
+  .history tbody{display:block}
+  .history tr{display:block;background:var(--card);border:1px solid var(--hair);border-radius:4px;padding:.85rem 1rem;margin-bottom:.7rem}
+  .history td{display:flex;justify-content:space-between;align-items:flex-start;padding:.25rem 0;border-bottom:0;text-align:left!important;white-space:normal!important;gap:.85rem}
+  .history td::before{content:attr(data-lbl);flex:0 0 88px;font-family:Outfit;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:500;padding-top:.18rem}
+  .history td[data-lbl="Actions"]{flex-direction:column;align-items:stretch;padding-top:.65rem;margin-top:.4rem;border-top:1px dashed var(--hair);gap:.45rem}
+  .history td[data-lbl="Actions"]::before{padding-top:0;margin-bottom:.2rem}
+  .history .hist-actions .btn{margin:0}
+  .history td[data-lbl="Actions"] > *:not(::before){display:flex;flex-wrap:wrap;gap:.4rem}
+  .history .hist-actions{padding-top:0!important}
+  .history .hist-head{flex-direction:column;align-items:flex-start;gap:.5rem}
+  .history .hist-filterbar{flex-direction:column;align-items:stretch}
+  .history .hist-search{width:100%;flex:1 1 auto}
+  .history .hist-typefilter{align-self:flex-start}
+  .links-page{padding:1rem}
+  .lk-item-row{grid-template-columns:1fr 110px 28px;gap:.4rem}
+  /* Keep the App tab content from forcing a scroll: Create still grids on
+     wider screens; on mobile its preview already drops below the form. */
+  nav.tabbar{padding:0 .6rem}
+  nav.tabbar .tab{padding:.85rem .85rem}
+}
 .empty{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
 
 /* Email body box */
@@ -1104,24 +1243,57 @@ function appShellHTML() {
 
   <section class="panel" aria-label="Create a standalone payment link">
     <h2>New payment link</h2>
-    <p class="hist-sub">Create a Nomod link without a full invoice &mdash; for deposits, ad-hoc charges or quick WhatsApp collection. <b>Enter the total amount to collect.</b></p>
+    <p class="hist-sub">Create a Nomod link without a full invoice &mdash; for deposits, ad-hoc charges or WhatsApp collection. <b>Enter NET amounts</b>; Nomod adds 5% VAT on top.</p>
 
-    <div class="field"><label class="lbl" for="lkTitle">Title</label><input id="lkTitle" type="text" placeholder="Deposit &middot; Mr Smith &middot; 18 Jun 2026" maxlength="50" autocomplete="off"></div>
+    <small class="lbl" style="margin-top:.8rem;display:block">Items</small>
+    <div class="field">
+      <label class="lbl" for="lkCurrency" style="font-size:10px">Currency</label>
+      <select id="lkCurrency" style="max-width:220px">
+        <option value="AED" selected>AED &mdash; UAE Dirham</option>
+        <option value="USD">USD &mdash; US Dollar</option>
+        <option value="EUR">EUR &mdash; Euro</option>
+        <option value="GBP">GBP &mdash; Pound Sterling</option>
+      </select>
+    </div>
 
-    <div class="row2">
-      <div class="field"><label class="lbl" for="lkAmount">Amount</label><input id="lkAmount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
-      <div class="field">
-        <label class="lbl" for="lkCurrency">Currency</label>
-        <select id="lkCurrency">
-          <option value="AED" selected>AED &mdash; UAE Dirham</option>
-          <option value="USD">USD &mdash; US Dollar</option>
-          <option value="EUR">EUR &mdash; Euro</option>
-          <option value="GBP">GBP &mdash; Pound Sterling</option>
-        </select>
+    <div class="lk-items" id="lkItems"></div>
+    <button type="button" class="lk-add" id="lkAddItem">+ Add item</button>
+
+    <div class="field" style="margin-top:1rem">
+      <label class="lbl">Discount (optional)</label>
+      <div class="lk-disc">
+        <div class="lk-disc-toggle" role="tablist" aria-label="Discount type">
+          <button type="button" id="lkDiscPct"  class="on" data-disc="percentage">%</button>
+          <button type="button" id="lkDiscFlat"           data-disc="flat">AED</button>
+        </div>
+        <input id="lkDiscValue" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0">
       </div>
     </div>
 
+    <div class="lk-totals">
+      <div class="r"><span>Items subtotal</span><span id="lkSub">&mdash;</span></div>
+      <div class="r" id="lkDiscRow" style="display:none"><span>Discount</span><span id="lkDiscShow">&mdash;</span></div>
+      <div class="r tot"><span>Total (NET)</span><span id="lkTot">&mdash;</span></div>
+      <div class="lk-vat-note">+ 5% VAT added by Nomod on the payment page. Customer pays NET &times; 1.05.</div>
+    </div>
+
+    <hr class="hair">
+
+    <small class="lbl" style="margin-bottom:.4rem;display:block">Details</small>
+    <div class="field"><label class="lbl" for="lkTitle">Name (link title)</label><input id="lkTitle" type="text" placeholder="Deposit &middot; Mr Smith &middot; 18 Jun 2026" maxlength="50" autocomplete="off"></div>
     <div class="field"><label class="lbl" for="lkNote">Note (optional)</label><textarea id="lkNote" rows="2" maxlength="280" placeholder="Shown on the Nomod payment page"></textarea></div>
+
+    <hr class="hair">
+
+    <small class="lbl" style="margin-bottom:.4rem;display:block">Payment options</small>
+    <div class="lk-toggles">
+      <label class="lk-toggle"><input id="lkTabby"    type="checkbox" checked><span>Pay with Tabby <small>BNPL allowed; merchant receives the full amount.</small></span></label>
+      <label class="lk-toggle"><input id="lkTamara"   type="checkbox" checked><span>Pay with Tamara <small>BNPL allowed; merchant receives the full amount.</small></span></label>
+      <label class="lk-toggle"><input id="lkTip"      type="checkbox"><span>Allow customer to add tip</span></label>
+      <label class="lk-toggle"><input id="lkShip"     type="checkbox"><span>Ask for shipping address</span></label>
+    </div>
+
+    <div class="field"><label class="lbl" for="lkExpiry">Expiry date (optional)</label><input id="lkExpiry" type="date"></div>
 
     <div class="actions">
       <button type="button" class="btn" id="lkCreate">Create payment link</button>
@@ -1620,7 +1792,77 @@ const PAGE_SCRIPT = `<script>
       });
     }
 
-    // ---------- v53 Phase 2: Links tab logic ----------
+    // ---------- v55: Links tab — Nomod-shaped multi-item form ----------
+    // Items state lives here so the live total + payload assembly stay
+    // consistent. discMode is "percentage" or "flat". toggles persist on
+    // their DOM inputs (checked attribute) — no separate JS state needed.
+    let lkItems = [{ name: "", price: 0 }];
+    let discMode = "percentage";
+    function renderLkItems(){
+      const root = $("lkItems"); if(!root) return;
+      root.innerHTML = lkItems.map(function(it, i){
+        return ''
+          + '<div class="lk-item-row" data-i="'+i+'">'
+          +   '<input type="text" data-lkk="name" value="'+esc(it.name||"")+'" placeholder="Item name" maxlength="60">'
+          +   '<input type="number" inputmode="decimal" min="0" step="0.01" data-lkk="price" value="'+(Number(it.price)||0===0?"":Number(it.price))+'" placeholder="0.00">'
+          +   '<button type="button" class="del" data-lkrem="'+i+'" aria-label="Remove item" title="Remove item">&times;</button>'
+          + '</div>';
+      }).join("");
+      renderLkTotals();
+    }
+    function renderLkTotals(){
+      const currency = $("lkCurrency").value || "AED";
+      const netSum = lkItems.reduce(function(a, it){ return a + (Number(it.price)||0); }, 0);
+      const discVal = Math.max(0, Number($("lkDiscValue").value)||0);
+      let discAmt = 0;
+      if(discMode === "percentage") discAmt = netSum * Math.min(100, discVal) / 100;
+      else                          discAmt = Math.min(netSum, discVal);
+      const net = Math.max(0, netSum - discAmt);
+      $("lkSub").textContent = fmtMoney(netSum, currency);
+      const dRow = $("lkDiscRow");
+      if(discAmt > 0){ dRow.style.display = "flex"; $("lkDiscShow").textContent = "-" + fmtMoney(discAmt, currency); }
+      else dRow.style.display = "none";
+      $("lkTot").textContent = fmtMoney(net, currency);
+    }
+    function bindLkInputs(){
+      $("lkItems").addEventListener("input", function(e){
+        const k = e.target.getAttribute("data-lkk");
+        const row = e.target.closest("[data-i]");
+        if(!k || !row) return;
+        const i = parseInt(row.getAttribute("data-i"), 10);
+        if(isNaN(i) || !lkItems[i]) return;
+        if(k === "name")  lkItems[i].name = e.target.value;
+        if(k === "price") lkItems[i].price = Number(e.target.value)||0;
+        renderLkTotals();
+      });
+      $("lkItems").addEventListener("click", function(e){
+        const rem = e.target.closest("[data-lkrem]");
+        if(!rem) return;
+        const i = parseInt(rem.getAttribute("data-lkrem"), 10);
+        if(isNaN(i)) return;
+        if(lkItems.length <= 1){ lkItems = [{ name:"", price:0 }]; }
+        else lkItems.splice(i, 1);
+        renderLkItems();
+      });
+      $("lkAddItem").addEventListener("click", function(){
+        lkItems.push({ name:"", price:0 });
+        renderLkItems();
+      });
+      $("lkCurrency").addEventListener("change", renderLkTotals);
+      $("lkDiscValue").addEventListener("input", renderLkTotals);
+      $("lkDiscPct").addEventListener("click", function(){
+        discMode = "percentage";
+        $("lkDiscPct").classList.add("on"); $("lkDiscFlat").classList.remove("on");
+        renderLkTotals();
+      });
+      $("lkDiscFlat").addEventListener("click", function(){
+        discMode = "flat";
+        $("lkDiscFlat").classList.add("on"); $("lkDiscPct").classList.remove("on");
+        renderLkTotals();
+      });
+    }
+    bindLkInputs(); renderLkItems();
+
     $("lkRefresh").addEventListener("click", loadLinks);
     $("lkCreate").addEventListener("click", createStandaloneLink);
     let linksLoaded = false;
@@ -1636,60 +1878,84 @@ const PAGE_SCRIPT = `<script>
           const u = String(x.nomod_link_url || "");
           const shortU = u.replace(/^https?:\\/\\//,'').slice(0,42) + (u.length > 50 ? '…' : '');
           return '<tr>'
-            + '<td>'+esc(x.title)+(x.note ? '<div class="hist-link" style="color:var(--muted)">'+esc(x.note)+'</div>' : '')+'</td>'
-            + '<td style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(Number(x.amount), x.currency))+'</td>'
-            + '<td>'+esc(fmtDate(x.created_at))+'</td>'
-            + '<td><div class="hist-link"><a href="'+esc(u)+'" target="_blank" rel="noopener noreferrer" title="'+esc(u)+'">'+esc(shortU)+'</a></div></td>'
-            + '<td class="hist-actions">'
+            + '<td data-lbl="Title">'+esc(x.title)+(x.note ? '<div class="hist-link" style="color:var(--muted)">'+esc(x.note)+'</div>' : '')+'</td>'
+            + '<td data-lbl="Amount" style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(Number(x.amount), x.currency))+'</td>'
+            + '<td data-lbl="Created">'+esc(fmtDate(x.created_at))+'</td>'
+            + '<td data-lbl="Link"><div class="hist-link"><a href="'+esc(u)+'" target="_blank" rel="noopener noreferrer" title="'+esc(u)+'">'+esc(shortU)+'</a></div></td>'
+            + '<td data-lbl="Actions" class="hist-actions">'
             +   '<button type="button" class="btn btn-small btn-ghost" data-lkcopy="'+esc(u)+'" title="Copy link to clipboard">Copy link</button> '
             +   '<button type="button" class="btn btn-small btn-danger" data-lkdel="'+x.id+'" data-lktitle="'+esc(x.title)+'" title="Delete this link from the record (the Nomod URL itself stays live)">&times;</button>'
             + '</td>'
             + '</tr>';
         }).join("");
-        tbody.addEventListener("click", function(e){
-          const cp = e.target.closest("[data-lkcopy]");
-          const dl = e.target.closest("[data-lkdel]");
-          if(cp){
-            e.preventDefault();
-            copyToClipboard(cp.getAttribute("data-lkcopy")).then(function(ok){
-              setLkStatus(ok ? "Link copied." : "Copy failed.");
-            });
-            return;
-          }
-          if(dl){
-            e.preventDefault();
-            const title = dl.getAttribute("data-lktitle") || "this link";
-            if(!confirm("Remove " + title + " from the standalone-links record?\\n\\nThe Nomod payment URL itself stays live — Usman, anyone with the link can still pay until it expires on Nomod. This only removes it from your local record.")) return;
-            deleteStandaloneLink(dl.getAttribute("data-lkdel"));
-          }
-        }, { once: true });
+        if(!tbody._lkClickBound){
+          tbody._lkClickBound = true;
+          tbody.addEventListener("click", function(e){
+            const cp = e.target.closest("[data-lkcopy]");
+            const dl = e.target.closest("[data-lkdel]");
+            if(cp){
+              e.preventDefault();
+              copyToClipboard(cp.getAttribute("data-lkcopy")).then(function(ok){
+                setLkStatus(ok ? "Link copied." : "Copy failed.");
+              });
+              return;
+            }
+            if(dl){
+              e.preventDefault();
+              const title = dl.getAttribute("data-lktitle") || "this link";
+              if(!confirm("Remove " + title + " from the standalone-links record?\\n\\nThe Nomod payment URL itself stays live — anyone with the link can still pay until it expires on Nomod. This only removes it from your local record.")) return;
+              deleteStandaloneLink(dl.getAttribute("data-lkdel"));
+            }
+          });
+        }
         linksLoaded = true;
       } catch(e){ setLkStatus("Links load failed."); }
     }
     function setLkStatus(s){ const el = $("lkStatus"); if(el) el.textContent = s; }
     async function createStandaloneLink(){
-      const title = $("lkTitle").value.trim();
-      const amount = Number($("lkAmount").value);
-      const currency = $("lkCurrency").value;
-      const note = $("lkNote").value.trim();
-      if(!title){ setLkStatus("Title is required."); $("lkTitle").focus(); return; }
-      if(!isFinite(amount) || amount <= 0){ setLkStatus("Amount must be a positive number."); $("lkAmount").focus(); return; }
+      const title    = $("lkTitle").value.trim();
+      const currency = $("lkCurrency").value || "AED";
+      const note     = $("lkNote").value.trim();
+      const items    = lkItems
+        .map(function(it){ return { name: (it.name||"").trim(), price: Number(it.price)||0, quantity: 1 }; })
+        .filter(function(it){ return it.price > 0; });
+      if(!title){ setLkStatus("Name is required."); $("lkTitle").focus(); return; }
+      if(!items.length){ setLkStatus("Add at least one item with a price > 0."); return; }
+      // Fill blank names with a default before sending so Nomod always shows something.
+      items.forEach(function(it){ if(!it.name) it.name = "Service"; });
+
+      const discValue = Math.max(0, Number($("lkDiscValue").value)||0);
+      const discount = discValue > 0 ? { mode: discMode, value: discValue } : null;
+      const expiryRaw = $("lkExpiry").value || "";
+      const expiry_date = expiryRaw ? expiryRaw : null;
+      const payload = {
+        title, currency, note, items,
+        allow_tabby:        $("lkTabby").checked,
+        allow_tamara:       $("lkTamara").checked,
+        allow_tip:          $("lkTip").checked,
+        shipping_required:  $("lkShip").checked,
+      };
+      if(discount)    payload.discount    = discount;
+      if(expiry_date) payload.expiry_date = expiry_date;
+
       setLkStatus("Creating payment link via Nomod …");
       $("lkCreate").disabled = true;
       try {
         const r = await fetch("/admin/api/links", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title, amount, currency, note })
+          body: JSON.stringify(payload)
         });
         const j = await r.json();
         if(!j.ok){ setLkStatus("Failed: " + (j.error || r.status)); return; }
         setLkStatus("Link created. Copying …");
         const ok = await copyToClipboard(j.url);
-        setLkStatus(ok ? "Link created and copied to clipboard." : "Link created. (Auto-copy unavailable; use Copy link.)");
-        $("lkTitle").value = ""; $("lkAmount").value = ""; $("lkNote").value = "";
+        setLkStatus(ok ? "Link created and copied to clipboard." : "Link created. (Auto-copy unavailable; use Copy link below.)");
+        // reset to a clean form
+        $("lkTitle").value = ""; $("lkNote").value = ""; $("lkDiscValue").value = ""; $("lkExpiry").value = "";
+        lkItems = [{ name:"", price:0 }]; renderLkItems();
         await loadLinks();
-      } catch(e){ setLkStatus("Failed: " + (e.message || e)); }
+      } catch(e){ setLkStatus("Failed: " + (e.message || e)); console.log("createStandaloneLink error:", e); }
       finally { $("lkCreate").disabled = false; }
     }
     async function deleteStandaloneLink(id){
@@ -1816,7 +2082,14 @@ const PAGE_SCRIPT = `<script>
         const actions = [];
         actions.push('<button type="button" class="btn btn-small btn-ghost" data-load="'+x.id+'">Re-open</button>');
         if(isQuote){
-          actions.push('<button type="button" class="btn btn-small btn-ghost" data-convert="'+x.id+'" data-num="'+esc(x.number)+'" title="Issue a new invoice (next UMC-INV-####) with this quote\\'s client and items — the quote stays in history.">Convert to invoice</button>');
+          if(x.converted_invoice_number){
+            // v55: a quote with a converted invoice no longer offers a Convert
+            // button — surface the linked invoice number as a static label
+            // instead so the user can see the pairing at a glance.
+            actions.push('<span class="hist-converted" title="Already converted to '+esc(x.converted_invoice_number)+'">Converted &rarr; '+esc(x.converted_invoice_number)+'</span>');
+          } else {
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-convert="'+x.id+'" data-num="'+esc(x.number)+'" title="Issue an invoice with this quote\\'s numeric (UMC-Q-#### -> UMC-INV-####). The quote stays in history.">Convert to invoice</button>');
+          }
         }
         if(isInvoice){
           if(hasLink){
@@ -1832,55 +2105,62 @@ const PAGE_SCRIPT = `<script>
           : (x.source_quote_number ? '<span class="hist-status">Converted</span>' : '<span class="hist-status">&mdash;</span>');
         const searchText = [x.number, x.client_name || "", x.client_company || "", x.source_quote_number || ""].join(" ");
         return '<tr data-doctype="'+esc(x.doc_type)+'" data-searchtext="'+esc(searchText)+'">'
-          + '<td><a href="#" data-load="'+x.id+'">'+esc(x.number)+'</a>'+srcTag+linkPreview+'</td>'
-          + '<td><span class="pill '+(isInvoice?'inv':'')+'">'+x.doc_type+'</span></td>'
-          + '<td>'+esc(fmtDate(x.doc_date))+'</td>'
-          + '<td>'+esc(x.client_name || "")+(x.client_company?' <span style="color:#7A6F5F">('+esc(x.client_company)+')</span>':'')+'</td>'
-          + '<td style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(x.total, x.currency))+'</td>'
-          + '<td>'+statusTxt+'</td>'
-          + '<td style="text-align:right;white-space:nowrap" class="hist-actions">'+actions.join(' ')+'</td>'
+          + '<td data-lbl="Number"><a href="#" data-load="'+x.id+'">'+esc(x.number)+'</a>'+srcTag+linkPreview+'</td>'
+          + '<td data-lbl="Type"><span class="pill '+(isInvoice?'inv':'')+'">'+x.doc_type+'</span></td>'
+          + '<td data-lbl="Date">'+esc(fmtDate(x.doc_date))+'</td>'
+          + '<td data-lbl="Client">'+esc(x.client_name || "")+(x.client_company?' <span style="color:#7A6F5F">('+esc(x.client_company)+')</span>':'')+'</td>'
+          + '<td data-lbl="Total" style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(x.total, x.currency))+'</td>'
+          + '<td data-lbl="Status">'+statusTxt+'</td>'
+          + '<td data-lbl="Actions" style="text-align:right;white-space:nowrap" class="hist-actions">'+actions.join(' ')+'</td>'
           + '</tr>';
       }).join("");
       applyHistoryFilter();
-      tbody.addEventListener("click", function(e){
-        const loadB = e.target.closest("[data-load]");
-        const delB  = e.target.closest("[data-del]");
-        const convB = e.target.closest("[data-convert]");
-        const linkB = e.target.closest("[data-link]");
-        const copyB = e.target.closest("[data-copy]");
-        if(copyB){
-          e.preventDefault();
-          const u = copyB.getAttribute("data-copy");
-          copyToClipboard(u).then(function(ok){ setStatus(ok ? "Payment link copied." : "Copy failed."); });
-          return;
-        }
-        if(convB){
-          e.preventDefault();
-          convertQuote(convB.getAttribute("data-convert"), convB.getAttribute("data-num"));
-          return;
-        }
-        if(linkB){
-          e.preventDefault();
-          generatePaymentLink(
-            linkB.getAttribute("data-link"),
-            linkB.getAttribute("data-num"),
-            linkB.getAttribute("data-regen") === "1"
-          );
-          return;
-        }
-        if(loadB){ e.preventDefault(); loadDoc(loadB.getAttribute("data-load")); return; }
-        if(delB){
-          e.preventDefault();
-          const num = delB.getAttribute("data-num");
-          const type = delB.getAttribute("data-type");
-          const warn = type === "invoice"
-            ? "Delete invoice " + num + " ?\\n\\nUAE VAT records typically require an unbroken invoice sequence — deleting this number will leave a gap. Only delete drafts or genuine duplicates."
-            : "Delete quote " + num + " ?\\n\\nThis cannot be undone.";
-          if(!confirm(warn)) return;
-          deleteDoc(delB.getAttribute("data-del"), num);
-        }
-      }, { once: true });
-    } catch(e){ setStatus("History load failed."); }
+      // v55: attach the delegated click listener ONCE on the stable tbody
+      // element (not on every render). The previous { once: true } removed
+      // the listener after a single click — so Re-open worked once and then
+      // every subsequent click in the table did nothing.
+      if(!tbody._histClickBound){
+        tbody._histClickBound = true;
+        tbody.addEventListener("click", function(e){
+          const loadB = e.target.closest("[data-load]");
+          const delB  = e.target.closest("[data-del]");
+          const convB = e.target.closest("[data-convert]");
+          const linkB = e.target.closest("[data-link]");
+          const copyB = e.target.closest("[data-copy]");
+          if(copyB){
+            e.preventDefault();
+            const u = copyB.getAttribute("data-copy");
+            copyToClipboard(u).then(function(ok){ setStatus(ok ? "Payment link copied." : "Copy failed."); });
+            return;
+          }
+          if(convB){
+            e.preventDefault();
+            convertQuote(convB.getAttribute("data-convert"), convB.getAttribute("data-num"));
+            return;
+          }
+          if(linkB){
+            e.preventDefault();
+            generatePaymentLink(
+              linkB.getAttribute("data-link"),
+              linkB.getAttribute("data-num"),
+              linkB.getAttribute("data-regen") === "1"
+            );
+            return;
+          }
+          if(loadB){ e.preventDefault(); loadDoc(loadB.getAttribute("data-load")); return; }
+          if(delB){
+            e.preventDefault();
+            const num = delB.getAttribute("data-num");
+            const type = delB.getAttribute("data-type");
+            const warn = type === "invoice"
+              ? "Delete invoice " + num + " ?\\n\\nUAE VAT records typically require an unbroken invoice sequence — deleting this number will leave a gap. Only delete drafts or genuine duplicates."
+              : "Delete quote " + num + " ?\\n\\nThis cannot be undone.";
+            if(!confirm(warn)) return;
+            deleteDoc(delB.getAttribute("data-del"), num);
+          }
+        });
+      }
+    } catch(e){ setStatus("History load failed."); console.log("loadHistory error:", e); }
   }
   function copyToClipboard(text){
     if(navigator.clipboard && navigator.clipboard.writeText){
@@ -1961,9 +2241,13 @@ const PAGE_SCRIPT = `<script>
       $("fNotes").value = state.notes;
       renderLineRows(); renderTotals(); renderDoc();
       $("emailOut").hidden = true;
+      // v55: jump back to the Create tab so the populated form is visible
+      // (Re-open used to silently update state while the user was still
+      // looking at the Documents tab — which made the button feel broken).
+      if(typeof switchTab === "function") switchTab("create");
       setStatus("Loaded " + state.number + ". Use Save & Print PDF to re-export.");
       window.scrollTo({ top: 0, behavior:"smooth" });
-    } catch(e){ setStatus("Load failed."); }
+    } catch(e){ setStatus("Load failed."); console.log("loadDoc error:", e); }
   }
 
   function setStatus(s){ $("status").textContent = s || ""; }
