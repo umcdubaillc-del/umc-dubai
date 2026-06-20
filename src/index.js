@@ -99,7 +99,8 @@ export default {
     }
     if (url.pathname === "/admin/billing" ||
         url.pathname.startsWith("/admin/billing/") ||
-        url.pathname.startsWith("/admin/api/billing")) {
+        url.pathname.startsWith("/admin/api/billing") ||
+        url.pathname.startsWith("/admin/api/links")) {
       return handleAdmin(request, env);
     }
     return env.ASSETS.fetch(request);
