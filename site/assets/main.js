@@ -1,9 +1,9 @@
 /* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
-/* UMC Dubai — shared behaviour */
+/* UMC Dubai,shared behaviour */
 
 // shared phone utility (must exist before the IIFE wires forms, and before booking.js runs)
 window.umcPhone = {
-  // strip non-digits; do NOT strip leading zero here — only for length check / output
+  // strip non-digits; do NOT strip leading zero here,only for length check / output
   cleanInput: function(s){ return (s||"").replace(/[^0-9]/g, ""); },
   // strip exactly one leading 0 (national trunk prefix) before counting significant digits
   significantDigits: function(s){
@@ -226,14 +226,14 @@ window.umcPhone = {
     if(t) t.value = veh;
   }
 
-  // homepage: shared carousel arrow — testimonials + mobile services (v32).
+  // homepage: shared carousel arrow,testimonials + mobile services (v32).
   // v30: activeIndex is the source of truth (modulo wrap). v31: snap-disable
   // during the programmatic scroll so Safari's mandatory snap engine doesn't
   // fight the smooth animation. v32: compute the scroll target in scroll-
   // container-local coords, not in offsetParent (body) coords.
   //
   // The bug v32 fixes: target.offsetLeft is measured from the element's
-  // offsetParent — for our cards that's <body>, because no ancestor in the
+  // offsetParent,for our cards that's <body>, because no ancestor in the
   // .tcar/.svp chain is positioned. The scroll container's scrollLeft is in
   // its own coordinate system, which differs from body coords by the
   // container's own offset within the document (the ~20px .wrap padding at

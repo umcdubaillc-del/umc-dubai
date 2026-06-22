@@ -100,10 +100,33 @@ export default {
     if (url.pathname === "/admin/billing" ||
         url.pathname.startsWith("/admin/billing/") ||
         url.pathname.startsWith("/admin/api/billing") ||
-        url.pathname.startsWith("/admin/api/links")) {
+        url.pathname.startsWith("/admin/api/links") ||
+        url.pathname.startsWith("/admin/api/payments") ||
+        url.pathname === "/admin/api/sales" ||
+        url.pathname === "/admin/api/sync-nomod" ||
+        url.pathname === "/admin/webhooks/nomod") {
       return handleAdmin(request, env);
     }
-    return env.ASSETS.fetch(request);
+    // v85 — caching: HTML responses always revalidate so a new deploy is
+    // picked up on the next normal load (was bitten by Cloudflare edge HITs
+    // serving stale HTML). Hashed asset URLs (?v=<BUILD>) get a year-long
+    // immutable cache. We rewrite Cache-Control here because _headers cascades
+    // matching rules and the /* + /assets/* values were being concatenated.
+    const assetResp = await env.ASSETS.fetch(request);
+    const ctype = (assetResp.headers.get("content-type") || "").toLowerCase();
+    const isAssetPath = url.pathname.startsWith("/assets/");
+    const isHtml = ctype.includes("text/html");
+    const headers = new Headers(assetResp.headers);
+    if (isAssetPath && !isHtml) {
+      headers.set("Cache-Control", "public, max-age=31536000, immutable");
+    } else if (isHtml) {
+      // no-store so neither the browser nor Cloudflare's edge cache reuses
+      // a stale HTML response after a deploy.
+      headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+      headers.set("CDN-Cache-Control", "no-store");
+      headers.set("Cloudflare-CDN-Cache-Control", "no-store");
+    }
+    return new Response(assetResp.body, { status: assetResp.status, statusText: assetResp.statusText, headers });
   }
 };
 

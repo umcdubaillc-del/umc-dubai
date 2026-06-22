@@ -66,8 +66,12 @@ async function isAuthed(request, env) {
   return readCookie(request, COOKIE_NAME) === expected;
 }
 
-function setCookieHeader(value, days = 30) {
-  return `${COOKIE_NAME}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${days * 86400}`;
+function setCookieHeader(value, days) {
+  // v57: days falsy/0 → session cookie (no Max-Age, dies with browser).
+  // days > 0 → persistent cookie of that many days (used when the user
+  // ticks "Stay logged in" on the sign-in form).
+  const base = `${COOKIE_NAME}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict`;
+  return (days && days > 0) ? `${base}; Max-Age=${days * 86400}` : base;
 }
 
 function clearCookieHeader() {
@@ -120,11 +124,24 @@ async function ensureSchema(env) {
   // Nomod payment link integration (nomod_link_*). SQLite ALTER TABLE has no
   // IF NOT EXISTS for ADD COLUMN, so each column is attempted and a duplicate
   // error is swallowed. Schema is idempotent across deploys.
+  // v60 — payment-status reconciliation columns (Payments tab).
+  // v84 — Sales section: payment_method records HOW an invoice was settled
+  // ('nomod' set automatically by webhook; 'bank' / 'cash' set manually via
+  // mark-paid). refunded_at + refunded_amount capture Nomod refund events
+  // (webhook) or manual mark-refunded actions, so the Sales ledger can
+  // subtract refunds from the period they occurred in.
   for (const col of [
     "source_quote_number TEXT",
     "nomod_link_id TEXT",
     "nomod_link_url TEXT",
     "nomod_link_created_at TEXT",
+    "payment_status TEXT DEFAULT 'unpaid'",
+    "paid_at TEXT",
+    "last_checked_at TEXT",
+    "nomod_charge_id TEXT",
+    "payment_method TEXT",
+    "refunded_at TEXT",
+    "refunded_amount REAL",
   ]) {
     try {
       await env.BILLING_DB.prepare(`ALTER TABLE billing_documents ADD COLUMN ${col}`).run();
@@ -149,6 +166,24 @@ async function ensureSchema(env) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`
   ).run();
+  // v60 — payment-status reconciliation columns on payment_links too.
+  // v84 — payment_method/refund columns mirror billing_documents.
+  for (const col of [
+    "payment_status TEXT DEFAULT 'unpaid'",
+    "paid_at TEXT",
+    "last_checked_at TEXT",
+    "nomod_charge_id TEXT",
+    "payment_method TEXT",
+    "refunded_at TEXT",
+    "refunded_amount REAL",
+  ]) {
+    try {
+      await env.BILLING_DB.prepare(`ALTER TABLE payment_links ADD COLUMN ${col}`).run();
+    } catch (e) {
+      const msg = (e && (e.message || String(e))) || "";
+      if (!/duplicate column|already exists/i.test(msg)) throw e;
+    }
+  }
   SCHEMA_DONE.add(env);
 }
 
@@ -218,16 +253,90 @@ async function nextNumber(env, type) {
 
 // ============================================================ route handlers
 
+// ── v88: brute-force protection for the admin login ─────────────────────
+// Self-contained D1 rate limiter (no new bindings — reuses BILLING_DB).
+// Sliding window over the last LOGIN_WINDOW_MIN minutes:
+//   per-IP : LOGIN_MAX_PER_IP failures  -> 429 lockout
+//   global : LOGIN_MAX_GLOBAL failures  -> 429 backstop (IP-rotation guard)
+// A correct password clears that IP's failures. Fails OPEN: if D1 is
+// unavailable the login still works.
+const LOGIN_WINDOW_MIN = 15;
+const LOGIN_MAX_PER_IP  = 5;
+const LOGIN_MAX_GLOBAL  = 60;
+
+function authClientIp(request) {
+  return request.headers.get("CF-Connecting-IP")
+      || (request.headers.get("X-Forwarded-For") || "").split(",")[0].trim()
+      || "unknown";
+}
+
+async function ensureAuthAttempts(env) {
+  await env.BILLING_DB.prepare(
+    `CREATE TABLE IF NOT EXISTS auth_attempts (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       ip TEXT,
+       attempted_at TEXT NOT NULL
+     )`
+  ).run();
+}
+
+async function loginRateCheck(env, ip) {
+  await ensureAuthAttempts(env);
+  const sinceIso = new Date(Date.now() - LOGIN_WINDOW_MIN * 60000).toISOString();
+  await env.BILLING_DB.prepare(`DELETE FROM auth_attempts WHERE attempted_at < ?`).bind(sinceIso).run();
+  const row = await env.BILLING_DB.prepare(
+    `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN ip = ? THEN 1 ELSE 0 END) AS mine
+       FROM auth_attempts
+      WHERE attempted_at >= ?`
+  ).bind(ip, sinceIso).first();
+  const mine  = Number((row && row.mine)  || 0);
+  const total = Number((row && row.total) || 0);
+  if (mine >= LOGIN_MAX_PER_IP || total >= LOGIN_MAX_GLOBAL) {
+    return { blocked: true, retryAfterSec: LOGIN_WINDOW_MIN * 60 };
+  }
+  return { blocked: false, retryAfterSec: 0 };
+}
+
+async function recordLoginFailure(env, ip) {
+  await env.BILLING_DB.prepare(
+    `INSERT INTO auth_attempts (ip, attempted_at) VALUES (?, ?)`
+  ).bind(ip, new Date().toISOString()).run();
+}
+
+async function clearLoginFailures(env, ip) {
+  await env.BILLING_DB.prepare(`DELETE FROM auth_attempts WHERE ip = ?`).bind(ip).run();
+}
+
 async function handleLogin(request, env) {
   let body;
   try { body = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
   const pwd = String((body && body.password) || "");
   if (!env.ADMIN_PASSWORD) return json({ ok: false, error: "admin password not configured on this worker" }, 503);
-  // constant-time comparison: hash both and compare
+
+  // v88 — brute-force gate (before any password hashing). Fails open.
+  const ip = authClientIp(request);
+  if (env.BILLING_DB) {
+    try {
+      const rl = await loginRateCheck(env, ip);
+      if (rl.blocked) {
+        return json({ ok: false, error: "too many attempts, please wait and try again" }, 429,
+          { "Retry-After": String(rl.retryAfterSec) });
+      }
+    } catch (e) { /* limiter unavailable -> allow attempt through */ }
+  }
+
   const supplied = await sha256Hex(pwd + SESSION_SUFFIX);
   const expected = await expectedSession(env);
-  if (supplied !== expected) return json({ ok: false, error: "invalid password" }, 401);
-  return json({ ok: true }, 200, { "Set-Cookie": setCookieHeader(expected) });
+  if (supplied !== expected) {
+    if (env.BILLING_DB) { try { await recordLoginFailure(env, ip); } catch (e) {} }
+    return json({ ok: false, error: "invalid password" }, 401);
+  }
+  if (env.BILLING_DB) { try { await clearLoginFailures(env, ip); } catch (e) {} }
+
+  // v57: "Stay logged in" opt-in -> 30-day persistent cookie. Otherwise session-only.
+  const stay = !!(body && body.stayLoggedIn);
+  return json({ ok: true }, 200, { "Set-Cookie": setCookieHeader(expected, stay ? 30 : 0) });
 }
 
 async function handleLogout() {
@@ -648,6 +757,788 @@ async function handleDeleteLink(id, env) {
   return json({ ok: true, id });
 }
 
+// ============================================================ v60: Payments — reconciliation
+//
+// We store nomod_link_id on every record that has a Nomod payment link.
+// Reconciliation = GET that link from Nomod and decide whether it was paid.
+// Nomod's docs show Link has a `status` (lifecycle), Charge has a `status`
+// (payment outcome). Schema rendering in the docs is loose, so the mapper
+// here accepts multiple shapes — string `"paid"|"succeeded"|"complete"`,
+// object `{ code: "paid" }`, or a nested `charges`/`payments` array with a
+// succeeded entry. /admin/api/payments/inspect/:id dumps the raw response
+// so the exact shape can be confirmed in one click without trial-and-error.
+
+async function nomodGetLink(env, linkId) {
+  if (!env.NOMOD_API_KEY) {
+    return { ok: false, status: 503, error: "NOMOD_API_KEY not configured on this Worker" };
+  }
+  let res, body = null;
+  try {
+    res = await fetch(`${NOMOD_API_URL}/${encodeURIComponent(linkId)}`, {
+      method: "GET",
+      headers: {
+        "X-API-KEY": env.NOMOD_API_KEY,
+        "Accept": "application/json",
+      },
+    });
+    const text = await res.text();
+    try { body = JSON.parse(text); } catch { body = { _raw: text }; }
+  } catch (e) {
+    return { ok: false, status: 502, error: "Nomod request failed (network)", detail: (e && e.message) || String(e) };
+  }
+  if (!res.ok) {
+    return { ok: false, status: res.status === 404 ? 404 : 502, error: `Nomod GET link ${res.status}`, body };
+  }
+  return { ok: true, data: body };
+}
+
+// v61: List Charges filtered by the Link id. Verified live (v60 inspect):
+//   - the Link object's `status` is LIFECYCLE only (e.g. "enabled") — never
+//     "paid", and the link body carries no nested charges array.
+//   - the Charges API (GET /v1/charges) supports a `link_id` query param —
+//     so we list charges for the link and inspect each charge's status.
+//   - charge.status example in docs: "authorised". Captured/succeeded variants
+//     and the merchant-visible card-pay outcomes are treated as paid below.
+async function nomodListChargesByLink(env, linkId) {
+  if (!env.NOMOD_API_KEY) {
+    return { ok: false, status: 503, error: "NOMOD_API_KEY not configured on this Worker" };
+  }
+  let res, body = null;
+  try {
+    const url = `https://api.nomod.com/v1/charges?link_id=${encodeURIComponent(linkId)}&page_size=20`;
+    res = await fetch(url, {
+      method: "GET",
+      headers: { "X-API-KEY": env.NOMOD_API_KEY, "Accept": "application/json" },
+    });
+    const text = await res.text();
+    try { body = JSON.parse(text); } catch { body = { _raw: text }; }
+  } catch (e) {
+    return { ok: false, status: 502, error: "Nomod charges request failed (network)", detail: (e && e.message) || String(e) };
+  }
+  if (!res.ok) return { ok: false, status: 502, error: `Nomod GET charges ${res.status}`, body };
+  return { ok: true, data: body };
+}
+
+// v87 — list ALL recent charges (not filtered to a link). Used by /sync-nomod
+// to catch payments the webhook missed (e.g. webhook subscription gap, link
+// created directly in Nomod with no local record).
+async function nomodListAllCharges(env, opts = {}) {
+  if (!env.NOMOD_API_KEY) {
+    return { ok: false, status: 503, error: "NOMOD_API_KEY not configured on this Worker" };
+  }
+  const pageSize = Math.max(1, Math.min(100, Number(opts.pageSize) || 100));
+  const cursor = opts.cursor || null;
+  let url = `https://api.nomod.com/v1/charges?page_size=${pageSize}`;
+  if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
+  let res, body = null;
+  try {
+    res = await fetch(url, {
+      method: "GET",
+      headers: { "X-API-KEY": env.NOMOD_API_KEY, "Accept": "application/json" },
+    });
+    const text = await res.text();
+    try { body = JSON.parse(text); } catch { body = { _raw: text }; }
+  } catch (e) {
+    return { ok: false, status: 502, error: "Nomod charges request failed (network)", detail: (e && e.message) || String(e) };
+  }
+  if (!res.ok) return { ok: false, status: 502, error: `Nomod GET charges ${res.status}`, body };
+  return { ok: true, data: body };
+}
+
+// Any of these on a charge means the customer's card was successfully charged.
+// "authorised" is included because Nomod auto-captures by default and exposes
+// auth as the terminal success on the merchant dashboard for payment links.
+const PAID_CHARGE_STATUSES = new Set([
+  "captured","succeeded","paid","complete","completed","authorised","authorized","success"
+]);
+
+function mapChargesToPaid(chargesBody) {
+  // Accepts either a paginated body { results: [...] } or a bare array.
+  const results = (chargesBody && Array.isArray(chargesBody.results))
+    ? chargesBody.results
+    : (Array.isArray(chargesBody) ? chargesBody : []);
+  if (!results.length) return { status: "unpaid", chargeId: null, paidAt: null };
+  const lower = (v) => (typeof v === "string" ? v.toLowerCase() : "");
+  const statusOf = (c) => {
+    if (!c) return "";
+    if (typeof c.status === "string") return lower(c.status);
+    if (c.status && typeof c.status === "object")
+      return lower(c.status.code || c.status.name || c.status.state);
+    return lower(c.state);
+  };
+  // Most-recent paid charge wins (Nomod returns newest first; safe to take first match).
+  const succ = results.find(c => PAID_CHARGE_STATUSES.has(statusOf(c)));
+  if (succ) {
+    return {
+      status: "paid",
+      chargeId: succ.id || succ.charge_id || null,
+      paidAt: succ.created || succ.created_at || succ.captured_at || null,
+    };
+  }
+  return { status: "unpaid", chargeId: null, paidAt: null };
+}
+
+async function reconcilePaymentStatus(env, record, table) {
+  if (!record || !record.nomod_link_id) return { skipped: "no-link" };
+  // v61: reconcile from CHARGES (link.status alone is lifecycle, not payment state).
+  const r = await nomodListChargesByLink(env, record.nomod_link_id);
+  if (!r.ok) return { error: r.error, status: r.status };
+  const m = mapChargesToPaid(r.data);
+  const now = new Date().toISOString();
+  const paidAt = (m.status === "paid")
+    ? (record.paid_at || m.paidAt || now)
+    : (record.paid_at || null);
+  const newlyPaid = m.status === "paid" && record.payment_status !== "paid";
+  // v84 — when polling promotes a row to 'paid', also stamp payment_method='nomod'
+  // so the Sales ledger can split source (a) Nomod vs (b) bank/cash.
+  await env.BILLING_DB.prepare(
+    `UPDATE ${table}
+       SET payment_status = ?,
+           paid_at = ?,
+           last_checked_at = ?,
+           nomod_charge_id = COALESCE(?, nomod_charge_id),
+           payment_method = CASE WHEN ? = 'paid' THEN COALESCE(payment_method, 'nomod') ELSE payment_method END
+     WHERE id = ?`
+  ).bind(m.status, paidAt, now, m.chargeId, m.status, record.id).run();
+  return { id: record.id, status: m.status, newlyPaid, chargeId: m.chargeId };
+}
+
+async function reconcileAllOutstanding(env) {
+  await ensureSchema(env);
+  const sixtySecAgo = new Date(Date.now() - 60_000).toISOString();
+  // Outstanding = has a Nomod link AND not already paid AND not checked < 60s ago.
+  const inv = await env.BILLING_DB.prepare(
+    `SELECT id, nomod_link_id, payment_status, paid_at FROM billing_documents
+      WHERE nomod_link_id IS NOT NULL
+        AND COALESCE(payment_status,'unpaid') != 'paid'
+        AND (last_checked_at IS NULL OR last_checked_at < ?)
+      LIMIT 50`
+  ).bind(sixtySecAgo).all();
+  const lks = await env.BILLING_DB.prepare(
+    `SELECT id, nomod_link_id, payment_status, paid_at FROM payment_links
+      WHERE nomod_link_id IS NOT NULL
+        AND COALESCE(payment_status,'unpaid') != 'paid'
+        AND (last_checked_at IS NULL OR last_checked_at < ?)
+      LIMIT 50`
+  ).bind(sixtySecAgo).all();
+  const out = { checked: 0, newlyPaid: 0, stillUnpaid: 0, errors: 0 };
+  const rows = [
+    ...(inv.results || []).map(r => ({ rec: r, table: "billing_documents" })),
+    ...(lks.results || []).map(r => ({ rec: r, table: "payment_links" })),
+  ];
+  for (const { rec, table } of rows) {
+    const r = await reconcilePaymentStatus(env, rec, table);
+    out.checked++;
+    if (r.error) out.errors++;
+    else if (r.newlyPaid) out.newlyPaid++;
+    else if (r.status === "unpaid" || r.status === "unknown") out.stillUnpaid++;
+  }
+  return out;
+}
+
+async function handleListPayments(env) {
+  await ensureSchema(env);
+  // Invoices that have a Nomod link (paid or not)
+  const inv = await env.BILLING_DB.prepare(
+    `SELECT 'invoice' AS source, id, number, doc_date, client_name, client_company, total AS amount,
+            currency, nomod_link_id, nomod_link_url, COALESCE(payment_status,'unpaid') AS payment_status,
+            paid_at, last_checked_at, nomod_charge_id
+       FROM billing_documents
+      WHERE nomod_link_id IS NOT NULL
+      ORDER BY id DESC LIMIT 500`
+  ).all();
+  const lks = await env.BILLING_DB.prepare(
+    `SELECT 'link' AS source, id, title AS number, created_at AS doc_date,
+            title AS client_name, NULL AS client_company, amount, currency,
+            nomod_link_id, nomod_link_url, COALESCE(payment_status,'unpaid') AS payment_status,
+            paid_at, last_checked_at, nomod_charge_id
+       FROM payment_links
+      WHERE nomod_link_id IS NOT NULL
+      ORDER BY id DESC LIMIT 500`
+  ).all();
+  const items = [...(inv.results || []), ...(lks.results || [])];
+  // Summary by status + currency-naive sum (operator's books are AED-only in practice).
+  let paid = 0, unpaid = 0, expired = 0, collected = 0, outstanding = 0;
+  for (const x of items) {
+    if (x.payment_status === "paid") { paid++; collected += Number(x.amount) || 0; }
+    else if (x.payment_status === "expired") { expired++; }
+    else { unpaid++; outstanding += Number(x.amount) || 0; }
+  }
+  return json({ ok: true, items, summary: { paid, unpaid, expired, collected, outstanding } });
+}
+
+async function handleReconcilePayments(env) {
+  const r = await reconcileAllOutstanding(env);
+  return json({ ok: true, ...r, checked_at: new Date().toISOString() });
+}
+
+async function handleInspectPayment(id, env) {
+  await ensureSchema(env);
+  // Look in invoices first, then standalone links.
+  let rec = await env.BILLING_DB.prepare(
+    "SELECT id, nomod_link_id FROM billing_documents WHERE id = ?"
+  ).bind(id).first();
+  let table = "billing_documents";
+  if (!rec || !rec.nomod_link_id) {
+    rec = await env.BILLING_DB.prepare(
+      "SELECT id, nomod_link_id FROM payment_links WHERE id = ?"
+    ).bind(id).first();
+    table = "payment_links";
+  }
+  if (!rec || !rec.nomod_link_id) return json({ ok: false, error: "no link for that record" }, 404);
+  // v61: dump BOTH the link object (lifecycle status only) and the charges
+  // list (the real source of payment status), so the exact shape is visible.
+  const [linkR, chargesR] = await Promise.all([
+    nomodGetLink(env, rec.nomod_link_id),
+    nomodListChargesByLink(env, rec.nomod_link_id),
+  ]);
+  const mapped = chargesR.ok ? mapChargesToPaid(chargesR.data) : { status: "unknown", chargeId: null };
+  return json({
+    ok: true,
+    table, id: rec.id, link_id: rec.nomod_link_id,
+    mapped,
+    link:    { ok: linkR.ok,    error: linkR.error    || null, body: linkR.data    || null, status_field: (linkR.data && linkR.data.status) || null },
+    charges: { ok: chargesR.ok, error: chargesR.error || null, body: chargesR.data || null, count: (chargesR.data && (chargesR.data.count ?? (chargesR.data.results||[]).length)) || 0 },
+  });
+}
+
+// v60: Svix-signed Nomod webhook. Verifies signature, finds the matching
+// record by link_id, marks paid. If NOMOD_WEBHOOK_SECRET is not configured
+// we return 501 + a setup hint (polling stays the live reconcile mechanism).
+async function handleNomodWebhook(request, env) {
+  if (!env.NOMOD_WEBHOOK_SECRET) {
+    return json({
+      ok: false,
+      error: "NOMOD_WEBHOOK_SECRET not configured. Polling remains the live reconcile mechanism. To enable webhooks, in the Nomod dashboard go to Settings > Tools & customisations > Apps & APIs > Webhooks, create a webhook to https://umc-dubai.umcdubaillc.workers.dev/admin/webhooks/nomod, then `npx wrangler secret put NOMOD_WEBHOOK_SECRET` with the Signing secret Nomod gives you."
+    }, 501);
+  }
+  await ensureSchema(env);
+  const svixId  = request.headers.get("svix-id") || "";
+  const svixTs  = request.headers.get("svix-timestamp") || "";
+  const svixSig = request.headers.get("svix-signature") || "";
+  if (!svixId || !svixTs || !svixSig) return json({ ok: false, error: "missing svix headers" }, 400);
+  // Reject stale messages (>5 min) — Svix recommended.
+  const ageSec = Math.abs((Date.now() / 1000) - Number(svixTs));
+  if (!isFinite(ageSec) || ageSec > 300) return json({ ok: false, error: "stale timestamp" }, 400);
+  const raw = await request.text();
+  // Svix signing format: signed = base64(hmac_sha256(secret, `${id}.${ts}.${body}`)).
+  // Secret is stored as "whsec_..."; we strip the prefix before importing.
+  const secretStr = String(env.NOMOD_WEBHOOK_SECRET).replace(/^whsec_/, "");
+  let secretBytes;
+  try { secretBytes = Uint8Array.from(atob(secretStr), c => c.charCodeAt(0)); }
+  catch { return json({ ok: false, error: "bad webhook secret encoding" }, 500); }
+  const key = await crypto.subtle.importKey("raw", secretBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const enc = new TextEncoder();
+  const mac = await crypto.subtle.sign("HMAC", key, enc.encode(`${svixId}.${svixTs}.${raw}`));
+  const expected = btoa(String.fromCharCode(...new Uint8Array(mac)));
+  // svix-signature header can carry multiple sigs space-separated: "v1,<sig> v1,<sig>"
+  const sigs = svixSig.split(/\s+/).map(s => s.split(",")[1] || s).filter(Boolean);
+  if (!sigs.includes(expected)) return json({ ok: false, error: "signature mismatch" }, 401);
+  // Verified. Parse and act.
+  let evt;
+  try { evt = JSON.parse(raw); } catch { return json({ ok: false, error: "bad json" }, 400); }
+  // Try common shapes: { data: { link_id }, type }, or { data: { id: chargeId, link: {...} } }
+  const data = (evt && evt.data) || evt || {};
+  const linkId = data.link_id || (data.link && data.link.id) || data.payment_link_id || null;
+  const chargeId = data.id || data.charge_id || null;
+  if (!linkId) {
+    // Unknown shape — log + accept to avoid retries spamming us.
+    console.log("Nomod webhook: no link id in payload", JSON.stringify(evt).slice(0, 400));
+    return json({ ok: true, note: "no link_id matched" });
+  }
+  const now = new Date().toISOString();
+  // v84 — branch on event type. Nomod sends string event types like
+  // 'link.paid', 'charge.succeeded', 'charge.refunded', 'link.refunded'.
+  // We use substring matches as a safety net for vendor-side renames.
+  const evtType = String((evt && evt.type) || "").toLowerCase();
+  const isRefund = /refund|charge\.?back/.test(evtType);
+  const isPaid   = !isRefund && /paid|succeeded|captured|complete/.test(evtType);
+  // If the event type is unrecognised, fall back to the prior "treat as paid"
+  // behaviour so we don't silently miss settlements while Nomod changes labels.
+  const treatAsPaid = isPaid || (!isRefund && !evtType);
+  if (isRefund) {
+    // Refund/chargeback: stamp refunded_at + refunded_amount on whichever
+    // record holds this link_id. Status flips to 'refunded'. Amount best-
+    // effort from common field names; falls back to 0 if absent.
+    const refundAmt = Number(
+      data.amount ?? data.refund_amount ?? data.refunded_amount ?? (data.refund && data.refund.amount) ?? 0
+    ) || 0;
+    await env.BILLING_DB.prepare(
+      `UPDATE billing_documents
+         SET payment_status='refunded',
+             refunded_at=COALESCE(refunded_at, ?),
+             refunded_amount=COALESCE(refunded_amount, 0) + ?,
+             last_checked_at=?
+       WHERE nomod_link_id = ?`
+    ).bind(now, refundAmt, now, linkId).run();
+    await env.BILLING_DB.prepare(
+      `UPDATE payment_links
+         SET payment_status='refunded',
+             refunded_at=COALESCE(refunded_at, ?),
+             refunded_amount=COALESCE(refunded_amount, 0) + ?,
+             last_checked_at=?
+       WHERE nomod_link_id = ?`
+    ).bind(now, refundAmt, now, linkId).run();
+    return json({ ok: true, linkId, chargeId, event: evtType, action: "refunded", amount: refundAmt });
+  }
+  if (treatAsPaid) {
+    // Mark paid wherever this link_id lives. Also stamp payment_method='nomod'
+    // so the Sales ledger can split source (a) Nomod vs (b) bank/cash.
+    const upInv = await env.BILLING_DB.prepare(
+      `UPDATE billing_documents
+         SET payment_status='paid',
+             paid_at=COALESCE(paid_at, ?),
+             last_checked_at=?,
+             nomod_charge_id=COALESCE(?, nomod_charge_id),
+             payment_method=COALESCE(payment_method, 'nomod')
+       WHERE nomod_link_id = ?`
+    ).bind(now, now, chargeId, linkId).run();
+    const upLnk = await env.BILLING_DB.prepare(
+      `UPDATE payment_links
+         SET payment_status='paid',
+             paid_at=COALESCE(paid_at, ?),
+             last_checked_at=?,
+             nomod_charge_id=COALESCE(?, nomod_charge_id),
+             payment_method=COALESCE(payment_method, 'nomod')
+       WHERE nomod_link_id = ?`
+    ).bind(now, now, chargeId, linkId).run();
+    const invChanges = (upInv && upInv.meta && Number(upInv.meta.changes)) || 0;
+    const lnkChanges = (upLnk && upLnk.meta && Number(upLnk.meta.changes)) || 0;
+    // v87 — orphan capture: if the webhook fires for a Nomod link we have no
+    // local record of (links created directly in Nomod, e.g. ad-hoc collections
+    // outside the admin), insert a standalone payment_links row so Sales still
+    // counts it. Idempotent: skip if we already have a row with the same
+    // nomod_charge_id or nomod_link_id (handles webhook retries cleanly).
+    let inserted = false;
+    if (invChanges === 0 && lnkChanges === 0) {
+      // Idempotency check across both tables.
+      const existsByCharge = chargeId
+        ? await env.BILLING_DB.prepare(
+            `SELECT 1 AS x FROM payment_links WHERE nomod_charge_id = ?
+             UNION ALL
+             SELECT 1 AS x FROM billing_documents WHERE nomod_charge_id = ? LIMIT 1`
+          ).bind(chargeId, chargeId).first()
+        : null;
+      const existsByLink = await env.BILLING_DB.prepare(
+        `SELECT 1 AS x FROM payment_links WHERE nomod_link_id = ?
+         UNION ALL
+         SELECT 1 AS x FROM billing_documents WHERE nomod_link_id = ? LIMIT 1`
+      ).bind(linkId, linkId).first();
+      if (!existsByCharge && !existsByLink) {
+        const amount = Number(data.amount ?? data.gross ?? data.total ?? (data.charge && data.charge.amount) ?? 0) || 0;
+        const currency = String(data.currency || (data.charge && data.charge.currency) || "AED").toUpperCase();
+        // Title falls back to a system label; admin user can rename later.
+        const customerName = String(
+          data.customer_name || data.client_name || (data.customer && data.customer.name) || (data.charge && data.charge.customer_name) || ""
+        ).trim();
+        const title = customerName
+          ? `External Nomod payment, ${customerName}`
+          : "External Nomod payment";
+        const url = String(data.link_url || (data.link && data.link.url) || "").trim();
+        await env.BILLING_DB.prepare(
+          `INSERT INTO payment_links
+            (title, amount, currency, note, nomod_link_id, nomod_link_url,
+             created_at, payment_status, paid_at, last_checked_at,
+             nomod_charge_id, payment_method)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, 'nomod')`
+        ).bind(
+          title, amount, currency,
+          "Auto-captured from Nomod webhook (no matching local link).",
+          linkId, url, now, now, now, chargeId
+        ).run();
+        inserted = true;
+      }
+    }
+    return json({
+      ok: true, linkId, chargeId, event: evtType, action: "paid",
+      matched_invoice: invChanges > 0,
+      matched_link: lnkChanges > 0,
+      orphan_inserted: inserted,
+    });
+  }
+  return json({ ok: true, linkId, chargeId, event: evtType, action: "ignored" });
+}
+
+// ============================================================ v84: mark-paid / mark-refunded / sales
+
+// Manual "mark paid" for invoices settled outside Nomod (bank wire, cash).
+// Body: { method: 'bank' | 'cash', paid_at?: 'YYYY-MM-DD' }. payment_status
+// flips to 'paid'; payment_method is stamped so the Sales ledger can split
+// source (a) Nomod vs (b) bank/cash. paid_at is stored as Dubai-local
+// midnight ISO so subsequent month bucketing is unambiguous.
+async function handleMarkPaid(id, request, env) {
+  await ensureSchema(env);
+  let body;
+  try { body = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
+  const method = String((body && body.method) || "").toLowerCase();
+  if (method !== "bank" && method !== "cash") {
+    return json({ ok: false, error: "method must be 'bank' or 'cash'" }, 400);
+  }
+  const dateStr = (body && body.paid_at) ? String(body.paid_at) : "";
+  // Convert the picked date (YYYY-MM-DD in Dubai time) to a UTC ISO that
+  // lands on the same Dubai day. Dubai is UTC+4 with no DST, so 00:00 GST
+  // is 20:00 UTC the previous day. We store the actual moment we wrote it
+  // if no date supplied (now); otherwise the user-picked Dubai midnight.
+  let paidAt;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    // 00:00 in Dubai (+04:00) = (date - 4h) in UTC. JS Date parsing of
+    // `${dateStr}T00:00:00+04:00` gives the right UTC instant.
+    const d = new Date(`${dateStr}T00:00:00+04:00`);
+    if (isNaN(d.getTime())) return json({ ok: false, error: "bad paid_at" }, 400);
+    paidAt = d.toISOString();
+  } else {
+    paidAt = new Date().toISOString();
+  }
+  // Only allow on invoices (quotes never settle). Reject if already refunded.
+  const row = await env.BILLING_DB.prepare(
+    `SELECT id, doc_type, payment_status FROM billing_documents WHERE id = ?`
+  ).bind(id).first();
+  if (!row) return json({ ok: false, error: "not found" }, 404);
+  if (row.doc_type !== "invoice") return json({ ok: false, error: "only invoices can be marked paid" }, 400);
+  await env.BILLING_DB.prepare(
+    `UPDATE billing_documents
+       SET payment_status='paid',
+           paid_at=?,
+           payment_method=?,
+           last_checked_at=?
+     WHERE id = ?`
+  ).bind(paidAt, method, new Date().toISOString(), id).run();
+  return json({ ok: true, id, paid_at: paidAt, payment_method: method });
+}
+
+// Manual "mark refunded" — used when a Nomod refund event was missed (rare)
+// or for cash/bank reversals. Body: { amount: number, refunded_at?: 'YYYY-MM-DD' }.
+// payment_status flips to 'refunded' and refunded_amount accumulates.
+async function handleMarkRefunded(id, request, env) {
+  await ensureSchema(env);
+  let body;
+  try { body = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
+  const amount = Number(body && body.amount);
+  if (!isFinite(amount) || amount <= 0) return json({ ok: false, error: "amount must be > 0" }, 400);
+  const dateStr = (body && body.refunded_at) ? String(body.refunded_at) : "";
+  let refundedAt;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const d = new Date(`${dateStr}T00:00:00+04:00`);
+    if (isNaN(d.getTime())) return json({ ok: false, error: "bad refunded_at" }, 400);
+    refundedAt = d.toISOString();
+  } else {
+    refundedAt = new Date().toISOString();
+  }
+  const row = await env.BILLING_DB.prepare(
+    `SELECT id, doc_type, payment_status FROM billing_documents WHERE id = ?`
+  ).bind(id).first();
+  if (!row) return json({ ok: false, error: "not found" }, 404);
+  if (row.doc_type !== "invoice") return json({ ok: false, error: "only invoices can be refunded" }, 400);
+  await env.BILLING_DB.prepare(
+    `UPDATE billing_documents
+       SET payment_status='refunded',
+           refunded_at=COALESCE(refunded_at, ?),
+           refunded_amount=COALESCE(refunded_amount, 0) + ?,
+           last_checked_at=?
+     WHERE id = ?`
+  ).bind(refundedAt, amount, new Date().toISOString(), id).run();
+  return json({ ok: true, id, refunded_at: refundedAt, amount });
+}
+
+// Sales ledger. De-duplicated settled-revenue figures grouped by Dubai-month.
+// Period sources:
+//   (a) Paid Nomod payments — invoices with payment_method='nomod' OR
+//       standalone payment_links with payment_status='paid'.
+//   (b) Bank/cash-paid invoices — payment_method IN ('bank','cash').
+// Source (a) and (b) are mutually exclusive by payment_method on
+// billing_documents (an invoice has exactly one method). Standalone
+// payment_links cannot collide with bank/cash invoices because they're
+// in a different table — but we still flag heuristic matches (same client +
+// amount within 5% within ±7 days) as "possible duplicates" for review.
+// Refunds (refunded_at within the year) are subtracted from the month they
+// occurred. Test/demo exclusion: client_name matches /test|demo/i AND gross
+// under 5 AED.
+function isTestRow(name, gross) {
+  return /test|demo/i.test(String(name || "")) && Number(gross) < 5;
+}
+// Convert a UTC ISO timestamp to its Dubai-time year and 1-12 month.
+function dubaiYM(iso) {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (isNaN(t)) return null;
+  // +04:00 offset, no DST.
+  const shifted = new Date(t + 4 * 3600 * 1000);
+  return { year: shifted.getUTCFullYear(), month: shifted.getUTCMonth() + 1 };
+}
+
+async function handleSales(url, env) {
+  await ensureSchema(env);
+  const yearParam = url.searchParams.get("year");
+  const requestedYear = yearParam && /^\d{4}$/.test(yearParam) ? parseInt(yearParam, 10) : null;
+
+  // Pull every paid or refunded row from both tables. We do month bucketing
+  // in JS (Dubai-time aware), not SQL, so dates stay correct.
+  const invRows = (await env.BILLING_DB.prepare(
+    `SELECT id, doc_type, number, client_name, subtotal, vat, total, currency,
+            nomod_link_id, nomod_charge_id, payment_status, payment_method,
+            paid_at, refunded_at, refunded_amount
+       FROM billing_documents
+      WHERE doc_type='invoice'
+        AND (payment_status='paid' OR payment_status='refunded')`
+  ).all()).results || [];
+  const linkRows = (await env.BILLING_DB.prepare(
+    `SELECT id, title AS client_name, amount, currency,
+            nomod_link_id, nomod_charge_id, payment_status, payment_method,
+            paid_at, refunded_at, refunded_amount
+       FROM payment_links
+      WHERE payment_status='paid' OR payment_status='refunded'`
+  ).all()).results || [];
+
+  // Helper: monthly bucket lookup. Index 1..12.
+  function emptyMonths() {
+    const a = [];
+    for (let m = 1; m <= 12; m++) a.push({ month: m, net: 0, vat: 0, gross: 0, refunds: 0, nomod_gross: 0, bank_gross: 0, cash_gross: 0, link_gross: 0 });
+    return a;
+  }
+  // Discover years from any paid/refunded row.
+  const yearsSet = new Set();
+  // For dedup heuristic, collect bank/cash invoices and standalone payment_links separately.
+  const dedupInvoices = [];        // bank/cash paid invoices with method
+  const dedupLinks    = [];        // standalone paid links (no invoice)
+  // We aggregate per (year, month) keyed by `${year}-${month}`.
+  const ledger = new Map();
+  function bucket(year, month) {
+    const key = `${year}-${month}`;
+    let y = ledger.get(year);
+    if (!y) { y = emptyMonths(); ledger.set(year, y); }
+    return y[month - 1];
+  }
+  // (a) invoices in billing_documents
+  for (const r of invRows) {
+    const gross = Number(r.total) || 0;
+    if (isTestRow(r.client_name, gross)) continue;
+    // Sale row from paid_at
+    if (r.payment_status === "paid" && r.paid_at) {
+      const ym = dubaiYM(r.paid_at);
+      if (!ym) continue;
+      yearsSet.add(ym.year);
+      const b = bucket(ym.year, ym.month);
+      const subtotal = (r.subtotal != null) ? Number(r.subtotal) : (gross / 1.05);
+      const vat      = (r.vat      != null) ? Number(r.vat)      : (gross - subtotal);
+      b.net   += subtotal;
+      b.gross += gross;
+      b.vat   += vat;
+      const method = String(r.payment_method || "nomod").toLowerCase();
+      if (method === "nomod")      b.nomod_gross += gross;
+      else if (method === "bank")  b.bank_gross  += gross;
+      else if (method === "cash")  b.cash_gross  += gross;
+      else                          b.nomod_gross += gross; // default safety bucket
+      if (method === "bank" || method === "cash") {
+        dedupInvoices.push({ id: r.id, number: r.number, client_name: r.client_name, gross, paid_at: r.paid_at, method });
+      }
+    }
+    // Refund row from refunded_at — subtract NET portion (gross / 1.05) or
+    // the proportional net of the refund amount.
+    const refundAmt = Number(r.refunded_amount) || 0;
+    if (refundAmt > 0 && r.refunded_at) {
+      const ym = dubaiYM(r.refunded_at);
+      if (!ym) continue;
+      yearsSet.add(ym.year);
+      const b = bucket(ym.year, ym.month);
+      const refundNet = refundAmt / 1.05;
+      const refundVat = refundAmt - refundNet;
+      b.refunds += refundAmt;
+      b.net     -= refundNet;
+      b.vat     -= refundVat;
+      b.gross   -= refundAmt;
+    }
+  }
+  // (a) standalone payment_links
+  for (const r of linkRows) {
+    const gross = Number(r.amount) || 0;
+    if (isTestRow(r.client_name, gross)) continue;
+    if (r.payment_status === "paid" && r.paid_at) {
+      const ym = dubaiYM(r.paid_at);
+      if (!ym) continue;
+      yearsSet.add(ym.year);
+      const b = bucket(ym.year, ym.month);
+      const subtotal = gross / 1.05;
+      const vat      = gross - subtotal;
+      b.net   += subtotal;
+      b.gross += gross;
+      b.vat   += vat;
+      b.link_gross += gross;
+      dedupLinks.push({ id: r.id, client_name: r.client_name, gross, paid_at: r.paid_at });
+    }
+    const refundAmt = Number(r.refunded_amount) || 0;
+    if (refundAmt > 0 && r.refunded_at) {
+      const ym = dubaiYM(r.refunded_at);
+      if (!ym) continue;
+      yearsSet.add(ym.year);
+      const b = bucket(ym.year, ym.month);
+      const refundNet = refundAmt / 1.05;
+      const refundVat = refundAmt - refundNet;
+      b.refunds += refundAmt;
+      b.net     -= refundNet;
+      b.vat     -= refundVat;
+      b.gross   -= refundAmt;
+    }
+  }
+  // Possible-duplicates heuristic: a standalone link looks like the same
+  // payment as a bank/cash invoice when client (case-insensitive prefix) +
+  // amount (within 5% — i.e. one is gross-of-VAT, the other net) + paid_at
+  // window (±7 days) all match.
+  const possibleDuplicates = [];
+  const SEVEN_DAYS = 7 * 24 * 3600 * 1000;
+  for (const lk of dedupLinks) {
+    const ltMs = Date.parse(lk.paid_at);
+    const lname = String(lk.client_name || "").trim().toLowerCase();
+    if (!lname || !isFinite(ltMs)) continue;
+    for (const inv of dedupInvoices) {
+      const iname = String(inv.client_name || "").trim().toLowerCase();
+      if (!iname) continue;
+      if (!(lname.startsWith(iname.slice(0, Math.min(iname.length, 12))) ||
+            iname.startsWith(lname.slice(0, Math.min(lname.length, 12))))) continue;
+      const itMs = Date.parse(inv.paid_at);
+      if (!isFinite(itMs)) continue;
+      if (Math.abs(itMs - ltMs) > SEVEN_DAYS) continue;
+      const big = Math.max(lk.gross, inv.gross);
+      const sml = Math.min(lk.gross, inv.gross);
+      if (big === 0) continue;
+      // Allow up to ~5.5% diff (1/1.05 ≈ 0.9524, so ratio threshold 0.94).
+      if (sml / big < 0.94) continue;
+      possibleDuplicates.push({
+        link_id: lk.id, invoice_id: inv.id, invoice_number: inv.number,
+        client_name_link: lk.client_name, client_name_invoice: inv.client_name,
+        link_gross: lk.gross, invoice_gross: inv.gross, method: inv.method,
+        link_paid_at: lk.paid_at, invoice_paid_at: inv.paid_at,
+      });
+    }
+  }
+  // Round helpers — keep two decimals for display, but JSON stays numeric.
+  function r2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+  function totals(months) {
+    const t = { net: 0, vat: 0, gross: 0, refunds: 0, nomod_gross: 0, bank_gross: 0, cash_gross: 0, link_gross: 0 };
+    for (const m of months) for (const k of Object.keys(t)) t[k] += m[k];
+    for (const k of Object.keys(t)) t[k] = r2(t[k]);
+    return t;
+  }
+  const years = Array.from(yearsSet).sort((a, b) => b - a);
+  const year = requestedYear || years[0] || new Date().getUTCFullYear();
+  const months = (ledger.get(year) || emptyMonths()).map(m => ({
+    month: m.month,
+    net:   r2(m.net),
+    vat:   r2(m.vat),
+    gross: r2(m.gross),
+    refunds:     r2(m.refunds),
+    nomod_gross: r2(m.nomod_gross),
+    bank_gross:  r2(m.bank_gross),
+    cash_gross:  r2(m.cash_gross),
+    link_gross:  r2(m.link_gross),
+  }));
+  return json({
+    ok: true,
+    year,
+    years,
+    months,
+    totals: totals(ledger.get(year) || emptyMonths()),
+    possibleDuplicates,
+    methodology: "Dubai time (GST, UTC+4) month boundaries. Cash basis: counted in the month paid. Net of VAT (5%). Sources combined: paid Nomod payments (invoices and standalone links) + bank/cash invoices marked paid manually. Refunds subtracted from their refund month. Test/demo rows excluded (name matches /test|demo/i AND amount < AED 5).",
+  });
+}
+
+// v87 — Sync from Nomod. Pulls recent charges from the transactions API and
+// imports any settled payments the webhook missed (link_id match -> update,
+// otherwise idempotent insert into payment_links keyed by nomod_charge_id).
+// Returns counters + a "flagged" list of charges present in Nomod that this
+// DB doesn't already know about. Idempotent: rerun any time.
+//
+// SETUP NOTE — for full coverage:
+//   * In the Nomod dashboard, ensure the webhook subscription includes ALL
+//     payment events (link.paid, charge.succeeded, charge.captured, refund
+//     events). Some accounts default to link-only events and miss direct
+//     charges issued from the Nomod app.
+//   * The Nomod API key bound to NOMOD_API_KEY must have read scope on
+//     /v1/charges (transactions). Verify in Nomod Settings -> Apps & APIs.
+async function handleSyncNomod(request, env) {
+  await ensureSchema(env);
+  let body = {};
+  try { body = await request.json(); } catch { body = {}; }
+  const maxPages = Math.max(1, Math.min(10, Number(body.maxPages) || 3));
+  let cursor = null;
+  let pulled = 0, imported = 0, updated = 0, skipped = 0;
+  const flagged = [];
+  const errors = [];
+  const now = new Date().toISOString();
+  for (let p = 0; p < maxPages; p++) {
+    const r = await nomodListAllCharges(env, { pageSize: 100, cursor });
+    if (!r.ok) { errors.push({ page: p, error: r.error, status: r.status }); break; }
+    const data = r.data || {};
+    const list = Array.isArray(data.results) ? data.results
+                : Array.isArray(data.data) ? data.data
+                : Array.isArray(data) ? data : [];
+    for (const c of list) {
+      pulled++;
+      const status = String(c.status || c.state || "").toLowerCase();
+      if (!PAID_CHARGE_STATUSES.has(status)) { skipped++; continue; }
+      const chargeId = c.id || c.charge_id || null;
+      const linkId   = (c.link && c.link.id) || c.link_id || c.payment_link_id || null;
+      const amount   = Number(c.amount ?? c.gross ?? 0) || 0;
+      const currency = String(c.currency || "AED").toUpperCase();
+      const paidAt   = c.captured_at || c.created || c.created_at || now;
+      // Step 1: if this charge_id is already on any local row, skip.
+      if (chargeId) {
+        const known = await env.BILLING_DB.prepare(
+          `SELECT 1 AS x FROM payment_links WHERE nomod_charge_id = ?
+           UNION ALL
+           SELECT 1 AS x FROM billing_documents WHERE nomod_charge_id = ? LIMIT 1`
+        ).bind(chargeId, chargeId).first();
+        if (known) { skipped++; continue; }
+      }
+      // Step 2: if the link_id maps to a known row, stamp it paid and tag method.
+      if (linkId) {
+        const upInv = await env.BILLING_DB.prepare(
+          `UPDATE billing_documents
+             SET payment_status='paid',
+                 paid_at=COALESCE(paid_at, ?),
+                 last_checked_at=?,
+                 nomod_charge_id=COALESCE(?, nomod_charge_id),
+                 payment_method=COALESCE(payment_method, 'nomod')
+           WHERE nomod_link_id = ? AND COALESCE(payment_status,'unpaid') <> 'paid'`
+        ).bind(paidAt, now, chargeId, linkId).run();
+        const upLnk = await env.BILLING_DB.prepare(
+          `UPDATE payment_links
+             SET payment_status='paid',
+                 paid_at=COALESCE(paid_at, ?),
+                 last_checked_at=?,
+                 nomod_charge_id=COALESCE(?, nomod_charge_id),
+                 payment_method=COALESCE(payment_method, 'nomod')
+           WHERE nomod_link_id = ? AND COALESCE(payment_status,'unpaid') <> 'paid'`
+        ).bind(paidAt, now, chargeId, linkId).run();
+        if (((upInv.meta && upInv.meta.changes) || 0) + ((upLnk.meta && upLnk.meta.changes) || 0) > 0) {
+          updated++;
+          continue;
+        }
+      }
+      // Step 3: orphan. Insert into payment_links.
+      const customerName = String((c.customer && (c.customer.name || c.customer.full_name)) || c.customer_name || "").trim();
+      const title = customerName ? `Nomod sync, ${customerName}` : "Nomod sync (no customer name)";
+      const urlField = (c.link && c.link.url) || c.link_url || "";
+      await env.BILLING_DB.prepare(
+        `INSERT INTO payment_links
+          (title, amount, currency, note, nomod_link_id, nomod_link_url,
+           created_at, payment_status, paid_at, last_checked_at,
+           nomod_charge_id, payment_method)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, 'nomod')`
+      ).bind(
+        title, amount, currency,
+        "Imported via /admin/api/sync-nomod from Nomod transactions API.",
+        linkId, urlField, now, paidAt, now, chargeId
+      ).run();
+      imported++;
+      flagged.push({ chargeId, linkId, amount, currency, paidAt, customer: customerName || null });
+    }
+    cursor = data.next_cursor || data.cursor || null;
+    if (!cursor) break;
+  }
+  return json({ ok: true, pulled, imported, updated, skipped, flagged, errors });
+}
+
 // ============================================================ dispatcher
 
 export async function handleAdmin(request, env) {
@@ -690,7 +1581,30 @@ export async function handleAdmin(request, env) {
       const regenerate = url.searchParams.get("regenerate") === "1";
       return handlePaymentLink(parseInt(linkM[1], 10), env, { regenerate });
     }
+    // v84 — manual mark-paid / mark-refunded actions for the Sales section.
+    const mpM = path.match(/^\/admin\/api\/billing\/(\d+)\/mark-paid$/);
+    if (mpM && method === "POST") return handleMarkPaid(parseInt(mpM[1], 10), request, env);
+    const mrM = path.match(/^\/admin\/api\/billing\/(\d+)\/mark-refunded$/);
+    if (mrM && method === "POST") return handleMarkRefunded(parseInt(mrM[1], 10), request, env);
     return json({ ok: false, error: "not found" }, 404);
+  }
+
+  // v84 — Sales endpoint (year selector + monthly ledger + dedup flags).
+  if (path === "/admin/api/sales") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    if (method !== "GET") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET" } });
+    return handleSales(url, env);
+  }
+
+  // v87 — Sync from Nomod: imports any settled payments the webhook missed.
+  if (path === "/admin/api/sync-nomod") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    if (method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+    return handleSyncNomod(request, env);
   }
 
   // v53 — standalone Nomod links (Links tab in /admin/billing)
@@ -703,6 +1617,25 @@ export async function handleAdmin(request, env) {
     const lm = path.match(/^\/admin\/api\/links\/(\d+)$/);
     if (lm && method === "DELETE") return handleDeleteLink(parseInt(lm[1], 10), env);
     return json({ ok: false, error: "not found" }, 404);
+  }
+
+  // v60 — Payments tab API (reconciliation)
+  if (path.startsWith("/admin/api/payments")) {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    if (path === "/admin/api/payments" && method === "GET") return handleListPayments(env);
+    if (path === "/admin/api/payments/reconcile" && method === "POST") return handleReconcilePayments(env);
+    const ipm = path.match(/^\/admin\/api\/payments\/inspect\/(\d+)$/);
+    if (ipm && method === "GET") return handleInspectPayment(parseInt(ipm[1], 10), env);
+    return json({ ok: false, error: "not found" }, 404);
+  }
+
+  // v60 — Svix-signed Nomod webhook receiver. No cookie auth (Nomod calls it).
+  if (path === "/admin/webhooks/nomod") {
+    if (method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+    if (!env.BILLING_DB) return dbUnavailable();
+    return handleNomodWebhook(request, env);
   }
 
   return new Response("Not Found", { status: 404 });
@@ -724,6 +1657,9 @@ function PAGE_HTML(authed, env) {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Outfit:wght@300;400;500;600&family=Fraunces:opsz,wght@9..144,300;9..144,400&display=swap" rel="stylesheet">
+<!-- v86 — flatpickr for the Mark-paid date picker in the Payments tab. -->
+<link rel="stylesheet" href="/assets/vendor/flatpickr.min.css">
+<script src="/assets/vendor/flatpickr.min.js" defer></script>
 <style>
 :root{
   --bone:#F6F1E7; --bone2:#EFE8D9; --card:#FBF8F1; --ink:#221B14; --ink-soft:#4A4136;
@@ -741,8 +1677,18 @@ small,.lbl{font-family:Outfit,sans-serif;font-size:11px;letter-spacing:.22em;tex
 input,select,textarea,button{font-family:inherit;color:inherit;font-size:16px}
 /* font-size:16px (not the design-system 14px) so mobile Safari does NOT auto-zoom
    when an input is focused; the page would otherwise sign-in already half-zoomed. */
-input,select,textarea{background:var(--card);border:1px solid var(--hair);border-radius:3px;padding:.55rem .65rem;width:100%;transition:border-color .15s;font-size:16px}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--ink-soft)}
+input,select,textarea{background:var(--card);border:1px solid var(--hair);border-radius:3px;padding:.55rem .65rem;width:100%;transition:border-color .15s,box-shadow .15s;font-size:16px;color:var(--ink)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--amber);box-shadow:0 0 0 3px rgba(199,91,18,.12)}
+/* v59: on-brand select styling — strips the OS chrome, adds an amber-tinted caret
+   SVG. Matches the visual language of the public booking form (bone surface,
+   hairline border, amber focus). */
+select{appearance:none;-webkit-appearance:none;-moz-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23A84B0C' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><path d='M1.5 1.5l4.5 4.5 4.5-4.5'/></svg>");background-repeat:no-repeat;background-position:right .7rem center;background-size:10px;padding-right:2rem;cursor:pointer}
+select::-ms-expand{display:none}
+/* v59: on-brand date input — calmer native picker icon (amber-tinted),
+   consistent caret feel with selects. Cursor pointer to telegraph affordance. */
+input[type=date],input[type=time]{cursor:pointer;font-family:var(--sans);color:var(--ink)}
+input[type=date]::-webkit-calendar-picker-indicator,input[type=time]::-webkit-calendar-picker-indicator{opacity:.55;cursor:pointer;filter:invert(36%) sepia(86%) saturate(1620%) hue-rotate(-3deg) brightness(94%) contrast(92%)}
+input[type=date]:hover::-webkit-calendar-picker-indicator,input[type=time]:hover::-webkit-calendar-picker-indicator{opacity:.9}
 button{cursor:pointer;border:0;background:transparent}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;padding:.6rem 1rem;border:1px solid var(--ink);border-radius:3px;background:var(--ink);color:var(--bone);font-weight:500;font-size:13px;letter-spacing:.04em;transition:background .2s,color .2s,transform .2s;min-height:44px}
 .btn:hover{background:var(--espresso)}
@@ -790,6 +1736,36 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 .login p.lede{color:var(--muted);font-size:13px;margin:0 0 1.25rem}
 .login .row{margin-bottom:.9rem}
 .login .err{color:var(--amber-deep);font-size:12px;margin-top:.6rem;min-height:1.2em}
+/* v60: Payments tab — summary strip + status badges. Quiet typography only
+   (no SaaS green/red chrome). Paid = amber-deep; Unpaid/Expired/Unknown = muted. */
+.pay-summary{display:flex;flex-wrap:wrap;gap:1.2rem;padding:.8rem 1rem;background:var(--card);border:1px solid var(--hair);border-radius:3px;margin:.6rem 0 1rem;font-size:13px}
+.pay-summary b{font-family:Marcellus,Georgia,serif;font-weight:400;color:var(--ink);font-size:15px;letter-spacing:-.005em;margin-left:.2rem}
+.pay-summary .sep{color:var(--hair);user-select:none}
+.pay-status{display:inline-block;font-family:Outfit,sans-serif;font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;font-weight:500}
+.pay-status.paid{color:var(--amber-deep)}
+.pay-status.unpaid{color:var(--muted)}
+.pay-status.expired{color:var(--muted);text-decoration:line-through}
+.pay-status.unknown{color:var(--muted);opacity:.7}
+.pay-type{font-family:Outfit,sans-serif;font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+/* v59: editor modal overlay. The Documents tab's Open action moves the
+   shared #editorHost into #editorSlot and reveals this overlay. Same
+   editor markup + listeners, no duplicate field logic. */
+.ed-modal{position:fixed;inset:0;z-index:1000}
+.ed-modal[hidden]{display:none}
+.ed-backdrop{position:absolute;inset:0;background:rgba(34,27,20,.6);cursor:pointer}
+.ed-shell{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--bone);overflow:hidden}
+@media(min-width:880px){
+  .ed-shell{inset:1.5rem;border-radius:6px;max-width:1240px;margin:auto;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)}
+}
+.ed-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.9rem 1.4rem;border-bottom:1px solid var(--hair);background:var(--card);flex:0 0 auto}
+.ed-head h2{margin:0;font-size:1.25rem;font-family:Marcellus,Georgia,serif}
+.ed-body{flex:1 1 auto;overflow:auto;padding:1.2rem}
+.ed-body > .app{padding:0;background:transparent}
+@media(prefers-reduced-motion:reduce){.ed-modal,.ed-backdrop{transition:none}}
+/* v57: Stay-logged-in row — small, quiet, sits under the password field. */
+.login .stay-row{display:flex;align-items:center;gap:.5rem;margin:-.2rem 0 1rem;font-size:12px;color:var(--muted);cursor:pointer;user-select:none}
+.login .stay-row input[type=checkbox]{width:14px;height:14px;margin:0;accent-color:var(--amber-deep);cursor:pointer;flex:0 0 auto}
+.login .stay-row span{letter-spacing:.04em}
 .notice{background:var(--bone2);border:1px solid var(--hair);padding:.8rem 1rem;border-radius:3px;color:var(--ink-soft);font-size:12.5px;margin-bottom:1rem}
 
 /* App layout */
@@ -988,7 +1964,9 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 .lk-add{font-size:12px;color:var(--ink-soft);background:var(--bone2);padding:.5rem .8rem;border:1px dashed var(--line);border-radius:3px;width:100%;letter-spacing:.05em;margin-top:.2rem;cursor:pointer;min-height:36px}
 .lk-disc{display:grid;grid-template-columns:auto 1fr;gap:.6rem;align-items:end}
 .lk-disc-toggle{display:inline-flex;border:1px solid var(--hair);border-radius:3px;padding:2px;background:var(--bone2);gap:0}
-.lk-disc-toggle button{padding:.4rem .75rem;font-family:Outfit;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);background:transparent;border:0;border-radius:2px;min-height:32px;cursor:pointer}
+/* v57: min-width equalises the % and AED segments (1-char vs 3-char text
+   would otherwise produce different segment widths under padding-only sizing). */
+.lk-disc-toggle button{padding:.4rem .5rem;font-family:Outfit;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);background:transparent;border:0;border-radius:2px;min-height:32px;min-width:52px;text-align:center;cursor:pointer}
 .lk-disc-toggle button.on{background:var(--ink);color:var(--bone)}
 .lk-totals{margin-top:.6rem;display:grid;gap:.25rem;font-size:13px}
 .lk-totals .r{display:flex;justify-content:space-between;padding:.25rem 0;color:var(--ink-soft)}
@@ -1049,6 +2027,47 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
   .doc .dfoot { padding-left:14mm !important; padding-right:14mm !important; }
   .doc .dbody { padding:14mm 14mm 10mm !important; }
 }
+/* v84 — Sales tab: quiet KPI strip + monthly table. Same brand tokens as the
+   other admin tabs; no new fonts or colours. */
+.sales-page{padding:1.5rem 1.6rem 3rem;max-width:1100px;margin:0 auto}
+.sales-head{display:flex;justify-content:space-between;align-items:flex-end;gap:1.4rem;margin-bottom:1.4rem;flex-wrap:wrap}
+.sales-head h2{font-family:var(--serif);font-weight:400;font-size:1.55rem;letter-spacing:.01em;margin:0 0 .35rem}
+.sales-method{font-size:.78rem;line-height:1.55;color:var(--muted);max-width:62ch;margin:0}
+.sales-yearwrap{display:flex;flex-direction:column;align-items:flex-start;gap:.3rem}
+.sales-yearwrap label{font-family:var(--sans);font-weight:500;font-size:.62rem;letter-spacing:.24em;text-transform:uppercase;color:var(--muted)}
+.sales-yearwrap select{font-family:var(--sans);font-size:.92rem;padding:.45rem .7rem;border:1px solid var(--line);border-radius:2px;background:var(--bone);color:var(--ink);min-width:140px}
+.sales-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:.85rem;margin-bottom:1rem}
+.sales-kpis .kpi{background:var(--card);border:1px solid var(--hair);border-radius:3px;padding:.95rem 1.05rem;display:flex;flex-direction:column;gap:.35rem}
+.sales-kpis .kpi .lbl{font-family:var(--sans);font-weight:500;font-size:.6rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+.sales-kpis .kpi .val{font-family:var(--serif);font-size:1.35rem;line-height:1.1;color:var(--ink)}
+.sales-split{display:flex;flex-wrap:wrap;gap:.4rem 1.1rem;align-items:center;margin-bottom:1.2rem;font-size:.78rem;color:var(--muted)}
+.sales-split .lbl{font-family:var(--sans);font-weight:500;font-size:.6rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+.sales-split .src{color:var(--ink-soft)}
+.sales-monthly-wrap{overflow-x:auto;border:1px solid var(--hair);border-radius:3px;background:var(--card)}
+.sales-monthly{width:100%;border-collapse:collapse;font-size:.86rem}
+.sales-monthly th,.sales-monthly td{padding:.55rem .7rem;text-align:right;border-bottom:1px solid var(--hair);white-space:nowrap}
+.sales-monthly th:first-child,.sales-monthly td:first-child{text-align:left}
+.sales-monthly thead th{font-family:var(--sans);font-weight:500;font-size:.62rem;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);background:var(--bone-2)}
+.sales-monthly tfoot td{font-weight:500;border-top:1px solid var(--line)}
+.sales-dupes{margin-top:1.6rem;padding:1rem 1.1rem;background:rgba(199,91,18,.06);border:1px solid rgba(199,91,18,.22);border-radius:3px}
+.sales-dupes h3{font-family:var(--serif);font-weight:400;font-size:1.1rem;margin:0 0 .35rem;color:var(--amber-deep,#9C4A0F)}
+.sales-dupes .muted{font-size:.8rem;color:var(--muted);margin:0 0 .6rem}
+.sales-dupes ul{margin:0;padding-left:1.2rem;font-size:.82rem;line-height:1.55;color:var(--ink-soft)}
+.sales-empty{margin-top:1.4rem;color:var(--muted);font-size:.88rem;line-height:1.55}
+/* v86 — Mark-paid popover, anchored under the action button. */
+.mp-pop{position:absolute;z-index:300;background:var(--card);border:1px solid var(--line);border-radius:4px;box-shadow:0 26px 52px -28px rgba(34,27,20,.45);padding:.95rem 1rem 1rem;font-family:var(--sans)}
+.mp-pop__head{font-size:.84rem;color:var(--ink);margin-bottom:.6rem;line-height:1.4}
+.mp-pop__lbl{display:block;font-size:.6rem;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin-bottom:.3rem}
+.mp-pop__date{width:100%;padding:.55rem .7rem;border:1px solid var(--line);border-radius:3px;background:var(--bone);font-family:var(--sans);font-size:.92rem;color:var(--ink);cursor:pointer}
+.mp-pop__date:focus{outline:none;border-color:var(--amber)}
+.mp-pop__err{margin-top:.5rem;padding:.45rem .6rem;background:rgba(199,91,18,.08);border:1px solid rgba(199,91,18,.32);border-radius:3px;color:var(--amber-deep);font-size:.78rem;line-height:1.45}
+.mp-pop__btns{display:flex;justify-content:flex-end;gap:.45rem;margin-top:.8rem}
+.mp-pop__btns .btn{margin:0}
+@media(max-width:720px){
+  .sales-page{padding:1rem 1rem 2rem}
+  .sales-kpis{grid-template-columns:repeat(2,1fr)}
+  .sales-monthly{font-size:.78rem}
+}
 </style>
 </head>
 <body>
@@ -1079,6 +2098,10 @@ function loginHTML(adminMissing) {
     ${adminMissing ? `<div class="notice"><b>ADMIN_PASSWORD is not configured</b> on this Worker. Add it as a secret in the Cloudflare dashboard and retry.</div>` : ""}
     <form id="loginForm" autocomplete="off">
       <div class="field"><label class="lbl">Password</label><input id="pwd" type="password" required autofocus></div>
+      <label class="stay-row" for="stayLogged">
+        <input type="checkbox" id="stayLogged">
+        <span>Stay logged in</span>
+      </label>
       <button class="btn" type="submit">Sign in</button>
       <div class="err" id="err"></div>
     </form>
@@ -1091,11 +2114,18 @@ function appShellHTML() {
   <button type="button" class="tab on" role="tab" aria-selected="true"  data-tab="create"    id="tabBtnCreate">Create</button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="documents" id="tabBtnDocuments">Documents</button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="links"     id="tabBtnLinks">Links</button>
-  <button type="button" class="tab"    role="tab" aria-selected="false" disabled                                  title="Coming next: paid / unpaid reconciliation">Payments<span class="tab-soon">Soon</span></button>
+  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="payments"  id="tabBtnPayments">Payments</button>
+  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="sales"     id="tabBtnSales">Sales</button>
 </nav>
 
 <section id="tab-create" class="tab-panel on" role="tabpanel" aria-labelledby="tabBtnCreate">
-<main class="app">
+<!-- v59: #editorHost is moveable. Default location is here (#editorHome).
+     When a Documents row is "Open"-ed, the host is moved into #editorSlot
+     inside the modal overlay — so the same editor markup, listeners and
+     state machine drive both "new document" (Create tab) and "edit
+     existing" (modal over Documents). On close it moves back here. -->
+<div id="editorHome">
+<main class="app" id="editorHost">
 
   <section class="panel" aria-label="Editor">
     <div class="field">
@@ -1204,7 +2234,22 @@ function appShellHTML() {
   </section>
 
 </main>
+</div><!-- /#editorHome -->
 </section><!-- /#tab-create -->
+
+<!-- v59: editor modal overlay. Hidden until openEditorModal() is called
+     from loadDoc (Open from Documents row). The host is moved in/out of
+     #editorSlot so listeners persist across opens. -->
+<div id="editorModal" class="ed-modal" hidden role="dialog" aria-modal="true" aria-labelledby="edTitle">
+  <div class="ed-backdrop" data-edclose aria-hidden="true"></div>
+  <div class="ed-shell">
+    <header class="ed-head">
+      <h2 id="edTitle">Document</h2>
+      <button type="button" class="btn btn-small btn-ghost" data-edclose>Close</button>
+    </header>
+    <div id="editorSlot" class="ed-body"></div>
+  </div>
+</div>
 
 <section id="tab-documents" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnDocuments" hidden>
 <section class="history-wrap">
@@ -1243,12 +2288,12 @@ function appShellHTML() {
 
   <section class="panel" aria-label="Create a standalone payment link">
     <h2>New payment link</h2>
-    <p class="hist-sub">Create a Nomod link without a full invoice &mdash; for deposits, ad-hoc charges or WhatsApp collection. <b>Enter NET amounts</b>; Nomod adds 5% VAT on top.</p>
+    <p class="hist-sub">Create a Nomod link without a full invoice &mdash; for deposits, ad-hoc charges or WhatsApp collection. Enter the price excluding VAT &mdash; Nomod adds 5% VAT and the customer pays the total.</p>
 
     <small class="lbl" style="margin-top:.8rem;display:block">Items</small>
     <div class="field">
       <label class="lbl" for="lkCurrency" style="font-size:10px">Currency</label>
-      <select id="lkCurrency" style="max-width:220px">
+      <select id="lkCurrency" style="width:auto;max-width:180px;font-size:14px">
         <option value="AED" selected>AED &mdash; UAE Dirham</option>
         <option value="USD">USD &mdash; US Dollar</option>
         <option value="EUR">EUR &mdash; Euro</option>
@@ -1274,7 +2319,7 @@ function appShellHTML() {
       <div class="r"><span>Items subtotal</span><span id="lkSub">&mdash;</span></div>
       <div class="r" id="lkDiscRow" style="display:none"><span>Discount</span><span id="lkDiscShow">&mdash;</span></div>
       <div class="r tot"><span>Total (NET)</span><span id="lkTot">&mdash;</span></div>
-      <div class="lk-vat-note">+ 5% VAT added by Nomod on the payment page. Customer pays NET &times; 1.05.</div>
+      <div class="lk-vat-note">Nomod adds 5% VAT on the payment page. Customer pays NET &times; 1.05.</div>
     </div>
 
     <hr class="hair">
@@ -1320,6 +2365,88 @@ function appShellHTML() {
 
 </div>
 </section><!-- /#tab-links -->
+
+<!-- v60: Payments tab — reconciliation view. Lists every record that has a
+     Nomod payment link, with status reconciled via polling. Reuses Documents'
+     table styles (.history). -->
+<section id="tab-payments" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnPayments" hidden>
+<section class="history-wrap">
+  <div class="history">
+    <div class="hist-head">
+      <div>
+        <h2>Payments</h2>
+        <p class="hist-sub">Reconciliation &mdash; which invoices and links are paid. Status is polled from Nomod.</p>
+      </div>
+      <div class="hist-tools">
+        <span class="lbl" id="payLastChecked" style="margin-right:.8rem">&nbsp;</span>
+        <button type="button" class="btn btn-small btn-ghost" id="btnPayRefresh">Check now</button>
+      </div>
+    </div>
+    <div class="pay-summary" id="paySummary"></div>
+    <div class="hist-filter">
+      <div class="hist-typefilter" role="tablist" aria-label="Status filter">
+        <button type="button" class="seg on" data-paystat="all">All</button>
+        <button type="button" class="seg"    data-paystat="unpaid">Unpaid</button>
+        <button type="button" class="seg"    data-paystat="paid">Paid</button>
+      </div>
+    </div>
+    <div class="hist-scroll">
+      <table>
+        <thead><tr><th>Number / Title</th><th>Type</th><th>Client / Note</th><th style="text-align:right">Amount</th><th>Status</th><th>Paid</th><th style="text-align:right">Actions</th></tr></thead>
+        <tbody id="payBody"></tbody>
+      </table>
+    </div>
+    <p class="hist-empty" id="payEmpty" hidden>No payment links yet. Generate one from an invoice or the Links tab.</p>
+  </div>
+</section>
+</section><!-- /#tab-payments -->
+
+<!-- v84 — Sales: de-duplicated settled-revenue ledger (cash basis, Dubai time, net of VAT).
+     Combines paid Nomod payments (invoices + standalone links) with bank/cash invoices
+     marked paid manually. Heuristic dedup flags possible duplicates for review. -->
+<section id="tab-sales" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnSales" hidden>
+  <div class="sales-page">
+    <header class="sales-head">
+      <div class="sales-titlewrap">
+        <h2>Sales</h2>
+        <p class="sales-method" id="salesMethodology"></p>
+      </div>
+      <div class="sales-yearwrap">
+        <label for="salesYear">Year</label>
+        <select id="salesYear" aria-label="Year"></select>
+        <button type="button" class="btn btn-small btn-ghost" id="btnSyncNomod" title="Pulls recent Nomod transactions and imports any settled payments the webhook missed. Safe to rerun.">Sync from Nomod</button>
+        <span id="syncNomodStatus" class="muted" style="font-size:.78rem;margin-top:.3rem"></span>
+      </div>
+    </header>
+    <div class="sales-kpis">
+      <div class="kpi"><span class="lbl">Net (turnover)</span><span class="val" id="kpiNet">—</span></div>
+      <div class="kpi"><span class="lbl">VAT collected</span><span class="val" id="kpiVat">—</span></div>
+      <div class="kpi"><span class="lbl">Gross received</span><span class="val" id="kpiGross">—</span></div>
+      <div class="kpi"><span class="lbl">Refunds</span><span class="val" id="kpiRefunds">—</span></div>
+    </div>
+    <div class="sales-split">
+      <span class="lbl">Source split (gross)</span>
+      <span class="src" id="splitNomod">Nomod links —</span>
+      <span class="src" id="splitBank">Bank —</span>
+      <span class="src" id="splitCash">Cash —</span>
+      <span class="src" id="splitStandalone">Standalone links —</span>
+    </div>
+    <div class="sales-monthly-wrap">
+      <table class="sales-monthly" aria-label="Monthly breakdown">
+        <thead>
+          <tr><th>Month</th><th>Net</th><th>VAT</th><th>Gross</th><th>Refunds</th><th>Nomod</th><th>Bank</th><th>Cash</th><th>Standalone</th></tr>
+        </thead>
+        <tbody id="salesMonthly"></tbody>
+      </table>
+    </div>
+    <div class="sales-dupes" id="salesDupes" hidden>
+      <h3>Possible duplicates &mdash; review</h3>
+      <p class="muted">Heuristic match: same client (prefix), gross within 5%, paid within &plusmn;7 days. Reconcile manually if these are the same payment recorded twice.</p>
+      <ul id="salesDupesList"></ul>
+    </div>
+    <p class="sales-empty" id="salesEmpty" hidden>No paid invoices or payment links yet. Once you mark invoices paid (Documents tab) or receive Nomod payments, this section populates.</p>
+  </div>
+</section>
 `;
 }
 
@@ -1328,6 +2455,7 @@ const LOGIN_SCRIPT = `<script>
   const form = document.getElementById("loginForm");
   if(!form) return;
   const pwd = document.getElementById("pwd");
+  const stay = document.getElementById("stayLogged");
   const err = document.getElementById("err");
   form.addEventListener("submit", async function(e){
     e.preventDefault();
@@ -1336,7 +2464,7 @@ const LOGIN_SCRIPT = `<script>
       const r = await fetch("/admin/billing/login", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ password: pwd.value })
+        body: JSON.stringify({ password: pwd.value, stayLoggedIn: !!(stay && stay.checked) })
       });
       const j = await r.json();
       if(j.ok){ location.reload(); }
@@ -1733,25 +2861,12 @@ const PAGE_SCRIPT = `<script>
     // (tab-<name>). Switching is purely client-side — no full reload — but
     // each tab's data still comes from the existing /admin/api endpoints.
     const tabs = document.querySelectorAll("nav.tabbar .tab[data-tab]");
-    function switchTab(name){
-      tabs.forEach(function(b){
-        const on = b.getAttribute("data-tab") === name;
-        b.classList.toggle("on", on);
-        b.setAttribute("aria-selected", on ? "true" : "false");
-      });
-      ["create","documents","links"].forEach(function(n){
-        const el = document.getElementById("tab-" + n);
-        if(!el) return;
-        const on = n === name;
-        el.classList.toggle("on", on);
-        if(on){ el.removeAttribute("hidden"); } else { el.setAttribute("hidden",""); }
-      });
-      if(name === "documents") loadHistory();
-      if(name === "links") loadLinks();
-      // Re-fit the preview if Create came back into view — its sticky/scale
-      // calc only runs while it's visible.
-      if(name === "create" && typeof fitDocToViewport === "function") fitDocToViewport();
-    }
+    // v58: switchTab is now defined at IIFE scope (see below) so loadDoc's
+    // Re-open flow can actually switch tabs. Previously it was local to
+    // bindForm() — out of scope for loadDoc — so the
+    // (typeof switchTab === "function") guard silently skipped the call,
+    // leaving the user on Documents while the form silently populated on
+    // the hidden Create tab. (Same root cause as v57's applyHistoryFilter.)
     tabs.forEach(function(b){
       b.addEventListener("click", function(){ switchTab(b.getAttribute("data-tab")); });
     });
@@ -1779,18 +2894,9 @@ const PAGE_SCRIPT = `<script>
         }, 80);
       });
     }
-    function applyHistoryFilter(){
-      if(!histBody) return;
-      const t = (histBody.dataset.typeFilter || "all").toLowerCase();
-      const q = (histBody.dataset.qFilter || "").toLowerCase();
-      histBody.querySelectorAll("tr").forEach(function(tr){
-        const rowType = (tr.getAttribute("data-doctype") || "").toLowerCase();
-        const rowText = (tr.getAttribute("data-searchtext") || "").toLowerCase();
-        const okT = t === "all" || rowType === t;
-        const okQ = !q || rowText.indexOf(q) !== -1;
-        tr.style.display = (okT && okQ) ? "" : "none";
-      });
-    }
+    // v57: applyHistoryFilter is now defined at IIFE scope (see below) so
+    // loadHistory can call it without a ReferenceError. The bindForm-scope
+    // wrapper here exists only as a no-op alias so this file diff stays small.
 
     // ---------- v55: Links tab — Nomod-shaped multi-item form ----------
     // Items state lives here so the live total + payload assembly stay
@@ -2061,7 +3167,532 @@ const PAGE_SCRIPT = `<script>
     await fetch("/admin/billing/logout", { method:"POST" });
     location.reload();
   }
+  // v59: open/close the editor modal. Moves #editorHost between #editorHome
+  // (its Create-tab home) and #editorSlot (modal body) so the existing
+  // editor markup, listeners and state machine drive both "new document"
+  // and "edit existing" — no duplicate field logic.
+  function openEditorModal(label){
+    const modal = document.getElementById("editorModal");
+    const slot = document.getElementById("editorSlot");
+    const host = document.getElementById("editorHost");
+    if(!modal || !slot || !host) return;
+    if(host.parentElement !== slot) slot.appendChild(host);
+    const t = document.getElementById("edTitle");
+    if(t) t.textContent = label || "Document";
+    modal.hidden = false;
+    document.documentElement.style.overflow = "hidden";
+    if(typeof fitDocToViewport === "function") setTimeout(fitDocToViewport, 30);
+  }
+  function closeEditorModal(){
+    const modal = document.getElementById("editorModal");
+    const home = document.getElementById("editorHome");
+    const host = document.getElementById("editorHost");
+    if(!modal || modal.hidden) return;
+    if(home && host && host.parentElement !== home) home.appendChild(host);
+    modal.hidden = true;
+    document.documentElement.style.overflow = "";
+    // Refresh the Documents list so any save/convert/regenerate is visible.
+    if(typeof loadHistory === "function") loadHistory();
+  }
+  // Delegate close clicks (backdrop + Close button).
+  document.addEventListener("click", function(e){
+    const c = e.target.closest("[data-edclose]");
+    if(c) { e.preventDefault(); closeEditorModal(); }
+  });
+  document.addEventListener("keydown", function(e){
+    if(e.key === "Escape"){
+      const modal = document.getElementById("editorModal");
+      if(modal && !modal.hidden) closeEditorModal();
+    }
+  });
+
+  // v58: hoisted to IIFE scope. Was local to bindForm(), so loadDoc's
+  // (typeof switchTab === "function") guard at the end of the Re-open
+  // flow silently skipped — Re-open populated the form on a HIDDEN
+  // Create tab and the user (still on Documents) saw nothing happen.
+  // Second "function locked inside bindForm, called from IIFE scope"
+  // bug after v57's applyHistoryFilter; same architectural shape, same fix.
+  function switchTab(name){
+    // v59: any tab switch closes the editor modal first, so the host node
+    // returns to its Create-tab home (otherwise the Create tab would render
+    // empty because #editorHost would still be inside the modal body).
+    const modal = document.getElementById("editorModal");
+    if(modal && !modal.hidden) closeEditorModal();
+    document.querySelectorAll("nav.tabbar .tab[data-tab]").forEach(function(b){
+      const on = b.getAttribute("data-tab") === name;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    // v61: include "payments" — was missing in v60, which is why activating
+    // the tab moved the underline but never un-hid #tab-payments.
+    // v84: include "sales".
+    ["create","documents","links","payments","sales"].forEach(function(n){
+      const el = document.getElementById("tab-" + n);
+      if(!el) return;
+      const on = n === name;
+      el.classList.toggle("on", on);
+      if(on){ el.removeAttribute("hidden"); } else { el.setAttribute("hidden",""); }
+    });
+    if(name === "documents") loadHistory();
+    if(name === "links") loadLinks();
+    if(name === "payments") { loadPayments(); maybeReconcilePayments(); }
+    if(name === "sales") loadSales();
+    if(name === "create" && typeof fitDocToViewport === "function") fitDocToViewport();
+  }
+  // v57: hoisted to IIFE scope so loadHistory can call it. Was previously
+  // defined inside bindForm() — out of scope from loadHistory, causing a
+  // ReferenceError that aborted loadHistory before the row-action click
+  // handler ever bound. Re-open + Copy-payment-link were both dead because
+  // of that single throw. Defining it here makes it reachable everywhere
+  // and remains the single source of truth for the type/search filter.
+  function applyHistoryFilter(){
+    const histBody = $("histBody");
+    if(!histBody) return;
+    const t = (histBody.dataset.typeFilter || "all").toLowerCase();
+    const q = (histBody.dataset.qFilter || "").toLowerCase();
+    histBody.querySelectorAll("tr").forEach(function(tr){
+      const rowType = (tr.getAttribute("data-doctype") || "").toLowerCase();
+      const rowText = (tr.getAttribute("data-searchtext") || "").toLowerCase();
+      const okT = t === "all" || rowType === t;
+      const okQ = !q || rowText.indexOf(q) !== -1;
+      tr.style.display = (okT && okQ) ? "" : "none";
+    });
+  }
+  // v60: Payments tab — load + reconcile + filter + delegated click handler.
+  // Polling is the live reconcile mechanism. maybeReconcilePayments() is
+  // debounced (60s) and fires on tab-open + manual Check now. The webhook
+  // route (POST /admin/webhooks/nomod) writes the same fields when wired.
+  let payLastFetched = 0;
+  let payReconciling = false;
+  async function loadPayments(){
+    const body = $("payBody"); const empty = $("payEmpty"); const sum = $("paySummary");
+    if(!body) return;
+    try {
+      const r = await fetch("/admin/api/payments");
+      const j = await r.json();
+      if(!j.ok){ setStatus("Payments load failed: " + (j.error || r.status)); return; }
+      const items = j.items || [];
+      const s = j.summary || { paid:0, unpaid:0, expired:0, collected:0, outstanding:0 };
+      sum.innerHTML = items.length
+        ? '<span>'+s.paid+' paid</span><span class="sep">·</span><span>'+s.unpaid+' unpaid</span>'
+          + (s.expired ? '<span class="sep">·</span><span>'+s.expired+' expired</span>' : '')
+          + '<span class="sep">·</span><span>AED <b>'+Number(s.collected).toLocaleString()+'</b> collected</span>'
+          + '<span class="sep">·</span><span>AED <b>'+Number(s.outstanding).toLocaleString()+'</b> outstanding</span>'
+        : '';
+      if(!items.length){ body.innerHTML = ""; empty.hidden = false; return; }
+      empty.hidden = true;
+      body.innerHTML = items.map(function(x){
+        const isInv = x.source === "invoice";
+        const u = String(x.nomod_link_url || "");
+        const numCell = isInv
+          ? '<a href="#" data-payload="'+x.id+'">'+esc(x.number)+'</a>'
+          : esc(x.number);
+        const clientCell = isInv
+          ? esc(x.client_name || "") + (x.client_company ? ' <span style="color:var(--muted)">('+esc(x.client_company)+')</span>' : '')
+          : '<span style="color:var(--muted)">'+esc(x.client_name || "")+'</span>';
+        const status = String(x.payment_status || "unknown").toLowerCase();
+        const statusCell = '<span class="pay-status '+status+'">'+status.toUpperCase()+'</span>';
+        const paidCell = x.paid_at ? esc(fmtDate(String(x.paid_at).slice(0,10))) : '<span style="color:var(--muted)">&mdash;</span>';
+        const actions = [];
+        actions.push('<button type="button" class="btn btn-small btn-ghost" data-paycopy="'+esc(u)+'" title="Link the client uses to pay this invoice">Copy payment link</button>');
+        if(isInv) actions.push('<button type="button" class="btn btn-small btn-ghost" data-payload="'+x.id+'">Open</button>');
+        if(status !== "paid" && isInv){
+          actions.push('<button type="button" class="btn btn-small btn-ghost" data-payregen="'+x.id+'" data-num="'+esc(x.number)+'" title="Issues a fresh Nomod payment link, replacing the previous one">Regenerate payment link</button>');
+          // v84 — manual mark-paid for invoices settled outside Nomod.
+          actions.push('<button type="button" class="btn btn-small btn-ghost" data-paymark="bank" data-id="'+x.id+'" data-num="'+esc(x.number)+'" title="Mark this invoice paid via bank wire">Mark paid via bank</button>');
+          actions.push('<button type="button" class="btn btn-small btn-ghost" data-paymark="cash" data-id="'+x.id+'" data-num="'+esc(x.number)+'" title="Mark this invoice paid via cash">Mark paid via cash</button>');
+        }
+        return '<tr data-paystat="'+status+'">'
+          + '<td data-lbl="Number">'+numCell+'</td>'
+          + '<td data-lbl="Type"><span class="pay-type">'+(isInv?'Invoice':'Link')+'</span></td>'
+          + '<td data-lbl="Client">'+clientCell+'</td>'
+          + '<td data-lbl="Amount" style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(Number(x.amount), x.currency))+'</td>'
+          + '<td data-lbl="Status">'+statusCell+'</td>'
+          + '<td data-lbl="Paid">'+paidCell+'</td>'
+          + '<td data-lbl="Actions" style="text-align:right;white-space:nowrap" class="hist-actions">'+actions.join(' ')+'</td>'
+          + '</tr>';
+      }).join("");
+      applyPaymentsFilter();
+      payLastFetched = Date.now();
+      updatePayLastChecked();
+    } catch(e){ setStatus("Payments load failed."); console.log("loadPayments error:", e); }
+  }
+
+  // v84 — Sales section. Fetches the de-duplicated monthly ledger and renders
+  // KPI strip, source split, 12-month table and a possible-duplicates review
+  // list. Re-fetches when the year selector changes.
+  // v86 — themed Mark-paid popover anchored to the clicked button. Uses the
+  // shared flatpickr build already loaded for the marketing booking form.
+  function openMarkPaidPopover(anchorBtn){
+    // Close any previously-open popover first.
+    const prev = document.querySelector(".mp-pop");
+    if(prev) prev.remove();
+    const id = anchorBtn.getAttribute("data-id");
+    const num = anchorBtn.getAttribute("data-num") || "";
+    const method = anchorBtn.getAttribute("data-paymark"); // 'bank' | 'cash'
+    // Default settlement date = today in Dubai (+04:00).
+    const now = new Date();
+    const dub = new Date(now.getTime() + 4*3600*1000);
+    const ymd = dub.toISOString().slice(0,10);
+    const pop = document.createElement("div");
+    pop.className = "mp-pop";
+    pop.innerHTML =
+      '<div class="mp-pop__inner">'
+      + '<div class="mp-pop__head">Mark <b>' + esc(num) + '</b> paid via <b>' + (method === "bank" ? "bank" : "cash") + '</b></div>'
+      + '<label class="mp-pop__lbl">Settlement date (Dubai time)</label>'
+      + '<input type="text" class="mp-pop__date" value="' + esc(ymd) + '" autocomplete="off" inputmode="none" readonly>'
+      + '<div class="mp-pop__err" hidden></div>'
+      + '<div class="mp-pop__btns">'
+        + '<button type="button" class="btn btn-small btn-ghost" data-mpcancel>Cancel</button>'
+        + '<button type="button" class="btn btn-small btn-ink"   data-mpconfirm>Mark paid</button>'
+      + '</div>'
+      + '</div>';
+    document.body.appendChild(pop);
+    // Position the popover under the anchor button (viewport coords).
+    const r = anchorBtn.getBoundingClientRect();
+    const popW = 280;
+    let left = Math.max(8, Math.min(window.innerWidth - popW - 8, r.left));
+    let top = r.bottom + window.scrollY + 6;
+    pop.style.left = left + "px";
+    pop.style.top  = top + "px";
+    pop.style.width = popW + "px";
+    // Bind flatpickr to the input. flatpickr is loaded via defer; if it
+    // hasn't initialised yet, the input stays as a normal date input.
+    const dateInput = pop.querySelector(".mp-pop__date");
+    let fpInstance = null;
+    if(typeof flatpickr === "function"){
+      fpInstance = flatpickr(dateInput, {
+        dateFormat: "Y-m-d",
+        defaultDate: ymd,
+        allowInput: false,
+        static: true,
+        positionElement: dateInput,
+      });
+    } else {
+      // Fallback: switch readonly off so user can type a date.
+      dateInput.removeAttribute("readonly");
+      dateInput.setAttribute("inputmode", "text");
+    }
+    function close(){
+      if(fpInstance) fpInstance.destroy();
+      pop.remove();
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onOutside, true);
+    }
+    function onKey(e){ if(e.key === "Escape") close(); }
+    function onOutside(e){
+      if(!pop.contains(e.target) && e.target !== anchorBtn) close();
+    }
+    document.addEventListener("keydown", onKey);
+    // Defer outside-click binding so the click that opened the popover doesn't immediately close it.
+    setTimeout(function(){ document.addEventListener("mousedown", onOutside, true); }, 0);
+    pop.querySelector("[data-mpcancel]").addEventListener("click", close);
+    pop.querySelector("[data-mpconfirm]").addEventListener("click", async function(){
+      const date = String(dateInput.value || "").trim();
+      const errEl = pop.querySelector(".mp-pop__err");
+      errEl.hidden = true; errEl.textContent = "";
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){
+        errEl.textContent = "Pick a valid date.";
+        errEl.hidden = false;
+        return;
+      }
+      const confirmBtn = pop.querySelector("[data-mpconfirm]");
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = "Marking…";
+      setStatus("Marking " + num + " paid via " + method + "…");
+      try {
+        const r = await fetch("/admin/api/billing/" + encodeURIComponent(id) + "/mark-paid", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ method: method, paid_at: date }),
+        });
+        const j = await r.json().catch(function(){ return {}; });
+        if(r.ok && j && j.ok){
+          setStatus("Marked " + num + " paid (" + method + ", " + date + "). Refreshed.");
+          close();
+          // Refresh the Payments list and the Sales KPI strip if it's mounted.
+          if(typeof loadPayments === "function") loadPayments();
+          if(typeof loadSales === "function"){
+            const salesPanel = document.getElementById("tab-sales");
+            if(salesPanel && !salesPanel.hidden) loadSales();
+          }
+        } else {
+          const msg = (j && j.error) || ("HTTP " + r.status);
+          errEl.textContent = "Mark paid failed: " + msg;
+          errEl.hidden = false;
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = "Mark paid";
+          setStatus("Mark paid failed: " + msg);
+        }
+      } catch(err){
+        errEl.textContent = "Network error: " + (err && err.message ? err.message : "request failed");
+        errEl.hidden = false;
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = "Mark paid";
+        setStatus("Mark paid failed (network).");
+      }
+    });
+    // Focus the date input for keyboard users.
+    setTimeout(function(){ dateInput.focus(); }, 10);
+  }
+
+  let salesYearChosen = null;
+  async function loadSales(){
+    const yearSel = document.getElementById("salesYear");
+    const url = "/admin/api/sales" + (salesYearChosen ? ("?year=" + encodeURIComponent(salesYearChosen)) : "");
+    try {
+      const r = await fetch(url);
+      const j = await r.json();
+      if(!j.ok){ setStatus("Sales load failed: " + (j.error || r.status)); return; }
+      const fmt = function(n){
+        const v = Number(n) || 0;
+        return "AED " + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      };
+      // Year selector: years that have data, with a fallback to the API's
+      // resolved year (server returns requested year, else latest with data,
+      // else current year), so the picker always shows a real year even
+      // before any paid invoice exists.
+      if(yearSel){
+        const years = (j.years || []).slice();
+        const apiYear = Number(j.year) || new Date().getUTCFullYear();
+        // Ensure apiYear is in the list (so the <select> always has at least one option).
+        if(years.indexOf(apiYear) === -1) years.unshift(apiYear);
+        const current = String(salesYearChosen || apiYear);
+        const opts = years.map(function(y){
+          return '<option value="'+y+'"'+(String(y)===current?' selected':'')+'>'+y+'</option>';
+        }).join("");
+        yearSel.innerHTML = opts;
+        salesYearChosen = current;
+      }
+      const totals = j.totals || { net:0, vat:0, gross:0, refunds:0, nomod_gross:0, bank_gross:0, cash_gross:0, link_gross:0 };
+      document.getElementById("kpiNet").textContent     = fmt(totals.net);
+      document.getElementById("kpiVat").textContent     = fmt(totals.vat);
+      document.getElementById("kpiGross").textContent   = fmt(totals.gross);
+      document.getElementById("kpiRefunds").textContent = fmt(totals.refunds);
+      document.getElementById("splitNomod").textContent      = "Nomod link invoices " + fmt(totals.nomod_gross);
+      document.getElementById("splitBank").textContent       = "Bank " + fmt(totals.bank_gross);
+      document.getElementById("splitCash").textContent       = "Cash " + fmt(totals.cash_gross);
+      document.getElementById("splitStandalone").textContent = "Standalone links " + fmt(totals.link_gross);
+      document.getElementById("salesMethodology").textContent = j.methodology || "";
+      // Monthly rows.
+      const tbody = document.getElementById("salesMonthly");
+      const months = j.months || [];
+      const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      tbody.innerHTML = months.map(function(m){
+        return "<tr>"
+          + "<td>"+monthNames[m.month-1]+"</td>"
+          + "<td>"+fmt(m.net)+"</td>"
+          + "<td>"+fmt(m.vat)+"</td>"
+          + "<td>"+fmt(m.gross)+"</td>"
+          + "<td>"+(m.refunds>0?fmt(m.refunds):'<span style="color:var(--muted)">—</span>')+"</td>"
+          + "<td>"+fmt(m.nomod_gross)+"</td>"
+          + "<td>"+fmt(m.bank_gross)+"</td>"
+          + "<td>"+fmt(m.cash_gross)+"</td>"
+          + "<td>"+fmt(m.link_gross)+"</td>"
+          + "</tr>";
+      }).join("");
+      // Empty state when totals are all zero.
+      const hasData = (totals.net + totals.gross + totals.refunds + totals.nomod_gross + totals.bank_gross + totals.cash_gross + totals.link_gross) > 0;
+      document.getElementById("salesEmpty").hidden = hasData;
+      // Possible-duplicates list.
+      const dupes = j.possibleDuplicates || [];
+      const dupesWrap = document.getElementById("salesDupes");
+      const dupesList = document.getElementById("salesDupesList");
+      if(dupes.length){
+        dupesList.innerHTML = dupes.map(function(d){
+          const date = String(d.invoice_paid_at || "").slice(0,10);
+          return '<li>Link #'+d.link_id+' ('+esc(d.client_name_link||'')+', '+fmt(d.link_gross)+') ↔ Invoice '+esc(d.invoice_number||'')+' ('+esc(d.client_name_invoice||'')+', '+fmt(d.invoice_gross)+', '+esc(d.method||'')+', '+esc(date)+')</li>';
+        }).join("");
+        dupesWrap.hidden = false;
+      } else {
+        dupesList.innerHTML = "";
+        dupesWrap.hidden = true;
+      }
+    } catch(e){ setStatus("Sales load failed."); console.log("loadSales error:", e); }
+  }
+  // Year selector change handler.
+  document.addEventListener("change", function(e){
+    if(e.target && e.target.id === "salesYear"){
+      salesYearChosen = e.target.value || null;
+      loadSales();
+    }
+  });
+  // v87 — Sync from Nomod button. Pulls recent transactions from Nomod and
+  // imports any settled payments the webhook missed. Idempotent.
+  document.addEventListener("click", async function(e){
+    const btn = e.target.closest("#btnSyncNomod");
+    if(!btn) return;
+    const stat = document.getElementById("syncNomodStatus");
+    btn.disabled = true; const orig = btn.textContent; btn.textContent = "Syncing…";
+    if(stat) stat.textContent = "Pulling Nomod transactions…";
+    try {
+      const r = await fetch("/admin/api/sync-nomod", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ maxPages: 3 }),
+      });
+      const j = await r.json().catch(function(){ return {}; });
+      if(r.ok && j && j.ok){
+        const flagged = (j.flagged || []).length;
+        const summary = "Pulled " + (j.pulled||0)
+          + ", imported " + (j.imported||0)
+          + ", updated " + (j.updated||0)
+          + ", skipped " + (j.skipped||0)
+          + (flagged ? " (" + flagged + " new orphan(s) flagged below)" : "");
+        if(stat) stat.textContent = summary;
+        setStatus("Nomod sync: " + summary);
+        loadSales();
+      } else {
+        const msg = (j && j.error) || ("HTTP " + r.status);
+        if(stat) stat.textContent = "Sync failed: " + msg;
+        setStatus("Nomod sync failed: " + msg);
+      }
+    } catch(err){
+      if(stat) stat.textContent = "Sync failed (network).";
+      setStatus("Nomod sync failed (network).");
+    } finally {
+      btn.disabled = false; btn.textContent = orig;
+    }
+  });
+  function applyPaymentsFilter(){
+    const body = $("payBody"); if(!body) return;
+    const want = (body.dataset.statFilter || "all").toLowerCase();
+    body.querySelectorAll("tr").forEach(function(tr){
+      const st = (tr.getAttribute("data-paystat") || "").toLowerCase();
+      const ok = want === "all" || st === want;
+      tr.style.display = ok ? "" : "none";
+    });
+  }
+  function updatePayLastChecked(){
+    const el = $("payLastChecked"); if(!el) return;
+    if(!payLastFetched){ el.textContent = ""; return; }
+    const secs = Math.round((Date.now() - payLastFetched) / 1000);
+    el.textContent = "Last checked " + (secs < 60 ? secs + "s" : Math.round(secs/60) + " min") + " ago";
+  }
+  setInterval(updatePayLastChecked, 30_000);
+  async function reconcilePaymentsNow(){
+    if(payReconciling) return;
+    payReconciling = true;
+    setStatus("Checking Nomod for payment status …");
+    try {
+      const r = await fetch("/admin/api/payments/reconcile", { method:"POST" });
+      const j = await r.json();
+      if(!j.ok){ setStatus("Reconcile failed: " + (j.error || r.status)); return; }
+      const msg = "Checked " + j.checked + " — " + (j.newlyPaid ? j.newlyPaid + " newly paid · " : "") + j.stillUnpaid + " still unpaid"
+                + (j.errors ? " (" + j.errors + " errors)" : "");
+      setStatus(msg);
+      await loadPayments();
+    } catch(e){ setStatus("Reconcile failed: " + (e.message || e)); }
+    finally { payReconciling = false; }
+  }
+  // Debounce auto-reconcile on tab open: don't poll if we polled <60s ago.
+  let lastAutoReconcile = 0;
+  function maybeReconcilePayments(){
+    const now = Date.now();
+    if(now - lastAutoReconcile < 60_000) return;
+    lastAutoReconcile = now;
+    reconcilePaymentsNow();
+  }
+  // Delegated click handler on stable #tab-payments ancestor.
+  function bindPayClickOnce(){
+    const root = document.getElementById("tab-payments");
+    if(!root || root._payClickBound) return;
+    root._payClickBound = true;
+    root.addEventListener("click", function(e){
+      const refresh = e.target.closest("#btnPayRefresh");
+      if(refresh){ e.preventDefault(); reconcilePaymentsNow(); return; }
+      const seg = e.target.closest(".hist-typefilter .seg[data-paystat]");
+      if(seg){
+        e.preventDefault();
+        root.querySelectorAll(".hist-typefilter .seg").forEach(s => s.classList.toggle("on", s === seg));
+        const body = $("payBody");
+        if(body) body.dataset.statFilter = seg.getAttribute("data-paystat") || "all";
+        applyPaymentsFilter();
+        return;
+      }
+      const copyB = e.target.closest("[data-paycopy]");
+      if(copyB){
+        e.preventDefault();
+        copyToClipboard(copyB.getAttribute("data-paycopy")).then(ok => setStatus(ok ? "Payment link copied." : "Copy failed."));
+        return;
+      }
+      const openB = e.target.closest("[data-payload]");
+      if(openB){
+        e.preventDefault();
+        // Open the invoice in the editor modal (reuses Documents-tab flow).
+        if(typeof loadDoc === "function") loadDoc(openB.getAttribute("data-payload"));
+        return;
+      }
+      const regB = e.target.closest("[data-payregen]");
+      if(regB){
+        e.preventDefault();
+        if(typeof generatePaymentLink === "function")
+          generatePaymentLink(regB.getAttribute("data-payregen"), regB.getAttribute("data-num"), true);
+        return;
+      }
+      // v86 — mark-paid (bank or cash). Opens a themed flatpickr popover
+      // anchored next to the button. On confirm, POSTs to the API, shows a
+      // success/error toast, and refreshes the Payments list + KPI strip.
+      const mkB = e.target.closest("[data-paymark]");
+      if(mkB){
+        e.preventDefault();
+        openMarkPaidPopover(mkB);
+      }
+    });
+  }
+
+  // v58: bind the delegated row-actions click handler ONCE on the stable
+  // ancestor #tab-documents (NOT on histBody/tbody) so the listener can
+  // never be detached by an innerHTML reassignment or a future tbody swap.
+  // The bind is also independent of render success — if anything below in
+  // loadHistory throws, the row actions still fire.
+  function bindHistClickOnce(){
+    const root = document.getElementById("tab-documents");
+    if(!root || root._histClickBound) return;
+    root._histClickBound = true;
+    root.addEventListener("click", function(e){
+      const loadB = e.target.closest("[data-load]");
+      const delB  = e.target.closest("[data-del]");
+      const convB = e.target.closest("[data-convert]");
+      const linkB = e.target.closest("[data-link]");
+      const copyB = e.target.closest("[data-copy]");
+      if(copyB){
+        e.preventDefault();
+        const u = copyB.getAttribute("data-copy");
+        copyToClipboard(u).then(function(ok){ setStatus(ok ? "Payment link copied." : "Copy failed."); });
+        return;
+      }
+      if(convB){
+        e.preventDefault();
+        convertQuote(convB.getAttribute("data-convert"), convB.getAttribute("data-num"));
+        return;
+      }
+      if(linkB){
+        e.preventDefault();
+        generatePaymentLink(
+          linkB.getAttribute("data-link"),
+          linkB.getAttribute("data-num"),
+          linkB.getAttribute("data-regen") === "1"
+        );
+        return;
+      }
+      if(loadB){ e.preventDefault(); loadDoc(loadB.getAttribute("data-load")); return; }
+      if(delB){
+        e.preventDefault();
+        const num = delB.getAttribute("data-num");
+        const type = delB.getAttribute("data-type");
+        const warn = type === "invoice"
+          ? "Delete invoice " + num + " ?\\n\\nUAE VAT records typically require an unbroken invoice sequence — deleting this number will leave a gap. Only delete drafts or genuine duplicates."
+          : "Delete quote " + num + " ?\\n\\nThis cannot be undone.";
+        if(!confirm(warn)) return;
+        deleteDoc(delB.getAttribute("data-del"), num);
+      }
+    });
+  }
   async function loadHistory(){
+    // v58: bind row-actions FIRST on the stable #tab-documents ancestor.
+    // If anything below throws, the table still works.
+    bindHistClickOnce();
     try {
       const r = await fetch("/admin/api/billing");
       const j = await r.json();
@@ -2080,7 +3711,7 @@ const PAGE_SCRIPT = `<script>
           ? ' <span class="hist-src" title="Converted from '+esc(x.source_quote_number)+'">&larr; '+esc(x.source_quote_number)+'</span>'
           : '';
         const actions = [];
-        actions.push('<button type="button" class="btn btn-small btn-ghost" data-load="'+x.id+'">Re-open</button>');
+        actions.push('<button type="button" class="btn btn-small btn-ghost" data-load="'+x.id+'">Open</button>');
         if(isQuote){
           if(x.converted_invoice_number){
             // v55: a quote with a converted invoice no longer offers a Convert
@@ -2115,51 +3746,8 @@ const PAGE_SCRIPT = `<script>
           + '</tr>';
       }).join("");
       applyHistoryFilter();
-      // v55: attach the delegated click listener ONCE on the stable tbody
-      // element (not on every render). The previous { once: true } removed
-      // the listener after a single click — so Re-open worked once and then
-      // every subsequent click in the table did nothing.
-      if(!tbody._histClickBound){
-        tbody._histClickBound = true;
-        tbody.addEventListener("click", function(e){
-          const loadB = e.target.closest("[data-load]");
-          const delB  = e.target.closest("[data-del]");
-          const convB = e.target.closest("[data-convert]");
-          const linkB = e.target.closest("[data-link]");
-          const copyB = e.target.closest("[data-copy]");
-          if(copyB){
-            e.preventDefault();
-            const u = copyB.getAttribute("data-copy");
-            copyToClipboard(u).then(function(ok){ setStatus(ok ? "Payment link copied." : "Copy failed."); });
-            return;
-          }
-          if(convB){
-            e.preventDefault();
-            convertQuote(convB.getAttribute("data-convert"), convB.getAttribute("data-num"));
-            return;
-          }
-          if(linkB){
-            e.preventDefault();
-            generatePaymentLink(
-              linkB.getAttribute("data-link"),
-              linkB.getAttribute("data-num"),
-              linkB.getAttribute("data-regen") === "1"
-            );
-            return;
-          }
-          if(loadB){ e.preventDefault(); loadDoc(loadB.getAttribute("data-load")); return; }
-          if(delB){
-            e.preventDefault();
-            const num = delB.getAttribute("data-num");
-            const type = delB.getAttribute("data-type");
-            const warn = type === "invoice"
-              ? "Delete invoice " + num + " ?\\n\\nUAE VAT records typically require an unbroken invoice sequence — deleting this number will leave a gap. Only delete drafts or genuine duplicates."
-              : "Delete quote " + num + " ?\\n\\nThis cannot be undone.";
-            if(!confirm(warn)) return;
-            deleteDoc(delB.getAttribute("data-del"), num);
-          }
-        });
-      }
+      // v57: row-action click handler now binds at the top of loadHistory
+      // (via bindHistClickOnce) so a future render error can't kill it.
     } catch(e){ setStatus("History load failed."); console.log("loadHistory error:", e); }
   }
   function copyToClipboard(text){
@@ -2241,12 +3829,14 @@ const PAGE_SCRIPT = `<script>
       $("fNotes").value = state.notes;
       renderLineRows(); renderTotals(); renderDoc();
       $("emailOut").hidden = true;
-      // v55: jump back to the Create tab so the populated form is visible
-      // (Re-open used to silently update state while the user was still
-      // looking at the Documents tab — which made the button feel broken).
-      if(typeof switchTab === "function") switchTab("create");
+      // v59: open the editor in a modal OVERLAY on the Documents tab — the
+      // user does NOT leave Documents. Reverses the v58 tab-switch behaviour
+      // per the new "Create-tab for new docs only" UX rule. The modal
+      // physically moves #editorHost into its body, so all the existing
+      // listeners and the state machine keep working unchanged.
+      const label = (state.doc_type === "invoice" ? "Invoice " : "Quote ") + (state.number || "");
+      openEditorModal(label);
       setStatus("Loaded " + state.number + ". Use Save & Print PDF to re-export.");
-      window.scrollTo({ top: 0, behavior:"smooth" });
     } catch(e){ setStatus("Load failed."); console.log("loadDoc error:", e); }
   }
 
@@ -2277,6 +3867,8 @@ const PAGE_SCRIPT = `<script>
   renderLineRows();
   bindLineRows();
   bindForm();
+  // v60: bind Payments-tab delegated click handler once (stable ancestor).
+  bindPayClickOnce();
   renderTotals();
   renderDoc();
   fetchNext();

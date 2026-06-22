@@ -1,0 +1,93 @@
+# v71,Phase E: remaining 25 legacy URLs (50 rules incl. non-slash forms).
+# These EXPLICIT rules go ABOVE every catch-all so they always win. Cloudflare
+# _redirects evaluates top to bottom, first match wins. Status 301 permanent.
+
+# Pages / services (9)
+/about-us/                             /about                            301
+/about-us                              /about                            301
+/contact-us/                           /contact                          301
+/contact-us                            /contact                          301
+/privacy-policy/                       /privacy                          301
+/privacy-policy                        /privacy                          301
+/corporate-transfers/                  /corporate                        301
+/corporate-transfers                   /corporate                        301
+/city-to-city-rides/                   /inter-emirate                    301
+/city-to-city-rides                    /inter-emirate                    301
+/online-booking/                       /booking                          301
+/online-booking                        /booking                          301
+/tour-online-booking/                  /booking                          301
+/tour-online-booking                   /booking                          301
+/thank-you/                            /booking                          301
+/thank-you                             /booking                          301
+/chauffeur-service-dubai/              /rent-a-car-with-driver/dubai/    301
+/chauffeur-service-dubai               /rent-a-car-with-driver/dubai/    301
+
+# Fleet hub + brand pages (5). Brand pages with multiple models go to /fleet hub.
+/our-fleet/                            /fleet                            301
+/our-fleet                             /fleet                            301
+/our-fleet/lexus/                      /fleet/lexus-es                   301
+/our-fleet/lexus                       /fleet/lexus-es                   301
+/our-fleet/bmw/                        /fleet/bmw-7-series               301
+/our-fleet/bmw                         /fleet/bmw-7-series               301
+/our-fleet/cadillac-escalade/          /fleet/cadillac-escalade          301
+/our-fleet/cadillac-escalade           /fleet/cadillac-escalade          301
+/our-fleet/mercedes-benz/              /fleet                            301
+/our-fleet/mercedes-benz               /fleet                            301
+
+# Airport-transfers edge cases (2). UAQ has no airport page; closest live
+# UAQ-specific service is the chauffeur page.
+/airport-transfers/rak-2/              /airport-transfers/rak            301
+/airport-transfers/rak-2               /airport-transfers/rak            301
+/airport-transfers/umm-al-quwain/      /rent-a-car-with-driver/umm-al-quwain/   301
+/airport-transfers/umm-al-quwain       /rent-a-car-with-driver/umm-al-quwain/   301
+
+# Removed city-tour SERVICE pages (3). NOTE: this is the SERVICE, NOT the
+# blog posts at /abu-dhabi-city-tour-private-driver/ and /half-day-city-tour-dubai/
+# which stay LIVE at 200 (DO NOT redirect those).
+/city-tour/                            /rent-a-car-with-driver/                 301
+/city-tour                             /rent-a-car-with-driver/                 301
+/city-tour/dubai/                      /rent-a-car-with-driver/dubai/           301
+/city-tour/dubai                       /rent-a-car-with-driver/dubai/           301
+/city-tour/abu-dhabi/                  /rent-a-car-with-driver/abu-dhabi/       301
+/city-tour/abu-dhabi                   /rent-a-car-with-driver/abu-dhabi/       301
+
+# Testimonials, not ported; homepage carries reviews + Google rating (6).
+/testimonial/iqra-nadeem/              /                                 301
+/testimonial/iqra-nadeem               /                                 301
+/testimonial/usman-hanif/              /                                 301
+/testimonial/usman-hanif               /                                 301
+/testimonial/ehsan-lone/               /                                 301
+/testimonial/ehsan-lone                /                                 301
+/testimonial/abe/                      /                                 301
+/testimonial/abe                       /                                 301
+/testimonial/benjamin/                 /                                 301
+/testimonial/benjamin                  /                                 301
+/testimonial/hameed-bin-latif/         /                                 301
+/testimonial/hameed-bin-latif          /                                 301
+
+# v70,/our-fleet/* legacy 301s to the new dedicated pages. These EXPLICIT
+# rules must precede any future /our-fleet/* catch-all so they win on match.
+/our-fleet/rolls-royce/                /fleet/rolls-royce         301
+/our-fleet/rolls-royce                 /fleet/rolls-royce         301
+/our-fleet/luxury-bus-rental/          /fleet/luxury-coach        301
+/our-fleet/luxury-bus-rental           /fleet/luxury-coach        301
+
+# v69,legacy fleet model 301s
+/fleet/cadillac-escalade/2024/         /fleet/cadillac-escalade   301
+/fleet/cadillac-escalade/2024          /fleet/cadillac-escalade   301
+/fleet/mercedes-benz/v-class/          /fleet/v-class             301
+/fleet/mercedes-benz/v-class           /fleet/v-class             301
+/fleet/gmc-yukon-elevation-xl/         /fleet/gmc-yukon-xl        301
+/fleet/gmc-yukon-elevation-xl          /fleet/gmc-yukon-xl        301
+/fleet/mercedes-sprinter/              /fleet/sprinter            301
+/fleet/mercedes-sprinter               /fleet/sprinter            301
+/fleet/bmw/7-series/                   /fleet/bmw-7-series        301
+/fleet/bmw/7-series                    /fleet/bmw-7-series        301
+/fleet/mercedes-benz/s-class-2024/     /fleet/s-class             301
+/fleet/mercedes-benz/s-class-2024      /fleet/s-class             301
+/fleet/king-long/                      /fleet/luxury-coach        301
+/fleet/king-long                       /fleet/luxury-coach        301
+/fleet/king-long-model-2025/           /fleet/luxury-coach        301
+/fleet/king-long-model-2025            /fleet/luxury-coach        301
+/fleet/mercedes-benz-e-class/          /fleet/e-class             301
+/fleet/mercedes-benz-e-class           /fleet/e-class             301

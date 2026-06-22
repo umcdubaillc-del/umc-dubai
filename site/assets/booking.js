@@ -1,5 +1,5 @@
 /* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
-/* UMC Dubai — reservation flow */
+/* UMC Dubai,reservation flow */
 (function(){
   const $ = id => document.getElementById(id);
   const params = new URLSearchParams(location.search);
@@ -126,7 +126,7 @@
     this.closest(".f").classList.toggle("bad", bad);
   });
 
-  // phone: our own country-code selector — validation delegated to window.umcPhone
+  // phone: our own country-code selector,validation delegated to window.umcPhone
   function fullPhone(){
     const digits = ($("kPhone").value||"").replace(/[^0-9]/g,"").replace(/^0+/,"");
     return "+" + $("kCC").value + " " + digits;
@@ -178,7 +178,7 @@
         syncConditional();
       }
       if($("kFrom").value && $("kTo").value) route();
-    }catch(e){ $("map").innerHTML = '<p style="padding:1rem;font-size:.85rem;color:#7A6F5F">Map preview unavailable — your reservation still works.</p>'; }
+    }catch(e){ $("map").innerHTML = '<p style="padding:1rem;font-size:.85rem;color:#7A6F5F">Map preview unavailable, your reservation still works.</p>'; }
   };
   function onPlace(ac, which){
     const p = ac.getPlace(); if(!p || !p.geometry) return;
@@ -225,7 +225,7 @@
     // Polished institutional WhatsApp pre-fill (v22). Compose as plain text with newlines;
     // encodeURIComponent below encodes everything once. Skip any line whose value is empty
     // so the message never carries "Service: Event" stubs or "Pickup: -" placeholders.
-    const lines = ["Hello UMC Dubai — I'd like to request a reservation.", ""];
+    const lines = ["Hello UMC Dubai, I'd like to request a reservation.", ""];
     lines.push("Name: " + g("kName"));
     const contactBits = [g("kPhone")];
     if(g("kEmail")) contactBits.push(g("kEmail"));

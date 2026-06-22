@@ -1,6 +1,6 @@
 /* © UMC Dubai LLC. All rights reserved. */
 /* ----------------------------------------------------------------
-   S-Class fleet page — page-scoped styles
+   S-Class fleet page,page-scoped styles
    Scope: .sc-*  · Tokens: only those defined in style.css :root
    Template for the remaining 7 fleet pages.
 ---------------------------------------------------------------- */
@@ -23,54 +23,73 @@ body.sc-no-scroll{overflow:hidden}
   }
 }
 
-/* ---------- 1 · HERO — image area + dedicated text band (no overlap) ---------- */
-/* The hero is a flex column:
-     .sc-hero__stage (image, takes available space, cover-cropped) +
-     .sc-hero__caps  (text band, solid ink, kicker -> tagline -> CTA).
-   The text never sits over the car or chauffeur. The image fades into the
-   ink band via a gradient at its bottom edge for visual continuity. */
-/* Stable hero height: clamp so widening the viewport (ultrawide) cannot
-   shrink the hero. Range 640-820 across all widths/heights. */
+/* ---------- 1 · HERO,institutional full-bleed image, caption overlaid ---------- */
+/* v78: the hero fills the viewport below the sticky header. Image is an
+   absolute inset:0 cover-fill; caption sits at bottom-left over a gradient
+   scrim on the image (no ink box). Per-breakpoint --hdr matches the live
+   header height: 80 (mobile) / 130 (two-row narrow desktop) / 81 (one-row
+   wide desktop). Placeholder pages render the inline SVG inside the same
+   stage and so fill the same viewport. */
 .sc-hero{position:relative;background:var(--ink);overflow:hidden;border-bottom:1px solid var(--hair);
-  display:flex;flex-direction:column;
-  height:clamp(640px, calc(100vh - var(--header-h, 96px)), 820px);
-  height:clamp(640px, calc(100svh - var(--header-h, 96px)), 820px)}
-.sc-hero__stage{position:relative;flex:1 1 auto;min-height:0;overflow:hidden}
-.sc-hero__img{width:100%;height:100%;display:block;object-fit:cover;
-  /* v49 live-measured: source 1536x720 in a 640px hero with cover -> 175px
-     vertical overflow. 42% was clipping the chauffeur's head; 20% reveals
-     the full head AND keeps the shoes visible at the bottom. */
-  object-position:50% 20%}
-/* Mobile hero crop: per-car override via inline --hero-pos-mobile on the <img>
-   (set in build_pages.py from car["hero_object_pos_mobile"]); falls back to the
-   shared chauffeur-aware default. V-Class uses 50% 50% so the van sits centred
-   on phones — the desktop 35% 50% crop pushes it too far left at small widths. */
-@media (max-width:720px){.sc-hero__img{object-position:var(--hero-pos-mobile,72% 42%)}}
-@media (max-width:380px){.sc-hero__img{object-position:var(--hero-pos-mobile,82% 42%)}}
-.sc-hero__stage::after{content:"";position:absolute;left:0;right:0;bottom:0;height:36%;
-  background:linear-gradient(to bottom,
-    rgba(34,27,20,0) 0%,
-    rgba(34,27,20,.32) 45%,
-    rgba(34,27,20,.78) 85%,
-    var(--ink) 100%);
-  pointer-events:none}
+  --hdr:80px;
+  min-height:calc(100vh - var(--hdr));
+  min-height:calc(100svh - var(--hdr))}
+@media (min-width:860px){.sc-hero{--hdr:130px}}
+@media (min-width:1280px){.sc-hero{--hdr:81px}}
 
-.sc-hero__caps{position:relative;flex:0 0 auto;background:var(--ink);color:var(--bone);
-  padding:clamp(1.3rem,2.4vw,2rem) clamp(1.4rem,5vw,3.6rem) clamp(1.6rem,3vw,2.4rem)}
-.sc-hero__caps-inner{max-width:var(--wrap);margin:0 auto;display:grid;grid-template-columns:1fr auto;align-items:end;gap:2rem}
-.sc-hero__kicker{font-family:var(--sans);font-weight:500;font-size:.72rem;letter-spacing:.42em;text-transform:uppercase;color:#E0894A;margin-bottom:.7rem}
-.sc-hero__tagline{font-family:var(--serif);font-weight:400;font-size:clamp(1.45rem,3.6vw,2.3rem);line-height:1.16;letter-spacing:.005em;color:var(--bone);max-width:24ch}
-.sc-hero__sub{margin-top:.6rem;font-family:var(--sans);font-weight:300;font-size:clamp(.88rem,1.2vw,.98rem);line-height:1.5;color:#CBBFA9;max-width:48ch}
+.sc-hero__stage{position:absolute;inset:0;margin:0;overflow:hidden}
+.sc-hero__img{width:100%;height:100%;display:block;object-fit:cover;
+  /* v89: object-position now reads CSS variables, not an inline declaration,
+     so the mobile @media rule (which sets var(--hero-pos-mobile, ...)) can
+     actually win on phones (equal specificity, later in cascade). Each car
+     sets --hero-pos and --hero-pos-mobile inline via build_pages.py from
+     car["hero_object_pos"] / car["hero_object_pos_mobile"]. */
+  object-position:var(--hero-pos, 50% 50%)}
+/* v88 — 3-tier responsive hero.
+   Phones (<=600px): portrait frame so the front-centred crops the per-car
+   --hero-pos-mobile values were tuned for actually land. Below 380 we shift
+   the X further to compensate for the narrower portrait box.
+   Tablets (601-1024px): capped landscape band, NOT full-viewport, NOT
+   portrait. Inline desktop object-position centre value applies.
+   Wide desktop (>=1025px): full-bleed but capped so ultrawide and tall
+   screens don't over-stretch the 1200px source. */
+@media (max-width:600px){
+  .sc-hero{height:auto;aspect-ratio:5 / 7;min-height:460px;max-height:680px}
+  .sc-hero__img{object-position:var(--hero-pos-mobile,72% 42%)}
+}
+@media (max-width:380px){
+  .sc-hero__img{object-position:var(--hero-pos-mobile,82% 42%)}
+}
+@media (min-width:601px) and (max-width:1024px){
+  .sc-hero{height:clamp(440px,62vh,600px);min-height:0;aspect-ratio:auto}
+}
+@media (min-width:1025px){
+  .sc-hero{min-height:min(calc(100svh - var(--hdr)),820px)}
+}
+.sc-hero__stage::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(
+    rgba(34,27,20,0) 26%,
+    rgba(34,27,20,.46) 58%,
+    rgba(34,27,20,.80) 83%,
+    rgba(34,27,20,.93) 100%)}
+
+.sc-hero__caps{position:absolute;left:0;right:0;bottom:0;background:none;color:var(--bone);
+  padding:0 var(--gutter,52px) clamp(28px,5vh,64px)}
+.sc-hero__caps-inner{max-width:680px;margin:0;display:flex;flex-direction:column;align-items:flex-start;gap:1rem}
+.sc-hero__kicker{font-family:var(--sans);font-weight:500;font-size:.72rem;letter-spacing:.42em;text-transform:uppercase;color:#E0894A;margin-bottom:.2rem}
+.sc-hero__tagline{font-family:var(--serif);font-weight:400;font-size:clamp(1.45rem,3.6vw,2.3rem);line-height:1.16;letter-spacing:.005em;color:#F6F1E7;max-width:24ch;text-shadow:0 1px 24px rgba(0,0,0,.35)}
+.sc-hero__sub{margin-top:.2rem;font-family:var(--sans);font-weight:300;font-size:clamp(.88rem,1.2vw,.98rem);line-height:1.5;color:#E6DDC9;max-width:48ch;text-shadow:0 1px 18px rgba(0,0,0,.45)}
 .sc-hero__ctas{display:flex;gap:.7rem;flex-wrap:wrap;align-items:center}
 .sc-hero__ctas .btn-ink{background:var(--bone);color:var(--ink);border-color:var(--bone)}
 .sc-hero__ctas .btn-ink:hover{background:#fff}
 
-@media (max-width:720px){
-  .sc-hero__caps-inner{grid-template-columns:1fr;gap:1rem}
-  .sc-hero__caps{padding:1.1rem clamp(1.1rem,4vw,1.6rem) 1.3rem}
+@media (max-width:859px){
+  .sc-hero__caps{padding:0 clamp(1.1rem,4vw,1.6rem) clamp(20px,4vh,36px)}
+  .sc-hero__caps-inner{gap:.85rem}
+  .sc-hero__tagline{font-size:clamp(1.2rem,5vw,1.7rem)}
 }
 
-/* ---------- 2 · INTERIOR — primary hotspot image (left) + 2x2 detail grid (right) ---------- */
+/* ---------- 2 · INTERIOR,primary hotspot image (left) + 2x2 detail grid (right) ---------- */
 .sc-int{padding:clamp(3.4rem,8vw,6rem) 0 clamp(3rem,7vw,5rem);background:var(--bone)}
 .sc-int__head{max-width:var(--wrap);margin:0 auto;padding:0 clamp(1.1rem,4vw,2rem);display:grid;grid-template-columns:1fr;gap:1.2rem;margin-bottom:clamp(2.4rem,5vw,3.4rem)}
 @media (min-width:880px){.sc-int__head{grid-template-columns:.8fr 1.2fr;gap:3.6rem;align-items:end}}
@@ -80,12 +99,12 @@ body.sc-no-scroll{overflow:hidden}
 .sc-int__head .lede em{font-style:italic;color:var(--ink)}
 
 /* Cap so detail cells stop scaling up past the 1000-px-wide source images
-   on ultrawide displays. Sensible default — tune live on the 3440 display. */
+   on ultrawide displays. Sensible default,tune live on the 3440 display. */
 .sc-int__canvas{max-width:1280px;margin:0 auto;padding:0 clamp(1.1rem,4vw,2rem)}
 .sc-int__grid{display:grid;grid-template-columns:1fr;gap:1rem;align-items:stretch}
 @media (min-width:900px){.sc-int__grid{grid-template-columns:1.35fr 1fr;gap:1rem}}
 
-/* Primary cabin image — 16/9 aspect matches the source image (no crop), and
+/* Primary cabin image,16/9 aspect matches the source image (no crop), and
    the math (1.35fr primary at 16/9 + 1fr details at 4/3 over two rows) makes
    the column bottoms land at the same line without forcing the cells to a
    weird portrait shape that softens the small images. */
@@ -93,7 +112,7 @@ body.sc-no-scroll{overflow:hidden}
 .sc-int__primary:hover{transform:translateY(-1px)}
 .sc-int__photo{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;background:var(--bone-2)}
 
-/* 2x2 detail grid — cells at 4/3 aspect (closer to the source's 16/9 than the
+/* 2x2 detail grid,cells at 4/3 aspect (closer to the source's 16/9 than the
    stretched 1.19/1 cells we had, so the small images stay crisp). */
 .sc-int__details{display:grid;grid-template-columns:1fr 1fr;gap:.8rem;line-height:0;align-content:start}
 .sc-int__detail{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:cover;background:var(--bone-2);border:1px solid var(--hair);border-radius:3px;transition:transform .35s cubic-bezier(.2,.6,.2,1)}
@@ -104,13 +123,13 @@ body.sc-no-scroll{overflow:hidden}
   .sc-int__primary:hover,.sc-int__detail:hover{transform:none}
 }
 
-/* ---------- 3 · AMENITIES — square cards, 3x2 desktop ---------- */
+/* ---------- 3 · AMENITIES,square cards, 3x2 desktop ---------- */
 .sc-am{padding:clamp(3rem,7vw,5rem) 0;background:var(--bone-2);border-block:1px solid var(--hair)}
 .sc-am__head{max-width:var(--wrap);margin:0 auto 2.4rem;padding:0 clamp(1.1rem,4vw,2rem);text-align:center}
 .sc-am__head .lbl{display:inline-block;margin-bottom:.8rem}
 .sc-am__head h2{font-size:clamp(1.6rem,3.8vw,2.3rem)}
 .sc-am__head .lede{margin:.7rem auto 0;font-size:.98rem;max-width:54ch}
-/* Squares, 6-in-a-row on desktop — original compact card size. */
+/* Squares, 6-in-a-row on desktop,original compact card size. */
 .sc-am__grid{max-width:var(--wrap);margin:0 auto;padding:0 clamp(1.1rem,4vw,2rem);display:grid;grid-template-columns:repeat(2,1fr);gap:.7rem}
 @media (min-width:560px){.sc-am__grid{grid-template-columns:repeat(3,1fr);gap:.8rem}}
 @media (min-width:880px){.sc-am__grid{grid-template-columns:repeat(6,1fr);gap:.9rem}}
@@ -128,7 +147,7 @@ body.sc-no-scroll{overflow:hidden}
   .sc-am__cell:hover,.sc-am__cell:hover .ico{transform:none}
 }
 
-/* ---------- 4 · ON PAPER — facts card + small modal triggers below each value ---------- */
+/* ---------- 4 · ON PAPER,facts card + small modal triggers below each value ---------- */
 .sc-paper{padding:clamp(3rem,7vw,5rem) 0;background:var(--bone)}
 .sc-paper__wrap{max-width:780px;margin:0 auto;padding:0 clamp(1.1rem,4vw,2rem)}
 .sc-paper__head{text-align:center;margin-bottom:2rem}
@@ -140,7 +159,7 @@ body.sc-no-scroll{overflow:hidden}
 .sc-paper .rows .k{font-family:var(--sans);font-weight:500;font-size:.72rem;letter-spacing:.24em;text-transform:uppercase;color:var(--muted);padding-top:.35rem}
 .sc-paper .rows .v{display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;text-align:right}
 .sc-paper .rows .v .vmain{font-family:var(--serif);font-size:1.12rem;color:var(--ink);letter-spacing:.01em;line-height:1.2}
-/* Small modal trigger — sits below the value, quiet uppercase underlined link. */
+/* Small modal trigger,sits below the value, quiet uppercase underlined link. */
 .sc-mt{font-family:var(--sans);font-weight:500;font-size:.62rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);background:transparent;border:0;padding:.18rem 0;cursor:pointer;border-bottom:1px solid var(--amber);transition:.2s;line-height:1}
 .sc-mt:hover{color:var(--ink);border-bottom-color:var(--ink)}
 .sc-mt:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
@@ -167,6 +186,8 @@ body.sc-no-scroll{overflow:hidden}
 .sc-modal__rows dd{font-family:var(--serif);font-size:1rem;color:var(--ink);text-align:right;max-width:60%}
 .sc-modal__rows--stack div{flex-direction:column;align-items:flex-start;gap:.3rem}
 .sc-modal__rows--stack dd{font-family:var(--sans);font-size:.92rem;color:var(--ink-soft);line-height:1.55;text-align:left;max-width:none;font-weight:300}
+.sc-modal__loads{margin:0 0 .4rem 1.1rem;padding:0;color:var(--ink-soft);font-size:.95rem;line-height:1.7;font-family:var(--sans);font-weight:300}
+.sc-modal__loads li{margin-bottom:.25rem}
 .sc-modal__close{position:absolute;top:.6rem;right:.85rem;background:transparent;border:0;font-family:var(--sans);font-weight:300;font-size:1.6rem;line-height:1;color:var(--ink-soft);cursor:pointer;padding:.2rem .45rem;transition:.2s;border-radius:2px}
 .sc-modal__close:hover{color:var(--ink);background:var(--bone-2)}
 .sc-modal__close:focus-visible{outline:2px solid var(--amber);outline-offset:2px}

@@ -1,5 +1,5 @@
 /* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
-/* UMC Dubai — design system v2 "Bone & Espresso" */
+/* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v85. */
 :root{
   --bone:#F6F1E7; --bone-2:#EFE8D9; --card:#FBF8F1;
   --ink:#221B14; --ink-soft:#4A4136; --muted:#7A6F5F;
@@ -12,7 +12,7 @@
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth;scrollbar-color:#B9AC95 var(--bone-2);scrollbar-width:thin}
-/* branded scrollbars, site-wide — declared at file scope, outside any @media or selector */
+/* branded scrollbars, site-wide,declared at file scope, outside any @media or selector */
 ::-webkit-scrollbar{width:11px;height:11px}
 ::-webkit-scrollbar-track{background:var(--bone-2)}
 ::-webkit-scrollbar-thumb{background:#B9AC95;border-radius:6px;border:2.5px solid var(--bone-2)}
@@ -66,13 +66,19 @@ nav.mainnav a:hover,nav.mainnav a.on{color:var(--ink);border-color:var(--amber)}
 
 /* ---------- submenu (Airport Transfers → emirates, v45) ---------- */
 nav.mainnav .has-sub{position:relative}
-nav.mainnav .caret{font-size:.55em;margin-left:.18em;opacity:.7}
-nav.mainnav .submenu{display:none;position:absolute;top:100%;left:50%;transform:translateX(-50%);background:var(--bone);border:1px solid var(--hair);padding:.45rem 0;min-width:200px;box-shadow:0 14px 32px -22px rgba(34,27,20,.35);z-index:65;list-style:none;flex-direction:column}
+/* v68: SVG chevron (replaces the U+25BE ▾ glyph that read as a stray dot). */
+nav.mainnav .caret{display:inline-flex;align-items:center;justify-content:center;width:.7em;height:.5em;margin-left:.4em;color:var(--ink-soft);transition:color .2s ease,transform .2s ease;vertical-align:middle}
+nav.mainnav .caret svg{width:100%;height:100%;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round;display:block}
+nav.mainnav .has-sub:hover > a .caret,nav.mainnav .has-sub.on > a .caret,nav.mainnav .has-sub:focus-within > a .caret{color:var(--amber)}
+/* v56: gap:0 prevents the parent nav ul's gap:clamp(1.2rem,3vw,2.4rem) from
+   inheriting onto the nested flex column (which produced ~38px between items). */
+nav.mainnav .submenu{display:none;position:absolute;top:100%;left:50%;transform:translateX(-50%);background:var(--bone);border:1px solid var(--hair);padding:.3rem 0;min-width:200px;box-shadow:0 14px 32px -22px rgba(34,27,20,.35);z-index:65;list-style:none;flex-direction:column;gap:0;margin:0}
 nav.mainnav .has-sub:hover .submenu,nav.mainnav .has-sub:focus-within .submenu{display:flex}
-nav.mainnav .submenu li{display:block;width:100%}
-nav.mainnav .submenu a,nav.mainnav .submenu .off{display:block;text-align:left;font-size:.72rem;letter-spacing:.18em;padding:.55rem 1.25rem;color:var(--ink-soft);text-transform:uppercase;border-bottom:0;border:0}
-nav.mainnav .submenu a:hover{color:var(--ink);background:var(--bone2);border-color:transparent}
-nav.mainnav .submenu a.on{color:var(--ink)}
+nav.mainnav .submenu li{display:block;width:100%;margin:0}
+nav.mainnav .submenu a,nav.mainnav .submenu .off{display:block;text-align:left;font-size:.72rem;letter-spacing:.18em;padding:.5rem 1.25rem;color:var(--ink-soft);text-transform:uppercase;border-bottom:0;border:0}
+/* v56: corrected token (--bone-2, was --bone2 which is undefined → no hover bg). */
+nav.mainnav .submenu a:hover{color:var(--amber-deep);background:rgba(199,91,18,.08);border-color:transparent}
+nav.mainnav .submenu a.on{color:var(--amber-deep);background:rgba(199,91,18,.06)}
 nav.mainnav .submenu .off{color:var(--muted);cursor:default}
 nav.mainnav .submenu .off em{font-style:normal;font-size:.72em;letter-spacing:.18em;text-transform:uppercase;color:var(--amber-deep);margin-left:.5em}
 /* Desktop: sub-toggle button is invisible; hover on .has-sub opens the submenu. */
@@ -84,12 +90,28 @@ nav.mainnav .sub-toggle{display:none}
   nav.mainnav .has-sub > a{display:inline-block}
   nav.mainnav .has-sub > a .caret{display:none}
   nav.mainnav .sub-toggle{display:inline-flex;align-items:center;justify-content:center;position:absolute;top:0;right:.6rem;background:transparent;border:0;color:var(--ink-soft);padding:.45rem .55rem;min-height:44px;min-width:44px;cursor:pointer}
-  nav.mainnav .sub-toggle .caret{display:inline-block;font-size:.85rem;transition:transform .2s ease}
-  nav.mainnav .has-sub.open > .sub-toggle .caret{transform:rotate(180deg)}
+  /* v68: SVG chevron sized for the mobile sub-toggle button. */
+  nav.mainnav .sub-toggle .caret{width:14px;height:10px;margin-left:0;color:var(--ink-soft);transition:transform .2s ease,color .2s ease}
+  nav.mainnav .has-sub.open > .sub-toggle .caret{transform:rotate(180deg);color:var(--amber)}
   nav.mainnav .has-sub:hover .submenu,nav.mainnav .has-sub:focus-within .submenu{display:none}
   nav.mainnav .submenu{display:none;position:static;transform:none;border:0;box-shadow:none;padding:.1rem 0 .7rem;min-width:0;background:transparent;flex-direction:column;align-items:center}
   nav.mainnav .has-sub.open .submenu{display:flex}
   nav.mainnav .submenu a,nav.mainnav .submenu .off{text-align:center;font-size:.72rem;padding:.45rem 0}
+}
+
+/* v76: wide-desktop single-row header (≥1280px). Collapses the two-row
+   topbar+mainnav into one row by absolutely positioning the centered nav
+   between the logo (left) and the Reserve+phone CTA (right). Below 1280px
+   the existing two-row stack stays intact. */
+@media (min-width:1280px){
+  header.site{position:sticky;top:0}
+  .topbar{display:flex;align-items:center;justify-content:flex-start;width:auto;max-width:none;margin:0;padding:14px 52px}
+  .topbar > .left{display:none}
+  .topbar > .masthead{margin:0}
+  .topbar > .right{margin-left:auto;display:flex;align-items:center;gap:14px}
+  nav.mainnav{position:absolute;top:0;height:69px;left:50%;transform:translateX(-50%);width:auto;display:flex;align-items:center;background:transparent;border:0}
+  nav.mainnav > ul{display:flex;align-items:center;gap:22px;margin:0;padding:0;justify-content:flex-start}
+  nav.mainnav a{white-space:nowrap}
 }
 
 /* ---------- buttons ---------- */
@@ -151,7 +173,7 @@ nav.mainnav .sub-toggle{display:none}
 /* fleet image presentation: uniform box + transparent feel via multiply blend (v13) */
 .vcard .vimg{aspect-ratio:16/10;display:flex;align-items:center;justify-content:center;background:transparent;overflow:hidden}
 /* v49: object-fit COVER so every card fills the 16:10 frame uniformly,
-   regardless of source aspect or background — no more floating-on-white on
+   regardless of source aspect or background,no more floating-on-white on
    the cutout PNGs, no letterboxing across the grid. The wrapper has
    overflow:hidden so cover crops cleanly; the .vcard:hover .vimg.flip img
    rule already combines scaleX(-1) with the hover scale, so the .6s
@@ -177,6 +199,19 @@ nav.mainnav .sub-toggle{display:none}
 .vcard.openx .vdetail{display:block}
 .vcard.openx .vtoggle{color:var(--amber-deep)}
 .vtoggle[aria-expanded="true"] svg{transform:rotate(180deg)}
+/* v59: in-card emirate selector,clean labelled dropdown (replaces v56 pills).
+   Sits inside .vdetail so it only renders when the card is .openx. Custom
+   caret SVG, hairline border, bone surface, amber focus. */
+.vcard .em-switch{display:flex;align-items:center;gap:.55rem;margin:0 0 .95rem}
+.vcard .em-lbl{font-size:.62rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);flex:0 0 auto;line-height:1}
+/* v68: brighter amber caret + thicker stroke + stronger focus ring so the
+   in-card selector reads as on-brand at rest (the earlier amber-deep stroke
+   at 1.4px barely registered against the bone surface). Aligns with the
+   admin app's branded selects (same colour family). */
+.vcard .em-select{appearance:none;-webkit-appearance:none;-moz-appearance:none;background:var(--bone) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23C75B12' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M1.5 1.5l4.5 4.5 4.5-4.5'/></svg>") no-repeat right .6rem center / 12px;border:1px solid var(--line);border-radius:3px;padding:.42rem 1.85rem .42rem .65rem;font-family:var(--sans);font-weight:400;font-size:.78rem;color:var(--ink);cursor:pointer;transition:border-color .15s,box-shadow .15s;line-height:1.2;min-width:170px}
+.vcard .em-select:hover{border-color:var(--amber)}
+.vcard .em-select:focus{outline:none;border-color:var(--amber);box-shadow:0 0 0 3px rgba(199,91,18,.18)}
+@media(prefers-reduced-motion:reduce){.vcard .em-select{transition:none}}
 .vdetail .r{display:flex;justify-content:space-between;font-size:.92rem;padding:.32rem 0;color:var(--ink-soft)}
 .vdetail .r b{font-weight:400;font-family:var(--serif);color:var(--ink)}
 .vdetail .inc{font-size:.8rem;color:var(--muted);margin-top:.7rem;line-height:1.6}
@@ -389,7 +424,10 @@ header.site.scrolled .top-phone{display:flex}
 .band-dark .btn-ghost:hover{background:var(--bone);color:var(--ink)}
 
 /* payments single line with marks */
-.payline{display:flex;align-items:center;gap:1.1rem;margin-top:.9rem;overflow-x:auto;padding-bottom:.2rem}
+/* v68: overflow:visible so the absolutely-positioned .paypop disclosure
+   (which renders ABOVE the icons row) is not clipped. The icons row fits
+   in the footer column at every breakpoint and does not need scroll. */
+.payline{display:flex;align-items:center;gap:1.1rem;margin-top:.9rem;overflow:visible;padding-bottom:.2rem}
 .payline svg{height:20px;width:auto;flex:none}
 .payline .tpill{font-size:.66rem;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);border:1px solid var(--line);border-radius:2px;padding:.3rem .5rem;background:var(--card);white-space:nowrap;flex:none}
 
@@ -536,7 +574,7 @@ header.site{background:var(--bone)}
 .phonewrap .cc select:focus{outline:none;border-color:var(--amber)}
 .phonewrap .num{flex:1}
 
-/* flatpickr — UMC theme */
+/* flatpickr,UMC theme */
 .flatpickr-calendar{background:var(--bone);border:1px solid var(--line);border-radius:4px;box-shadow:0 24px 48px -24px rgba(34,27,20,.45);font-family:var(--sans);width:308px}
 .flatpickr-calendar.arrowTop:before,.flatpickr-calendar.arrowTop:after{border-bottom-color:var(--line)}
 .flatpickr-calendar.arrowBottom:before,.flatpickr-calendar.arrowBottom:after{border-top-color:var(--line)}
@@ -562,7 +600,7 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 .flatpickr-time .numInputWrapper span.arrowDown:after{border-top-color:var(--muted)}
 .flatpickr-input[readonly]{cursor:pointer}
 
-/* ===================== v6: canonical booking geometry — supersedes ALL earlier rules ===================== */
+/* ===================== v6: canonical booking geometry,supersedes ALL earlier rules ===================== */
 .bpass .bp-rows{gap:.5rem;padding:.85rem 1.1rem .5rem}
 .bpass .bp-total{padding:.65rem 1.1rem .85rem}
 .bpass{position:relative;z-index:2}
@@ -583,7 +621,7 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 .socials svg{width:15px;height:15px;fill:currentColor;stroke:none}
 
 
-/* ===================== v6 — booking side column, definitive ===================== */
+/* ===================== v6,booking side column, definitive ===================== */
 .bpass{margin-top:1.1rem}
 .bpass .bp-head{padding:.7rem 1rem}
 .bpass .bp-rows{padding:.85rem 1rem .5rem;gap:.5rem}
@@ -674,6 +712,10 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
   .depboard .bd-head{display:none}
   .depboard .bd-row{grid-template-columns:1fr auto;row-gap:.3rem}
   .depboard .cell.km{display:none}
+  /* v80: the Get-quote tag wraps to its own line on mobile (no room inline).
+     Span the full row and center so it sits horizontally centred under the
+     route. Desktop (>700px) keeps the 4-col grid with the tag inline. */
+  .depboard .bd-row .tag{grid-column:1 / -1;justify-self:center}
 }
 
 /* contact: concierge chat preview */
@@ -752,11 +794,11 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 .scen .pick a{font-size:.66rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:.42rem .85rem;transition:all .2s}
 .scen .pick a:hover{border-color:var(--amber);color:var(--amber-deep)}
 
-/* hero2 — homepage full-bleed image with form pinned TOP-LEFT and headline
+/* hero2,homepage full-bleed image with form pinned TOP-LEFT and headline
    pinned BOTTOM-LEFT over a bottom-anchored scrim, so the chauffeur-with-
    luggage action on the right side of the image stays visible. */
 .hero2{position:relative;min-height:660px;padding:0}
-/* TEMPORARY — competitor-sourced placeholder; replace with real UMC photography ASAP.
+/* TEMPORARY,competitor-sourced placeholder; replace with real UMC photography ASAP.
    NOTE: style.css is served from /assets/, so url() is resolved RELATIVE TO /assets/.
    Root-absolute paths required to avoid /assets/assets/ doubling. */
 .h2bg{position:absolute;inset:0;background:url("/assets/home/hero.jpg") center 50%/cover no-repeat}
@@ -772,14 +814,33 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
   padding:clamp(1.2rem,3vw,2rem) clamp(1.1rem,4vw,2rem);
   display:flex;flex-direction:column;min-height:660px;gap:1.4rem}
 @media(min-width:960px){
-  /* v50: desktop hero is a two-column grid — copy block on the LEFT
-     (kicker + H1 + lede) and the booking form on the RIGHT, both
-     vertically centred. Restores the side-by-side layout that the v40
-     pinned-column treatment collapsed. */
-  .h2grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,460px);gap:2.5rem;align-items:center;justify-content:space-between;min-height:660px}
-  .h2copy{color:var(--bone);max-width:50ch}
-  .h2form{width:100%;max-width:460px;justify-self:end}
+  /* v75 desktop redesign: full-bleed hero, copy upper-left, booking bar pinned
+     to the bottom. v77 polish: scrim removed for a clean image; .seg pill
+     floats centered above the bar; card top padding trimmed. v79: hero now
+     fills the viewport minus the sticky header (130px at 960-1279 two-row,
+     81px at >=1280 one-row). Mobile (<960px) unchanged. */
+  .hero2{--hdr:130px;height:auto;min-height:calc(100vh - var(--hdr));min-height:calc(100svh - var(--hdr))}
+  .h2scrim{background:linear-gradient(100deg,rgba(10,8,6,.68) 0%,rgba(10,8,6,.46) 26%,rgba(10,8,6,0) 58%)}
+  .h2grid{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr auto;gap:0;align-items:start;justify-content:stretch;box-sizing:border-box;min-height:calc(100vh - var(--hdr));min-height:calc(100svh - var(--hdr));padding-top:clamp(2.4rem,7vh,5.5rem);padding-bottom:clamp(24px,4vh,48px)}
+  .h2copy{color:var(--bone);max-width:58ch;grid-row:1}
+  .h2copy h1{text-shadow:0 1px 24px rgba(0,0,0,.35)}
+  .h2form{grid-row:3;width:100%;max-width:none;justify-self:stretch;align-self:end}
+  /* Horizontal form bar. The form's children flow into one row:
+     [Pick-up] [Destination/Hours swap] [Date] [Time] [submit].
+     .seg (Transfer/By the hour) is taken out of flow and floats centered
+     above the bar; .two unwraps via display:contents so Date and Time become
+     direct grid items in the bar. */
+  .h2form .book{position:relative;display:grid;grid-template-columns:1.4fr 1.4fr .85fr .85fr auto;column-gap:1.1rem;row-gap:.5rem;align-items:end;max-width:none;padding:.85rem 1.25rem;background:var(--bone);border:1px solid var(--line);border-radius:6px;box-shadow:0 40px 80px -32px rgba(0,0,0,.55)}
+  .h2form .book .seg{position:absolute;top:-58px;left:50%;transform:translateX(-50%);width:max-content;height:40px;display:flex;align-items:center;background:rgba(246,241,231,.96);border:1px solid rgba(34,27,20,.22);border-radius:2px;padding:3px;gap:0;box-shadow:0 8px 24px -12px rgba(0,0,0,.35);margin:0;backdrop-filter:blur(6px)}
+  .h2form .book .seg button{padding:0 18px;height:100%;font-size:.78rem;letter-spacing:.16em}
+  .h2form .book .seg button:not(.on){background:transparent;color:var(--ink-soft,#4A4136)}
+  .h2form .book .seg .on{background:var(--ink,#221B14);color:var(--bone,#F6F1E7);border-radius:1px}
+  .h2form .book .f{margin-bottom:0}
+  .h2form .book .swap{min-height:auto}
+  .h2form .book .two{display:contents}
+  .h2form .book .btn{width:auto;margin-top:0;padding:.85rem 1.4rem;white-space:nowrap;min-height:52px;align-self:end}
 }
+@media(min-width:1280px){.hero2{--hdr:81px}}
 .h2copy h1{color:var(--bone);font-size:clamp(2.4rem,4.6vw,3.7rem);line-height:1.08;margin:.6rem 0 .9rem;letter-spacing:.005em;text-shadow:0 2px 18px rgba(0,0,0,.35)}
 .h2copy .lede{color:#D9D0C0;max-width:46ch;text-shadow:0 1px 14px rgba(0,0,0,.4)}
 .h2copy .kicker{color:#E0894A}
@@ -803,8 +864,8 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
   .h2form .book{box-shadow:0 24px 48px -24px rgba(0,0,0,.35)}
 }
 
-/* services — interactive journey switcher */
-/* services — specimen-plate rows (v26 redesign). Catalogue-style typographic plates:
+/* services,interactive journey switcher */
+/* services,specimen-plate rows (v26 redesign). Catalogue-style typographic plates:
    large Marcellus numeral on the left, a thin vertical rule, title + meta + paragraph
    in the middle, CTA on the right. Description is always visible at rest (no hide-
    then-reveal on hover) so touch devices never see clipped text. Hover (real pointers
@@ -823,7 +884,7 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 .svp-cta{display:inline-flex;align-items:center;gap:.45rem;justify-self:end;align-self:center;font-family:var(--sans);font-weight:500;font-size:.74rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink);border-bottom:1px solid var(--amber);padding-bottom:.2rem;transition:color .22s;white-space:nowrap}
 .svp-cta::after{content:"\2192";display:inline-block;transition:transform .25s cubic-bezier(.32,.72,0,1)}
 .svp-cta-arrow svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;transition:transform .5s cubic-bezier(.2,.7,.2,1)}
-/* Hover only fires on real pointer devices — touch devices skip this block and see the
+/* Hover only fires on real pointer devices,touch devices skip this block and see the
    already-complete static plate. Section reads finished at rest; hover INTENSIFIES it. */
 @media (hover: hover) {
   .svp-row:hover::before{opacity:1}
@@ -884,7 +945,7 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
   .svnav button:hover,.svnav button:active{border-color:var(--amber);color:var(--amber-deep)}
 }
 
-/* testimonials — scroll-snap Google reviews carousel */
+/* testimonials,scroll-snap Google reviews carousel */
 .tcar{display:flex;gap:1.2rem;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scroll-behavior:smooth;scrollbar-width:none;-webkit-overflow-scrolling:touch}
 .tcar::-webkit-scrollbar{display:none}
 .tc{display:flex;flex-direction:column;scroll-snap-align:start;flex:0 0 100%;min-height:300px;background:var(--card);border:1px solid var(--line);border-radius:5px;padding:1.7rem 1.7rem 1.4rem}
@@ -900,7 +961,7 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 .tnav button{width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--ink-soft);cursor:pointer;min-height:0}
 .tnav button:hover{border-color:var(--amber);color:var(--amber-deep)}
 
-/* institutional audit — a11y + motion */
+/* institutional audit,a11y + motion */
 .skip{position:absolute;left:-999px;top:0;background:var(--ink);color:var(--bone);padding:.7rem 1.2rem;z-index:99}
 .skip:focus{left:0}
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
@@ -909,7 +970,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
   .rv{opacity:1;transform:none}
 }
 
-/* kicker — signature dot-rule-dot motif for section eyebrows */
+/* kicker,signature dot-rule-dot motif for section eyebrows */
 .kicker{display:inline-flex;align-items:center;gap:.55rem;margin-bottom:1rem}
 .kicker em{font-style:normal;font-size:.7rem;font-weight:600;letter-spacing:.28em;text-transform:uppercase;color:var(--amber)}
 .kicker .kdot{width:6px;height:6px;border-radius:50%;flex:none}
@@ -922,7 +983,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .hero2 .kicker .kdot-open{border-color:#E0894A}
 .hero2 .kicker .krule{background:linear-gradient(90deg,#E0894A,rgba(224,137,74,.25))}
 
-/* events page — Occasions ledger (v14) */
+/* events page,Occasions ledger (v14) */
 .occ{padding:5rem 0}
 .occ-list{border:1px solid var(--line);border-bottom:none}
 .occ-row{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--line)}
@@ -939,7 +1000,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 
 /* ===================== v27 ===================== */
 /* signature dossier: shared shell for Corporate Account File + Fleet Movement Order
-   institutional document language — espresso 2px frame, bone inner, mono clerical labels */
+   institutional document language,espresso 2px frame, bone inner, mono clerical labels */
 .dossier{max-width:980px;margin:0 auto;background:var(--card);border:2px solid var(--espresso);border-radius:11px;padding:clamp(1.6rem,3.5vw,2.4rem);position:relative}
 .dossier .ds-head{display:flex;justify-content:space-between;align-items:flex-start;gap:2rem;flex-wrap:wrap;margin-bottom:1.7rem}
 .dossier .ds-headL{flex:1 1 360px;min-width:0}
@@ -957,7 +1018,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .dossier .ds-foot-cta{font-family:var(--mono);font-size:.7rem;letter-spacing:.22em;text-transform:uppercase;color:var(--amber-deep);border-bottom:1px solid var(--amber);padding-bottom:2px;transition:color .25s cubic-bezier(.32,.72,0,1),letter-spacing .25s cubic-bezier(.32,.72,0,1);white-space:nowrap}
 .dossier .ds-foot-cta:hover{color:var(--amber);letter-spacing:.24em}
 
-/* T2 — corporate account file: 2 × 3 provisions */
+/* T2,corporate account file: 2 × 3 provisions */
 .acct-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 2.4rem;padding-top:.2rem;border-top:1px solid var(--line)}
 .acct-item{display:flex;flex-direction:column;gap:.5rem;padding:1.1rem 0;border-bottom:1px solid var(--hair)}
 .acct-item:nth-last-child(-n+2){border-bottom:0}
@@ -967,7 +1028,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .acct-item .acct-title{font-family:var(--serif);font-weight:400;font-size:1.07rem;color:var(--ink);line-height:1.3;margin-top:.05rem}
 .acct-item .acct-desc{font-size:.82rem;color:var(--ink-soft);line-height:1.62}
 
-/* T3 — events fleet movement order: 4 phase rows + 2-column pair */
+/* T3,events fleet movement order: 4 phase rows + 2-column pair */
 .fm-rows{display:grid;gap:0;padding-top:.2rem;border-top:1px solid var(--line)}
 .fm-row{display:grid;grid-template-columns:135px 1fr 90px;gap:1.6rem;align-items:start;padding:1.05rem 0;border-bottom:1px solid var(--hair)}
 .fm-row:last-child{border-bottom:0}
@@ -982,7 +1043,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .fm-pair .fm-pair-lbl{display:block;font-family:var(--mono);font-size:.62rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin-bottom:.5rem}
 .fm-pair p{font-size:.85rem;color:var(--ink-soft);line-height:1.62}
 
-/* mobile collapse (T2 + T3) — most traffic is mobile; this stack must look deliberate */
+/* mobile collapse (T2 + T3),most traffic is mobile; this stack must look deliberate */
 @media(max-width:720px){
   .dossier{border-radius:8px;padding:1.25rem 1.1rem 1.35rem;border-width:1.5px;max-width:none}
   .dossier .ds-head{flex-direction:column;gap:1.05rem;margin-bottom:1.25rem}
@@ -1006,4 +1067,79 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
   .fm-pair > div{padding:0}
   .fm-pair > div:first-child{border-right:0;padding-bottom:1rem;border-bottom:1px solid var(--hair)}
 }
+
+/* ============================================================
+   Blog (Phase A),calm institutional article layout. Mobile-
+   first, ~680px reading measure, Marcellus headings, Outfit
+   body. No external imagery, no animations beyond .rv reveal.
+   ============================================================ */
+.article{background:var(--bone)}
+.article-wrap{max-width:720px;margin:0 auto;padding:0 clamp(1.1rem,4vw,1.6rem)}
+.article-hero{padding:3rem 0 1.6rem;border-bottom:1px solid var(--hair)}
+.article-hero .lbl{display:block;color:var(--amber-deep);margin-bottom:.8rem}
+.article-hero h1{font-family:var(--serif);font-size:clamp(1.9rem,4.2vw,2.8rem);line-height:1.12;letter-spacing:-.005em;color:var(--ink);margin:0 0 1rem}
+.article-meta{font-size:.78rem;letter-spacing:.04em;color:var(--muted);margin:0}
+.article-meta time{font-variant-numeric:tabular-nums}
+.article-body{padding:2.2rem 0 2.4rem}
+.article-body p{font-family:var(--sans);font-weight:300;font-size:1.04rem;line-height:1.78;color:var(--ink-soft);margin:0 0 1.1rem;max-width:64ch}
+.article-body p.lede{font-size:1.14rem;color:var(--ink);line-height:1.65;margin-bottom:1.6rem}
+.article-body h2{font-family:var(--serif);font-weight:400;font-size:1.55rem;line-height:1.2;color:var(--ink);letter-spacing:-.005em;margin:2.2rem 0 .8rem;padding-top:1rem;border-top:1px solid var(--hair)}
+.article-body h2:first-of-type{border-top:0;padding-top:0;margin-top:0}
+.article-body h3{font-family:var(--serif);font-weight:400;font-size:1.2rem;color:var(--ink);margin:1.6rem 0 .6rem}
+.article-body ul{padding:0 0 0 1.2rem;margin:0 0 1.2rem;max-width:64ch}
+.article-body li{font-family:var(--sans);font-weight:300;font-size:1.02rem;line-height:1.72;color:var(--ink-soft);margin:.35rem 0}
+.article-body a{color:var(--amber-deep);text-decoration:underline;text-decoration-color:rgba(168,75,12,.35);text-underline-offset:3px;transition:text-decoration-color .2s}
+.article-body a:hover{text-decoration-color:var(--amber-deep)}
+.article-body b{color:var(--ink);font-weight:500}
+.article-closing{margin-top:0}
+@media(min-width:880px){
+  .article-hero{padding:4rem 0 1.8rem}
+  .article-body{padding:2.8rem 0 3rem}
+}
+
+/* v73-E: Configurations CTA section on multi-capacity vehicles (Sprinter,
+   King Long). Quiet institutional treatment, generous whitespace, hairline
+   framing, brand buttons. */
+.sc-config{background:var(--bone);padding:3.4rem clamp(1rem,4vw,2rem);border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
+.sc-config__inner{max-width:760px;margin:0 auto;text-align:center}
+.sc-config__inner .lbl{display:block;color:var(--amber-deep);margin-bottom:.85rem}
+.sc-config__inner h2{font-family:var(--serif);font-weight:400;font-size:clamp(1.6rem,3.2vw,2.1rem);line-height:1.18;letter-spacing:-.005em;color:var(--ink);margin:0 0 1rem}
+.sc-config__inner .lede{font-family:var(--sans);font-weight:300;font-size:1.04rem;line-height:1.72;color:var(--ink-soft);max-width:60ch;margin:0 auto 1.6rem}
+.sc-config__ctas{display:flex;flex-wrap:wrap;gap:.8rem;justify-content:center}
+@media(min-width:880px){.sc-config{padding:4rem clamp(1rem,4vw,2rem)}}
+
+/* Chauffeur Service hub,emirate directory grid */
+.ch-grid{display:grid;gap:1.4rem;grid-template-columns:1fr;max-width:1080px;margin:0 auto}
+@media(min-width:720px){.ch-grid{grid-template-columns:1fr 1fr}}
+@media(min-width:1020px){.ch-grid{grid-template-columns:repeat(3,1fr)}}
+.ch-card{display:flex;flex-direction:column;padding:1.6rem 1.5rem 1.4rem;background:var(--card);border:1px solid var(--hair);border-radius:3px;text-decoration:none;color:inherit;transition:transform .25s ease,box-shadow .25s ease,border-color .25s ease}
+.ch-card:hover{transform:translateY(-3px);box-shadow:0 18px 36px -20px rgba(34,27,20,.32);border-color:var(--amber)}
+.ch-card .lbl{display:block;color:var(--amber-deep);margin-bottom:.5rem}
+.ch-card h3{font-family:var(--serif);font-size:1.35rem;line-height:1.2;color:var(--ink);margin:0 0 .55rem}
+.ch-card p{font-size:.95rem;color:var(--ink-soft);margin:0 0 1.1rem;max-width:36ch;flex:1 1 auto}
+.ch-card .ch-go{display:inline-flex;align-items:center;gap:.45rem;font-family:var(--sans);font-weight:500;font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-soft);transition:color .2s}
+.ch-card .ch-go svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;transition:transform .25s}
+.ch-card:hover .ch-go{color:var(--amber-deep)}
+.ch-card:hover .ch-go svg{transform:translateX(3px)}
+@media(prefers-reduced-motion:reduce){.ch-card,.ch-card .ch-go svg{transition:none}.ch-card:hover{transform:none}}
+
+/* Rent-a-car-with-driver,cross-emirate also-available list */
+.emirate-xlinks{list-style:none;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:.6rem .9rem;justify-content:center;font-size:.78rem;letter-spacing:.14em;text-transform:uppercase}
+.emirate-xlinks li{display:inline-block}
+.emirate-xlinks a{color:var(--ink-soft);text-decoration:none;padding:.4rem .8rem;border:1px solid var(--hair);border-radius:999px;transition:.2s}
+.emirate-xlinks a:hover{color:var(--amber-deep);border-color:var(--amber)}
+@media(prefers-reduced-motion:reduce){.emirate-xlinks a{transition:none}}
+
+/* Blog index,listing cards */
+.blog-grid{display:grid;gap:1.6rem;grid-template-columns:1fr;max-width:760px;margin:0 auto}
+.blog-card{padding:1.6rem 1.4rem;background:var(--card);border:1px solid var(--hair);border-radius:3px;transition:transform .25s ease,box-shadow .25s ease}
+.blog-card:hover{transform:translateY(-3px);box-shadow:0 18px 36px -20px rgba(34,27,20,.32)}
+.blog-card .lbl{display:block;color:var(--amber-deep);margin-bottom:.55rem}
+.blog-card h3{font-family:var(--serif);font-size:1.35rem;line-height:1.2;margin:0 0 .5rem}
+.blog-card h3 a{color:var(--ink);text-decoration:none;transition:color .2s}
+.blog-card h3 a:hover{color:var(--amber-deep)}
+.blog-card-meta{font-size:.74rem;letter-spacing:.04em;color:var(--muted);margin:0 0 .8rem}
+.blog-card p{font-size:.98rem;color:var(--ink-soft);margin:0 0 1.1rem;max-width:60ch}
+.blog-card .btn-line{padding:.45rem 0;font-size:.72rem}
+@media(prefers-reduced-motion:reduce){.blog-card{transition:none}.blog-card:hover{transform:none}}
 

@@ -18,9 +18,18 @@
   "assets": {
     "directory": "./site",
     "binding": "ASSETS",
-    // Static-first by default; only matching paths invoke the Worker before assets.
-    // /api/* — lead capture (existing). /admin/* — billing tool (v44).
-    "run_worker_first": ["/api/*", "/admin/*"]
+    // v85: every request now invokes the Worker first so it can rewrite the
+    // Cache-Control headers on HTML and /assets/* responses (HTML must
+    // revalidate every load; /assets get immutable long cache, busted via
+    // ?v=<BUILD>). Previously the Worker ran only for /api/* and /admin/*,
+    // which left marketing pages and assets on Cloudflare's cascaded
+    // _headers rules (duplicated Cache-Control bug + edge HITs serving
+    // stale HTML after a deploy).
+    "run_worker_first": ["/*"],
+    // v71: serve the branded site/404.html with HTTP 404 for any unmatched
+    // path. Without this Cloudflare returns its generic 404. Explicit
+    // _redirects rules fire BEFORE the not-found handler, so 301s still win.
+    "not_found_handling": "404-page"
   },
   // D1 binding for the billing tool (v44). Activated v44b — the umc-billing
   // database was created in the Cloudflare dashboard and its database_id is
