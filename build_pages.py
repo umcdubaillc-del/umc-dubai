@@ -2346,7 +2346,7 @@ FLEET_PAGES_DRAFT = [
    "hero_sub":"The long-wheelbase SUV for the full car and the full boot, delegations, families, and the airport run that carries everything.",
    # v73-C: real imagery wired in.
    "hero_img":"gmc-yukon-xl/hero.jpg",
-   "hero_object_pos_mobile":"28% 50%",
+   "hero_object_pos_mobile":"10% 50%",
    "interior_primary":"gmc-yukon-xl/interior.jpg",
    "interior_details":["gmc-yukon-xl/detail-1.jpg","gmc-yukon-xl/detail-2.jpg","gmc-yukon-xl/detail-3.jpg","gmc-yukon-xl/detail-4.jpg"],
    "interior_heading":"Room for the whole party.",
@@ -2469,7 +2469,7 @@ FLEET_PAGES_DRAFT = [
    # and hero_sub kept from the original luxury-coach entry.
    # TODO: this hero is a 2:1 source, replace with a proper 3:2 coach photo.
    "hero_img":"luxury-coach/hero.jpg",
-   "hero_object_pos_mobile":"80% 50%", # v89: confirmed correct (front-centred at 5/7)
+   "hero_object_pos_mobile":"90% 50%", # v89: confirmed correct (front-centred at 5/7)
    "interior_primary":"king-long/interior.jpg",
    "interior_details":["king-long/detail-1.jpg","king-long/detail-4.jpg","king-long/detail-3.jpg","king-long/detail-2.jpg"],
    "configurations_cta": {
