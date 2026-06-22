@@ -2270,7 +2270,7 @@ FLEET_PAGES_DRAFT = [
    # v73-G: hero + 1-left + 3-of-4 right details wired. Slot 4 stays on
    # placeholder because the netcarshow URLs return 403; pending alt source.
    "hero_img":"e-class/hero.jpg",
-   "hero_object_pos_mobile":"0% 50%",
+   "hero_object_pos_mobile":"28% 50%",
    "interior_primary":"e-class/interior.png",
    "interior_details":["e-class/detail-1.png","e-class/detail-2.jpg","e-class/detail-3.png", None],
    "interior_heading":"Room enough to work.",
@@ -2404,7 +2404,7 @@ FLEET_PAGES_DRAFT = [
    # Sprinter is offered in several capacities and a single gallery oversells
    # one spec. The Configurations CTA section takes its place.
    "hero_img":"sprinter/hero.jpeg",
-   "hero_object_pos_mobile":"100% 50%",
+   "hero_object_pos_mobile":"72% 50%",
    "no_interior": True,
    "configurations_cta": {
      "kicker": "Configurations",
