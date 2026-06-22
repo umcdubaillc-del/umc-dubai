@@ -130,6 +130,21 @@ export default {
   }
 };
 
+// v89 — durable lead store. Every lead is written to D1 before the external
+// legs fire, so a Sheets/Mailchimp/Resend outage can never lose a lead.
+async function ensureLeadsSchema(env) {
+  await env.BILLING_DB.prepare(
+    `CREATE TABLE IF NOT EXISTS leads (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       created_at TEXT NOT NULL,
+       source TEXT, name TEXT, phone TEXT, email TEXT, service TEXT,
+       pickup TEXT, destination TEXT, date TEXT, time TEXT, vehicle TEXT,
+       days TEXT, flight TEXT, sign TEXT, notes TEXT, page TEXT,
+       client_ts TEXT, payload_json TEXT
+     )`
+  ).run();
+}
+
 async function handleLead(request, env, ctx) {
   // Parse and size-limit the body
   let body;
@@ -170,6 +185,27 @@ async function handleLead(request, env, ctx) {
     page: clip(body.page || "", 120),
     ts: clip(body.ts || new Date().toISOString(), 40)
   };
+
+  // v89 — durable local write FIRST (fail-open: a D1 error is logged, never
+  // blocks delivery or the response).
+  if (env.BILLING_DB) {
+    try {
+      await ensureLeadsSchema(env);
+      await env.BILLING_DB.prepare(
+        `INSERT INTO leads
+          (created_at, source, name, phone, email, service, pickup, destination,
+           date, time, vehicle, days, flight, sign, notes, page, client_ts, payload_json)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(
+        new Date().toISOString(), payload.source, payload.name, payload.phone,
+        payload.email, payload.service, payload.pickup, payload.destination,
+        payload.date, payload.time, payload.vehicle, payload.days, payload.flight,
+        payload.sign, payload.notes, payload.page, payload.ts, JSON.stringify(payload)
+      ).run();
+    } catch (e) {
+      console.error("LEADS_DB insert failed", e && (e.message || String(e)));
+    }
+  }
 
   const tasks = [];
   if (env.RESEND_API_KEY) tasks.push(sendEmail(env, payload));
