@@ -166,6 +166,32 @@ async function handleLead(request, env, ctx) {
   const phone = clip((body && body.phone) || "", 60).trim();
   if (!name || !phone) return json({ ok: false, error: "missing fields" }, 400);
 
+  // Turnstile verification — active only once TURNSTILE_SECRET_KEY is set. Fails CLOSED on a
+  // bad/absent token (bot); fails OPEN only if siteverify itself is unreachable (CF outage),
+  // so a Cloudflare-side problem can never block real leads.
+  if (env.TURNSTILE_SECRET_KEY) {
+    const token = (body && typeof body.turnstileToken === "string") ? body.turnstileToken : "";
+    let pass = false;
+    try {
+      const ip = request.headers.get("CF-Connecting-IP") || "";
+      const form = new URLSearchParams();
+      form.set("secret", env.TURNSTILE_SECRET_KEY);
+      form.set("response", token);
+      if (ip) form.set("remoteip", ip);
+      const vr = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString()
+      });
+      const vj = await vr.json();
+      pass = !!(vj && vj.success);
+    } catch (e) {
+      console.error("TURNSTILE verify threw, failing open", e && (e.message || String(e)));
+      pass = true;
+    }
+    if (!pass) return json({ ok: false, error: "verification failed" }, 403);
+  }
+
   // Normalise inputs for downstream tasks
   const payload = {
     source: clip(body.source || "", 40),

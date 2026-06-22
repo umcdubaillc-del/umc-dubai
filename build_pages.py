@@ -154,6 +154,7 @@ def head(title, desc, canon, extra=""):
 <link rel="preconnect" href="https://maps.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/style.css?v={V}">
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 {extra}
 {GTM_HEAD}
 </head>
@@ -698,6 +699,7 @@ booking_body = header("booking.html") + f"""
           </div>
           <div class="f"><label class="req" for="kEmail">Email</label><input id="kEmail" type="email" autocomplete="email" required><span class="fhint">Enter a valid email address, e.g. name@domain.com</span></div>
                     <p class="bk-note" style="margin-top:1rem">By sending this request you agree to the <a href="/terms" id="openTerms" style="border-bottom:1px solid var(--amber);color:var(--ink)">Terms of Service</a>.</p>
+          <div class="cf-turnstile" data-sitekey="0x4AAAAAADpUlIS_5IkgJa-H" id="bkTs" style="margin:.2rem 0 .4rem"></div>
           <button class="btn btn-ink" type="submit" id="btnConfirm" style="width:100%;margin-top:.7rem" disabled>Confirm reservation request</button>
           <p class="bk-note">Sending opens WhatsApp with your request pre-filled. Our concierge confirms availability and shares a secure payment link, nothing is charged online.</p>
         </div>
@@ -1626,6 +1628,7 @@ contact_body = header("contact.html") + f"""
         <div class="f"><label class="req" for="cEmail">Email</label><input id="cEmail" type="email" autocomplete="email" required><span class="fhint">Enter a valid email address, e.g. name@domain.com</span></div>
         <div class="f"><label for="cVehicle">Vehicle or service</label><input id="cVehicle" name="vehicle" placeholder="S-Class, airport transfer, corporate account&hellip;"></div>
         <div class="f"><label for="cMsg">Your request</label><textarea id="cMsg" rows="4" placeholder="Route, date and time, number of guests&hellip;"></textarea></div>
+        <div class="cf-turnstile" data-sitekey="0x4AAAAAADpUlIS_5IkgJa-H" id="ctTs" style="margin:.2rem 0 1rem"></div>
         <button class="btn btn-ink" style="width:100%" id="cSend" type="button">Send request</button>
         <p class="bk-note">Prefer email? <a href="mailto:contact@umcdubai.ae" style="border-bottom:1px solid var(--amber)">contact@umcdubai.ae</a></p>
       </div>
@@ -1683,8 +1686,10 @@ document.getElementById("cSend").addEventListener("click", function(){
   // Sheet/Mailchimp. Empty fields (service, pickup, destination, date, time, days, flight,
   // sign) are stripped by the Worker's emailRows() helper so the internal + client emails
   // don't show blank rows.
+  const ctTok = (document.querySelector('#ctTs [name="cf-turnstile-response"]') || {}).value || "";
   const cPayload = {
     source: "contact-form",
+    turnstileToken: ctTok,
     name: g("cName"), phone: "+" + cCCEl.value + " " + cPhoneOut, email: g("cEmail"),
     service: "", pickup: "", destination: "",
     date: "", time: "", vehicle: g("cVehicle"), days: "",

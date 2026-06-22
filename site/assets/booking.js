@@ -245,8 +245,10 @@
 
     // ----- non-blocking capture before WhatsApp -----
     const phoneOut = window.umcPhone ? window.umcPhone.significantDigits(g("kPhone")) : g("kPhone");
+    const bkTok = (document.querySelector('#bkTs [name="cf-turnstile-response"]') || {}).value || "";
     const payload = {
       source: "booking",
+      turnstileToken: bkTok,
       name: g("kName"), phone: "+" + $("kCC").value + " " + phoneOut, email: g("kEmail"),
       service: SERVICE_LABEL[state.service], pickup: g("kFrom"), destination: hourly ? "" : g("kTo"),
       date: g("kDate"), time: g("kTime"),
