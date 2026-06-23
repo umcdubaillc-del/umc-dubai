@@ -1280,20 +1280,27 @@ async function handleSales(url, env) {
 
   // Pull every paid or refunded row from both tables. We do month bucketing
   // in JS (Dubai-time aware), not SQL, so dates stay correct.
+  // Phase 0.1 — no-double-count rule. Nomod revenue is sourced from
+  // payment_links (every paid Nomod charge has a nomod_charge_id). Non-Nomod
+  // revenue is sourced from billing_documents restricted to bank/cash only —
+  // an invoice paid via a Nomod link is already in payment_links via its
+  // charge, so we must not count it here too.
   const invRows = (await env.BILLING_DB.prepare(
     `SELECT id, doc_type, number, client_name, subtotal, vat, total, currency,
             nomod_link_id, nomod_charge_id, payment_status, payment_method,
             paid_at, refunded_at, refunded_amount
        FROM billing_documents
       WHERE doc_type='invoice'
-        AND (payment_status='paid' OR payment_status='refunded')`
+        AND (payment_status='paid' OR payment_status='refunded')
+        AND payment_method IN ('bank','cash')`
   ).all()).results || [];
   const linkRows = (await env.BILLING_DB.prepare(
     `SELECT id, title AS client_name, amount, currency,
             nomod_link_id, nomod_charge_id, payment_status, payment_method,
             paid_at, refunded_at, refunded_amount
        FROM payment_links
-      WHERE payment_status='paid' OR payment_status='refunded'`
+      WHERE (payment_status='paid' OR payment_status='refunded')
+        AND nomod_charge_id IS NOT NULL`
   ).all()).results || [];
 
   // Helper: monthly bucket lookup. Index 1..12.
@@ -1464,9 +1471,27 @@ async function handleSales(url, env) {
 //     /v1/charges (transactions). Verify in Nomod Settings -> Apps & APIs.
 async function handleSyncNomod(request, env) {
   await ensureSchema(env);
-  try { await request.json(); } catch {}
-  // Pull-all then process. Safety caps prevent runaway iteration on a malformed
-  // pagination response.
+  let body = {};
+  try { body = await request.json(); } catch {}
+  // Default = incremental. body.full=true triggers a manual full backfill that
+  // walks every page and UPSERTs all charges (used when an import-shape bug
+  // needs healing, e.g. the AED 0.00 batch).
+  const fullBackfill = body.full === true;
+
+  // Phase 0.1 one-time correction — earlier imports stamped created_at with
+  // the import time, so every previously-imported row currently displays as
+  // today in the Payments UI even though paid_at carries the real charge
+  // date. The current importer sets created_at = paid_at on INSERT and
+  // UPDATE, so this UPDATE is a no-op once data has been healed.
+  await env.BILLING_DB.prepare(
+    `UPDATE payment_links
+        SET created_at = paid_at
+      WHERE nomod_charge_id IS NOT NULL
+        AND paid_at IS NOT NULL
+        AND paid_at <> ''
+        AND created_at <> paid_at`
+  ).run();
+
   const MAX_PAGES = 50;
   const MAX_CHARGES = 5000;
   let pulled = 0, imported = 0, updated = 0, skipped = 0;
@@ -1474,10 +1499,14 @@ async function handleSyncNomod(request, env) {
   const errors = [];
   const now = new Date().toISOString();
 
-  // ----- pull: follow data.next until null/empty -----
-  const allCharges = [];
+  // Inline pull-and-process. Nomod returns charges newest-first; once we hit
+  // a charge_id that already exists in either ledger, every older charge has
+  // also been imported, so we stop the entire sync. This bounds an ordinary
+  // re-sync to only NEW charges and avoids the worker time-limit 500s.
+  let hitKnown = false;
   let nextUrl = null;
   for (let p = 0; p < MAX_PAGES; p++) {
+    if (hitKnown) break;
     const r = nextUrl
       ? await nomodListAllCharges(env, { nextUrl })
       : await nomodListAllCharges(env, { pageSize: 100 });
@@ -1487,103 +1516,109 @@ async function handleSyncNomod(request, env) {
                 : Array.isArray(data.data) ? data.data
                 : Array.isArray(data) ? data : [];
     for (const c of list) {
-      allCharges.push(c);
-      if (allCharges.length >= MAX_CHARGES) break;
-    }
-    if (allCharges.length >= MAX_CHARGES) break;
-    nextUrl = data.next || null;
-    if (!nextUrl) break;
-  }
+      if (pulled >= MAX_CHARGES) { hitKnown = true; break; }
+      pulled++;
+      const status = String(c.status || c.state || "").toLowerCase();
+      if (!PAID_CHARGE_STATUSES.has(status)) { skipped++; continue; }
+      const chargeId = c.id || c.charge_id || null;
+      const linkId   = (c.link && c.link.id) || c.link_id || c.payment_link_id || null;
+      // total is a major-unit decimal string in AED (e.g. "367.500"); round to 2dp.
+      const amount   = Math.round(Number(c.total ?? 0) * 100) / 100;
+      const currency = String(c.currency || "AED").toUpperCase();
+      const paidAt   = c.captured_at || c.created || c.created_at || now;
+      const paymentMethod = c.payment_method || "nomod";
 
-  // ----- process accumulated charges -----
-  for (const c of allCharges) {
-    pulled++;
-    const status = String(c.status || c.state || "").toLowerCase();
-    if (!PAID_CHARGE_STATUSES.has(status)) { skipped++; continue; }
-    const chargeId = c.id || c.charge_id || null;
-    const linkId   = (c.link && c.link.id) || c.link_id || c.payment_link_id || null;
-    // total is a major-unit decimal string in AED (e.g. "367.500"); round to 2dp.
-    const amount   = Math.round(Number(c.total ?? 0) * 100) / 100;
-    const currency = String(c.currency || "AED").toUpperCase();
-    const paidAt   = c.captured_at || c.created || c.created_at || now;
-    const paymentMethod = c.payment_method || "nomod";
+      // Incremental early-exit. Skipped on body.full=true.
+      if (chargeId && !fullBackfill) {
+        const known = await env.BILLING_DB.prepare(
+          `SELECT 1 AS x FROM payment_links WHERE nomod_charge_id = ?
+           UNION ALL
+           SELECT 1 AS x FROM billing_documents WHERE nomod_charge_id = ? LIMIT 1`
+        ).bind(chargeId, chargeId).first();
+        if (known) { hitKnown = true; break; }
+      }
 
-    // Step 1: if this charge is already reconciled to an invoice, skip — the
-    // billing_documents row holds the canonical record.
-    if (chargeId) {
-      const onInvoice = await env.BILLING_DB.prepare(
-        `SELECT 1 AS x FROM billing_documents WHERE nomod_charge_id = ? LIMIT 1`
-      ).bind(chargeId).first();
-      if (onInvoice) { skipped++; continue; }
-    }
+      // Full-backfill Step 1: skip charges already on a billing_documents row
+      // (the invoice holds the canonical record). Incremental mode would have
+      // hit the early-exit above.
+      if (chargeId && fullBackfill) {
+        const onInvoice = await env.BILLING_DB.prepare(
+          `SELECT 1 AS x FROM billing_documents WHERE nomod_charge_id = ? LIMIT 1`
+        ).bind(chargeId).first();
+        if (onInvoice) { skipped++; continue; }
+      }
 
-    // Step 2: link-match — if this charge's link_id maps to one of our rows,
-    // stamp the matching invoice or standalone link paid and tag the channel.
-    if (linkId) {
-      const upInv = await env.BILLING_DB.prepare(
-        `UPDATE billing_documents
-           SET payment_status='paid',
-               paid_at=COALESCE(paid_at, ?),
-               last_checked_at=?,
-               nomod_charge_id=COALESCE(?, nomod_charge_id),
-               payment_method=COALESCE(payment_method, ?)
-         WHERE nomod_link_id = ? AND COALESCE(payment_status,'unpaid') <> 'paid'`
-      ).bind(paidAt, now, chargeId, paymentMethod, linkId).run();
-      const upLnk = await env.BILLING_DB.prepare(
-        `UPDATE payment_links
-           SET payment_status='paid',
-               paid_at=COALESCE(paid_at, ?),
-               last_checked_at=?,
-               nomod_charge_id=COALESCE(?, nomod_charge_id),
-               payment_method=COALESCE(payment_method, ?)
-         WHERE nomod_link_id = ? AND COALESCE(payment_status,'unpaid') <> 'paid'`
-      ).bind(paidAt, now, chargeId, paymentMethod, linkId).run();
-      if (((upInv.meta && upInv.meta.changes) || 0) + ((upLnk.meta && upLnk.meta.changes) || 0) > 0) {
+      // Step 2: link-match — if this charge's link_id maps to one of our rows,
+      // stamp the matching invoice or standalone link paid and tag the channel.
+      if (linkId) {
+        const upInv = await env.BILLING_DB.prepare(
+          `UPDATE billing_documents
+             SET payment_status='paid',
+                 paid_at=COALESCE(paid_at, ?),
+                 last_checked_at=?,
+                 nomod_charge_id=COALESCE(?, nomod_charge_id),
+                 payment_method=COALESCE(payment_method, ?)
+           WHERE nomod_link_id = ? AND COALESCE(payment_status,'unpaid') <> 'paid'`
+        ).bind(paidAt, now, chargeId, paymentMethod, linkId).run();
+        const upLnk = await env.BILLING_DB.prepare(
+          `UPDATE payment_links
+             SET payment_status='paid',
+                 paid_at=COALESCE(paid_at, ?),
+                 last_checked_at=?,
+                 nomod_charge_id=COALESCE(?, nomod_charge_id),
+                 payment_method=COALESCE(payment_method, ?)
+           WHERE nomod_link_id = ? AND COALESCE(payment_status,'unpaid') <> 'paid'`
+        ).bind(paidAt, now, chargeId, paymentMethod, linkId).run();
+        if (((upInv.meta && upInv.meta.changes) || 0) + ((upLnk.meta && upLnk.meta.changes) || 0) > 0) {
+          updated++;
+          continue;
+        }
+      }
+
+      // Step 3: UPSERT direct sale into payment_links (keyed by nomod_charge_id).
+      // created_at is stamped with paidAt so the Payments UI groups by the
+      // ACTUAL charge date, not the import time.
+      const customerName = (c.customer_info && (c.customer_info.name || c.customer_info.email))
+                        || (c.customer && (c.customer.name || c.customer.full_name))
+                        || "";
+      const title = customerName ? `Nomod sale — ${customerName}` : "Nomod direct sale";
+      const service = (c.items && c.items[0] && c.items[0].name) || "";
+      const note = service || "Direct sale via Nomod";
+      const urlField = (c.link && c.link.url) || c.link_url || "";
+
+      let existing = null;
+      if (chargeId) {
+        existing = await env.BILLING_DB.prepare(
+          `SELECT id FROM payment_links WHERE nomod_charge_id = ?`
+        ).bind(chargeId).first();
+      }
+      if (existing && existing.id) {
+        await env.BILLING_DB.prepare(
+          `UPDATE payment_links
+              SET title=?, amount=?, currency=?, note=?, created_at=?,
+                  payment_status='paid', paid_at=?, last_checked_at=?,
+                  payment_method=?
+            WHERE id=?`
+        ).bind(title, amount, currency, note, paidAt, paidAt, now, paymentMethod, existing.id).run();
         updated++;
-        continue;
+      } else {
+        await env.BILLING_DB.prepare(
+          `INSERT INTO payment_links
+            (title, amount, currency, note, nomod_link_id, nomod_link_url,
+             created_at, payment_status, paid_at, last_checked_at,
+             nomod_charge_id, payment_method)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?)`
+        ).bind(
+          title, amount, currency, note,
+          linkId, urlField, paidAt, paidAt, now, chargeId, paymentMethod
+        ).run();
+        imported++;
+        flagged.push({ chargeId, linkId, amount, currency, paidAt, customer: customerName || null });
       }
     }
-
-    // Step 3: UPSERT direct sale into payment_links (keyed by nomod_charge_id).
-    // Re-syncs must UPDATE existing rows so the 33 prior AED 0.00 imports
-    // get corrected — skip-if-known would leave them broken forever.
-    const customerName = (c.customer_info && (c.customer_info.name || c.customer_info.email))
-                      || (c.customer && (c.customer.name || c.customer.full_name))
-                      || "";
-    const title = customerName ? `Nomod sale — ${customerName}` : "Nomod direct sale";
-    const service = (c.items && c.items[0] && c.items[0].name) || "";
-    const note = service || "Direct sale via Nomod";
-    const urlField = (c.link && c.link.url) || c.link_url || "";
-
-    let existing = null;
-    if (chargeId) {
-      existing = await env.BILLING_DB.prepare(
-        `SELECT id FROM payment_links WHERE nomod_charge_id = ?`
-      ).bind(chargeId).first();
-    }
-    if (existing && existing.id) {
-      await env.BILLING_DB.prepare(
-        `UPDATE payment_links
-            SET title=?, amount=?, currency=?, note=?,
-                payment_status='paid', paid_at=?, last_checked_at=?,
-                payment_method=?
-          WHERE id=?`
-      ).bind(title, amount, currency, note, paidAt, now, paymentMethod, existing.id).run();
-      updated++;
-    } else {
-      await env.BILLING_DB.prepare(
-        `INSERT INTO payment_links
-          (title, amount, currency, note, nomod_link_id, nomod_link_url,
-           created_at, payment_status, paid_at, last_checked_at,
-           nomod_charge_id, payment_method)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?)`
-      ).bind(
-        title, amount, currency, note,
-        linkId, urlField, now, paidAt, now, chargeId, paymentMethod
-      ).run();
-      imported++;
-      flagged.push({ chargeId, linkId, amount, currency, paidAt, customer: customerName || null });
-    }
+    if (hitKnown) break;
+    nextUrl = data.next || null;
+    if (!nextUrl) break;
   }
 
   return json({ ok: true, pulled, imported, updated, skipped, flagged, errors });
