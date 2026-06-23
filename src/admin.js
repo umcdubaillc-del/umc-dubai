@@ -2293,6 +2293,29 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 .history .hist-status.linked{color:var(--amber-deep)}
 .history .empty{padding:1.5rem .5rem;color:var(--muted);font-size:13px;text-align:center;border-top:1px solid var(--hair)}
 
+/* Phase 1.1 — expandable row actions. The main row carries only the data
+   cells and a trailing chevron; per-row buttons live in a full-width drawer
+   tr immediately beneath that opens accordion-style. Removes the wide
+   action column that was forcing horizontal scroll on Payments / Documents. */
+.history table{table-layout:auto}
+.history tr.expandable{cursor:pointer;transition:background .15s}
+.history tr.expandable:hover{background:var(--bone2)}
+.history tr.expandable.open{background:var(--bone2)}
+.history .hist-chev-cell{text-align:right;white-space:nowrap;width:36px}
+.history .hist-chevron{display:inline-block;font-size:14px;line-height:1;color:var(--muted);transition:transform .2s,color .2s}
+.history tr.expandable.open .hist-chevron{transform:rotate(180deg);color:var(--ink)}
+.history tr.hist-actions-row > td{padding:0;background:var(--bone2);border-bottom:1px solid var(--hair)}
+.history .hist-actions-panel{display:flex;flex-wrap:wrap;gap:.5rem;padding:.7rem 1rem;justify-content:flex-end}
+.history .hist-actions-panel .btn{margin:0}
+.history tr.hist-actions-row[hidden]{display:none}
+
+/* Phase 1.1 — filter bar captions. Both controls get a label-on-top so
+   align-items:flex-end shares a single baseline (was: status-pill floating
+   to the sort caption). Reused on Payments, Documents, Leads. */
+.history .hist-filter{align-items:flex-end!important}
+.history .hist-ctrl{display:flex;flex-direction:column;gap:.4rem}
+.history .hist-ctrl > .lbl{font-family:Outfit;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);font-weight:500}
+
 /* v53 Phase 2: Links tab layout */
 .links-page{padding:1.5rem;display:grid;gap:1.5rem;max-width:920px;margin:0 auto}
 .links-page > .panel{max-width:640px}
@@ -2481,15 +2504,18 @@ function appShellHTML() {
       </div>
       <button type="button" class="btn btn-small btn-ghost" id="leadsRefresh">Refresh</button>
     </div>
-    <div class="hist-filter" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-      <div class="hist-typefilter" role="tablist" aria-label="Status filter">
-        <button type="button" class="seg on" data-leadstat="all">All</button>
-        <button type="button" class="seg"    data-leadstat="new">New</button>
-        <button type="button" class="seg"    data-leadstat="quoted">Quoted</button>
-        <button type="button" class="seg"    data-leadstat="invoiced">Invoiced</button>
+    <div class="hist-filter" style="display:flex;gap:1rem;flex-wrap:wrap">
+      <div class="hist-ctrl">
+        <span class="lbl">Status</span>
+        <div class="hist-typefilter" role="tablist" aria-label="Status filter">
+          <button type="button" class="seg on" data-leadstat="all">All</button>
+          <button type="button" class="seg"    data-leadstat="new">New</button>
+          <button type="button" class="seg"    data-leadstat="quoted">Quoted</button>
+          <button type="button" class="seg"    data-leadstat="invoiced">Invoiced</button>
+        </div>
       </div>
-      <div class="hist-sort" style="margin-left:auto">
-        <label class="lbl" for="leadsSort" style="margin-right:.4rem">Sort</label>
+      <div class="hist-sort hist-ctrl" style="margin-left:auto">
+        <label class="lbl" for="leadsSort">Sort</label>
         <select id="leadsSort" aria-label="Sort leads">
           <option value="date-desc" selected>Latest first</option>
           <option value="date-asc">Oldest first</option>
@@ -2655,17 +2681,20 @@ function appShellHTML() {
       <button type="button" class="btn btn-small btn-ghost" id="btnRefresh">Refresh</button>
     </div>
     <div class="hist-filterbar">
-      <div class="hist-search">
+      <div class="hist-search hist-ctrl">
         <label class="lbl" for="histSearch">Search</label>
         <input id="histSearch" type="search" placeholder="Number, client, company …" autocomplete="off">
       </div>
-      <div class="hist-typefilter" role="tablist" aria-label="Filter by type">
-        <button type="button" class="seg on" data-typefilter="all">All</button>
-        <button type="button" class="seg"     data-typefilter="quote">Quotes</button>
-        <button type="button" class="seg"     data-typefilter="invoice">Invoices</button>
+      <div class="hist-ctrl">
+        <span class="lbl">Type</span>
+        <div class="hist-typefilter" role="tablist" aria-label="Filter by type">
+          <button type="button" class="seg on" data-typefilter="all">All</button>
+          <button type="button" class="seg"     data-typefilter="quote">Quotes</button>
+          <button type="button" class="seg"     data-typefilter="invoice">Invoices</button>
+        </div>
       </div>
-      <div class="hist-sort" style="margin-left:auto">
-        <label class="lbl" for="histSort" style="margin-right:.4rem">Sort</label>
+      <div class="hist-sort hist-ctrl" style="margin-left:auto">
+        <label class="lbl" for="histSort">Sort</label>
         <select id="histSort" aria-label="Sort documents">
           <option value="date-desc" selected>Latest first</option>
           <option value="date-asc">Oldest first</option>
@@ -2785,14 +2814,17 @@ function appShellHTML() {
       </div>
     </div>
     <div class="pay-summary" id="paySummary"></div>
-    <div class="hist-filter" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-      <div class="hist-typefilter" role="tablist" aria-label="Status filter">
-        <button type="button" class="seg on" data-paystat="all">All</button>
-        <button type="button" class="seg"    data-paystat="unpaid">Unpaid</button>
-        <button type="button" class="seg"    data-paystat="paid">Paid</button>
+    <div class="hist-filter" style="display:flex;gap:1rem;flex-wrap:wrap">
+      <div class="hist-ctrl">
+        <span class="lbl">Status</span>
+        <div class="hist-typefilter" role="tablist" aria-label="Status filter">
+          <button type="button" class="seg on" data-paystat="all">All</button>
+          <button type="button" class="seg"    data-paystat="unpaid">Unpaid</button>
+          <button type="button" class="seg"    data-paystat="paid">Paid</button>
+        </div>
       </div>
-      <div class="hist-sort">
-        <label class="lbl" for="paySort" style="margin-right:.4rem">Sort</label>
+      <div class="hist-sort hist-ctrl">
+        <label class="lbl" for="paySort">Sort</label>
         <select id="paySort" aria-label="Sort payments">
           <option value="date-desc" selected>Latest first</option>
           <option value="date-asc">Oldest first</option>
@@ -3703,21 +3735,35 @@ const PAGE_SCRIPT = `<script>
   function sortTbodyRows(tbody){
     if(!tbody) return;
     const mode = tbody.dataset.sort || "date-desc";
-    const trs = Array.prototype.slice.call(tbody.querySelectorAll("tr"));
-    trs.sort(function(a, b){
+    // Build (main, actionsRow|null) pairs first so each drawer stays glued to
+    // its main row after sort. Phase 1.1: actions rows have no sort metadata.
+    const allTrs = Array.prototype.slice.call(tbody.querySelectorAll("tr"));
+    const pairs = [];
+    for(let i = 0; i < allTrs.length; i++){
+      const tr = allTrs[i];
+      if(tr.classList.contains("hist-actions-row")) continue;
+      const next = allTrs[i+1];
+      const actionsTr = (next && next.classList.contains("hist-actions-row")) ? next : null;
+      pairs.push([tr, actionsTr]);
+    }
+    pairs.sort(function(a, b){
+      const ma = a[0], mb = b[0];
       if(mode === "amount-desc" || mode === "amount-asc"){
-        const va = Number(a.dataset.sortamount) || 0;
-        const vb = Number(b.dataset.sortamount) || 0;
+        const va = Number(ma.dataset.sortamount) || 0;
+        const vb = Number(mb.dataset.sortamount) || 0;
         return mode === "amount-desc" ? vb - va : va - vb;
       }
-      const da = String(a.dataset.sortdate || "");
-      const db = String(b.dataset.sortdate || "");
+      const da = String(ma.dataset.sortdate || "");
+      const db = String(mb.dataset.sortdate || "");
       if(da === db) return 0;
       if(mode === "date-asc")  return da < db ? -1 : 1;
       /* date-desc */          return da > db ? -1 : 1;
     });
     const frag = document.createDocumentFragment();
-    trs.forEach(function(tr){ frag.appendChild(tr); });
+    pairs.forEach(function(pair){
+      frag.appendChild(pair[0]);
+      if(pair[1]) frag.appendChild(pair[1]);
+    });
     tbody.appendChild(frag);
   }
 
@@ -3727,12 +3773,21 @@ const PAGE_SCRIPT = `<script>
     sortTbodyRows(histBody);
     const t = (histBody.dataset.typeFilter || "all").toLowerCase();
     const q = (histBody.dataset.qFilter || "").toLowerCase();
+    let lastMainVisible = true;
     histBody.querySelectorAll("tr").forEach(function(tr){
+      if(tr.classList.contains("hist-actions-row")){
+        // Track the main row's visibility — drawer is hidden when its main
+        // row is filtered out, otherwise CSS (the hidden attr) controls it.
+        tr.style.display = lastMainVisible ? "" : "none";
+        return;
+      }
       const rowType = (tr.getAttribute("data-doctype") || "").toLowerCase();
       const rowText = (tr.getAttribute("data-searchtext") || "").toLowerCase();
       const okT = t === "all" || rowType === t;
       const okQ = !q || rowText.indexOf(q) !== -1;
-      tr.style.display = (okT && okQ) ? "" : "none";
+      const visible = okT && okQ;
+      tr.style.display = visible ? "" : "none";
+      lastMainVisible = visible;
     });
   }
   // v60: Payments tab — load + reconcile + filter + delegated click handler.
@@ -3783,15 +3838,16 @@ const PAGE_SCRIPT = `<script>
           actions.push('<button type="button" class="btn btn-small btn-ghost" data-paymark="bank" data-id="'+x.id+'" data-num="'+esc(x.number)+'" title="Mark this invoice paid via bank wire">Mark paid via bank</button>');
           actions.push('<button type="button" class="btn btn-small btn-ghost" data-paymark="cash" data-id="'+x.id+'" data-num="'+esc(x.number)+'" title="Mark this invoice paid via cash">Mark paid via cash</button>');
         }
-        return '<tr data-paystat="'+status+'" data-sortdate="'+esc(sortDate)+'" data-sortamount="'+sortAmount+'">'
+        return '<tr class="expandable" data-expandable="1" data-paystat="'+status+'" data-sortdate="'+esc(sortDate)+'" data-sortamount="'+sortAmount+'">'
           + '<td data-lbl="Number">'+numCell+'</td>'
           + '<td data-lbl="Type"><span class="pay-type">'+(isInv?'Invoice':'Link')+'</span></td>'
           + '<td data-lbl="Client">'+clientCell+'</td>'
           + '<td data-lbl="Amount" style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(Number(x.amount), x.currency))+'</td>'
           + '<td data-lbl="Status">'+statusCell+'</td>'
           + '<td data-lbl="Paid">'+paidCell+'</td>'
-          + '<td data-lbl="Actions" style="text-align:right;white-space:nowrap" class="hist-actions">'+actions.join(' ')+'</td>'
-          + '</tr>';
+          + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">▾</span></td>'
+          + '</tr>'
+          + '<tr class="hist-actions-row" hidden><td colspan="7"><div class="hist-actions-panel">'+actions.join(' ')+'</div></td></tr>';
       }).join("");
       applyPaymentsFilter();
       payLastFetched = Date.now();
@@ -4043,10 +4099,16 @@ const PAGE_SCRIPT = `<script>
     const body = $("payBody"); if(!body) return;
     sortTbodyRows(body);
     const want = (body.dataset.statFilter || "all").toLowerCase();
+    let lastMainVisible = true;
     body.querySelectorAll("tr").forEach(function(tr){
+      if(tr.classList.contains("hist-actions-row")){
+        tr.style.display = lastMainVisible ? "" : "none";
+        return;
+      }
       const st = (tr.getAttribute("data-paystat") || "").toLowerCase();
       const ok = want === "all" || st === want;
       tr.style.display = ok ? "" : "none";
+      lastMainVisible = ok;
     });
   }
 
@@ -4241,8 +4303,38 @@ const PAGE_SCRIPT = `<script>
       if(mkB){
         e.preventDefault();
         openMarkPaidPopover(mkB);
+        return;
+      }
+      // Phase 1.1 — row click toggles the drawer (skipped for clicks on
+      // links/buttons so action panel buttons keep their handlers).
+      const expTr = e.target.closest("tr[data-expandable='1']");
+      if(expTr && !e.target.closest("a, button")){
+        toggleAccordionRow(expTr, root);
       }
     });
+  }
+
+  // Phase 1.1 — accordion toggle for expandable rows on Documents and Payments.
+  // Closes any other open row before opening this one. Skips clicks on links
+  // and buttons so per-row actions (open, copy, regenerate, mark paid) keep
+  // their behaviour without collapsing or re-toggling the drawer.
+  function toggleAccordionRow(tr, root){
+    const panel = tr.nextElementSibling;
+    if(!panel || !panel.classList.contains("hist-actions-row")) return;
+    const isOpen = !panel.hasAttribute("hidden");
+    root.querySelectorAll("tr.expandable.open").forEach(function(other){
+      if(other === tr) return;
+      other.classList.remove("open");
+      const op = other.nextElementSibling;
+      if(op && op.classList.contains("hist-actions-row")) op.setAttribute("hidden", "");
+    });
+    if(isOpen){
+      tr.classList.remove("open");
+      panel.setAttribute("hidden", "");
+    } else {
+      tr.classList.add("open");
+      panel.removeAttribute("hidden");
+    }
   }
 
   // Phase 1 — Leads tab delegation. Status filter, sort dropdown, refresh,
@@ -4337,6 +4429,14 @@ const PAGE_SCRIPT = `<script>
           : "Delete quote " + num + " ?\\n\\nThis cannot be undone.";
         if(!confirm(warn)) return;
         deleteDoc(delB.getAttribute("data-del"), num);
+        return;
+      }
+      // Phase 1.1 — row click toggles the drawer (skipped for clicks on
+      // links/buttons so the Number anchor and panel action buttons keep
+      // their handlers).
+      const expTr = e.target.closest("tr[data-expandable='1']");
+      if(expTr && !e.target.closest("a, button")){
+        toggleAccordionRow(expTr, root);
       }
     });
   }
@@ -4388,15 +4488,16 @@ const PAGE_SCRIPT = `<script>
         const searchText = [x.number, x.client_name || "", x.client_company || "", x.source_quote_number || ""].join(" ");
         const sortDate = String(x.doc_date || "");
         const sortAmount = Number(x.total) || 0;
-        return '<tr data-doctype="'+esc(x.doc_type)+'" data-searchtext="'+esc(searchText)+'" data-sortdate="'+esc(sortDate)+'" data-sortamount="'+sortAmount+'">'
+        return '<tr class="expandable" data-expandable="1" data-doctype="'+esc(x.doc_type)+'" data-searchtext="'+esc(searchText)+'" data-sortdate="'+esc(sortDate)+'" data-sortamount="'+sortAmount+'">'
           + '<td data-lbl="Number"><a href="#" data-load="'+x.id+'">'+esc(x.number)+'</a>'+srcTag+linkPreview+'</td>'
           + '<td data-lbl="Type"><span class="pill '+(isInvoice?'inv':'')+'">'+x.doc_type+'</span></td>'
           + '<td data-lbl="Date">'+esc(fmtDate(x.doc_date))+'</td>'
           + '<td data-lbl="Client">'+esc(x.client_name || "")+(x.client_company?' <span style="color:#7A6F5F">('+esc(x.client_company)+')</span>':'')+'</td>'
           + '<td data-lbl="Total" style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(x.total, x.currency))+'</td>'
           + '<td data-lbl="Status">'+statusTxt+'</td>'
-          + '<td data-lbl="Actions" style="text-align:right;white-space:nowrap" class="hist-actions">'+actions.join(' ')+'</td>'
-          + '</tr>';
+          + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">▾</span></td>'
+          + '</tr>'
+          + '<tr class="hist-actions-row" hidden><td colspan="7"><div class="hist-actions-panel">'+actions.join(' ')+'</div></td></tr>';
       }).join("");
       applyHistoryFilter();
       // v57: row-action click handler now binds at the top of loadHistory
