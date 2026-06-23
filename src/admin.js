@@ -180,6 +180,7 @@ async function ensureSchema(env) {
     "refunded_amount REAL",
     "client_email TEXT",
     "client_name TEXT",
+    "excluded INTEGER DEFAULT 0",
   ]) {
     try {
       await env.BILLING_DB.prepare(`ALTER TABLE payment_links ADD COLUMN ${col}`).run();
@@ -465,6 +466,7 @@ async function handleList(env) {
             b.client_phone,
             b.currency, b.total, b.source_quote_number, b.nomod_link_id,
             b.nomod_link_url, b.nomod_link_created_at, b.created_at,
+            COALESCE(b.payment_status, 'unpaid') AS payment_status,
             (SELECT i.number FROM billing_documents i
               WHERE i.doc_type = 'invoice' AND i.source_quote_number = b.number
               LIMIT 1) AS converted_invoice_number
@@ -807,7 +809,8 @@ async function handleCreateStandaloneLink(request, env) {
 async function handleListLinks(env) {
   await ensureSchema(env);
   const { results } = await env.BILLING_DB.prepare(
-    `SELECT id, title, amount, currency, note, nomod_link_id, nomod_link_url, created_at
+    `SELECT id, title, amount, currency, note, nomod_link_id, nomod_link_url,
+            nomod_charge_id, COALESCE(excluded, 0) AS excluded, created_at
      FROM payment_links ORDER BY id DESC LIMIT 500`
   ).all();
   return json({ ok: true, items: results || [] });
@@ -815,11 +818,47 @@ async function handleListLinks(env) {
 
 async function handleDeleteLink(id, env) {
   await ensureSchema(env);
+  // Phase 1.3 — Nomod-synced charges are revenue ledger; never hard delete.
+  // The operator must use Exclude from revenue instead, which preserves the
+  // row so a full re-sync cannot resurrect it under the original keys.
+  const row = await env.BILLING_DB.prepare(
+    "SELECT nomod_charge_id FROM payment_links WHERE id = ?"
+  ).bind(id).first();
+  if (!row) return json({ ok: false, error: "not found" }, 404);
+  if (row.nomod_charge_id) {
+    return json({
+      ok: false,
+      error: "nomod-synced charges cannot be deleted; use Exclude from revenue instead",
+    }, 409);
+  }
   const res = await env.BILLING_DB.prepare(
     "DELETE FROM payment_links WHERE id = ?"
   ).bind(id).run();
   if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
   return json({ ok: true, id });
+}
+
+// Phase 1.3 — delete a lead row (hard delete; leads carry no financial impact).
+async function handleDeleteLead(id, env) {
+  await ensureSchema(env);
+  const res = await env.BILLING_DB.prepare(
+    "DELETE FROM leads WHERE id = ?"
+  ).bind(id).run();
+  if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
+  return json({ ok: true, id });
+}
+
+// Phase 1.3 — toggle revenue exclusion on a payment_links row. Used for
+// Nomod-synced charges that must NOT be hard-deleted (a full re-sync would
+// recreate them). handleSales / collected KPI ignore rows with excluded = 1.
+async function handleTogglePaymentExclusion(id, body, env) {
+  await ensureSchema(env);
+  const flag = body && body.excluded ? 1 : 0;
+  const res = await env.BILLING_DB.prepare(
+    "UPDATE payment_links SET excluded = ? WHERE id = ?"
+  ).bind(flag, id).run();
+  if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
+  return json({ ok: true, id, excluded: flag === 1 });
 }
 
 // ============================================================ v60: Payments — reconciliation
@@ -1024,16 +1063,23 @@ async function handleListPayments(env) {
             title AS client_name, COALESCE(client_email, '') AS client_email,
             NULL AS client_company, amount, currency,
             nomod_link_id, nomod_link_url, COALESCE(payment_status,'unpaid') AS payment_status,
-            paid_at, last_checked_at, nomod_charge_id
+            paid_at, last_checked_at, nomod_charge_id,
+            COALESCE(excluded, 0) AS excluded
        FROM payment_links
       WHERE nomod_link_id IS NOT NULL
       ORDER BY id DESC LIMIT 500`
   ).all();
   const items = [...(inv.results || []), ...(lks.results || [])];
   // Summary by status + currency-naive sum (operator's books are AED-only in practice).
+  // Phase 1.3: rows flagged excluded are kept on the list but skipped from
+  // the collected total so the KPI matches Sales.
   let paid = 0, unpaid = 0, expired = 0, collected = 0, outstanding = 0;
   for (const x of items) {
-    if (x.payment_status === "paid") { paid++; collected += Number(x.amount) || 0; }
+    const isExcluded = Number(x.excluded) === 1;
+    if (x.payment_status === "paid") {
+      paid++;
+      if (!isExcluded) collected += Number(x.amount) || 0;
+    }
     else if (x.payment_status === "expired") { expired++; }
     else { unpaid++; outstanding += Number(x.amount) || 0; }
   }
@@ -1366,7 +1412,8 @@ async function handleSales(url, env) {
             paid_at, refunded_at, refunded_amount
        FROM payment_links
       WHERE (payment_status='paid' OR payment_status='refunded')
-        AND nomod_charge_id IS NOT NULL`
+        AND nomod_charge_id IS NOT NULL
+        AND COALESCE(excluded, 0) = 0`
   ).all()).results || [];
 
   // Helper: monthly bucket lookup. Index 1..12.
@@ -1900,6 +1947,16 @@ export async function handleAdmin(request, env) {
     if (!env.BILLING_DB) return dbUnavailable();
     return handleListLeads(env);
   }
+  // Phase 1.3 — DELETE a lead (hard delete; leads carry no financial impact).
+  {
+    const dm = path.match(/^\/admin\/api\/leads\/(\d+)$/);
+    if (dm && method === "DELETE") {
+      const authed = await isAuthed(request, env);
+      if (!authed) return json({ ok: false, error: "auth required" }, 401);
+      if (!env.BILLING_DB) return dbUnavailable();
+      return handleDeleteLead(parseInt(dm[1], 10), env);
+    }
+  }
 
   // v87 — Sync from Nomod: imports any settled payments the webhook missed.
   if (path === "/admin/api/sync-nomod") {
@@ -1931,6 +1988,13 @@ export async function handleAdmin(request, env) {
     if (path === "/admin/api/payments/reconcile" && method === "POST") return handleReconcilePayments(env);
     const ipm = path.match(/^\/admin\/api\/payments\/inspect\/(\d+)$/);
     if (ipm && method === "GET") return handleInspectPayment(parseInt(ipm[1], 10), env);
+    // Phase 1.3 — toggle revenue exclusion on a payment_links row.
+    const exm = path.match(/^\/admin\/api\/payments\/(\d+)\/exclude$/);
+    if (exm && method === "POST") {
+      let body = {};
+      try { body = await request.json(); } catch {}
+      return handleTogglePaymentExclusion(parseInt(exm[1], 10), body, env);
+    }
     return json({ ok: false, error: "not found" }, 404);
   }
 
@@ -2310,6 +2374,8 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 .history .hist-actions-panel{display:flex;flex-wrap:wrap;gap:.5rem;padding:.7rem 1rem;justify-content:flex-end}
 .history .hist-actions-panel .btn{margin:0}
 .history tr.hist-actions-row[hidden]{display:none}
+.history tr.excluded > td{opacity:.55}
+.history tr.excluded > td[data-lbl="Status"]::after{content:" · excluded";color:var(--muted);font-size:10px;letter-spacing:.16em;text-transform:uppercase;margin-left:.4rem}
 
 /* Phase 1.1 — filter bar captions. Both controls get a label-on-top so
    align-items:flex-end shares a single baseline (was: status-pill floating
@@ -3467,14 +3533,25 @@ const PAGE_SCRIPT = `<script>
         tbody.innerHTML = j.items.map(function(x){
           const u = String(x.nomod_link_url || "");
           const shortU = u.replace(/^https?:\\/\\//,'').slice(0,42) + (u.length > 50 ? '…' : '');
-          return '<tr>'
+          // Phase 1.3 — Nomod-synced rows cannot be hard-deleted; swap Delete for Exclude/Restore.
+          const isSynced = !!x.nomod_charge_id;
+          const isExcl = Number(x.excluded) === 1;
+          let trailingBtn;
+          if(isSynced){
+            trailingBtn = isExcl
+              ? '<button type="button" class="btn btn-small btn-ghost" data-lkexclude="0" data-id="'+x.id+'" title="Include this charge in revenue again">Restore</button>'
+              : '<button type="button" class="btn btn-small btn-danger" data-lkexclude="1" data-id="'+x.id+'" title="Keep the record but stop counting it in revenue">Exclude from revenue</button>';
+          } else {
+            trailingBtn = '<button type="button" class="btn btn-small btn-danger" data-lkdel="'+x.id+'" data-lktitle="'+esc(x.title)+'" title="Delete this link from the record (the Nomod URL itself stays live)">&times;</button>';
+          }
+          return '<tr'+(isExcl?' class="excluded"':'')+'>'
             + '<td data-lbl="Title">'+esc(x.title)+(x.note ? '<div class="hist-link" style="color:var(--muted)">'+esc(x.note)+'</div>' : '')+'</td>'
             + '<td data-lbl="Amount" style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(Number(x.amount), x.currency))+'</td>'
             + '<td data-lbl="Created">'+esc(fmtDate(x.created_at))+'</td>'
             + '<td data-lbl="Link"><div class="hist-link"><a href="'+esc(u)+'" target="_blank" rel="noopener noreferrer" title="'+esc(u)+'">'+esc(shortU)+'</a></div></td>'
             + '<td data-lbl="Actions" class="hist-actions">'
             +   '<button type="button" class="btn btn-small btn-ghost" data-lkcopy="'+esc(u)+'" title="Copy link to clipboard">Copy link</button> '
-            +   '<button type="button" class="btn btn-small btn-danger" data-lkdel="'+x.id+'" data-lktitle="'+esc(x.title)+'" title="Delete this link from the record (the Nomod URL itself stays live)">&times;</button>'
+            +   trailingBtn
             + '</td>'
             + '</tr>';
         }).join("");
@@ -3493,8 +3570,36 @@ const PAGE_SCRIPT = `<script>
             if(dl){
               e.preventDefault();
               const title = dl.getAttribute("data-lktitle") || "this link";
-              if(!confirm("Remove " + title + " from the standalone-links record?\\n\\nThe Nomod payment URL itself stays live — anyone with the link can still pay until it expires on Nomod. This only removes it from your local record.")) return;
+              if(!confirm("Remove " + title + " from the standalone-links record?\\n\\nThe Nomod payment URL itself stays live; anyone with the link can still pay until it expires on Nomod. This only removes it from your local record.")) return;
               deleteStandaloneLink(dl.getAttribute("data-lkdel"));
+              return;
+            }
+            const ex = e.target.closest("[data-lkexclude]");
+            if(ex){
+              e.preventDefault();
+              const flag = ex.getAttribute("data-lkexclude") === "1";
+              if(flag){
+                if(!confirm("Exclude this charge from revenue and reports? The record is kept but no longer counted.")) return;
+              }
+              const id = ex.getAttribute("data-id");
+              fetch("/admin/api/payments/" + id + "/exclude", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ excluded: flag })
+              })
+                .then(function(r){ return r.json(); })
+                .then(function(j){
+                  if(j && j.ok){
+                    setLkStatus(flag ? "Charge excluded from revenue." : "Charge restored to revenue.");
+                    loadLinks();
+                    if(typeof loadPayments === "function") loadPayments();
+                    if(typeof loadSales === "function") loadSales();
+                  } else {
+                    setLkStatus("Update failed: " + ((j && j.error) || ""));
+                  }
+                })
+                .catch(function(err){ setLkStatus("Update failed: " + (err.message || err)); });
+              return;
             }
           });
         }
@@ -3848,7 +3953,19 @@ const PAGE_SCRIPT = `<script>
           actions.push('<button type="button" class="btn btn-small btn-ghost" data-paymark="bank" data-id="'+x.id+'" data-num="'+esc(x.number)+'" title="Mark this invoice paid via bank wire">Mark paid via bank</button>');
           actions.push('<button type="button" class="btn btn-small btn-ghost" data-paymark="cash" data-id="'+x.id+'" data-num="'+esc(x.number)+'" title="Mark this invoice paid via cash">Mark paid via cash</button>');
         }
-        return '<tr class="expandable" data-expandable="1" data-paystat="'+status+'" data-sortdate="'+esc(sortDate)+'" data-sortamount="'+sortAmount+'">'
+        // Phase 1.3 — Nomod-synced charges show Exclude/Restore instead of Delete.
+        // Hard-delete is refused server-side: a full re-sync would resurrect the row.
+        const isNomodSynced = !!x.nomod_charge_id;
+        const isExcluded = Number(x.excluded) === 1;
+        if(!isInv && isNomodSynced){
+          if(isExcluded){
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-payexclude="0" data-id="'+x.id+'" title="Include this charge in revenue and reports again">Restore</button>');
+          } else {
+            actions.push('<button type="button" class="btn btn-small btn-danger" data-payexclude="1" data-id="'+x.id+'" title="Keep the record but stop counting it in revenue">Exclude from revenue</button>');
+          }
+        }
+        const trClass = "expandable" + (isExcluded ? " excluded" : "");
+        return '<tr class="'+trClass+'" data-expandable="1" data-paystat="'+status+'" data-sortdate="'+esc(sortDate)+'" data-sortamount="'+sortAmount+'">'
           + '<td data-lbl="Number">'+numCell+'</td>'
           + '<td data-lbl="Type"><span class="pay-type">'+(isInv?'Invoice':'Link')+'</span></td>'
           + '<td data-lbl="Client">'+clientCell+'</td>'
@@ -4161,10 +4278,15 @@ const PAGE_SCRIPT = `<script>
         const consent = Number(x.marketing_consent) === 1
           ? '<span style="color:var(--muted)">Yes</span>'
           : '<span style="color:var(--muted)">—</span>';
-        const actions = (status === "new")
-          ? '<button type="button" class="btn btn-small btn-ghost" data-leadquote="'+x.id+'">Create quote</button> '
-          + '<button type="button" class="btn btn-small btn-ink"   data-leadinvoice="'+x.id+'">Create invoice</button>'
-          : '<span style="color:var(--muted)">Converted</span>';
+        const actionsParts = [];
+        if(status === "new"){
+          actionsParts.push('<button type="button" class="btn btn-small btn-ghost" data-leadquote="'+x.id+'">Create quote</button>');
+          actionsParts.push('<button type="button" class="btn btn-small btn-ink"   data-leadinvoice="'+x.id+'">Create invoice</button>');
+        } else {
+          actionsParts.push('<span style="color:var(--muted)">Converted</span>');
+        }
+        actionsParts.push('<button type="button" class="btn btn-small btn-danger" data-leaddel="'+x.id+'" title="Delete this lead">&times;</button>');
+        const actions = actionsParts.join(' ');
         const sortAmount = 0;
         return '<tr data-leadstat="'+status+'" data-sortdate="'+esc(x.created_at||"")+'" data-sortamount="'+sortAmount+'">'
           + '<td data-lbl="Date">'+esc(created)+'</td>'
@@ -4318,6 +4440,34 @@ const PAGE_SCRIPT = `<script>
         openMarkPaidPopover(mkB);
         return;
       }
+      // Phase 1.3 — exclude / restore a Nomod-synced charge from revenue.
+      const exB = e.target.closest("[data-payexclude]");
+      if(exB){
+        e.preventDefault();
+        e.stopPropagation();
+        const flag = exB.getAttribute("data-payexclude") === "1";
+        if(flag){
+          if(!confirm("Exclude this charge from revenue and reports? The record is kept but no longer counted.")) return;
+        }
+        const id = exB.getAttribute("data-id");
+        fetch("/admin/api/payments/" + id + "/exclude", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ excluded: flag })
+        })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if(j && j.ok){
+              setStatus(flag ? "Charge excluded from revenue." : "Charge restored to revenue.");
+              loadPayments();
+              if(typeof loadSales === "function") loadSales();
+            } else {
+              setStatus("Update failed: " + ((j && j.error) || ""));
+            }
+          })
+          .catch(function(err){ setStatus("Update failed: " + (err.message || err)); });
+        return;
+      }
       // Phase 1.1 — row click toggles the drawer (skipped for clicks on
       // links/buttons so action panel buttons keep their handlers).
       const expTr = e.target.closest("tr[data-expandable='1']");
@@ -4384,6 +4534,21 @@ const PAGE_SCRIPT = `<script>
         if(lead) prefillFromLead(lead, "invoice");
         return;
       }
+      const dBtn = e.target.closest("[data-leaddel]");
+      if(dBtn){
+        e.preventDefault();
+        e.stopPropagation();
+        if(!confirm("Delete this lead permanently? This cannot be undone.")) return;
+        const id = dBtn.getAttribute("data-leaddel");
+        fetch("/admin/api/leads/" + id, { method: "DELETE" })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if(j && j.ok){ setStatus("Lead deleted."); loadLeads(); }
+            else { setStatus("Delete failed: " + ((j && j.error) || "")); }
+          })
+          .catch(function(err){ setStatus("Delete failed: " + (err.message || err)); });
+        return;
+      }
     });
     const sortSel = document.getElementById("leadsSort");
     if(sortSel){
@@ -4437,10 +4602,12 @@ const PAGE_SCRIPT = `<script>
         e.preventDefault();
         const num = delB.getAttribute("data-num");
         const type = delB.getAttribute("data-type");
-        const warn = type === "invoice"
-          ? "Delete invoice " + num + " ?\\n\\nUAE VAT records typically require an unbroken invoice sequence — deleting this number will leave a gap. Only delete drafts or genuine duplicates."
-          : "Delete quote " + num + " ?\\n\\nThis cannot be undone.";
-        if(!confirm(warn)) return;
+        const isPaid = delB.getAttribute("data-paid") === "1";
+        const paidLine = isPaid ? "\\n\\nThis document is marked paid. Deleting it will also drop its revenue from Sales reports." : "";
+        const baseLine = type === "invoice"
+          ? "Delete invoice " + num + " permanently?\\n\\nUAE VAT records typically require an unbroken invoice sequence. Deleting this number will leave a gap; only delete drafts or genuine duplicates."
+          : "Delete quote " + num + " permanently?\\n\\nThis cannot be undone.";
+        if(!confirm(baseLine + paidLine)) return;
         deleteDoc(delB.getAttribute("data-del"), num);
         return;
       }
@@ -4494,7 +4661,8 @@ const PAGE_SCRIPT = `<script>
             actions.push('<button type="button" class="btn btn-small btn-ink" data-link="'+x.id+'" data-num="'+esc(x.number)+'" title="Create a Nomod payment link for this invoice">Generate payment link</button>');
           }
         }
-        actions.push('<button type="button" class="btn btn-small btn-danger" data-del="'+x.id+'" data-num="'+esc(x.number)+'" data-type="'+esc(x.doc_type)+'" title="Delete">×</button>');
+        const isPaidDoc = String(x.payment_status || "").toLowerCase() === "paid";
+        actions.push('<button type="button" class="btn btn-small btn-danger" data-del="'+x.id+'" data-num="'+esc(x.number)+'" data-type="'+esc(x.doc_type)+'" data-paid="'+(isPaidDoc?"1":"0")+'" title="Delete">×</button>');
         const statusTxt = isInvoice
           ? (hasLink ? '<span class="hist-status linked">Link sent</span>' : '<span class="hist-status">&mdash;</span>')
           : (x.source_quote_number ? '<span class="hist-status">Converted</span>' : '<span class="hist-status">&mdash;</span>');
