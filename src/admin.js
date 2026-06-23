@@ -176,6 +176,8 @@ async function ensureSchema(env) {
     "payment_method TEXT",
     "refunded_at TEXT",
     "refunded_amount REAL",
+    "client_email TEXT",
+    "client_name TEXT",
   ]) {
     try {
       await env.BILLING_DB.prepare(`ALTER TABLE payment_links ADD COLUMN ${col}`).run();
@@ -956,7 +958,8 @@ async function handleListPayments(env) {
   ).all();
   const lks = await env.BILLING_DB.prepare(
     `SELECT 'link' AS source, id, title AS number, created_at AS doc_date,
-            title AS client_name, NULL AS client_company, amount, currency,
+            title AS client_name, COALESCE(client_email, '') AS client_email,
+            NULL AS client_company, amount, currency,
             nomod_link_id, nomod_link_url, COALESCE(payment_status,'unpaid') AS payment_status,
             paid_at, last_checked_at, nomod_charge_id
        FROM payment_links
@@ -1445,12 +1448,26 @@ async function handleSales(url, env) {
     cash_gross:  r2(m.cash_gross),
     link_gross:  r2(m.link_gross),
   }));
+  // Lifetime totals — collected/net/vat across EVERY year on file, separate
+  // from the year selector so the all-time figure is visible without making
+  // the year-scoped numbers ambiguous.
+  const lifetime = { net: 0, vat: 0, gross: 0, refunds: 0 };
+  for (const y of ledger.values()) {
+    for (const m of y) {
+      lifetime.net     += m.net;
+      lifetime.vat     += m.vat;
+      lifetime.gross   += m.gross;
+      lifetime.refunds += m.refunds;
+    }
+  }
+  for (const k of Object.keys(lifetime)) lifetime[k] = r2(lifetime[k]);
   return json({
     ok: true,
     year,
     years,
     months,
     totals: totals(ledger.get(year) || emptyMonths()),
+    lifetime,
     possibleDuplicates,
     methodology: "Dubai time (GST, UTC+4) month boundaries. Cash basis: counted in the month paid. Net of VAT (5%). Sources combined: paid Nomod payments (invoices and standalone links) + bank/cash invoices marked paid manually. Refunds subtracted from their refund month. Test/demo rows excluded (name matches /test|demo/i AND amount < AED 5).",
   });
@@ -1479,10 +1496,8 @@ async function handleSyncNomod(request, env) {
   const fullBackfill = body.full === true;
 
   // Phase 0.1 one-time correction — earlier imports stamped created_at with
-  // the import time, so every previously-imported row currently displays as
-  // today in the Payments UI even though paid_at carries the real charge
-  // date. The current importer sets created_at = paid_at on INSERT and
-  // UPDATE, so this UPDATE is a no-op once data has been healed.
+  // the import time. The current importer sets created_at = paid_at, so this
+  // UPDATE is a no-op once data is healed.
   await env.BILLING_DB.prepare(
     `UPDATE payment_links
         SET created_at = paid_at
@@ -1490,6 +1505,63 @@ async function handleSyncNomod(request, env) {
         AND paid_at IS NOT NULL
         AND paid_at <> ''
         AND created_at <> paid_at`
+  ).run();
+
+  // Phase 0.2 one-time corrections (run before relabeling so emails are not
+  // lost when titles change):
+  //   (a) extract email out of any legacy "Nomod sale — <email>" title
+  //       into the new client_email column.
+  await env.BILLING_DB.prepare(
+    `UPDATE payment_links
+        SET client_email = TRIM(REPLACE(title, 'Nomod sale — ', ''))
+      WHERE nomod_charge_id IS NOT NULL
+        AND (client_email IS NULL OR client_email = '')
+        AND title LIKE 'Nomod sale —%'
+        AND title LIKE '%@%'`
+  ).run();
+  //   (b) relabel matched titles to "Paid · {invoice number}" — the
+  //       reconciliation double-check alongside the webhook.
+  await env.BILLING_DB.prepare(
+    `UPDATE payment_links
+        SET title = 'Paid · ' || (
+              SELECT b.number FROM billing_documents b
+               WHERE b.nomod_link_id = payment_links.nomod_link_id
+               LIMIT 1
+            )
+      WHERE nomod_charge_id IS NOT NULL
+        AND nomod_link_id IS NOT NULL
+        AND EXISTS (
+              SELECT 1 FROM billing_documents b
+               WHERE b.nomod_link_id = payment_links.nomod_link_id
+            )
+        AND title NOT LIKE 'Paid · %'`
+  ).run();
+  //   (c) relabel everything else to "Direct sale".
+  await env.BILLING_DB.prepare(
+    `UPDATE payment_links
+        SET title = 'Direct sale'
+      WHERE nomod_charge_id IS NOT NULL
+        AND title NOT LIKE 'Paid · %'
+        AND title <> 'Direct sale'`
+  ).run();
+  //   (d) double-confirm: for any matched payment_links row, ensure the
+  //       linked invoice is marked paid (covers webhook gaps).
+  await env.BILLING_DB.prepare(
+    `UPDATE billing_documents
+        SET payment_status = 'paid',
+            paid_at = COALESCE(paid_at, (
+                SELECT p.paid_at FROM payment_links p
+                 WHERE p.nomod_link_id = billing_documents.nomod_link_id
+                 LIMIT 1)),
+            payment_method = COALESCE(payment_method, 'nomod')
+      WHERE doc_type = 'invoice'
+        AND nomod_link_id IS NOT NULL
+        AND COALESCE(payment_status,'unpaid') <> 'paid'
+        AND EXISTS (
+              SELECT 1 FROM payment_links p
+               WHERE p.nomod_link_id = billing_documents.nomod_link_id
+                 AND p.payment_status = 'paid'
+            )`
   ).run();
 
   const MAX_PAGES = 50;
@@ -1548,9 +1620,15 @@ async function handleSyncNomod(request, env) {
         if (onInvoice) { skipped++; continue; }
       }
 
-      // Step 2: link-match — if this charge's link_id maps to one of our rows,
-      // stamp the matching invoice or standalone link paid and tag the channel.
+      // Step 2: invoice match — if this charge's link_id maps to an issued
+      // invoice, mark that invoice paid (reconciliation double-check) and
+      // capture its number so Step 3 can label the payment row "Paid · #".
+      let matchedInvoiceNumber = null;
       if (linkId) {
+        const inv = await env.BILLING_DB.prepare(
+          `SELECT number FROM billing_documents WHERE nomod_link_id = ? LIMIT 1`
+        ).bind(linkId).first();
+        if (inv && inv.number) matchedInvoiceNumber = String(inv.number);
         const upInv = await env.BILLING_DB.prepare(
           `UPDATE billing_documents
              SET payment_status='paid',
@@ -1560,28 +1638,26 @@ async function handleSyncNomod(request, env) {
                  payment_method=COALESCE(payment_method, ?)
            WHERE nomod_link_id = ? AND COALESCE(payment_status,'unpaid') <> 'paid'`
         ).bind(paidAt, now, chargeId, paymentMethod, linkId).run();
-        const upLnk = await env.BILLING_DB.prepare(
-          `UPDATE payment_links
-             SET payment_status='paid',
-                 paid_at=COALESCE(paid_at, ?),
-                 last_checked_at=?,
-                 nomod_charge_id=COALESCE(?, nomod_charge_id),
-                 payment_method=COALESCE(payment_method, ?)
-           WHERE nomod_link_id = ? AND COALESCE(payment_status,'unpaid') <> 'paid'`
-        ).bind(paidAt, now, chargeId, paymentMethod, linkId).run();
-        if (((upInv.meta && upInv.meta.changes) || 0) + ((upLnk.meta && upLnk.meta.changes) || 0) > 0) {
-          updated++;
-          continue;
-        }
+        if ((upInv.meta && upInv.meta.changes) || 0) updated++;
       }
 
-      // Step 3: UPSERT direct sale into payment_links (keyed by nomod_charge_id).
-      // created_at is stamped with paidAt so the Payments UI groups by the
-      // ACTUAL charge date, not the import time.
-      const customerName = (c.customer_info && (c.customer_info.name || c.customer_info.email))
-                        || (c.customer && (c.customer.name || c.customer.full_name))
-                        || "";
-      const title = customerName ? `Nomod sale — ${customerName}` : "Nomod direct sale";
+      // Step 3: UPSERT every Nomod charge into payment_links (the money ledger),
+      // keyed by nomod_charge_id. Title is the reconciliation label ("Paid · #"
+      // when an invoice match exists, else "Direct sale" — never the email).
+      // client_email / client_name hold the customer asset separately.
+      const clientEmail = String(
+        (c.customer_info && c.customer_info.email)
+        || (c.customer && c.customer.email)
+        || ""
+      ).trim().toLowerCase();
+      const clientName = String(
+        (c.customer_info && c.customer_info.name)
+        || (c.customer && (c.customer.name || c.customer.full_name))
+        || ""
+      ).trim();
+      const title = matchedInvoiceNumber
+        ? `Paid · ${matchedInvoiceNumber}`
+        : "Direct sale";
       const service = (c.items && c.items[0] && c.items[0].name) || "";
       const note = service || "Direct sale via Nomod";
       const urlField = (c.link && c.link.url) || c.link_url || "";
@@ -1596,24 +1672,27 @@ async function handleSyncNomod(request, env) {
         await env.BILLING_DB.prepare(
           `UPDATE payment_links
               SET title=?, amount=?, currency=?, note=?, created_at=?,
+                  client_email=COALESCE(NULLIF(?, ''), client_email),
+                  client_name =COALESCE(NULLIF(?, ''), client_name),
                   payment_status='paid', paid_at=?, last_checked_at=?,
                   payment_method=?
             WHERE id=?`
-        ).bind(title, amount, currency, note, paidAt, paidAt, now, paymentMethod, existing.id).run();
+        ).bind(title, amount, currency, note, paidAt, clientEmail, clientName, paidAt, now, paymentMethod, existing.id).run();
         updated++;
       } else {
         await env.BILLING_DB.prepare(
           `INSERT INTO payment_links
             (title, amount, currency, note, nomod_link_id, nomod_link_url,
              created_at, payment_status, paid_at, last_checked_at,
-             nomod_charge_id, payment_method)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?)`
+             nomod_charge_id, payment_method, client_email, client_name)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?)`
         ).bind(
           title, amount, currency, note,
-          linkId, urlField, paidAt, paidAt, now, chargeId, paymentMethod
+          linkId, urlField, paidAt, paidAt, now, chargeId, paymentMethod,
+          clientEmail, clientName
         ).run();
         imported++;
-        flagged.push({ chargeId, linkId, amount, currency, paidAt, customer: customerName || null });
+        flagged.push({ chargeId, linkId, amount, currency, paidAt, customer: clientName || clientEmail || null });
       }
     }
     if (hitKnown) break;
@@ -1622,6 +1701,51 @@ async function handleSyncNomod(request, env) {
   }
 
   return json({ ok: true, pulled, imported, updated, skipped, flagged, errors });
+}
+
+// Phase 0.2 — customer asset export. De-duplicates paid Nomod charges by
+// client_email and emits a CSV (email, name, first_purchase, last_purchase,
+// orders, total_spent_aed). One row per customer, highest spenders first.
+async function handleCustomersCsv(env) {
+  await ensureSchema(env);
+  const rows = (await env.BILLING_DB.prepare(
+    `SELECT LOWER(client_email) AS email,
+            MAX(COALESCE(client_name, '')) AS name,
+            MIN(paid_at) AS first_purchase,
+            MAX(paid_at) AS last_purchase,
+            COUNT(*) AS orders,
+            SUM(amount) AS total_spent
+       FROM payment_links
+      WHERE client_email IS NOT NULL
+        AND client_email <> ''
+        AND payment_status = 'paid'
+      GROUP BY LOWER(client_email)
+      ORDER BY total_spent DESC`
+  ).all()).results || [];
+  const csvEsc = (v) => {
+    const s = String(v == null ? "" : v);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = ["email,name,first_purchase,last_purchase,orders,total_spent_aed"];
+  for (const r of rows) {
+    const total = (Math.round(Number(r.total_spent || 0) * 100) / 100).toFixed(2);
+    lines.push([
+      csvEsc(r.email),
+      csvEsc(r.name || ""),
+      csvEsc(String(r.first_purchase || "").slice(0, 10)),
+      csvEsc(String(r.last_purchase || "").slice(0, 10)),
+      csvEsc(r.orders),
+      csvEsc(total),
+    ].join(","));
+  }
+  return new Response(lines.join("\n") + "\n", {
+    status: 200,
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="umc-customers.csv"',
+      "Cache-Control": "no-store",
+    },
+  });
 }
 
 // ============================================================ dispatcher
@@ -1681,6 +1805,14 @@ export async function handleAdmin(request, env) {
     if (!env.BILLING_DB) return dbUnavailable();
     if (method !== "GET") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET" } });
     return handleSales(url, env);
+  }
+
+  // Phase 0.2 — paid-customers CSV export (asset for marketing / accountant).
+  if (path === "/admin/api/customers.csv" && method === "GET") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    return handleCustomersCsv(env);
   }
 
   // v87 — Sync from Nomod: imports any settled payments the webhook missed.
@@ -2405,6 +2537,15 @@ function appShellHTML() {
         <button type="button" class="seg"     data-typefilter="quote">Quotes</button>
         <button type="button" class="seg"     data-typefilter="invoice">Invoices</button>
       </div>
+      <div class="hist-sort" style="margin-left:auto">
+        <label class="lbl" for="histSort" style="margin-right:.4rem">Sort</label>
+        <select id="histSort" aria-label="Sort documents">
+          <option value="date-desc" selected>Latest first</option>
+          <option value="date-asc">Oldest first</option>
+          <option value="amount-desc">Amount: high → low</option>
+          <option value="amount-asc">Amount: low → high</option>
+        </select>
+      </div>
     </div>
     <div class="hist-scroll">
       <table>
@@ -2517,12 +2658,22 @@ function appShellHTML() {
       </div>
     </div>
     <div class="pay-summary" id="paySummary"></div>
-    <div class="hist-filter">
+    <div class="hist-filter" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
       <div class="hist-typefilter" role="tablist" aria-label="Status filter">
         <button type="button" class="seg on" data-paystat="all">All</button>
         <button type="button" class="seg"    data-paystat="unpaid">Unpaid</button>
         <button type="button" class="seg"    data-paystat="paid">Paid</button>
       </div>
+      <div class="hist-sort">
+        <label class="lbl" for="paySort" style="margin-right:.4rem">Sort</label>
+        <select id="paySort" aria-label="Sort payments">
+          <option value="date-desc" selected>Latest first</option>
+          <option value="date-asc">Oldest first</option>
+          <option value="amount-desc">Amount: high → low</option>
+          <option value="amount-asc">Amount: low → high</option>
+        </select>
+      </div>
+      <a id="btnCustomersCsv" class="btn btn-small btn-ghost" href="/admin/api/customers.csv" download="umc-customers.csv" style="margin-left:auto" title="De-duplicated customers grouped by email — orders, first/last purchase, total spent.">Download customers (CSV)</a>
     </div>
     <div class="hist-scroll">
       <table>
@@ -2553,10 +2704,11 @@ function appShellHTML() {
       </div>
     </header>
     <div class="sales-kpis">
-      <div class="kpi"><span class="lbl">Net (turnover)</span><span class="val" id="kpiNet">—</span></div>
-      <div class="kpi"><span class="lbl">VAT collected</span><span class="val" id="kpiVat">—</span></div>
-      <div class="kpi"><span class="lbl">Gross received</span><span class="val" id="kpiGross">—</span></div>
-      <div class="kpi"><span class="lbl">Refunds</span><span class="val" id="kpiRefunds">—</span></div>
+      <div class="kpi"><span class="lbl">Net (turnover) <span id="kpiYearTag" class="muted" style="font-size:.7em">—</span></span><span class="val" id="kpiNet">—</span></div>
+      <div class="kpi"><span class="lbl">VAT collected <span class="muted" style="font-size:.7em">selected year</span></span><span class="val" id="kpiVat">—</span></div>
+      <div class="kpi"><span class="lbl">Gross received <span class="muted" style="font-size:.7em">selected year</span></span><span class="val" id="kpiGross">—</span></div>
+      <div class="kpi"><span class="lbl">Refunds <span class="muted" style="font-size:.7em">selected year</span></span><span class="val" id="kpiRefunds">—</span></div>
+      <div class="kpi"><span class="lbl">Lifetime collected <span class="muted" style="font-size:.7em">all years</span></span><span class="val" id="kpiLifetime">—</span></div>
     </div>
     <div class="sales-split">
       <span class="lbl">Source split (gross)</span>
@@ -3028,6 +3180,25 @@ const PAGE_SCRIPT = `<script>
         }, 80);
       });
     }
+    // Phase 0.2 — sort dropdown bindings (Documents + Payments). Client-side,
+    // state stored on the tbody as data-sort so re-renders preserve choice.
+    const histSort = $("histSort");
+    if(histSort){
+      histSort.addEventListener("change", function(){
+        if(histBody) histBody.dataset.sort = histSort.value || "date-desc";
+        applyHistoryFilter();
+      });
+      if(histBody && !histBody.dataset.sort) histBody.dataset.sort = histSort.value || "date-desc";
+    }
+    const paySort = $("paySort");
+    const payBody0 = $("payBody");
+    if(paySort){
+      paySort.addEventListener("change", function(){
+        if(payBody0) payBody0.dataset.sort = paySort.value || "date-desc";
+        if(typeof applyPaymentsFilter === "function") applyPaymentsFilter();
+      });
+      if(payBody0 && !payBody0.dataset.sort) payBody0.dataset.sort = paySort.value || "date-desc";
+    }
     // v57: applyHistoryFilter is now defined at IIFE scope (see below) so
     // loadHistory can call it without a ReferenceError. The bindForm-scope
     // wrapper here exists only as a no-op alias so this file diff stays small.
@@ -3379,9 +3550,34 @@ const PAGE_SCRIPT = `<script>
   // handler ever bound. Re-open + Copy-payment-link were both dead because
   // of that single throw. Defining it here makes it reachable everywhere
   // and remains the single source of truth for the type/search filter.
+  // Phase 0.2 — client-side sort on already-rendered rows for Documents and
+  // Payments. The dropdown value sits on the tbody as data-sort so a re-render
+  // can re-apply it.
+  function sortTbodyRows(tbody){
+    if(!tbody) return;
+    const mode = tbody.dataset.sort || "date-desc";
+    const trs = Array.prototype.slice.call(tbody.querySelectorAll("tr"));
+    trs.sort(function(a, b){
+      if(mode === "amount-desc" || mode === "amount-asc"){
+        const va = Number(a.dataset.sortamount) || 0;
+        const vb = Number(b.dataset.sortamount) || 0;
+        return mode === "amount-desc" ? vb - va : va - vb;
+      }
+      const da = String(a.dataset.sortdate || "");
+      const db = String(b.dataset.sortdate || "");
+      if(da === db) return 0;
+      if(mode === "date-asc")  return da < db ? -1 : 1;
+      /* date-desc */          return da > db ? -1 : 1;
+    });
+    const frag = document.createDocumentFragment();
+    trs.forEach(function(tr){ frag.appendChild(tr); });
+    tbody.appendChild(frag);
+  }
+
   function applyHistoryFilter(){
     const histBody = $("histBody");
     if(!histBody) return;
+    sortTbodyRows(histBody);
     const t = (histBody.dataset.typeFilter || "all").toLowerCase();
     const q = (histBody.dataset.qFilter || "").toLowerCase();
     histBody.querySelectorAll("tr").forEach(function(tr){
@@ -3423,10 +3619,14 @@ const PAGE_SCRIPT = `<script>
           : esc(x.number);
         const clientCell = isInv
           ? esc(x.client_name || "") + (x.client_company ? ' <span style="color:var(--muted)">('+esc(x.client_company)+')</span>' : '')
-          : '<span style="color:var(--muted)">'+esc(x.client_name || "")+'</span>';
+          : (x.client_email
+              ? '<span style="color:var(--muted)">'+esc(x.client_email)+'</span>'
+              : '<span style="color:var(--muted)">&mdash;</span>');
         const status = String(x.payment_status || "unknown").toLowerCase();
         const statusCell = '<span class="pay-status '+status+'">'+status.toUpperCase()+'</span>';
         const paidCell = x.paid_at ? esc(fmtDate(String(x.paid_at).slice(0,10))) : '<span style="color:var(--muted)">&mdash;</span>';
+        const sortDate = String(x.paid_at || x.doc_date || "");
+        const sortAmount = Number(x.amount) || 0;
         const actions = [];
         actions.push('<button type="button" class="btn btn-small btn-ghost" data-paycopy="'+esc(u)+'" title="Link the client uses to pay this invoice">Copy payment link</button>');
         if(isInv) actions.push('<button type="button" class="btn btn-small btn-ghost" data-payload="'+x.id+'">Open</button>');
@@ -3436,7 +3636,7 @@ const PAGE_SCRIPT = `<script>
           actions.push('<button type="button" class="btn btn-small btn-ghost" data-paymark="bank" data-id="'+x.id+'" data-num="'+esc(x.number)+'" title="Mark this invoice paid via bank wire">Mark paid via bank</button>');
           actions.push('<button type="button" class="btn btn-small btn-ghost" data-paymark="cash" data-id="'+x.id+'" data-num="'+esc(x.number)+'" title="Mark this invoice paid via cash">Mark paid via cash</button>');
         }
-        return '<tr data-paystat="'+status+'">'
+        return '<tr data-paystat="'+status+'" data-sortdate="'+esc(sortDate)+'" data-sortamount="'+sortAmount+'">'
           + '<td data-lbl="Number">'+numCell+'</td>'
           + '<td data-lbl="Type"><span class="pay-type">'+(isInv?'Invoice':'Link')+'</span></td>'
           + '<td data-lbl="Client">'+clientCell+'</td>'
@@ -3599,10 +3799,14 @@ const PAGE_SCRIPT = `<script>
         salesYearChosen = current;
       }
       const totals = j.totals || { net:0, vat:0, gross:0, refunds:0, nomod_gross:0, bank_gross:0, cash_gross:0, link_gross:0 };
-      document.getElementById("kpiNet").textContent     = fmt(totals.net);
-      document.getElementById("kpiVat").textContent     = fmt(totals.vat);
-      document.getElementById("kpiGross").textContent   = fmt(totals.gross);
-      document.getElementById("kpiRefunds").textContent = fmt(totals.refunds);
+      const lifetime = j.lifetime || { net:0, vat:0, gross:0, refunds:0 };
+      const yearTag = document.getElementById("kpiYearTag");
+      if(yearTag) yearTag.textContent = String(j.year);
+      document.getElementById("kpiNet").textContent      = fmt(totals.net);
+      document.getElementById("kpiVat").textContent      = fmt(totals.vat);
+      document.getElementById("kpiGross").textContent    = fmt(totals.gross);
+      document.getElementById("kpiRefunds").textContent  = fmt(totals.refunds);
+      document.getElementById("kpiLifetime").textContent = fmt(lifetime.gross);
       document.getElementById("splitNomod").textContent      = "Nomod link invoices " + fmt(totals.nomod_gross);
       document.getElementById("splitBank").textContent       = "Bank " + fmt(totals.bank_gross);
       document.getElementById("splitCash").textContent       = "Cash " + fmt(totals.cash_gross);
@@ -3690,6 +3894,7 @@ const PAGE_SCRIPT = `<script>
   });
   function applyPaymentsFilter(){
     const body = $("payBody"); if(!body) return;
+    sortTbodyRows(body);
     const want = (body.dataset.statFilter || "all").toLowerCase();
     body.querySelectorAll("tr").forEach(function(tr){
       const st = (tr.getAttribute("data-paystat") || "").toLowerCase();
@@ -3869,7 +4074,9 @@ const PAGE_SCRIPT = `<script>
           ? (hasLink ? '<span class="hist-status linked">Link sent</span>' : '<span class="hist-status">&mdash;</span>')
           : (x.source_quote_number ? '<span class="hist-status">Converted</span>' : '<span class="hist-status">&mdash;</span>');
         const searchText = [x.number, x.client_name || "", x.client_company || "", x.source_quote_number || ""].join(" ");
-        return '<tr data-doctype="'+esc(x.doc_type)+'" data-searchtext="'+esc(searchText)+'">'
+        const sortDate = String(x.doc_date || "");
+        const sortAmount = Number(x.total) || 0;
+        return '<tr data-doctype="'+esc(x.doc_type)+'" data-searchtext="'+esc(searchText)+'" data-sortdate="'+esc(sortDate)+'" data-sortamount="'+sortAmount+'">'
           + '<td data-lbl="Number"><a href="#" data-load="'+x.id+'">'+esc(x.number)+'</a>'+srcTag+linkPreview+'</td>'
           + '<td data-lbl="Type"><span class="pill '+(isInvoice?'inv':'')+'">'+x.doc_type+'</span></td>'
           + '<td data-lbl="Date">'+esc(fmtDate(x.doc_date))+'</td>'

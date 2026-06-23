@@ -105,6 +105,7 @@ export default {
         url.pathname === "/admin/api/sales" ||
         url.pathname === "/admin/api/sync-nomod" ||
         url.pathname === "/admin/api/nomod-raw-sample" ||
+        url.pathname === "/admin/api/customers.csv" ||
         url.pathname === "/admin/webhooks/nomod") {
       return handleAdmin(request, env);
     }
