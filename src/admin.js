@@ -826,10 +826,17 @@ async function nomodListAllCharges(env, opts = {}) {
   if (!env.NOMOD_API_KEY) {
     return { ok: false, status: 503, error: "NOMOD_API_KEY not configured on this Worker" };
   }
-  const pageSize = Math.max(1, Math.min(100, Number(opts.pageSize) || 100));
-  const cursor = opts.cursor || null;
-  let url = `https://api.nomod.com/v1/charges?page_size=${pageSize}`;
-  if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
+  // Pagination: callers can follow data.next (a full URL) by passing opts.nextUrl
+  // directly; otherwise we build the first-page URL from pageSize/cursor.
+  let url;
+  if (opts.nextUrl) {
+    url = String(opts.nextUrl);
+  } else {
+    const pageSize = Math.max(1, Math.min(100, Number(opts.pageSize) || 100));
+    const cursor = opts.cursor || null;
+    url = `https://api.nomod.com/v1/charges?page_size=${pageSize}`;
+    if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
+  }
   let res, body = null;
   try {
     res = await fetch(url, {
@@ -1457,85 +1464,128 @@ async function handleSales(url, env) {
 //     /v1/charges (transactions). Verify in Nomod Settings -> Apps & APIs.
 async function handleSyncNomod(request, env) {
   await ensureSchema(env);
-  let body = {};
-  try { body = await request.json(); } catch { body = {}; }
-  const maxPages = Math.max(1, Math.min(10, Number(body.maxPages) || 3));
-  let cursor = null;
+  try { await request.json(); } catch {}
+  // Pull-all then process. Safety caps prevent runaway iteration on a malformed
+  // pagination response.
+  const MAX_PAGES = 50;
+  const MAX_CHARGES = 5000;
   let pulled = 0, imported = 0, updated = 0, skipped = 0;
   const flagged = [];
   const errors = [];
   const now = new Date().toISOString();
-  for (let p = 0; p < maxPages; p++) {
-    const r = await nomodListAllCharges(env, { pageSize: 100, cursor });
+
+  // ----- pull: follow data.next until null/empty -----
+  const allCharges = [];
+  let nextUrl = null;
+  for (let p = 0; p < MAX_PAGES; p++) {
+    const r = nextUrl
+      ? await nomodListAllCharges(env, { nextUrl })
+      : await nomodListAllCharges(env, { pageSize: 100 });
     if (!r.ok) { errors.push({ page: p, error: r.error, status: r.status }); break; }
     const data = r.data || {};
     const list = Array.isArray(data.results) ? data.results
                 : Array.isArray(data.data) ? data.data
                 : Array.isArray(data) ? data : [];
     for (const c of list) {
-      pulled++;
-      const status = String(c.status || c.state || "").toLowerCase();
-      if (!PAID_CHARGE_STATUSES.has(status)) { skipped++; continue; }
-      const chargeId = c.id || c.charge_id || null;
-      const linkId   = (c.link && c.link.id) || c.link_id || c.payment_link_id || null;
-      const amount   = Number(c.amount ?? c.gross ?? 0) || 0;
-      const currency = String(c.currency || "AED").toUpperCase();
-      const paidAt   = c.captured_at || c.created || c.created_at || now;
-      // Step 1: if this charge_id is already on any local row, skip.
-      if (chargeId) {
-        const known = await env.BILLING_DB.prepare(
-          `SELECT 1 AS x FROM payment_links WHERE nomod_charge_id = ?
-           UNION ALL
-           SELECT 1 AS x FROM billing_documents WHERE nomod_charge_id = ? LIMIT 1`
-        ).bind(chargeId, chargeId).first();
-        if (known) { skipped++; continue; }
+      allCharges.push(c);
+      if (allCharges.length >= MAX_CHARGES) break;
+    }
+    if (allCharges.length >= MAX_CHARGES) break;
+    nextUrl = data.next || null;
+    if (!nextUrl) break;
+  }
+
+  // ----- process accumulated charges -----
+  for (const c of allCharges) {
+    pulled++;
+    const status = String(c.status || c.state || "").toLowerCase();
+    if (!PAID_CHARGE_STATUSES.has(status)) { skipped++; continue; }
+    const chargeId = c.id || c.charge_id || null;
+    const linkId   = (c.link && c.link.id) || c.link_id || c.payment_link_id || null;
+    // total is a major-unit decimal string in AED (e.g. "367.500"); round to 2dp.
+    const amount   = Math.round(Number(c.total ?? 0) * 100) / 100;
+    const currency = String(c.currency || "AED").toUpperCase();
+    const paidAt   = c.captured_at || c.created || c.created_at || now;
+    const paymentMethod = c.payment_method || "nomod";
+
+    // Step 1: if this charge is already reconciled to an invoice, skip — the
+    // billing_documents row holds the canonical record.
+    if (chargeId) {
+      const onInvoice = await env.BILLING_DB.prepare(
+        `SELECT 1 AS x FROM billing_documents WHERE nomod_charge_id = ? LIMIT 1`
+      ).bind(chargeId).first();
+      if (onInvoice) { skipped++; continue; }
+    }
+
+    // Step 2: link-match — if this charge's link_id maps to one of our rows,
+    // stamp the matching invoice or standalone link paid and tag the channel.
+    if (linkId) {
+      const upInv = await env.BILLING_DB.prepare(
+        `UPDATE billing_documents
+           SET payment_status='paid',
+               paid_at=COALESCE(paid_at, ?),
+               last_checked_at=?,
+               nomod_charge_id=COALESCE(?, nomod_charge_id),
+               payment_method=COALESCE(payment_method, ?)
+         WHERE nomod_link_id = ? AND COALESCE(payment_status,'unpaid') <> 'paid'`
+      ).bind(paidAt, now, chargeId, paymentMethod, linkId).run();
+      const upLnk = await env.BILLING_DB.prepare(
+        `UPDATE payment_links
+           SET payment_status='paid',
+               paid_at=COALESCE(paid_at, ?),
+               last_checked_at=?,
+               nomod_charge_id=COALESCE(?, nomod_charge_id),
+               payment_method=COALESCE(payment_method, ?)
+         WHERE nomod_link_id = ? AND COALESCE(payment_status,'unpaid') <> 'paid'`
+      ).bind(paidAt, now, chargeId, paymentMethod, linkId).run();
+      if (((upInv.meta && upInv.meta.changes) || 0) + ((upLnk.meta && upLnk.meta.changes) || 0) > 0) {
+        updated++;
+        continue;
       }
-      // Step 2: if the link_id maps to a known row, stamp it paid and tag method.
-      if (linkId) {
-        const upInv = await env.BILLING_DB.prepare(
-          `UPDATE billing_documents
-             SET payment_status='paid',
-                 paid_at=COALESCE(paid_at, ?),
-                 last_checked_at=?,
-                 nomod_charge_id=COALESCE(?, nomod_charge_id),
-                 payment_method=COALESCE(payment_method, 'nomod')
-           WHERE nomod_link_id = ? AND COALESCE(payment_status,'unpaid') <> 'paid'`
-        ).bind(paidAt, now, chargeId, linkId).run();
-        const upLnk = await env.BILLING_DB.prepare(
-          `UPDATE payment_links
-             SET payment_status='paid',
-                 paid_at=COALESCE(paid_at, ?),
-                 last_checked_at=?,
-                 nomod_charge_id=COALESCE(?, nomod_charge_id),
-                 payment_method=COALESCE(payment_method, 'nomod')
-           WHERE nomod_link_id = ? AND COALESCE(payment_status,'unpaid') <> 'paid'`
-        ).bind(paidAt, now, chargeId, linkId).run();
-        if (((upInv.meta && upInv.meta.changes) || 0) + ((upLnk.meta && upLnk.meta.changes) || 0) > 0) {
-          updated++;
-          continue;
-        }
-      }
-      // Step 3: orphan. Insert into payment_links.
-      const customerName = String((c.customer && (c.customer.name || c.customer.full_name)) || c.customer_name || "").trim();
-      const title = customerName ? `Nomod sync, ${customerName}` : "Nomod sync (no customer name)";
-      const urlField = (c.link && c.link.url) || c.link_url || "";
+    }
+
+    // Step 3: UPSERT direct sale into payment_links (keyed by nomod_charge_id).
+    // Re-syncs must UPDATE existing rows so the 33 prior AED 0.00 imports
+    // get corrected — skip-if-known would leave them broken forever.
+    const customerName = (c.customer_info && (c.customer_info.name || c.customer_info.email))
+                      || (c.customer && (c.customer.name || c.customer.full_name))
+                      || "";
+    const title = customerName ? `Nomod sale — ${customerName}` : "Nomod direct sale";
+    const service = (c.items && c.items[0] && c.items[0].name) || "";
+    const note = service || "Direct sale via Nomod";
+    const urlField = (c.link && c.link.url) || c.link_url || "";
+
+    let existing = null;
+    if (chargeId) {
+      existing = await env.BILLING_DB.prepare(
+        `SELECT id FROM payment_links WHERE nomod_charge_id = ?`
+      ).bind(chargeId).first();
+    }
+    if (existing && existing.id) {
+      await env.BILLING_DB.prepare(
+        `UPDATE payment_links
+            SET title=?, amount=?, currency=?, note=?,
+                payment_status='paid', paid_at=?, last_checked_at=?,
+                payment_method=?
+          WHERE id=?`
+      ).bind(title, amount, currency, note, paidAt, now, paymentMethod, existing.id).run();
+      updated++;
+    } else {
       await env.BILLING_DB.prepare(
         `INSERT INTO payment_links
           (title, amount, currency, note, nomod_link_id, nomod_link_url,
            created_at, payment_status, paid_at, last_checked_at,
            nomod_charge_id, payment_method)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, 'nomod')`
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?)`
       ).bind(
-        title, amount, currency,
-        "Imported via /admin/api/sync-nomod from Nomod transactions API.",
-        linkId, urlField, now, paidAt, now, chargeId
+        title, amount, currency, note,
+        linkId, urlField, now, paidAt, now, chargeId, paymentMethod
       ).run();
       imported++;
       flagged.push({ chargeId, linkId, amount, currency, paidAt, customer: customerName || null });
     }
-    cursor = data.next_cursor || data.cursor || null;
-    if (!cursor) break;
   }
+
   return json({ ok: true, pulled, imported, updated, skipped, flagged, errors });
 }
 
