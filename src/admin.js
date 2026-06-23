@@ -142,6 +142,7 @@ async function ensureSchema(env) {
     "payment_method TEXT",
     "refunded_at TEXT",
     "refunded_amount REAL",
+    "client_phone TEXT",
   ]) {
     try {
       await env.BILLING_DB.prepare(`ALTER TABLE billing_documents ADD COLUMN ${col}`).run();
@@ -181,6 +182,41 @@ async function ensureSchema(env) {
   ]) {
     try {
       await env.BILLING_DB.prepare(`ALTER TABLE payment_links ADD COLUMN ${col}`).run();
+    } catch (e) {
+      const msg = (e && (e.message || String(e))) || "";
+      if (!/duplicate column|already exists/i.test(msg)) throw e;
+    }
+  }
+  // Phase 1 — leads table is created by the public /api/lead handler in
+  // index.js. Mirror the CREATE here so the admin can read/write leads even on
+  // a fresh DB where no lead has been submitted yet, and ALTER in the Phase 1
+  // lifecycle columns (status / linked_doc_number / converted_at).
+  await env.BILLING_DB.prepare(
+    `CREATE TABLE IF NOT EXISTS leads (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       created_at TEXT NOT NULL,
+       source TEXT, name TEXT, phone TEXT, email TEXT, service TEXT,
+       pickup TEXT, destination TEXT, date TEXT, time TEXT, vehicle TEXT,
+       days TEXT, flight TEXT, sign TEXT, notes TEXT, page TEXT,
+       client_ts TEXT, payload_json TEXT,
+       marketing_consent INTEGER DEFAULT 1,
+       consent_text TEXT,
+       consent_at TEXT,
+       status TEXT DEFAULT 'new',
+       linked_doc_number TEXT,
+       converted_at TEXT
+     )`
+  ).run();
+  for (const col of [
+    "marketing_consent INTEGER DEFAULT 1",
+    "consent_text TEXT",
+    "consent_at TEXT",
+    "status TEXT DEFAULT 'new'",
+    "linked_doc_number TEXT",
+    "converted_at TEXT",
+  ]) {
+    try {
+      await env.BILLING_DB.prepare(`ALTER TABLE leads ADD COLUMN ${col}`).run();
     } catch (e) {
       const msg = (e && (e.message || String(e))) || "";
       if (!/duplicate column|already exists/i.test(msg)) throw e;
@@ -366,23 +402,47 @@ async function handleCreate(request, env) {
   if (!["exclusive", "inclusive"].includes(b.vat_mode)) {
     return json({ ok: false, error: "invalid vat_mode" }, 400);
   }
+  // Phase 1 — price gate when this create originates from a lead. The UI
+  // already disables the Save button, but enforce server-side too so a stale
+  // tab or a direct API call cannot bypass it.
+  const leadId = (b.lead_id != null && /^\d+$/.test(String(b.lead_id))) ? Number(b.lead_id) : null;
+  if (leadId) {
+    const total = Number(b.total) || 0;
+    const hasPositiveRate = (b.line_items || []).some(li => Number(li && li.rate) > 0);
+    if (total <= 0 || !hasPositiveRate) {
+      return json({ ok: false, error: "price required — enter a non-zero rate on at least one line item before issuing" }, 400);
+    }
+  }
   await ensureSchema(env);
   const lineItemsJson = JSON.stringify(b.line_items);
   try {
     const res = await env.BILLING_DB.prepare(
       `INSERT INTO billing_documents
-        (doc_type, number, doc_date, client_name, client_company, client_address, client_email,
+        (doc_type, number, doc_date, client_name, client_company, client_address, client_email, client_phone,
          currency, vat_mode, line_items, discount, subtotal, vat, total, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       b.doc_type, String(b.number), String(b.doc_date),
-      String(b.client_name || ""), b.client_company || null, b.client_address || null, b.client_email || null,
+      String(b.client_name || ""), b.client_company || null, b.client_address || null, b.client_email || null, b.client_phone || null,
       String(b.currency || "AED"), b.vat_mode, lineItemsJson,
       b.discount == null ? null : Number(b.discount),
       Number(b.subtotal), Number(b.vat), Number(b.total),
       b.notes || null
     ).run();
     const id = res && res.meta && res.meta.last_row_id;
+    // Phase 1 — stamp the lead row with the new document so the Leads list
+    // reflects the outcome. Fail-open: a stamp error must not undo the create.
+    if (leadId) {
+      try {
+        const stamp = b.doc_type === "invoice" ? "invoiced" : "quoted";
+        await env.BILLING_DB.prepare(
+          `UPDATE leads SET status = ?, linked_doc_number = ?, converted_at = ?
+            WHERE id = ?`
+        ).bind(stamp, String(b.number), new Date().toISOString(), leadId).run();
+      } catch (e) {
+        console.error("LEADS stamp failed", e && (e.message || String(e)));
+      }
+    }
     return json({ ok: true, id, number: b.number });
   } catch (e) {
     const msg = (e && (e.message || String(e))) || "db error";
@@ -400,6 +460,7 @@ async function handleList(env) {
   // returns NULL for invoices and for un-converted quotes.
   const { results } = await env.BILLING_DB.prepare(
     `SELECT b.id, b.doc_type, b.number, b.doc_date, b.client_name, b.client_company,
+            b.client_phone,
             b.currency, b.total, b.source_quote_number, b.nomod_link_id,
             b.nomod_link_url, b.nomod_link_created_at, b.created_at,
             (SELECT i.number FROM billing_documents i
@@ -1703,6 +1764,21 @@ async function handleSyncNomod(request, env) {
   return json({ ok: true, pulled, imported, updated, skipped, flagged, errors });
 }
 
+// Phase 1 — Leads list for the admin (newest-first). Auth gated upstream.
+async function handleListLeads(env) {
+  await ensureSchema(env);
+  const { results } = await env.BILLING_DB.prepare(
+    `SELECT id, created_at, source, name, phone, email, service, vehicle,
+            pickup, destination, date, time, days, flight, sign, notes,
+            COALESCE(marketing_consent, 0) AS marketing_consent,
+            COALESCE(status, 'new') AS status,
+            linked_doc_number, converted_at
+       FROM leads
+      ORDER BY id DESC LIMIT 500`
+  ).all();
+  return json({ ok: true, items: results || [] });
+}
+
 // Phase 0.2 — customer asset export. De-duplicates paid Nomod charges by
 // client_email and emits a CSV (email, name, first_purchase, last_purchase,
 // orders, total_spent_aed). One row per customer, highest spenders first.
@@ -1813,6 +1889,14 @@ export async function handleAdmin(request, env) {
     if (!authed) return json({ ok: false, error: "auth required" }, 401);
     if (!env.BILLING_DB) return dbUnavailable();
     return handleCustomersCsv(env);
+  }
+
+  // Phase 1 — Leads list for the Leads tab.
+  if (path === "/admin/api/leads" && method === "GET") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    return handleListLeads(env);
   }
 
   // v87 — Sync from Nomod: imports any settled payments the webhook missed.
@@ -2377,12 +2461,51 @@ function loginHTML(adminMissing) {
 function appShellHTML() {
   return `
 <nav class="tabbar" role="tablist" aria-label="Billing sections">
+  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="leads"     id="tabBtnLeads">Leads</button>
   <button type="button" class="tab on" role="tab" aria-selected="true"  data-tab="create"    id="tabBtnCreate">Create</button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="documents" id="tabBtnDocuments">Documents</button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="links"     id="tabBtnLinks">Links</button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="payments"  id="tabBtnPayments">Payments</button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="sales"     id="tabBtnSales">Sales</button>
 </nav>
+
+<!-- Phase 1 — Leads tab: bookings from the public form, with one-click
+     "Create quote" / "Create invoice" that pre-fills the Create builder. -->
+<section id="tab-leads" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnLeads" hidden>
+<section class="history-wrap">
+  <div class="history">
+    <div class="hist-head">
+      <div>
+        <h2>Leads</h2>
+        <p class="hist-sub">Bookings from the website — convert to a quote or invoice and the Create builder is pre-filled. Every field stays editable.</p>
+      </div>
+      <button type="button" class="btn btn-small btn-ghost" id="leadsRefresh">Refresh</button>
+    </div>
+    <div class="hist-filter" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+      <div class="hist-typefilter" role="tablist" aria-label="Status filter">
+        <button type="button" class="seg on" data-leadstat="all">All</button>
+        <button type="button" class="seg"    data-leadstat="new">New</button>
+        <button type="button" class="seg"    data-leadstat="quoted">Quoted</button>
+        <button type="button" class="seg"    data-leadstat="invoiced">Invoiced</button>
+      </div>
+      <div class="hist-sort" style="margin-left:auto">
+        <label class="lbl" for="leadsSort" style="margin-right:.4rem">Sort</label>
+        <select id="leadsSort" aria-label="Sort leads">
+          <option value="date-desc" selected>Latest first</option>
+          <option value="date-asc">Oldest first</option>
+        </select>
+      </div>
+    </div>
+    <div class="hist-scroll">
+      <table>
+        <thead><tr><th>Date</th><th>Name</th><th>Contact</th><th>Service</th><th>Route</th><th>Consent</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
+        <tbody id="leadsBody"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="leadsEmpty" hidden>No leads yet.</div>
+  </div>
+</section>
+</section><!-- /#tab-leads -->
 
 <section id="tab-create" class="tab-panel on" role="tabpanel" aria-labelledby="tabBtnCreate">
 <!-- v59: #editorHost is moveable. Default location is here (#editorHome).
@@ -2434,7 +2557,10 @@ function appShellHTML() {
       <div class="field"><label class="lbl">Company (optional)</label><input id="cCompany" type="text" placeholder="Company name"></div>
     </div>
     <div class="field"><label class="lbl">Address (optional)</label><input id="cAddress" type="text" placeholder="Address"></div>
-    <div class="field"><label class="lbl">Email (optional)</label><input id="cEmail" type="email" placeholder="client@example.com"></div>
+    <div class="row2">
+      <div class="field"><label class="lbl">Phone (optional)</label><input id="cPhone" type="tel" placeholder="+971 …" autocomplete="tel"></div>
+      <div class="field"><label class="lbl">Email (optional)</label><input id="cEmail" type="email" placeholder="client@example.com"></div>
+    </div>
 
     <hr class="hair">
 
@@ -2473,6 +2599,7 @@ function appShellHTML() {
       <button type="button" class="btn" id="btnSavePrint">Save &amp; Print PDF</button>
       <button type="button" class="btn btn-ghost" id="btnNew">New</button>
     </div>
+    <p class="hint" id="priceGateHint" hidden style="margin:.6rem 0 0;color:var(--muted)">Enter a price before this can be issued.</p>
     <div class="status-line" id="status"></div>
 
     <div class="email-out" id="emailOut" hidden>
@@ -2792,11 +2919,12 @@ const PAGE_SCRIPT = `<script>
     doc_date: new Date().toISOString().slice(0,10),
     currency: "AED",
     vat_mode: "exclusive",
-    client: { name:"", company:"", address:"", email:"" },
+    client: { name:"", company:"", address:"", email:"", phone:"" },
     line_items: [{ description:"", qty:1, rate:0 }],
     discount: 0,
     notes: "",
-    source_quote_number: null
+    source_quote_number: null,
+    lead_id: null
   };
 
   // ---------- helpers
@@ -2950,16 +3078,27 @@ const PAGE_SCRIPT = `<script>
   function multiLine(s){
     return String(s == null ? "" : s).split("\\n").map(esc).join("<br>");
   }
+  // Phase 1 — price gate: the Save button is disabled until at least one line
+  // item has a rate > 0 (and the total > 0). Mirrors the server-side check so
+  // a fresh lead cannot be issued with no price.
+  function updatePriceGate(){
+    const btn = $("btnSavePrint");
+    const hint = $("priceGateHint");
+    const hasPositiveRate = state.line_items.some(function(li){ return Number(li && li.rate) > 0; });
+    if(btn) btn.disabled = !hasPositiveRate;
+    if(hint) hint.hidden = hasPositiveRate;
+  }
   function renderDoc(){
     const r = compute();
     const isInv = state.doc_type === "invoice";
     const docLabel = isInv ? "Invoice" : "Quote";
     const clientLbl = isInv ? "Billed to" : "Quote made for";
     $("lblClient").textContent = clientLbl;
+    updatePriceGate();
     const c = state.client;
     // Empty client fields render blank (no "—" dash) — matches how Address and
     // Email already behaved; Company and Name now do the same (v44j).
-    const clientLines = [c.company, c.address, c.email].filter(function(x){ return x && String(x).trim(); }).map(function(x){ return '<span class="ln">'+esc(x)+'</span>'; }).join("");
+    const clientLines = [c.company, c.address, c.phone, c.email].filter(function(x){ return x && String(x).trim(); }).map(function(x){ return '<span class="ln">'+esc(x)+'</span>'; }).join("");
     const clientName = c.name && String(c.name).trim() ? '<div class="nm">'+esc(c.name)+'</div>' : '';
     const linesHtml = state.line_items.map(function(li, i){
       const t = (Number(li.qty)||0) * (Number(li.rate)||0);
@@ -3129,7 +3268,7 @@ const PAGE_SCRIPT = `<script>
     $("fDate").addEventListener("input", function(e){ state.doc_date = e.target.value; renderDoc(); });
     $("fCurrency").addEventListener("change", function(e){ state.currency = e.target.value; renderTotals(); renderDoc(); });
     $("fVatMode").addEventListener("change", function(e){ state.vat_mode = e.target.value; renderTotals(); renderDoc(); });
-    ["cName","cCompany","cAddress","cEmail"].forEach(function(id){
+    ["cName","cCompany","cAddress","cEmail","cPhone"].forEach(function(id){
       $(id).addEventListener("input", function(e){
         state.client[id.slice(1).toLowerCase()] = e.target.value; renderDoc();
       });
@@ -3416,6 +3555,7 @@ const PAGE_SCRIPT = `<script>
       client_company: state.client.company,
       client_address: state.client.address,
       client_email: state.client.email,
+      client_phone: state.client.phone,
       currency: state.currency,
       vat_mode: state.vat_mode,
       line_items: state.line_items,
@@ -3423,7 +3563,8 @@ const PAGE_SCRIPT = `<script>
       subtotal: r.subtotal,
       vat: r.vat,
       total: r.total,
-      notes: state.notes
+      notes: state.notes,
+      lead_id: state.lead_id
     };
     try {
       const res = await fetch("/admin/api/billing", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload) });
@@ -3434,7 +3575,11 @@ const PAGE_SCRIPT = `<script>
         return;
       }
       setStatus("Saved " + state.number + ". Opening print dialog …");
+      // Phase 1 — clear lead_id once successfully issued so subsequent
+      // documents (e.g. New) do not re-stamp the same lead.
+      state.lead_id = null;
       loadHistory();
+      if(typeof loadLeads === "function") loadLeads();
 
       // Email-to-client (item 6): if checkbox on, generate the branded email
       // body now and reveal the panel for copy-paste alongside the PDF.
@@ -3454,13 +3599,14 @@ const PAGE_SCRIPT = `<script>
     } catch(e){ setStatus("Save failed: " + (e.message || e)); }
   }
   function onNew(){
-    state.client = { name:"", company:"", address:"", email:"" };
+    state.client = { name:"", company:"", address:"", email:"", phone:"" };
     state.line_items = [{ description:"", qty:1, rate:0 }];
     state.discount = 0;
     state.notes = "";
     state.source_quote_number = null;
+    state.lead_id = null;
     state.doc_date = new Date().toISOString().slice(0,10);
-    ["cName","cCompany","cAddress","cEmail","fDiscount","fNotes","fEmailRecipients"].forEach(function(id){ $(id).value = ""; });
+    ["cName","cCompany","cAddress","cEmail","cPhone","fDiscount","fNotes","fEmailRecipients"].forEach(function(id){ const el = $(id); if(el) el.value = ""; });
     $("fDate").value = state.doc_date;
     $("fEmailTo").checked = false;
     $("emailRecipientsWrap").hidden = true;
@@ -3531,13 +3677,14 @@ const PAGE_SCRIPT = `<script>
     // v61: include "payments" — was missing in v60, which is why activating
     // the tab moved the underline but never un-hid #tab-payments.
     // v84: include "sales".
-    ["create","documents","links","payments","sales"].forEach(function(n){
+    ["leads","create","documents","links","payments","sales"].forEach(function(n){
       const el = document.getElementById("tab-" + n);
       if(!el) return;
       const on = n === name;
       el.classList.toggle("on", on);
       if(on){ el.removeAttribute("hidden"); } else { el.setAttribute("hidden",""); }
     });
+    if(name === "leads") loadLeads();
     if(name === "documents") loadHistory();
     if(name === "links") loadLinks();
     if(name === "payments") { loadPayments(); maybeReconcilePayments(); }
@@ -3902,6 +4049,124 @@ const PAGE_SCRIPT = `<script>
       tr.style.display = ok ? "" : "none";
     });
   }
+
+  // ---------- Phase 1: Leads tab
+  let leadsCache = [];
+  function applyLeadsFilter(){
+    const body = $("leadsBody"); if(!body) return;
+    sortTbodyRows(body);
+    const want = (body.dataset.statFilter || "all").toLowerCase();
+    body.querySelectorAll("tr").forEach(function(tr){
+      const st = (tr.getAttribute("data-leadstat") || "").toLowerCase();
+      const ok = want === "all" || st === want;
+      tr.style.display = ok ? "" : "none";
+    });
+  }
+  async function loadLeads(){
+    bindLeadsClickOnce();
+    const body = $("leadsBody"); const empty = $("leadsEmpty");
+    if(!body) return;
+    try {
+      const r = await fetch("/admin/api/leads");
+      const j = await r.json();
+      if(!j.ok){ setStatus("Leads load failed: " + (j.error || r.status)); return; }
+      const items = j.items || [];
+      leadsCache = items;
+      if(!items.length){ body.innerHTML = ""; empty.hidden = false; return; }
+      empty.hidden = true;
+      body.innerHTML = items.map(function(x){
+        const created = String(x.created_at || "").slice(0,10);
+        const status = String(x.status || "new").toLowerCase();
+        const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+        const statusCell = x.linked_doc_number
+          ? '<span class="pay-status '+status+'">'+esc(statusLabel)+' · '+esc(x.linked_doc_number)+'</span>'
+          : '<span class="pay-status '+status+'">'+esc(statusLabel)+'</span>';
+        const route = [x.pickup, x.destination].filter(Boolean).join(" → ");
+        const contactBits = [];
+        if(x.email) contactBits.push(esc(x.email));
+        if(x.phone) contactBits.push('<span style="color:var(--muted)">'+esc(x.phone)+'</span>');
+        const serviceBits = [x.service, x.vehicle].filter(Boolean).join(" · ");
+        const consent = Number(x.marketing_consent) === 1
+          ? '<span style="color:var(--muted)">Yes</span>'
+          : '<span style="color:var(--muted)">—</span>';
+        const actions = (status === "new")
+          ? '<button type="button" class="btn btn-small btn-ghost" data-leadquote="'+x.id+'">Create quote</button> '
+          + '<button type="button" class="btn btn-small btn-ink"   data-leadinvoice="'+x.id+'">Create invoice</button>'
+          : '<span style="color:var(--muted)">Converted</span>';
+        const sortAmount = 0;
+        return '<tr data-leadstat="'+status+'" data-sortdate="'+esc(x.created_at||"")+'" data-sortamount="'+sortAmount+'">'
+          + '<td data-lbl="Date">'+esc(created)+'</td>'
+          + '<td data-lbl="Name">'+esc(x.name || "")+'</td>'
+          + '<td data-lbl="Contact">'+(contactBits.join('<br>') || '<span style="color:var(--muted)">—</span>')+'</td>'
+          + '<td data-lbl="Service">'+esc(serviceBits || "—")+'</td>'
+          + '<td data-lbl="Route">'+esc(route || "—")+'</td>'
+          + '<td data-lbl="Consent">'+consent+'</td>'
+          + '<td data-lbl="Status">'+statusCell+'</td>'
+          + '<td data-lbl="Actions" style="text-align:right;white-space:nowrap" class="hist-actions">'+actions+'</td>'
+          + '</tr>';
+      }).join("");
+      applyLeadsFilter();
+    } catch(e){ setStatus("Leads load failed."); console.log("loadLeads error:", e); }
+  }
+  // Prefill is editable: every value below is a starting value, not a fixed
+  // one. lead_id travels along silently for lineage; editing any prefilled
+  // field must NEVER detach it. Server still enforces the price gate.
+  function prefillFromLead(lead, docType){
+    if(!lead) return;
+    state.lead_id = lead.id;
+    // doc type — direct toggle manipulation (mirrors loadDoc pattern;
+    // setType is bindForm-scoped so we replicate its visible effects here).
+    state.doc_type = docType === "invoice" ? "invoice" : "quote";
+    $("tQuote").classList.toggle("on", state.doc_type === "quote");
+    $("tInvoice").classList.toggle("on", state.doc_type === "invoice");
+    $("lblClient").textContent = state.doc_type === "invoice" ? "Billed to" : "Quote made for";
+    // Billed-To
+    state.client = {
+      name:    lead.name  || "",
+      company: "",
+      address: "",
+      email:   lead.email || "",
+      phone:   lead.phone || ""
+    };
+    $("cName").value    = state.client.name;
+    $("cCompany").value = "";
+    $("cAddress").value = "";
+    $("cEmail").value   = state.client.email;
+    if($("cPhone")) $("cPhone").value = state.client.phone;
+    // One line item: title + description from the lead.
+    const titleBits = [lead.service, lead.vehicle].filter(Boolean);
+    if(lead.days) titleBits.push(String(lead.days) + (Number(lead.days) === 1 ? " day" : " days"));
+    const title = titleBits.join(" · ");
+    const descBits = [];
+    const route = [lead.pickup, lead.destination].filter(Boolean).join(" to ");
+    if(route) descBits.push(route);
+    const when = [lead.date, lead.time].filter(Boolean).join(" at ");
+    if(when) descBits.push(when);
+    if(lead.flight) descBits.push("Flight: " + lead.flight);
+    if(lead.sign)   descBits.push("Welcome sign: " + lead.sign);
+    const desc = (title ? title + "\\n" : "") + descBits.join("\\n");
+    state.line_items = [{ description: desc, qty: 1, rate: 0 }];
+    state.discount = 0;
+    // Lineage + chauffeur notes prepended into the notes field.
+    const lineage = "From lead #" + lead.id + " (" + (lead.source || "form") + ", " + String(lead.created_at || "").slice(0,10) + ")";
+    const chauffeur = lead.notes ? ("Chauffeur notes: " + lead.notes) : "";
+    state.notes = chauffeur ? (lineage + "\\n\\n" + chauffeur) : lineage;
+    $("fNotes").value    = state.notes;
+    $("fDiscount").value = "";
+    state.source_quote_number = null;
+    state.doc_date = new Date().toISOString().slice(0,10);
+    $("fDate").value = state.doc_date;
+    renderLineRows(); renderTotals(); renderDoc();
+    // Issue a fresh number for the chosen doc type.
+    if(typeof fetchNext === "function"){
+      try { Promise.resolve(fetchNext()).catch(function(){}); } catch(_){}
+    }
+    switchTab("create");
+    // Focus the first line-item rate so the only blocker (price) is one tab away.
+    const firstRate = document.querySelector("#ltBody tr input.r");
+    if(firstRate) try { firstRate.focus(); } catch(_){}
+    setStatus("Prefilled from lead #" + lead.id + ". Enter a price to issue.");
+  }
   function updatePayLastChecked(){
     const el = $("payLastChecked"); if(!el) return;
     if(!payLastFetched){ el.textContent = ""; return; }
@@ -3978,6 +4243,53 @@ const PAGE_SCRIPT = `<script>
         openMarkPaidPopover(mkB);
       }
     });
+  }
+
+  // Phase 1 — Leads tab delegation. Status filter, sort dropdown, refresh,
+  // and the two action buttons per row (Create quote / Create invoice).
+  function bindLeadsClickOnce(){
+    const root = document.getElementById("tab-leads");
+    if(!root || root._leadsClickBound) return;
+    root._leadsClickBound = true;
+    root.addEventListener("click", function(e){
+      const refresh = e.target.closest("#leadsRefresh");
+      if(refresh){ e.preventDefault(); loadLeads(); return; }
+      const seg = e.target.closest(".hist-typefilter .seg[data-leadstat]");
+      if(seg){
+        e.preventDefault();
+        root.querySelectorAll(".hist-typefilter .seg").forEach(s => s.classList.toggle("on", s === seg));
+        const body = $("leadsBody");
+        if(body) body.dataset.statFilter = seg.getAttribute("data-leadstat") || "all";
+        applyLeadsFilter();
+        return;
+      }
+      const qBtn = e.target.closest("[data-leadquote]");
+      if(qBtn){
+        e.preventDefault();
+        const id = Number(qBtn.getAttribute("data-leadquote"));
+        const lead = leadsCache.find(function(x){ return Number(x.id) === id; });
+        if(lead) prefillFromLead(lead, "quote");
+        return;
+      }
+      const iBtn = e.target.closest("[data-leadinvoice]");
+      if(iBtn){
+        e.preventDefault();
+        const id = Number(iBtn.getAttribute("data-leadinvoice"));
+        const lead = leadsCache.find(function(x){ return Number(x.id) === id; });
+        if(lead) prefillFromLead(lead, "invoice");
+        return;
+      }
+    });
+    const sortSel = document.getElementById("leadsSort");
+    if(sortSel){
+      sortSel.addEventListener("change", function(){
+        const body = $("leadsBody");
+        if(body) body.dataset.sort = sortSel.value || "date-desc";
+        applyLeadsFilter();
+      });
+      const body0 = $("leadsBody");
+      if(body0 && !body0.dataset.sort) body0.dataset.sort = sortSel.value || "date-desc";
+    }
   }
 
   // v58: bind the delegated row-actions click handler ONCE on the stable
@@ -4151,12 +4463,14 @@ const PAGE_SCRIPT = `<script>
       state.doc_date = x.doc_date;
       state.currency = x.currency;
       state.vat_mode = x.vat_mode;
-      state.client = { name: x.client_name || "", company: x.client_company || "", address: x.client_address || "", email: x.client_email || "" };
+      state.client = { name: x.client_name || "", company: x.client_company || "", address: x.client_address || "", email: x.client_email || "", phone: x.client_phone || "" };
       state.line_items = Array.isArray(x.line_items) ? x.line_items : [];
       if(!state.line_items.length) state.line_items = [{ description:"", qty:1, rate:0 }];
       state.discount = Number(x.discount) || 0;
       state.notes = x.notes || "";
       state.source_quote_number = x.source_quote_number || null;
+      // Opening an existing doc must not re-stamp its (already converted) lead.
+      state.lead_id = null;
       // reflect into UI
       $("tQuote").classList.toggle("on", state.doc_type === "quote");
       $("tInvoice").classList.toggle("on", state.doc_type === "invoice");
@@ -4165,7 +4479,7 @@ const PAGE_SCRIPT = `<script>
       $("fDate").value = state.doc_date;
       $("fCurrency").value = state.currency;
       $("fVatMode").value = state.vat_mode;
-      $("cName").value = state.client.name; $("cCompany").value = state.client.company; $("cAddress").value = state.client.address; $("cEmail").value = state.client.email;
+      $("cName").value = state.client.name; $("cCompany").value = state.client.company; $("cAddress").value = state.client.address; $("cEmail").value = state.client.email; if($("cPhone")) $("cPhone").value = state.client.phone;
       $("fDiscount").value = state.discount || "";
       $("fNotes").value = state.notes;
       renderLineRows(); renderTotals(); renderDoc();
