@@ -921,7 +921,7 @@ EMIRATES = [
     "hero_sub": "From Zayed International to the capital, at the pace the capital keeps.",
     "lead": "Your chauffeur tracks the flight into Zayed International, waits in the arrivals hall, and is ready the moment you clear. Whether the journey ends at a ministry, a corporate office, or a hotel on the Corniche, the standard does not change.",
     "closing_heading": "The capital, met properly.",
-    "seo_title": "Abu Dhabi Airport Transfer (AUH),Chauffeur, Meet & Greet | UMC Dubai",
+    "seo_title": "Abu Dhabi Airport Transfer (AUH) | UMC Dubai",
     "seo_meta": "Chauffeur driven Abu Dhabi airport transfers from Zayed International (AUH). Meet & greet at arrivals, live flight tracking.",
     "faqs_extra": [
       ("Which Abu Dhabi airports do you cover?",
@@ -2342,7 +2342,7 @@ FLEET_PAGES_DRAFT = [
   {"id":"gmc-yukon-xl",
    "archetype":"suv",
    "configuration_label":"Three rows in a long-wheelbase body. Second-row captain&rsquo;s chairs as standard, with a bench arrangeable on request to seat more.",
-   "title_seo":"GMC Yukon Elevation XL Chauffeur in Dubai, Executive SUV | UMC Dubai",
+   "title_seo":"GMC Yukon Elevation XL Chauffeur in Dubai | UMC Dubai",
    "meta_seo":"Chauffeur driven GMC Yukon Elevation XL in Dubai. Long-wheelbase SUV for delegations and full-luggage transfers.",
    "tagline":"Space, without compromise.",
    "hero_sub":"The long-wheelbase SUV for the full car and the full boot, delegations, families, and the airport run that carries everything.",
