@@ -344,8 +344,6 @@ AIRPORT_FAQS = [
   "Your chauffeur waits in the arrivals hall with a name board, assists with your luggage and walks you to the car."),
  ("What if my flight is delayed?",
   "We track the flight from departure. If it is delayed, the booking moves with it and your chauffeur is there when you land."),
- ("Is waiting time included?",
-  "Yes. Sixty minutes from the actual landing time is included with every airport transfer."),
  ("What does the transfer rate include?",
   "Your chauffeur, fuel, Salik and parking. Transfers ending outside Dubai carry an additional fee by vehicle type, stated in your quote."),
  ("Can I add a stop on the way?",
@@ -415,7 +413,6 @@ TERMS_ITEMS = [
  ("Conduct in vehicle","Smoking and the consumption of alcohol are strictly prohibited in all vehicles. The company reserves the right to terminate service immediately without refund if these rules are violated or if passengers behave in a manner deemed unsafe or inappropriate."),
  ("Booking confirmation and payments","Bookings are confirmed only upon receipt of payment or advance deposit as agreed. Any remaining balance must be settled prior to or at the time of service. Prices are subject to change without prior notice until payment is received."),
  ("Cancellation policy","Cancellations made within 24 hours of the scheduled service time will incur charges. Any confirmed booking that is not honoured (no show) or cancelled at the last minute will be fully chargeable; no refunds or credits will be issued under these circumstances. If payment was made via a payment link, a 3% transaction fee applies to all cancellations."),
- ("Delays and waiting time","Any waiting time exceeding the agreed grace period will be charged at the applicable hourly rate."),
  ("Personal belongings","The company is not liable for any personal belongings left in the vehicle. Please ensure all items are removed at the end of the trip."),
  ("Third-party services","We are not liable for issues, errors or delays caused by third-party vendors or services arranged through us."),
  ("Liability","The company&rsquo;s liability is limited to the provision of transportation as confirmed in the booking. We shall not be held liable for indirect losses, missed flights or appointments arising from uncontrollable circumstances."),
@@ -679,7 +676,6 @@ booking_body = header("booking.html") + f"""
           <div class="bk-inc" aria-label="Included in every journey">
             <span><svg viewBox="0 0 24 24"><circle cx="12" cy="9.4" r="3"/><path d="M5.4 21c.6-3.6 3-5.5 6.6-5.5s6 1.9 6.6 5.5"/><path d="M9.5 5.5h5l-.6-1.6a.9.9 0 0 0-.8-.6h-2.2a.9.9 0 0 0-.8.6z"/><path d="M7.5 5.5h9"/></svg><i id="incMeetTxt" style="font-style:normal">Professional chauffeur</i></span>
             <span id="incFlight" class="hide"><svg viewBox="0 0 24 24"><path d="M21.5 4.6c.8-.8.6-2-.5-2.1-.9-.1-1.9.2-2.6.9l-3.5 3.4-9.3-2.4a1 1 0 0 0-1 .3l-.8.9 7.4 4.5-3.3 3.4-2.7-.4-.9.9 3 1.9 1.9 3 .9-.9-.4-2.7 3.4-3.3 4.5 7.4.9-.8a1 1 0 0 0 .3-1l-2.4-9.3z"/></svg>Live flight tracking</span>
-            <span id="incWait" class="hide"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3.5 2"/></svg>60 minutes of airport waiting</span>
             <span><svg viewBox="0 0 24 24"><path d="M10.2 2.5h3.6M12 2.5v3.4M9.6 9.2c-.7.8-1.1 1.7-1.1 2.8V19a2 2 0 0 0 2 2h3a2 2 0 0 0 2-2v-7c0-1.1-.4-2-1.1-2.8l-.9-1V5.9h-3v2.3z"/><path d="M8.5 13.5h7"/></svg>Bottled water</span>
             <span><svg viewBox="0 0 24 24"><path d="M13 2.5L5.5 13H11l-1 8.5L17.5 11H12z"/></svg>Device chargers</span>
             <span><svg viewBox="0 0 24 24"><rect x="4" y="9" width="16" height="11" rx="2"/><path d="M8 9c0-4 8-4 8 0M10 13c.8 1 3.2 1 4 0"/></svg>Tissues</span>
@@ -837,7 +833,7 @@ airport_body = header("airport-transfers.html") + f"""
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M5 16l1.4-4.2A2 2 0 0 1 8.3 10h7.4a2 2 0 0 1 1.9 1.8L19 16M5 16h14M5 16v3h2v-2h10v2h2v-3"/><circle cx="8" cy="17.5" r=".4"/><circle cx="16" cy="17.5" r=".4"/></svg></div>
         <div><h3>Seated<span class="lbl">At the kerb</span></h3><p>An immaculate car waits with the route already set, bottled water and chargers within reach.</p></div></div>
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7M6.5 9.5V20h11V9.5"/><path d="M10.5 20v-5h3v5"/></svg></div>
-        <div><h3>Arrived<span class="lbl">Door to door</span></h3><p>Up to sixty minutes of waiting was already included, and the journey ends at your door.</p></div></div>
+        <div><h3>Arrived<span class="lbl">Door to door</span></h3><p>The journey ends at your door.</p></div></div>
     </div>
   </div>
 </section>
@@ -851,7 +847,6 @@ airport_body = header("airport-transfers.html") + f"""
         <ul>
           <li role="listitem"><b class="t">Arrival monitoring</b><span>Your flight is tracked from departure; the pick-up adjusts to the actual landing time.</span></li>
           <li role="listitem"><b class="t">Reception</b><span>Your chauffeur waits in the arrivals hall with a name board and assists with luggage.</span></li>
-          <li role="listitem"><b class="t">Waiting time</b><span>Sixty minutes included at every airport before any additional charge is considered.</span></li>
           <li role="listitem"><b class="t">Cabin provisions</b><span>Bottled water, device chargers and tissues, prepared before every pick-up.</span></li>
           <li role="listitem"><b class="t">Cancellation</b><span>Released without charge up to 48 hours before the scheduled pick-up.</span></li>
         </ul>
@@ -883,7 +878,7 @@ airport_body = header("airport-transfers.html") + f"""
 </body></html>"""
 (SITE/"airport-transfers.html").write_text(
  head("Airport Transfers in Dubai & the UAE | UMC Dubai",
-      "Fixed-price airport transfers across the UAE. Live flight tracking, meet & greet at baggage claim, 60 minutes waiting included. From AED 350, all-inclusive.",
+      "Fixed-price airport transfers across the UAE. Live flight tracking, meet & greet at baggage claim. From AED 350, all-inclusive.",
       "airport-transfers", faq_schema(AIRPORT_FAQS)) + airport_body)
 
 # ---------- airport-transfers / per-emirate pages (v45 Dubai, v46 the other four) ----------
@@ -898,8 +893,6 @@ COMMON_AIRPORT_FAQS = [
   "Your chauffeur waits in the arrivals hall with a name board, assists with your luggage and walks you to the car."),
  ("What if my flight is delayed?",
   "We track the flight from departure. If it is delayed, the booking moves with it and your chauffeur is there when you land."),
- ("Is waiting time included?",
-  "Yes. Sixty minutes from the actual landing time is included with every airport transfer."),
  ("What does the transfer rate include?",
   "Your chauffeur, fuel, Salik and parking. Transfers ending outside Dubai carry an additional fee by vehicle type, stated in your quote."),
  ("Can I add a stop on the way?",
@@ -914,7 +907,7 @@ EMIRATES = [
     "lead": "Whether you land at Dubai International or Al Maktoum, the protocol is the same. Your chauffeur tracks the flight, waits in the arrivals hall, and is standing ready the moment you clear.",
     "closing_heading": "The car is there before you are.",
     "seo_title": "Dubai Airport Transfer (DXB & DWC) | UMC Dubai",
-    "seo_meta": "Chauffeur driven Dubai airport transfers from DXB and Al Maktoum (DWC). Meet & greet at arrivals, live flight tracking, 60 minutes waiting included.",
+    "seo_meta": "Chauffeur driven Dubai airport transfers from DXB and Al Maktoum (DWC). Meet & greet at arrivals, live flight tracking.",
     "faqs_extra": [
       ("Which Dubai airports do you cover?",
        "Both of Dubai's airports: Dubai International (DXB) and Al Maktoum International (DWC), at any hour of the day or night."),
@@ -929,7 +922,7 @@ EMIRATES = [
     "lead": "Your chauffeur tracks the flight into Zayed International, waits in the arrivals hall, and is ready the moment you clear. Whether the journey ends at a ministry, a corporate office, or a hotel on the Corniche, the standard does not change.",
     "closing_heading": "The capital, met properly.",
     "seo_title": "Abu Dhabi Airport Transfer (AUH),Chauffeur, Meet & Greet | UMC Dubai",
-    "seo_meta": "Chauffeur driven Abu Dhabi airport transfers from Zayed International (AUH). Meet & greet at arrivals, live flight tracking, 60 minutes waiting included.",
+    "seo_meta": "Chauffeur driven Abu Dhabi airport transfers from Zayed International (AUH). Meet & greet at arrivals, live flight tracking.",
     "faqs_extra": [
       ("Which Abu Dhabi airports do you cover?",
        "We cover Zayed International Airport (AUH), the capital's principal airport."),
@@ -1010,7 +1003,7 @@ def render_emirate_airport_page(em):
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M5 16l1.4-4.2A2 2 0 0 1 8.3 10h7.4a2 2 0 0 1 1.9 1.8L19 16M5 16h14M5 16v3h2v-2h10v2h2v-3"/><circle cx="8" cy="17.5" r=".4"/><circle cx="16" cy="17.5" r=".4"/></svg></div>
         <div><h3>Seated<span class="lbl">At the kerb</span></h3><p>An immaculate car waits with the route already set, bottled water and chargers within reach.</p></div></div>
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7M6.5 9.5V20h11V9.5"/><path d="M10.5 20v-5h3v5"/></svg></div>
-        <div><h3>Arrived<span class="lbl">Door to door</span></h3><p>Up to sixty minutes of waiting was already included, and the journey ends at your address in {em['name']}.</p></div></div>
+        <div><h3>Arrived<span class="lbl">Door to door</span></h3><p>The journey ends at your address in {em['name']}.</p></div></div>
     </div>
   </div>
 </section>
@@ -1024,7 +1017,6 @@ def render_emirate_airport_page(em):
         <ul>
           <li role="listitem"><b class="t">Arrival monitoring</b><span>Your flight is tracked from departure; the pick-up adjusts to the actual landing time.</span></li>
           <li role="listitem"><b class="t">Reception</b><span>Your chauffeur waits in the arrivals hall with a name board and assists with luggage.</span></li>
-          <li role="listitem"><b class="t">Waiting time</b><span>Sixty minutes included at every airport before any additional charge is considered.</span></li>
           <li role="listitem"><b class="t">Cabin provisions</b><span>Bottled water, device chargers and tissues, prepared before every pick-up.</span></li>
           <li role="listitem"><b class="t">Cancellation</b><span>Released without charge up to 48 hours before the scheduled pick-up.</span></li>
         </ul>
@@ -1075,10 +1067,10 @@ RENT_EMIRATES = [
     "airport_slug": "dubai",  # cross-link to /airport-transfers/dubai
     "h1": "Car Rental in Dubai with Driver",
     "hero_sub": "A professional chauffeur and a luxury car, for a half day, a full day, or an airport transfer.",
-    "intro": "A dedicated chauffeur and a maintained luxury vehicle, for a 5-hour block, a 10-hour day, or a single airport run. UMC's chauffeur-at-disposal service operates 24 hours a day across Dubai. The rate you accept includes the chauffeur, fuel, Salik, parking, waiting time and unlimited city mileage. Water and chargers are in the car.",
+    "intro": "A dedicated chauffeur and a maintained luxury vehicle, for a 5-hour block, a 10-hour day, or a single airport run. UMC's chauffeur-at-disposal service operates 24 hours a day across Dubai. The rate you accept includes the chauffeur, fuel, Salik, parking and unlimited city mileage. Water and chargers are in the car.",
     "use_cases": "Corporate days, intercity meetings, family travel, sightseeing at your own pace, evenings out, anything that needs a clean schedule and a quiet cabin.",
     "seo_title": "Rent a Car with Driver in Dubai | UMC Dubai",
-    "seo_meta": "Rent a luxury car with a professional chauffeur in Dubai, by the half day, full day or airport transfer. All-inclusive: fuel, Salik, parking, waiting.",
+    "seo_meta": "Rent a luxury car with a professional chauffeur in Dubai, by the half day, full day or airport transfer. All-inclusive: fuel, Salik, parking.",
     "closing": "Dubai, on your schedule.",
   },
   {
@@ -1086,7 +1078,7 @@ RENT_EMIRATES = [
     "airport_slug": "abu-dhabi",
     "h1": "Rent a Car with Driver in Abu Dhabi",
     "hero_sub": "A chauffeur for the day in the capital, on your timing and your route.",
-    "intro": "From the Corniche to Yas Island, Saadiyat to Al Maryah, a chauffeur at your disposal turns the capital into a quiet day out. Reserve a 5-hour block, a 10-hour day, or a single transfer from Abu Dhabi International. Rates are all-inclusive: chauffeur, fuel, Salik, parking and waiting time, with water and chargers in the car.",
+    "intro": "From the Corniche to Yas Island, Saadiyat to Al Maryah, a chauffeur at your disposal turns the capital into a quiet day out. Reserve a 5-hour block, a 10-hour day, or a single transfer from Abu Dhabi International. Rates are all-inclusive: chauffeur, fuel, Salik, parking, with water and chargers in the car.",
     "use_cases": "Business meetings, government and embassy programmes, family days, the Grand Mosque circuit, Yas Island for the day, sightseeing at your own pace, late-night returns to Dubai.",
     "seo_title": "Rent a Car with Driver in Abu Dhabi | UMC Dubai",
     "seo_meta": "A private chauffeur in Abu Dhabi by the half day, full day or airport transfer. Late-model luxury vehicles, all-inclusive rates, 24/7.",
@@ -1097,7 +1089,7 @@ RENT_EMIRATES = [
     "airport_slug": "sharjah",
     "h1": "Rent a Car with Driver in Sharjah",
     "hero_sub": "A private chauffeur for Sharjah and onward across the northern emirates.",
-    "intro": "Sharjah's pace asks for an unhurried car. UMC's chauffeur-at-disposal service runs the emirate's avenues, the heritage neighbourhoods and the corporate addresses, with comfortable onward connections to Dubai and the northern emirates when the day requires it. Rates are all-inclusive: chauffeur, fuel, Salik, parking and waiting.",
+    "intro": "Sharjah's pace asks for an unhurried car. UMC's chauffeur-at-disposal service runs the emirate's avenues, the heritage neighbourhoods and the corporate addresses, with comfortable onward connections to Dubai and the northern emirates when the day requires it. Rates are all-inclusive: chauffeur, fuel, Salik and parking.",
     "use_cases": "Corporate days, university and embassy visits, family programmes, intercity transfers, evenings out, sightseeing at your own pace.",
     "seo_title": "Rent a Car with Driver in Sharjah | UMC Dubai",
     "seo_meta": "A private chauffeur in Sharjah by the half day or full day. Late-model luxury vehicles, all-inclusive rates, onward connections to Dubai.",
@@ -1119,7 +1111,7 @@ RENT_EMIRATES = [
     "airport_slug": "al-ain",
     "h1": "Rent a Car with Driver in Al Ain",
     "hero_sub": "The garden city met calmly, with a chauffeur for the day.",
-    "intro": "Al Ain rewards an unhurried visit. A chauffeur at your disposal turns the oases, the heritage sites and Jebel Hafeet into a single composed day. UMC's half-day and full-day service operates throughout the city, with all-inclusive rates: chauffeur, fuel, Salik, parking and waiting.",
+    "intro": "Al Ain rewards an unhurried visit. A chauffeur at your disposal turns the oases, the heritage sites and Jebel Hafeet into a single composed day. UMC's half-day and full-day service operates throughout the city, with all-inclusive rates: chauffeur, fuel, Salik and parking.",
     "use_cases": "Heritage circuits, the Jebel Hafeet road, university and embassy programmes, family days, intercity transfers back to Dubai or Abu Dhabi.",
     "seo_title": "Rent a Car with Driver in Al Ain | UMC Dubai",
     "seo_meta": "A private chauffeur in Al Ain, for a half day or a full day. Oases, Jebel Hafeet and heritage circuits, with all-inclusive rates and a maintained luxury fleet.",
@@ -1197,7 +1189,7 @@ def render_rentacar_page(em):
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
         <div><h3>Pick the duration<span class="lbl">5hr, 10hr, transfer</span></h3><p>A 5-hour block for an afternoon, a 10-hour day for a full programme, or a single airport transfer. All quoted up-front.</p></div></div>
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M3 12h13l-4-4M16 12l-4 4"/></svg></div>
-        <div><h3>Get an all-inclusive rate<span class="lbl">No meter</span></h3><p>Chauffeur, fuel, Salik, parking, waiting time and unlimited city mileage are already in the quoted rate.</p></div></div>
+        <div><h3>Get an all-inclusive rate<span class="lbl">No meter</span></h3><p>Chauffeur, fuel, Salik, parking and unlimited city mileage are already in the quoted rate.</p></div></div>
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg></div>
         <div><h3>Reserve<span class="lbl">Personally confirmed</span></h3><p>Confirmation is handled by a person, with the chauffeur's details before the pick-up.</p></div></div>
     </div>
@@ -1212,7 +1204,7 @@ def render_rentacar_page(em):
         <div class="tg-head"><span class="lbl">Service manifest</span><b>UMC</b></div>
         <ul>
           <li role="listitem"><b class="t">Professional chauffeur</b><span>Vetted, trained, presentable, discreet. The same standard, every booking.</span></li>
-          <li role="listitem"><b class="t">All-inclusive rate</b><span>Fuel, Salik, parking and waiting time are already in the quoted rate. No meter.</span></li>
+          <li role="listitem"><b class="t">All-inclusive rate</b><span>Fuel, Salik and parking are already in the quoted rate. No meter.</span></li>
           <li role="listitem"><b class="t">Unlimited city mileage</b><span>Move around the city without watching the odometer.</span></li>
           <li role="listitem"><b class="t">Cabin provisions</b><span>Bottled water, device chargers and tissues, prepared before every pick-up.</span></li>
           <li role="listitem"><b class="t">24 hours a day</b><span>Early starts, late finishes, overnight transfers. We staff for the hours you need.</span></li>
@@ -1266,7 +1258,7 @@ RENTHUB_FAQS = [
   ("What is a chauffeur-at-disposal booking?",
    "A dedicated chauffeur and a maintained luxury vehicle, reserved for a block of time. The car stays with you for the duration. You set the itinerary, the chauffeur handles the route, the parking and the timing."),
   ("What is included in the rate?",
-   "Everything: the chauffeur, fuel, Salik, parking, waiting time and unlimited city mileage. Bottled water and device chargers are in the car. The quote you accept is the quote you pay."),
+   "Everything: the chauffeur, fuel, Salik, parking and unlimited city mileage. Bottled water and device chargers are in the car. The quote you accept is the quote you pay."),
   ("Which emirates do you cover?",
    "All six emirates that we serve as standard with this service: Dubai, Abu Dhabi, Sharjah, Ras Al Khaimah, Al Ain and Umm Al Quwain. Cross-emirate journeys are routine and handled in the same booking."),
   ("Half day or full day?",
@@ -1291,7 +1283,7 @@ def renthub_schema():
             "logo": {"@type": "ImageObject", "url": f"{OG_BASE}/assets/og-image.png"}
         },
         "url": canon,
-        "description": "Chauffeur service for a half day or a full day, across all six emirates we serve. All-inclusive rates with fuel, Salik, parking and waiting included.",
+        "description": "Chauffeur service for a half day or a full day, across all six emirates we serve. All-inclusive rates with fuel, Salik and parking included.",
     }
     item_list = {
         "@context": "https://schema.org",
@@ -1342,7 +1334,7 @@ def render_rentacar_hub():
 <section class="sec">
   <div class="wrap">
     <div class="shead rv"><span class="lbl">The service</span><h2>One chauffeur, one car, for the time you need.</h2></div>
-    <p class="lede rv" style="text-align:center;max-width:62ch;margin:0 auto">A five-hour block for an afternoon, a ten-hour day for a full programme, or a single transfer when that is all the day requires. The rate is all-inclusive: the chauffeur, fuel, Salik, parking, waiting time and unlimited city mileage. The car stays with you. The standard does not change between bookings.</p>
+    <p class="lede rv" style="text-align:center;max-width:62ch;margin:0 auto">A five-hour block for an afternoon, a ten-hour day for a full programme, or a single transfer when that is all the day requires. The rate is all-inclusive: the chauffeur, fuel, Salik, parking and unlimited city mileage. The car stays with you. The standard does not change between bookings.</p>
   </div>
 </section>
 {JL}
@@ -1363,7 +1355,7 @@ def render_rentacar_hub():
         <div class="tg-head"><span class="lbl">Service manifest</span><b>UMC</b></div>
         <ul>
           <li role="listitem"><b class="t">Professional chauffeur</b><span>Vetted, trained, presentable, discreet. The same standard, every booking.</span></li>
-          <li role="listitem"><b class="t">All-inclusive rate</b><span>Fuel, Salik, parking and waiting time are already in the quoted rate. No meter, no surge.</span></li>
+          <li role="listitem"><b class="t">All-inclusive rate</b><span>Fuel, Salik and parking are already in the quoted rate. No meter, no surge.</span></li>
           <li role="listitem"><b class="t">Unlimited city mileage</b><span>Move around the city without watching the odometer.</span></li>
           <li role="listitem"><b class="t">Cabin provisions</b><span>Bottled water, device chargers and tissues, prepared before every pick-up.</span></li>
           <li role="listitem"><b class="t">24 hours a day</b><span>Early starts, late finishes, overnight transfers. We staff for the hours you need.</span></li>
@@ -1388,7 +1380,7 @@ def render_rentacar_hub():
     (SITE / "rent-a-car-with-driver").mkdir(parents=True, exist_ok=True)
     (SITE / "rent-a-car-with-driver" / "index.html").write_text(
         head("Rent a Car with Driver Across the UAE | UMC Dubai",
-             "Chauffeur service across the UAE: a private driver and luxury car by the half day or full day. All-inclusive rates, fuel, Salik, parking and waiting.",
+             "Chauffeur service across the UAE: a private driver and luxury car by the half day or full day. All-inclusive rates, fuel, Salik and parking.",
              "rent-a-car-with-driver/", renthub_schema()) + body)
 
 render_rentacar_hub()
@@ -2955,7 +2947,7 @@ BLOG_POSTS = [
 <p><b>Private chauffeur service.</b> A vetted, professional driver in a consistent luxury vehicle, at an all-inclusive rate. No surge, no Salik admin, no parking decisions. Designed for transfers, full days, multi-stop itineraries and any moment a guest needs to be impressed.</p>
 
 <h2>Cost: what you actually pay</h2>
-<p>For a single short hop, ride-hailing is the cheapest option, until peak-time surge multiplies the fare. A chauffeur is a fixed, all-inclusive rate that already includes fuel, Salik, parking and waiting time. For airport transfers, full days, multi-stop programmes or several passengers, that fixed rate is usually the better value once you net out the meter, the surge, the toll surprises and the time saved.</p>
+<p>For a single short hop, ride-hailing is the cheapest option, until peak-time surge multiplies the fare. A chauffeur is a fixed, all-inclusive rate that already includes fuel, Salik and parking. For airport transfers, full days, multi-stop programmes or several passengers, that fixed rate is usually the better value once you net out the meter, the surge, the toll surprises and the time saved.</p>
 
 <h2>Comfort and consistency</h2>
 <p>With ride-hailing you get whatever car and driver arrive. A chauffeur service gives you the same standard of vehicle and a professional, presentable driver every time, which matters for business meetings, guests, or first impressions where consistency counts.</p>
@@ -2970,7 +2962,7 @@ BLOG_POSTS = [
 <h3>Can I rent a car with a driver in Dubai?</h3>
 <p>Yes. UMC offers chauffeur driven vehicles by the hour, half-day, full-day, or for airport transfers. You get the car and a professional driver together.</p>
 <h3>How much does it cost to hire a private driver in Dubai?</h3>
-<p>It depends on the vehicle and the duration. UMC's rates are all-inclusive (fuel, Salik, parking, waiting). See the current rates on the <a href="/fleet">fleet</a> and <a href="/airport-transfers">airport transfer</a> pages.</p>
+<p>It depends on the vehicle and the duration. UMC's rates are all-inclusive (fuel, Salik, parking). See the current rates on the <a href="/fleet">fleet</a> and <a href="/airport-transfers">airport transfer</a> pages.</p>
 <h3>Who is the safer choice?</h3>
 <p>A vetted, professional chauffeur in a maintained luxury vehicle offers consistent, accountable safety, the same standard every time.</p>
 <h3>Is it better to rent a car or use a chauffeur in Dubai?</h3>
@@ -3039,7 +3031,7 @@ BLOG_POSTS = [
 <p>Late-model luxury vehicles, serviced on a schedule, kept clean inside and out. Asking when the cars were last serviced is a fair question. The answer should be unhesitating.</p>
 
 <h3>Transparent pricing</h3>
-<p>The quote you accept should be the quote you pay. All-inclusive means fuel, Salik, parking and reasonable waiting time are already in the rate. Surge pricing, mystery surcharges and "the meter ran long" are the opposite of a safe service. A good operator confirms inclusions in writing.</p>
+<p>The quote you accept should be the quote you pay. All-inclusive means fuel, Salik and parking are already in the rate. Surge pricing, mystery surcharges and "the meter ran long" are the opposite of a safe service. A good operator confirms inclusions in writing.</p>
 
 <h2>How UMC measures up</h2>
 <p>UMC meets every item on this list as standard: licensed drivers, full passenger and vehicle cover, vetted chauffeurs, a maintained luxury fleet, and a transparent all-inclusive rate confirmed at booking. Nothing on this list is optional for us.</p>
@@ -3102,8 +3094,8 @@ BLOG_POSTS = [
 <p>Yes. Tipping is welcomed across the UAE's service industry. Polite, discreet tipping in cash is the norm.</p>
 <h3>Are tips included in the chauffeur fee?</h3>
 <p>UMC's quoted rate is the full rate. Any tip is entirely at your discretion and goes to the chauffeur.</p>
-<h3>Should I tip a driver who waits during a tour or stop?</h3>
-<p>Waiting time is already built into UMC's all-inclusive rate. A tip at the end of a long day is appreciated but never expected.</p>
+<h3>Should I tip the chauffeur?</h3>
+<p>A tip at the end of a long day is appreciated but never expected.</p>
 <h3>Should I tip taxi drivers in Dubai?</h3>
 <p>Rounding the meter up to the next clean note is customary. A larger tip is welcome for help with luggage or a long ride.</p>
 <h3>Should I tip in AED or USD?</h3>
@@ -3146,7 +3138,7 @@ BLOG_POSTS = [
 <p>Both standard taxis and ride-hailing apps run between the two cities. Fares vary by time of day, traffic and provider. Surge pricing can push the cost up sharply at peak times, and not every driver will be enthusiastic about the return leg.</p>
 
 <h3>Private chauffeur</h3>
-<p>For comfort and predictability over a 90-minute trip, a private chauffeur is the most relaxed option. The rate is fixed and all-inclusive (fuel, Salik, parking and waiting), the vehicle is consistent, and the chauffeur knows the route. It is the obvious choice for an Abu Dhabi airport transfer, a meeting on the Corniche, or a day in the capital.</p>
+<p>For comfort and predictability over a 90-minute trip, a private chauffeur is the most relaxed option. The rate is fixed and all-inclusive (fuel, Salik and parking), the vehicle is consistent, and the chauffeur knows the route. It is the obvious choice for an Abu Dhabi airport transfer, a meeting on the Corniche, or a day in the capital.</p>
 
 <h2>Frequently asked questions</h2>
 <h3>How do I get from Dubai to Abu Dhabi?</h3>
@@ -3209,8 +3201,6 @@ BLOG_POSTS = [
 <h2>Frequently asked questions</h2>
 <h3>How do I book a chauffeur for the evening?</h3>
 <p>Reserve by the hour or for a fixed block via the booking page. Five hours is a comfortable date-night minimum for a downtown evening with dinner.</p>
-<h3>Is the chauffeur waiting on the meter?</h3>
-<p>UMC's rates are all-inclusive. Waiting time, fuel, Salik and parking are already in the quote.</p>
 <h3>Can the chauffeur recommend the route or stops?</h3>
 <p>Yes. UMC chauffeurs know the city well and can sequence stops sensibly, with discretion.</p>
 """,
@@ -3322,7 +3312,7 @@ BLOG_POSTS = [
 <h3>How do I book a chauffeur for a day in Abu Dhabi?</h3>
 <p>Reserve a chauffeur-at-disposal block via the booking page. Five hours or ten hours are the common configurations for a half or full day.</p>
 <h3>Is the rate all-inclusive?</h3>
-<p>Yes. UMC's rate includes the chauffeur, fuel, Salik, parking and waiting. The quote is the quote.</p>
+<p>Yes. UMC's rate includes the chauffeur, fuel, Salik and parking. The quote is the quote.</p>
 <h3>Can the chauffeur suggest stops?</h3>
 <p>Yes. Tell us what you enjoy, or what you have already seen, and the chauffeur will sequence the day accordingly.</p>
 """,
@@ -3364,7 +3354,7 @@ BLOG_POSTS = [
 <h3>How do I book a half-day chauffeur in Dubai?</h3>
 <p>Reserve a five-hour chauffeur-at-disposal block via the booking page. The chauffeur stays with you for the full block.</p>
 <h3>Is the rate all-inclusive?</h3>
-<p>Yes. Fuel, Salik, parking and waiting time are included. There is no meter.</p>
+<p>Yes. Fuel, Salik and parking are included. There is no meter.</p>
 <h3>Which vehicle should I choose?</h3>
 <p>A Mercedes E-Class or BMW 7 Series is comfortable for two. A V-Class is the practical choice for families or four to six guests.</p>
 """,
@@ -3397,7 +3387,7 @@ BLOG_POSTS = [
 <p>A Mercedes E-Class for two, a V-Class for a family or three to six guests, or an SUV like the Cadillac Escalade when comfort and boot space matter. See the <a href="/fleet">fleet</a> for the full set.</p>
 
 <h3>Get a quote</h3>
-<p>All-inclusive for the block you need (fuel, Salik, parking, waiting). The quote you receive is the quote you pay.</p>
+<p>All-inclusive for the block you need (fuel, Salik, parking). The quote you receive is the quote you pay.</p>
 
 <h3>Book</h3>
 <p>Confirm via the booking page or WhatsApp. You will get a written confirmation with the chauffeur's contact details for the day.</p>
@@ -3425,7 +3415,7 @@ BLOG_POSTS = [
 <h3>Will the chauffeur help with bags?</h3>
 <p>Yes. Loading the car between stops is part of the service.</p>
 <h3>Can the car wait outside while I am inside the mall?</h3>
-<p>The chauffeur waits at a sensible nearby spot and meets you at the door when you are ready. Waiting time is included.</p>
+<p>The chauffeur waits at a sensible nearby spot and meets you at the door when you are ready.</p>
 <h3>Which vehicle is best for shopping?</h3>
 <p>For two, an E-Class. For three or four with larger bags, a V-Class or Cadillac Escalade. The full range is on the <a href="/fleet">fleet</a> page.</p>
 """,
