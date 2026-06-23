@@ -2568,7 +2568,7 @@ function appShellHTML() {
     <div class="hist-head">
       <div>
         <h2>Leads</h2>
-        <p class="hist-sub">Bookings from the website — convert to a quote or invoice and the Create builder is pre-filled. Every field stays editable.</p>
+        <p class="hist-sub">Bookings from the website. Convert to a quote or invoice and the Create builder is pre-filled, and every field stays editable.</p>
       </div>
       <button type="button" class="btn btn-small btn-ghost" id="leadsRefresh">Refresh</button>
     </div>
