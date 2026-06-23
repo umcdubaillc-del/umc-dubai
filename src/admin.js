@@ -2695,7 +2695,10 @@ function appShellHTML() {
       <button type="button" class="btn btn-ghost" id="btnNew">New</button>
     </div>
     <p class="hint" id="priceGateHint" hidden style="margin:.6rem 0 0;color:var(--muted)">Enter a price before this can be issued.</p>
-    <div class="status-line" id="status"></div>
+    <div class="status-row" style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+      <div class="status-line" id="status" style="flex:1 1 auto"></div>
+      <button type="button" id="btnRevertLead" hidden class="btn btn-small btn-ghost" style="color:var(--amber-deep);border-color:var(--amber);background:transparent" title="Restore the original values prefilled from this lead. Editing again is allowed.">Revert to original</button>
+    </div>
 
     <div class="email-out" id="emailOut" hidden>
       <hr class="amber">
@@ -3026,7 +3029,8 @@ const PAGE_SCRIPT = `<script>
     notes: "",
     internal_notes: "",
     source_quote_number: null,
-    lead_id: null
+    lead_id: null,
+    leadOriginal: null
   };
 
   // ---------- helpers
@@ -3189,6 +3193,7 @@ const PAGE_SCRIPT = `<script>
     const hasPositiveRate = state.line_items.some(function(li){ return Number(li && li.rate) > 0; });
     if(btn) btn.disabled = !hasPositiveRate;
     if(hint) hint.hidden = hasPositiveRate;
+    if(typeof updateLeadRevertButton === "function") updateLeadRevertButton();
   }
   function renderDoc(){
     const r = compute();
@@ -3386,6 +3391,8 @@ const PAGE_SCRIPT = `<script>
     $("btnNew").addEventListener("click", onNew);
     $("btnLogout").addEventListener("click", onLogout);
     $("btnRefresh").addEventListener("click", loadHistory);
+    const btnRevert = document.getElementById("btnRevertLead");
+    if(btnRevert) btnRevert.addEventListener("click", revertToOriginal);
 
     // ---------- v53 Phase 2: tabbed app shell ----------
     // Tabs are buttons in nav.tabbar; their data-tab matches a panel id
@@ -3724,6 +3731,8 @@ const PAGE_SCRIPT = `<script>
       // Phase 1 — clear lead_id once successfully issued so subsequent
       // documents (e.g. New) do not re-stamp the same lead.
       state.lead_id = null;
+      state.leadOriginal = null;
+      updateLeadRevertButton();
       loadHistory();
       if(typeof loadLeads === "function") loadLeads();
 
@@ -3752,6 +3761,7 @@ const PAGE_SCRIPT = `<script>
     state.internal_notes = "";
     state.source_quote_number = null;
     state.lead_id = null;
+    state.leadOriginal = null;
     state.doc_date = new Date().toISOString().slice(0,10);
     ["cName","cCompany","cAddress","cEmail","cPhone","fDiscount","fNotes","fInternalNotes","fEmailRecipients"].forEach(function(id){ const el = $(id); if(el) el.value = ""; });
     $("fDate").value = state.doc_date;
@@ -4363,6 +4373,55 @@ const PAGE_SCRIPT = `<script>
     const firstRate = document.querySelector("#ltBody tr input.r");
     if(firstRate) try { firstRate.focus(); } catch(_){}
     setStatus("Prefilled from lead #" + lead.id + ". Enter a price to issue.");
+    // Phase 1.4 — snapshot exactly the fields prefill writes (excluding lead_id)
+    // so Revert can restore them later. Edits to state never mutate this copy.
+    state.leadOriginal = structuredClone({
+      doc_type: state.doc_type,
+      client: state.client,
+      line_items: state.line_items,
+      discount: state.discount,
+      notes: state.notes,
+      internal_notes: state.internal_notes,
+      source_quote_number: state.source_quote_number,
+      doc_date: state.doc_date
+    });
+    updateLeadRevertButton();
+  }
+
+  // Phase 1.4 — Revert a lead-prefilled document to its original values.
+  // Keeps lead_id intact; does not refetch the lead.
+  function revertToOriginal(){
+    if(!state.leadOriginal) return;
+    const snap = structuredClone(state.leadOriginal);
+    state.doc_type            = snap.doc_type;
+    state.client              = snap.client;
+    state.line_items          = snap.line_items;
+    state.discount            = snap.discount;
+    state.notes               = snap.notes;
+    state.internal_notes      = snap.internal_notes;
+    state.source_quote_number = snap.source_quote_number;
+    state.doc_date            = snap.doc_date;
+    // Mirror the same on-screen inputs that prefillFromLead syncs.
+    $("tQuote").classList.toggle("on", state.doc_type === "quote");
+    $("tInvoice").classList.toggle("on", state.doc_type === "invoice");
+    $("lblClient").textContent = state.doc_type === "invoice" ? "Billed to" : "Quote made for";
+    $("cName").value    = state.client.name    || "";
+    $("cCompany").value = state.client.company || "";
+    $("cAddress").value = state.client.address || "";
+    $("cEmail").value   = state.client.email   || "";
+    if($("cPhone")) $("cPhone").value = state.client.phone || "";
+    $("fDate").value    = state.doc_date || "";
+    $("fDiscount").value = state.discount ? String(state.discount) : "";
+    $("fNotes").value   = state.notes || "";
+    if($("fInternalNotes")) $("fInternalNotes").value = state.internal_notes || "";
+    renderLineRows(); renderTotals(); renderDoc();
+    setStatus("Prefilled from lead #" + state.lead_id + ". Enter a price to issue.");
+  }
+
+  function updateLeadRevertButton(){
+    const btn = document.getElementById("btnRevertLead");
+    if(!btn) return;
+    btn.hidden = !(state.lead_id && state.leadOriginal);
   }
   function updatePayLastChecked(){
     const el = $("payLastChecked"); if(!el) return;
@@ -4754,6 +4813,7 @@ const PAGE_SCRIPT = `<script>
       state.source_quote_number = x.source_quote_number || null;
       // Opening an existing doc must not re-stamp its (already converted) lead.
       state.lead_id = null;
+      state.leadOriginal = null;
       // reflect into UI
       $("tQuote").classList.toggle("on", state.doc_type === "quote");
       $("tInvoice").classList.toggle("on", state.doc_type === "invoice");
@@ -4812,5 +4872,7 @@ const PAGE_SCRIPT = `<script>
   renderDoc();
   fetchNext();
   loadHistory();
+  // Phase 1.4 — boot into Leads. switchTab("leads") also fires loadLeads().
+  switchTab("leads");
 })();
 </script>`;
