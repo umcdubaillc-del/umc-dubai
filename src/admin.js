@@ -143,6 +143,7 @@ async function ensureSchema(env) {
     "refunded_at TEXT",
     "refunded_amount REAL",
     "client_phone TEXT",
+    "internal_notes TEXT",
   ]) {
     try {
       await env.BILLING_DB.prepare(`ALTER TABLE billing_documents ADD COLUMN ${col}`).run();
@@ -419,15 +420,16 @@ async function handleCreate(request, env) {
     const res = await env.BILLING_DB.prepare(
       `INSERT INTO billing_documents
         (doc_type, number, doc_date, client_name, client_company, client_address, client_email, client_phone,
-         currency, vat_mode, line_items, discount, subtotal, vat, total, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         currency, vat_mode, line_items, discount, subtotal, vat, total, notes, internal_notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       b.doc_type, String(b.number), String(b.doc_date),
       String(b.client_name || ""), b.client_company || null, b.client_address || null, b.client_email || null, b.client_phone || null,
       String(b.currency || "AED"), b.vat_mode, lineItemsJson,
       b.discount == null ? null : Number(b.discount),
       Number(b.subtotal), Number(b.vat), Number(b.total),
-      b.notes || null
+      b.notes || null,
+      b.internal_notes || null
     ).run();
     const id = res && res.meta && res.meta.last_row_id;
     // Phase 1 — stamp the lead row with the new document so the Leads list
@@ -2601,6 +2603,7 @@ function appShellHTML() {
 
     <div class="field" style="margin-top:1rem"><label class="lbl">Discount (optional)</label><input id="fDiscount" type="number" min="0" step="0.01" placeholder="0.00"></div>
     <div class="field"><label class="lbl">Notes (optional)</label><textarea id="fNotes" rows="3" placeholder="Anything you want printed at the bottom (terms-on-top, payment window, special arrangements …)"></textarea></div>
+    <div class="field"><label class="lbl">Internal notes (not shown to client)</label><textarea id="fInternalNotes" rows="3" placeholder="Admin-only — lineage, ops notes, anything you want recorded but never printed on the PDF."></textarea></div>
 
     <div class="totals">
       <div class="r"><span>Net subtotal</span><span id="tSub">—</span></div>
@@ -2955,6 +2958,7 @@ const PAGE_SCRIPT = `<script>
     line_items: [{ description:"", qty:1, rate:0 }],
     discount: 0,
     notes: "",
+    internal_notes: "",
     source_quote_number: null,
     lead_id: null
   };
@@ -3307,6 +3311,10 @@ const PAGE_SCRIPT = `<script>
     });
     $("fDiscount").addEventListener("input", function(e){ state.discount = Number(e.target.value) || 0; renderTotals(); renderDoc(); });
     $("fNotes").addEventListener("input", function(e){ state.notes = e.target.value; renderDoc(); });
+    const fIN = $("fInternalNotes");
+    if(fIN){
+      fIN.addEventListener("input", function(e){ state.internal_notes = e.target.value; });
+    }
 
     $("btnSavePrint").addEventListener("click", onSavePrint);
     $("btnNew").addEventListener("click", onNew);
@@ -3596,6 +3604,7 @@ const PAGE_SCRIPT = `<script>
       vat: r.vat,
       total: r.total,
       notes: state.notes,
+      internal_notes: state.internal_notes,
       lead_id: state.lead_id
     };
     try {
@@ -3635,10 +3644,11 @@ const PAGE_SCRIPT = `<script>
     state.line_items = [{ description:"", qty:1, rate:0 }];
     state.discount = 0;
     state.notes = "";
+    state.internal_notes = "";
     state.source_quote_number = null;
     state.lead_id = null;
     state.doc_date = new Date().toISOString().slice(0,10);
-    ["cName","cCompany","cAddress","cEmail","cPhone","fDiscount","fNotes","fEmailRecipients"].forEach(function(id){ const el = $(id); if(el) el.value = ""; });
+    ["cName","cCompany","cAddress","cEmail","cPhone","fDiscount","fNotes","fInternalNotes","fEmailRecipients"].forEach(function(id){ const el = $(id); if(el) el.value = ""; });
     $("fDate").value = state.doc_date;
     $("fEmailTo").checked = false;
     $("emailRecipientsWrap").hidden = true;
@@ -4209,11 +4219,14 @@ const PAGE_SCRIPT = `<script>
     const desc = (title ? title + "\\n" : "") + descBits.join("\\n");
     state.line_items = [{ description: desc, qty: 1, rate: 0 }];
     state.discount = 0;
-    // Lineage + chauffeur notes prepended into the notes field.
+    // Phase 1.2 — lineage + chauffeur notes go into internal_notes, NEVER
+    // into the client-facing notes field that prints on the PDF.
     const lineage = "From lead #" + lead.id + " (" + (lead.source || "form") + ", " + String(lead.created_at || "").slice(0,10) + ")";
     const chauffeur = lead.notes ? ("Chauffeur notes: " + lead.notes) : "";
-    state.notes = chauffeur ? (lineage + "\\n\\n" + chauffeur) : lineage;
+    state.notes = "";
+    state.internal_notes = chauffeur ? (lineage + "\\n\\n" + chauffeur) : lineage;
     $("fNotes").value    = state.notes;
+    if($("fInternalNotes")) $("fInternalNotes").value = state.internal_notes;
     $("fDiscount").value = "";
     state.source_quote_number = null;
     state.doc_date = new Date().toISOString().slice(0,10);
@@ -4569,6 +4582,7 @@ const PAGE_SCRIPT = `<script>
       if(!state.line_items.length) state.line_items = [{ description:"", qty:1, rate:0 }];
       state.discount = Number(x.discount) || 0;
       state.notes = x.notes || "";
+      state.internal_notes = x.internal_notes || "";
       state.source_quote_number = x.source_quote_number || null;
       // Opening an existing doc must not re-stamp its (already converted) lead.
       state.lead_id = null;
@@ -4583,6 +4597,7 @@ const PAGE_SCRIPT = `<script>
       $("cName").value = state.client.name; $("cCompany").value = state.client.company; $("cAddress").value = state.client.address; $("cEmail").value = state.client.email; if($("cPhone")) $("cPhone").value = state.client.phone;
       $("fDiscount").value = state.discount || "";
       $("fNotes").value = state.notes;
+      if($("fInternalNotes")) $("fInternalNotes").value = state.internal_notes || "";
       renderLineRows(); renderTotals(); renderDoc();
       $("emailOut").hidden = true;
       // v59: open the editor in a modal OVERLAY on the Documents tab — the
