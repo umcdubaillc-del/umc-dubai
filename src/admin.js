@@ -1634,7 +1634,7 @@ export async function handleAdmin(request, env) {
   // Q1 diagnostic — read-only Nomod charges probe. Pulls up to 3 live charges
   // so we can verify charge.total scaling (major vs minor units) and the full
   // shape before fixing the importer. Temporary; remove once Phase 0 ships.
-  if (path === "/admin/api/nomod/raw-sample" && method === "GET") {
+  if (path === "/admin/api/nomod-raw-sample" && method === "GET") {
     if (!(await isAuthed(request, env))) return json({ ok: false, error: "unauthorized" }, 401);
     try {
       const r = await nomodListAllCharges(env, { pageSize: 3 });
