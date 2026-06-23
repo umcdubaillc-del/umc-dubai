@@ -1631,6 +1631,25 @@ export async function handleAdmin(request, env) {
     return json({ ok: false, error: "not found" }, 404);
   }
 
+  // Q1 diagnostic — read-only Nomod charges probe. Pulls up to 3 live charges
+  // so we can verify charge.total scaling (major vs minor units) and the full
+  // shape before fixing the importer. Temporary; remove once Phase 0 ships.
+  if (path === "/admin/api/nomod/raw-sample" && method === "GET") {
+    if (!(await isAuthed(request, env))) return json({ ok: false, error: "unauthorized" }, 401);
+    try {
+      const r = await nomodListAllCharges(env, { pageSize: 3 });
+      const arr = Array.isArray(r) ? r : ((r && (r.data || r.results || r.charges)) || []);
+      return json({
+        ok: true,
+        returnedShape: Array.isArray(r) ? "array" : Object.keys(r || {}),
+        count: arr.length,
+        sample: arr.slice(0, 3)
+      });
+    } catch (e) {
+      return json({ ok: false, error: String((e && e.message) || e) }, 500);
+    }
+  }
+
   // v60 — Svix-signed Nomod webhook receiver. No cookie auth (Nomod calls it).
   if (path === "/admin/webhooks/nomod") {
     if (method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
