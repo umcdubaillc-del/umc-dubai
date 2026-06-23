@@ -1631,19 +1631,49 @@ export async function handleAdmin(request, env) {
     return json({ ok: false, error: "not found" }, 404);
   }
 
-  // Q1 diagnostic — read-only Nomod charges probe. Pulls up to 3 live charges
-  // so we can verify charge.total scaling (major vs minor units) and the full
-  // shape before fixing the importer. Temporary; remove once Phase 0 ships.
+  // Q1 diagnostic — read-only Nomod charges probe. Deep-finds the charges
+  // array wherever Nomod nests it, returns a structure map so we can see the
+  // exact shape, and scrubs sensitive card fields server-side. Strictly
+  // read-only (no INSERT/UPDATE/DELETE). Temporary; remove once Phase 0 ships.
   if (path === "/admin/api/nomod-raw-sample" && method === "GET") {
     if (!(await isAuthed(request, env))) return json({ ok: false, error: "unauthorized" }, 401);
     try {
       const r = await nomodListAllCharges(env, { pageSize: 3 });
-      const arr = Array.isArray(r) ? r : ((r && (r.data || r.results || r.charges)) || []);
+      const findArray = (o, d) => {
+        if (Array.isArray(o)) return o;
+        if (o && typeof o === "object" && d < 5) {
+          for (const k of Object.keys(o)) {
+            const hit = findArray(o[k], d + 1);
+            if (hit) return hit;
+          }
+        }
+        return null;
+      };
+      const shape = (o, d) => {
+        if (Array.isArray(o)) return "array[" + o.length + "]";
+        if (o && typeof o === "object" && d < 3) {
+          const out = {};
+          for (const k of Object.keys(o).slice(0, 15)) out[k] = shape(o[k], d + 1);
+          return out;
+        }
+        return typeof o;
+      };
+      const scrub = (o) => {
+        if (!o || typeof o !== "object") return o;
+        const out = Array.isArray(o) ? [] : {};
+        for (const k of Object.keys(o)) {
+          if (/card_number|security_code|cvv|^pan$|card_data/i.test(k)) continue;
+          out[k] = (o[k] && typeof o[k] === "object") ? scrub(o[k]) : o[k];
+        }
+        return out;
+      };
+      const arr = findArray(r, 0) || [];
       return json({
         ok: true,
-        returnedShape: Array.isArray(r) ? "array" : Object.keys(r || {}),
-        count: arr.length,
-        sample: arr.slice(0, 3)
+        topType: Array.isArray(r) ? "array" : typeof r,
+        structure: shape(r, 0),
+        arrayLen: arr.length,
+        sample: arr.slice(0, 2).map(scrub)
       });
     } catch (e) {
       return json({ ok: false, error: String((e && e.message) || e) }, 500);
