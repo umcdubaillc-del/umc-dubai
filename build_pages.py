@@ -630,7 +630,7 @@ document.addEventListener("DOMContentLoaded", function(){
 
 (SITE/"index.html").write_text(
  head("Luxury Chauffeur Service in Dubai & the UAE | UMC Dubai",
-      "UMC Dubai is the luxury chauffeur service trusted across the UAE. Airport transfers, corporate chauffeur and private drivers in Dubai &amp; the UAE, one all-inclusive rate, 24/7.",
+      "UMC Dubai is the luxury chauffeur service trusted across the UAE. Airport transfers, corporate and private drivers, one all-inclusive rate, 24/7.",
       "", ld_home + faq_schema(HOME_FAQS) + '<link rel="stylesheet" href="/assets/vendor/flatpickr.min.css?v={V}">') + index_body)
 
 # ---------- booking ----------
@@ -809,7 +809,7 @@ fleet_body = header("fleet.html") + f"""
 </body>
 </html>"""
 (SITE/"fleet.html").write_text(
- head("Luxury Fleet, Chauffeur-Driven Cars in Dubai & the UAE | UMC Dubai",
+ head("Luxury Fleet, Chauffeur-Driven Cars in Dubai | UMC Dubai",
       "The UMC Dubai fleet: Mercedes S-Class, BMW 7 Series, Cadillac Escalade, V-Class, Sprinter and coaches, all-inclusive chauffeur rates across the UAE.",
       "fleet", faq_schema(FLEET_FAQS)) + fleet_body)
 
@@ -882,7 +882,7 @@ airport_body = header("airport-transfers.html") + f"""
 <script>document.addEventListener("DOMContentLoaded",function(){renderFleet(document.getElementById("airportFleet"),{})});</script>
 </body></html>"""
 (SITE/"airport-transfers.html").write_text(
- head("Airport Transfer Dubai & UAE, Flight Tracked, Meet & Greet | UMC Dubai",
+ head("Airport Transfers in Dubai & the UAE | UMC Dubai",
       "Fixed-price airport transfers across the UAE. Live flight tracking, meet & greet at baggage claim, 60 minutes waiting included. From AED 350, all-inclusive.",
       "airport-transfers", faq_schema(AIRPORT_FAQS)) + airport_body)
 
@@ -913,7 +913,7 @@ EMIRATES = [
     "hero_sub": "From DXB or DWC, the city begins the moment you land.",
     "lead": "Whether you land at Dubai International or Al Maktoum, the protocol is the same. Your chauffeur tracks the flight, waits in the arrivals hall, and is standing ready the moment you clear.",
     "closing_heading": "The car is there before you are.",
-    "seo_title": "Dubai Airport Transfer (DXB & DWC),Chauffeur, Meet & Greet | UMC Dubai",
+    "seo_title": "Dubai Airport Transfer (DXB & DWC) | UMC Dubai",
     "seo_meta": "Chauffeur driven Dubai airport transfers from DXB and Al Maktoum (DWC). Meet & greet at arrivals, live flight tracking, 60 minutes waiting included.",
     "faqs_extra": [
       ("Which Dubai airports do you cover?",
@@ -943,7 +943,7 @@ EMIRATES = [
     "hero_sub": "Met at Sharjah International. Driven on, wherever the day leads.",
     "lead": "Your chauffeur tracks the flight into Sharjah International, meets you at arrivals, and takes the luggage. Many journeys from here run on into Dubai or across the northern emirates, and we plan the route accordingly.",
     "closing_heading": "Arrival, without the wait.",
-    "seo_title": "Sharjah Airport Transfer (SHJ),Chauffeur, Meet & Greet | UMC Dubai",
+    "seo_title": "Sharjah Airport Transfer (SHJ) | UMC Dubai",
     "seo_meta": "Chauffeur driven Sharjah airport transfers from SHJ. Meet & greet at arrivals, onward into Dubai and the northern emirates, flight tracking included.",
     "faqs_extra": [
       ("Which Sharjah airports do you cover?",
@@ -958,7 +958,7 @@ EMIRATES = [
     "hero_sub": "From RKT to the mountains and the shore, unhurried.",
     "lead": "Your chauffeur tracks the flight into Ras Al Khaimah International, meets you at arrivals, and sees you to the car. From here the road runs to the resorts, the coast, and Jebel Jais, and we keep the journey calm and exact.",
     "closing_heading": "The journey north, made easy.",
-    "seo_title": "Ras Al Khaimah Airport Transfer (RKT),Chauffeur, Meet & Greet | UMC Dubai",
+    "seo_title": "Ras Al Khaimah Airport Transfer (RKT) | UMC Dubai",
     "seo_meta": "Chauffeur driven Ras Al Khaimah airport transfers from RKT. Meet & greet at arrivals, on to the resorts, the coast and Jebel Jais. Flight tracking included.",
     "faqs_extra": [
       ("Which Ras Al Khaimah airports do you cover?",
@@ -973,7 +973,7 @@ EMIRATES = [
     "hero_sub": "Into the garden city, quietly and on time.",
     "lead": "Your chauffeur tracks the flight into Al Ain International, meets you at arrivals, and takes the luggage. Al Ain rewards an unhurried arrival, and that is exactly how we drive it.",
     "closing_heading": "The garden city, met with care.",
-    "seo_title": "Al Ain Airport Transfer (AAN),Chauffeur, Meet & Greet | UMC Dubai",
+    "seo_title": "Al Ain Airport Transfer (AAN) | UMC Dubai",
     "seo_meta": "Chauffeur driven Al Ain airport transfers from AAN. Meet & greet at arrivals, on into the garden city, oases and Jebel Hafeet. Flight tracking included.",
     "faqs_extra": [
       ("Which Al Ain airports do you cover?",
@@ -1077,8 +1077,8 @@ RENT_EMIRATES = [
     "hero_sub": "A professional chauffeur and a luxury car, for a half day, a full day, or an airport transfer.",
     "intro": "A dedicated chauffeur and a maintained luxury vehicle, for a 5-hour block, a 10-hour day, or a single airport run. UMC's chauffeur-at-disposal service operates 24 hours a day across Dubai. The rate you accept includes the chauffeur, fuel, Salik, parking, waiting time and unlimited city mileage. Water and chargers are in the car.",
     "use_cases": "Corporate days, intercity meetings, family travel, sightseeing at your own pace, evenings out, anything that needs a clean schedule and a quiet cabin.",
-    "seo_title": "Car Rental with Driver in Dubai | Luxury Chauffeur at Your Disposal | UMC Dubai",
-    "seo_meta": "Rent a luxury car with a professional chauffeur in Dubai. For a half day (5 hours), a full day (10 hours), or a single airport transfer. All-inclusive rates with fuel, Salik, parking and waiting included.",
+    "seo_title": "Rent a Car with Driver in Dubai | UMC Dubai",
+    "seo_meta": "Rent a luxury car with a professional chauffeur in Dubai, by the half day, full day or airport transfer. All-inclusive: fuel, Salik, parking, waiting.",
     "closing": "Dubai, on your schedule.",
   },
   {
@@ -1088,8 +1088,8 @@ RENT_EMIRATES = [
     "hero_sub": "A chauffeur for the day in the capital, on your timing and your route.",
     "intro": "From the Corniche to Yas Island, Saadiyat to Al Maryah, a chauffeur at your disposal turns the capital into a quiet day out. Reserve a 5-hour block, a 10-hour day, or a single transfer from Abu Dhabi International. Rates are all-inclusive: chauffeur, fuel, Salik, parking and waiting time, with water and chargers in the car.",
     "use_cases": "Business meetings, government and embassy programmes, family days, the Grand Mosque circuit, Yas Island for the day, sightseeing at your own pace, late-night returns to Dubai.",
-    "seo_title": "Rent a Car with Driver in Abu Dhabi | Luxury Chauffeur Hire | UMC Dubai",
-    "seo_meta": "A private chauffeur in Abu Dhabi, for a half day, a full day or an airport transfer. Late-model luxury vehicles, all-inclusive rates with fuel, Salik, parking and waiting, 24 hours a day.",
+    "seo_title": "Rent a Car with Driver in Abu Dhabi | UMC Dubai",
+    "seo_meta": "A private chauffeur in Abu Dhabi by the half day, full day or airport transfer. Late-model luxury vehicles, all-inclusive rates, 24/7.",
     "closing": "Abu Dhabi, on your timing.",
   },
   {
@@ -1099,8 +1099,8 @@ RENT_EMIRATES = [
     "hero_sub": "A private chauffeur for Sharjah and onward across the northern emirates.",
     "intro": "Sharjah's pace asks for an unhurried car. UMC's chauffeur-at-disposal service runs the emirate's avenues, the heritage neighbourhoods and the corporate addresses, with comfortable onward connections to Dubai and the northern emirates when the day requires it. Rates are all-inclusive: chauffeur, fuel, Salik, parking and waiting.",
     "use_cases": "Corporate days, university and embassy visits, family programmes, intercity transfers, evenings out, sightseeing at your own pace.",
-    "seo_title": "Rent a Car with Driver in Sharjah | Chauffeur Hire | UMC Dubai",
-    "seo_meta": "A private chauffeur in Sharjah, for a half day or a full day. Late-model luxury vehicles with all-inclusive rates and quiet onward connections to Dubai and the northern emirates.",
+    "seo_title": "Rent a Car with Driver in Sharjah | UMC Dubai",
+    "seo_meta": "A private chauffeur in Sharjah by the half day or full day. Late-model luxury vehicles, all-inclusive rates, onward connections to Dubai.",
     "closing": "Sharjah, calmly driven.",
   },
   {
@@ -1110,8 +1110,8 @@ RENT_EMIRATES = [
     "hero_sub": "A chauffeur for the beachfront, Jebel Jais and any address in the emirate.",
     "intro": "Ras Al Khaimah rewards a relaxed pace. A chauffeur at your disposal makes the day work without the parking, the navigation or the return drive. UMC operates for a half day (5 hours), a full day (10 hours) or a single airport transfer across the emirate, with all-inclusive rates and a maintained luxury fleet. Water and chargers are in the car.",
     "use_cases": "Resort transfers, Al Marjan Island programmes, the drive up Jebel Jais, weddings and event movements, sightseeing at your own pace, family days.",
-    "seo_title": "Rent a Car with Driver in Ras Al Khaimah | Chauffeur Hire | UMC Dubai",
-    "seo_meta": "A private chauffeur in Ras Al Khaimah, for a half day or a full day. Resort transfers, Jebel Jais, Al Marjan, all-inclusive rates with fuel, Salik, parking and waiting.",
+    "seo_title": "Rent a Car with Driver in Ras Al Khaimah | UMC Dubai",
+    "seo_meta": "A private chauffeur in Ras Al Khaimah by the half day or full day. Resort transfers to Jebel Jais and Al Marjan, all-inclusive rates.",
     "closing": "Ras Al Khaimah, on your terms.",
   },
   {
@@ -1121,7 +1121,7 @@ RENT_EMIRATES = [
     "hero_sub": "The garden city met calmly, with a chauffeur for the day.",
     "intro": "Al Ain rewards an unhurried visit. A chauffeur at your disposal turns the oases, the heritage sites and Jebel Hafeet into a single composed day. UMC's half-day and full-day service operates throughout the city, with all-inclusive rates: chauffeur, fuel, Salik, parking and waiting.",
     "use_cases": "Heritage circuits, the Jebel Hafeet road, university and embassy programmes, family days, intercity transfers back to Dubai or Abu Dhabi.",
-    "seo_title": "Rent a Car with Driver in Al Ain | Chauffeur Hire | UMC Dubai",
+    "seo_title": "Rent a Car with Driver in Al Ain | UMC Dubai",
     "seo_meta": "A private chauffeur in Al Ain, for a half day or a full day. Oases, Jebel Hafeet and heritage circuits, with all-inclusive rates and a maintained luxury fleet.",
     "closing": "Al Ain, taken slowly.",
   },
@@ -1132,7 +1132,7 @@ RENT_EMIRATES = [
     "hero_sub": "A private chauffeur for the quietest of the emirates, on your timing.",
     "intro": "Umm Al Quwain runs at its own pace. A chauffeur at your disposal makes the day work without the logistics. UMC's half-day and full-day service covers the corniche, the lagoons and any address in the emirate, with all-inclusive rates and a maintained luxury fleet. Onward routes to Dubai, Sharjah and Ras Al Khaimah are handled in the same booking.",
     "use_cases": "Resort and lagoon transfers, family days, intercity connections, sightseeing at your own pace.",
-    "seo_title": "Rent a Car with Driver in Umm Al Quwain | Chauffeur Hire | UMC Dubai",
+    "seo_title": "Rent a Car with Driver in Umm Al Quwain | UMC Dubai",
     "seo_meta": "A private chauffeur in Umm Al Quwain, for a half day or a full day. Lagoons and resort transfers, with all-inclusive rates and a maintained luxury fleet.",
     "closing": "Umm Al Quwain, quietly handled.",
   },
@@ -1387,8 +1387,8 @@ def render_rentacar_hub():
 """ + FOOTER + "</body></html>"
     (SITE / "rent-a-car-with-driver").mkdir(parents=True, exist_ok=True)
     (SITE / "rent-a-car-with-driver" / "index.html").write_text(
-        head("Chauffeur Service Across the UAE | Rent a Car with Driver | UMC Dubai",
-             "Chauffeur service across the UAE: a private driver and a luxury car for a half day or a full day, in any emirate. All-inclusive rates with fuel, Salik, parking and waiting included.",
+        head("Rent a Car with Driver Across the UAE | UMC Dubai",
+             "Chauffeur service across the UAE: a private driver and luxury car by the half day or full day. All-inclusive rates, fuel, Salik, parking and waiting.",
              "rent-a-car-with-driver/", renthub_schema()) + body)
 
 render_rentacar_hub()
@@ -1477,8 +1477,8 @@ corp_body = header("corporate.html") + f"""
 </section>
 """ + FOOTER + "</body></html>"
 (SITE/"corporate.html").write_text(
- head("Corporate Chauffeur Service Dubai, Executive Accounts | UMC Dubai",
-      "Corporate chauffeur programmes in Dubai: consolidated invoicing, book-for-a-guest, vetted chauffeurs, roadshow logistics and 24/7 support. Operational in 48 hours.",
+ head("Corporate Chauffeur Service in Dubai | UMC Dubai",
+      "Corporate chauffeur programmes in Dubai: consolidated invoicing, book-for-a-guest, vetted chauffeurs and 24/7 support. Live in 48 hours.",
       "corporate", faq_schema(CORP_FAQS)) + corp_body)
 
 # ---------- about ----------
@@ -1803,7 +1803,7 @@ ie_body = header("airport-transfers.html").replace('class="on"','') + f"""
 </section>
 """ + FOOTER + "</body></html>"
 (SITE/"inter-emirate.html").write_text(
- head("Inter-Emirate Chauffeur Transfers, Dubai to Abu Dhabi & Beyond | UMC Dubai",
+ head("Inter-Emirate Transfers, Dubai & Abu Dhabi | UMC Dubai",
       "Chauffeur driven transfers between Dubai, Abu Dhabi and every emirate. One car and one chauffeur door to door, on a fixed quote agreed before departure.",
       "inter-emirate", faq_schema(IE_FAQS)) + ie_body)
 
@@ -2157,7 +2157,7 @@ sc_body = header("fleet.html") + f"""
 # Place the page at /fleet/s-class. Inject <base href="/"> immediately before <title>
 # so that the shared head's relative URLs (assets/, favicon, nav links, extra link, FOOTER hrefs)
 # all resolve from the document root regardless of subdirectory depth.
-sc_head = head("Mercedes S-Class Chauffeur in Dubai, The Reference Standard | UMC Dubai",
+sc_head = head("Mercedes S-Class Chauffeur in Dubai | UMC Dubai",
                "Chauffeur driven Mercedes-Benz S-Class in Dubai and across the UAE: reclining rear seats, hushed cabin, vetted UMC chauffeur. Reserve in minutes.",
                "fleet/s-class",
                f'<link rel="stylesheet" href="/assets/s-class.css?v={V}">')
@@ -2273,7 +2273,7 @@ FLEET_PAGES_DRAFT = [
 
   {"id":"mb-e-class",
    "archetype":"sedan",
-   "title_seo":"Mercedes E-Class Chauffeur in Dubai, Business Sedan | UMC Dubai",
+   "title_seo":"Mercedes E-Class Chauffeur in Dubai | UMC Dubai",
    "meta_seo":"Chauffeur driven Mercedes-Benz E-Class in Dubai. The business sedan of choice for daily executive transfers.",
    "tagline":"The quiet professional.",
    "hero_sub":"The business saloon that does the daily work of moving people who matter, without announcing it.",
@@ -2422,7 +2422,7 @@ FLEET_PAGES_DRAFT = [
      "body": "The Sprinter is offered in several layouts, from compact executive shuttles to higher capacity people movers, each with its own seating and interior. We match the right configuration to your group and confirm it at booking. Tell us the numbers and the occasion, and the concierge will place the correct vehicle.",
    },
    "configuration_label":"Forward-facing rows with aisle access; overhead luggage stowage. Available in several seating configurations, confirmed at booking.",
-   "title_seo":"Mercedes Sprinter Chauffeur in Dubai, Executive Van | UMC Dubai",
+   "title_seo":"Mercedes Sprinter Chauffeur in Dubai | UMC Dubai",
    "meta_seo":"Chauffeur driven Mercedes-Benz Sprinter in Dubai. Premium group transport, 19-passenger capacity, vetted UMC chauffeur.",
    "tagline":"The group, moved well.",
    "hero_sub":"Premium group transport for delegations, teams and events, the capacity of a coach with the manners of a Mercedes.",
@@ -2449,7 +2449,7 @@ FLEET_PAGES_DRAFT = [
   {"id":"rolls-royce",
    "archetype":"sedan",
    "amenities":"full",
-   "title_seo":"Rolls-Royce with Chauffeur in Dubai | Ghost &amp; Cullinan | UMC Dubai",
+   "title_seo":"Rolls-Royce Chauffeur, Ghost & Cullinan | UMC Dubai",
    "meta_seo":"Rolls-Royce with chauffeur in Dubai. Ghost and Cullinan for weddings, milestone events and VIP arrivals. Vetted UMC chauffeur, rates on request.",
    "tagline":"Arrival, considered.",
    "hero_sub":"The Rolls-Royce Ghost and the Cullinan, reserved for the day the journey is also the moment.",
@@ -2488,8 +2488,8 @@ FLEET_PAGES_DRAFT = [
      "body": "Our coaches run in more than one capacity, including 35 and 55 seat layouts, each with its own interior and luggage provision. We match the right coach to your group size and route, and confirm it at booking. Share the headcount and the itinerary, and the concierge will assign the vehicle.",
    },
    "configuration_label":"Forward-facing rows with aisle access throughout. Overhead luggage stowage above, group luggage hold beneath. 35-seater and 55-seater configurations, confirmed at booking.",
-   "title_seo":"Luxury Coach &amp; Bus Rental with Driver in Dubai | 35 &amp; 55 Seater | UMC Dubai",
-   "meta_seo":"Luxury coach and bus rental with driver in Dubai. 35 and 55 seater coaches for conferences, corporate roadshows, events and large group transport across the UAE.",
+   "title_seo":"Coach & Bus Rental with Driver, Dubai | UMC Dubai",
+   "meta_seo":"Luxury coach and bus rental with driver in Dubai. 35 and 55-seater coaches for conferences, roadshows, events and group transport.",
    "tagline":"The group, taken together.",
    "hero_sub":"Larger group transport for conferences, roadshows and events. 35 and 55 seat coaches with a professional driver, across Dubai and the UAE.",
    "interior_heading":"Scale, kept civil.",
@@ -2889,7 +2889,7 @@ BLOG_PUBLISHED_DEFAULT = "2024-08-15"
 BLOG_POSTS = [
   {
     "slug": "guide-salik-dubai",
-    "title": "Salik in Dubai: Toll Gates, Free Days & How to Save (2026 Guide)",
+    "title": "Salik in Dubai 2026: Toll Gates & How to Save",
     "meta": "How Salik works in Dubai, every toll gate location, when Salik is free, and practical ways to cut your monthly toll costs. A clear 2026 guide.",
     "date": "2025-07-07",
     "date_label": "7 July 2025",
@@ -2938,7 +2938,7 @@ BLOG_POSTS = [
   },
   {
     "slug": "private-car-service-vs-uber",
-    "title": "Private Chauffeur vs Uber vs Car Rental in Dubai: Which to Choose",
+    "title": "Private Chauffeur vs Uber vs Car Rental in Dubai",
     "meta": "Private chauffeur, Uber, or a self-drive rental in Dubai? A clear side-by-side on cost, comfort, safety and control so you can pick the right ride.",
     "date": "2025-04-25",
     "date_label": "25 April 2025",
@@ -2984,7 +2984,7 @@ BLOG_POSTS = [
   {
     "slug": "usman-hanif-pioneering-luxury-chauffeur-services-in-dubai",
     "title": "Usman Hanif, Founder of UMC Dubai Luxury Chauffeur Services",
-    "meta": "Meet Usman Hanif, founder of UMC Dubai. How a globally-formed perspective on luxury travel shaped a chauffeur service built on consistency, discretion and detail.",
+    "meta": "Meet Usman Hanif, founder of UMC Dubai, and how a globally-formed view of luxury travel shaped a chauffeur service built on consistency.",
     "date": "2024-11-18",
     "date_label": "18 November 2024",
     "author": "Usman Hanif",
@@ -3012,8 +3012,8 @@ BLOG_POSTS = [
   },
   {
     "slug": "safe-driver-service-dubai",
-    "title": "What Makes a Safe Driver Service in Dubai? A Client's Checklist",
-    "meta": "What to look for in a safe driver service in Dubai: RTA licensing, insurance, professional chauffeurs, a maintained fleet and transparent pricing. A clear checklist.",
+    "title": "Safe Driver Service in Dubai: A Client's Checklist",
+    "meta": "What to look for in a safe driver service in Dubai: RTA licensing, insurance, professional chauffeurs and transparent pricing.",
     "date": "2025-09-18",
     "date_label": "18 September 2025",
     "author": BLOG_AUTHOR_DEFAULT,
