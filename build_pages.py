@@ -2295,7 +2295,7 @@ FLEET_PAGES_DRAFT = [
    "hero_img":"lexus-es/hero.jpeg",
    "hero_object_pos_mobile":"100% 50%",
    "interior_primary":"lexus-es/interior.png",
-   "interior_details":["lexus-es/detail-1.png","lexus-es/detail-2.png",None,None],
+   "interior_details":["lexus-es/detail-1.png","lexus-es/detail-2.png","lexus-es/detail-3.png","lexus-es/detail-4.png"],
    "interior_heading":"The cabin that asks nothing of you.",
    "interior_intro":"Hushed, even-tempered, considered down to the last surface. The ES is for the passenger who wants the journey to simply disappear.",
    "chauffeur_heading":"Held to one standard.",

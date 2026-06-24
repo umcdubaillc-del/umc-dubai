@@ -80,7 +80,7 @@ function umcRatesFor(vid, em){
 }
 
 const DEFAULT_FLEET = [
-  {id:"mb-s-class",marque:"/assets/marques/mercedes.png",name:"Mercedes-Benz S-Class",category:"Flagship Sedan",year:2024,seats:4,luggage:2,
+  {id:"mb-s-class",marque:"/assets/marques/mercedes.png",name:"Mercedes Benz S-Class",category:"Flagship Sedan",year:2024,seats:4,luggage:2,
    r10:2400,r5:1800,ra:850,visible:true,page:"/fleet/s-class",
    /* TEMPORARY,replace with real UMC S-Class photography when supplied.
       flipImg flips the source horizontally so the car faces left, matching the
@@ -100,7 +100,7 @@ const DEFAULT_FLEET = [
    r10:1400,r5:900,ra:550,visible:true,page:"/fleet/gmc-yukon-xl",
    img:"/assets/fleet/gmc-yukon-xl/gmc-yukon-xl.png",
    desc:"Generous space for passengers and luggage alike."},
-  {id:"mb-e-class",marque:"/assets/marques/mercedes.png",name:"Mercedes-Benz E-Class",category:"Business Sedan",year:2025,seats:4,luggage:2,
+  {id:"mb-e-class",marque:"/assets/marques/mercedes.png",name:"Mercedes Benz E-Class",category:"Business Sedan",year:2025,seats:4,luggage:2,
    r10:1600,r5:1150,ra:400,visible:true,page:"/fleet/e-class",
    /* TEMPORARY,replace with real UMC E-Class photography when supplied. */
    img:"/assets/fleet/e-class/card.png",photo:true,
@@ -109,11 +109,11 @@ const DEFAULT_FLEET = [
    r10:1000,r5:700,ra:350,visible:true,page:"/fleet/lexus-es",
    img:"/assets/fleet/lexus-es/lexus-es.png",
    desc:"Quiet confidence and remarkable comfort."},
-  {id:"mb-v-class",marque:"/assets/marques/mercedes.png",name:"Mercedes-Benz V-Class",category:"Luxury Van",year:2024,seats:7,luggage:5,
+  {id:"mb-v-class",marque:"/assets/marques/mercedes.png",name:"Mercedes Benz V-Class",category:"Luxury Van",year:2024,seats:7,luggage:5,
    r10:1400,r5:1000,ra:500,visible:true,page:"/fleet/v-class",
    img:"/assets/fleet/v-class/v-class.png",
    desc:"First-class travel for up to seven, face to face."},
-  {id:"mb-sprinter",marque:"/assets/marques/mercedes.png",name:"Mercedes-Benz Sprinter",category:"Executive Van",year:2025,seats:19,luggage:10,
+  {id:"mb-sprinter",marque:"/assets/marques/mercedes.png",name:"Mercedes Benz Sprinter",category:"Executive Van",year:2025,seats:19,luggage:10,
    r10:null,r5:null,ra:null,visible:true,page:"/fleet/sprinter",
    img:"/assets/fleet/sprinter/sprinter.png",
    desc:"10, 13 or 19 seats for delegations and crews."},
