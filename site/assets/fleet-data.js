@@ -143,14 +143,19 @@ function esc(s){ return String(s??"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&
 // width/height + the CSS aspect-ratio on .vcard .vimg img reserve the 16:10 box
 // from the very first paint so the card layout doesn't shift as images decode.
 function cardImg(v){
-  const src = esc(v.img);
+  // Cache-bust suffix injected by build_pages.py via <script>window.UMC_FLEET_V="..."</script>
+  // immediately above this file's <script src> tag. Updates whenever any fleet
+  // image bytes change, so swapped images under the same filename defeat
+  // browser + Cloudflare edge caches with no manual purge.
+  const fv = (typeof window !== "undefined" && window.UMC_FLEET_V) ? ("?v=" + window.UMC_FLEET_V) : "";
+  const src = esc(v.img) + fv;
   const alt = esc(v.name) + ",chauffeur driven in Dubai with UMC";
   const m = String(v.img||"").match(/^(.*)\.(png|jpe?g|webp)$/i);
   if(!m) return `<img src="${src}" width="1200" height="750" alt="${alt}" loading="lazy" decoding="async">`;
   const base = m[1], ext = m[2];
-  const v360  = `${base}-360.${ext}`;
-  const v720  = `${base}-720.${ext}`;
-  const v1080 = `${base}-1080.${ext}`;
+  const v360  = `${base}-360.${ext}${fv}`;
+  const v720  = `${base}-720.${ext}${fv}`;
+  const v1080 = `${base}-1080.${ext}${fv}`;
   // Phase-1.x — bumped sizes from 320px to 380px so the browser picks the
   // 1080w / 1200w source on retina (was choosing 720w and upscaling it).
   return `<img src="${src}" srcset="${v360} 360w, ${v720} 720w, ${v1080} 1080w, ${src} 1200w" sizes="(max-width:560px) 92vw, (max-width:980px) 45vw, 380px" width="1200" height="750" alt="${alt}" loading="lazy" decoding="async">`;

@@ -12,6 +12,22 @@ SITE = HERE / "site"
 # was causing the blocky mottling in dark/shadow areas on the V-Class details.)
 _INT_VARIANT_WIDTHS = (360, 720, 1080)
 _RESP_CACHE = {}
+
+def _compute_fleet_v():
+    """Per-deploy content hash of every file under site/assets/fleet/. Used as
+    a ?v= query suffix on every fleet image URL so swapped images defeat
+    browser + Cloudflare edge caches even when the filename is unchanged."""
+    import hashlib, pathlib
+    h = hashlib.md5()
+    base = pathlib.Path(__file__).resolve().parent / "site" / "assets" / "fleet"
+    if not base.exists(): return "0"
+    for p in sorted(base.rglob("*")):
+        if not p.is_file(): continue
+        h.update(str(p.relative_to(base)).encode())
+        h.update(b"\0")
+        h.update(p.read_bytes())
+    return h.hexdigest()[:10]
+FV = _compute_fleet_v()
 def ensure_image_variants(src_path):
     """Generate 360w + 720w variants if missing. Return [(w, name), ...].
 
@@ -71,18 +87,19 @@ def ensure_image_variants(src_path):
 def responsive_img(rel_path, css_class, alt, sizes_attr, loading="lazy", extra_attrs=""):
     """Emit an <img> with srcset for an interior image. rel_path is relative to
     site/assets/fleet/. Falls back to a plain <img> if PIL is unavailable or the
-    file is missing."""
+    file is missing. Every fleet image URL carries ?v={FV} so a swapped image
+    file under the same filename defeats browser + Cloudflare edge caches."""
     abs_src = SITE / 'assets' / 'fleet' / rel_path
     result = ensure_image_variants(abs_src)
     # Root-absolute so srcset works from any page depth (e.g. /airport-transfers/dubai).
-    plain_src = f'/assets/fleet/{rel_path}'
+    plain_src = f'/assets/fleet/{rel_path}?v={FV}'
     if not result:
         return f'<img class="{css_class}" src="{plain_src}" alt="{alt}" loading="{loading}"{extra_attrs}>'
     variants, nat_w = result
     parent = pathlib.Path(rel_path).parent
     stem = pathlib.Path(rel_path).stem
     ext = pathlib.Path(rel_path).suffix
-    parts = [f'/assets/fleet/{parent}/{stem}-{w}{ext} {w}w' for w, _ in variants]
+    parts = [f'/assets/fleet/{parent}/{stem}-{w}{ext}?v={FV} {w}w' for w, _ in variants]
     parts.append(f'{plain_src} {nat_w}w')
     return (f'<img class="{css_class}" '
             f'srcset="{", ".join(parts)}" '
@@ -307,6 +324,7 @@ FOOTER = f"""</main>
 <a class="wa-float" aria-label="WhatsApp UMC Dubai" target="_blank" rel="noopener" href="{WA}">
   <svg viewBox="0 0 32 32"><path d="M16 .8C7.6.8.8 7.6.8 16c0 2.7.7 5.3 2 7.6L.7 31.3l7.9-2.1c2.2 1.2 4.7 1.9 7.4 1.9 8.4 0 15.2-6.8 15.2-15.1S24.4.8 16 .8zm0 27.7c-2.4 0-4.7-.7-6.7-1.9l-.5-.3-4.7 1.2 1.3-4.6-.3-.5a12.4 12.4 0 0 1-1.9-6.6C3.2 9 8.9 3.3 16 3.3S28.8 9 28.8 16 23.1 28.5 16 28.5zm7-9.4c-.4-.2-2.3-1.1-2.6-1.2-.4-.1-.6-.2-.9.2-.3.4-1 1.2-1.2 1.5-.2.3-.4.3-.8.1-.4-.2-1.6-.6-3.1-1.9-1.1-1-1.9-2.2-2.1-2.6-.2-.4 0-.6.2-.8l.6-.7c.2-.2.3-.4.4-.6.1-.3 0-.5 0-.7l-1.2-2.8c-.3-.7-.6-.6-.9-.6h-.7c-.3 0-.7.1-1 .5-.4.4-1.3 1.3-1.3 3.2s1.4 3.7 1.6 4c.2.3 2.7 4.1 6.6 5.8.9.4 1.6.6 2.2.8.9.3 1.8.3 2.4.2.7-.1 2.3-.9 2.6-1.8.3-.9.3-1.7.2-1.8-.1-.2-.3-.3-.7-.5z"/></svg>
 </a>
+<script>window.UMC_FLEET_V="{FV}";</script>
 <script src="/assets/fleet-data.js?v={V}"></script>
 <script src="/assets/main.js?v={V}"></script>
 """
@@ -2550,7 +2568,7 @@ def render_fleet_page_body(car):
         op = car.get("hero_object_pos", "50% 50%")
         op_m = car.get("hero_object_pos_mobile", op)
         hero_ph = (f'<!-- TEMPORARY hero image. Replace with final UMC {name} photography. -->'
-                   f'<img class="sc-hero__img" src="/assets/fleet/{car["hero_img"]}" alt="{name}, exterior" fetchpriority="high" style="--hero-pos:{op};--hero-pos-mobile:{op_m}">')
+                   f'<img class="sc-hero__img" src="/assets/fleet/{car["hero_img"]}?v={FV}" alt="{name}, exterior" fetchpriority="high" style="--hero-pos:{op};--hero-pos-mobile:{op_m}">')
     else:
         hero_ph = fleet_placeholder(name + ", exterior", f"{cid}-hero", variant=0, css_class="sc-hero__img")
     # Interior primary image, primary cell is ~712px on desktop, full-width below 980px.
