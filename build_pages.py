@@ -10,7 +10,7 @@ SITE = HERE / "site"
 # quality JPEG/WebP). Future cars' interior images get this automatically, no
 # per-page wiring needed. (Diagnosed live: 1280->249 single-step crush is what
 # was causing the blocky mottling in dark/shadow areas on the V-Class details.)
-_INT_VARIANT_WIDTHS = (360, 720)
+_INT_VARIANT_WIDTHS = (360, 720, 1080)
 _RESP_CACHE = {}
 def ensure_image_variants(src_path):
     """Generate 360w + 720w variants if missing. Return [(w, name), ...].
@@ -2270,7 +2270,7 @@ FLEET_PAGES_DRAFT = [
    "hero_img":"e-class/hero.jpg",
    "hero_object_pos_mobile":"28% 50%",
    "interior_primary":"e-class/interior.png",
-   "interior_details":["e-class/detail-1.png","e-class/detail-2.jpg","e-class/detail-3.png", None],
+   "interior_details":["e-class/detail-1.png","e-class/cabin-detail-2.jpg","e-class/detail-3.png", None],
    "interior_heading":"Room enough to work.",
    "interior_intro":"A composed, well-ordered cabin for the meeting you are heading to and the one you have just left. Space to think; quiet to do it in.",
    "chauffeur_heading":"Held to one standard.",
@@ -2295,6 +2295,7 @@ FLEET_PAGES_DRAFT = [
    "hero_img":"lexus-es/hero.jpeg",
    "hero_object_pos_mobile":"100% 50%",
    "interior_primary":"lexus-es/interior.png",
+   "interior_details":["lexus-es/detail-1.png","lexus-es/detail-2.png",None,None],
    "interior_heading":"The cabin that asks nothing of you.",
    "interior_intro":"Hushed, even-tempered, considered down to the last surface. The ES is for the passenger who wants the journey to simply disappear.",
    "chauffeur_heading":"Held to one standard.",

@@ -148,9 +148,12 @@ function cardImg(v){
   const m = String(v.img||"").match(/^(.*)\.(png|jpe?g|webp)$/i);
   if(!m) return `<img src="${src}" width="1200" height="750" alt="${alt}" loading="lazy" decoding="async">`;
   const base = m[1], ext = m[2];
-  const v360 = `${base}-360.${ext}`;
-  const v720 = `${base}-720.${ext}`;
-  return `<img src="${src}" srcset="${v360} 360w, ${v720} 720w, ${src} 1200w" sizes="(max-width:560px) 92vw, (max-width:980px) 45vw, 320px" width="1200" height="750" alt="${alt}" loading="lazy" decoding="async">`;
+  const v360  = `${base}-360.${ext}`;
+  const v720  = `${base}-720.${ext}`;
+  const v1080 = `${base}-1080.${ext}`;
+  // Phase-1.x — bumped sizes from 320px to 380px so the browser picks the
+  // 1080w / 1200w source on retina (was choosing 720w and upscaling it).
+  return `<img src="${src}" srcset="${v360} 360w, ${v720} 720w, ${v1080} 1080w, ${src} 1200w" sizes="(max-width:560px) 92vw, (max-width:980px) 45vw, 380px" width="1200" height="750" alt="${alt}" loading="lazy" decoding="async">`;
 }
 
 /* v56: row-mate stretch fix. CSS grid forces cards in the same row to
