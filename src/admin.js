@@ -2997,7 +2997,14 @@ const PAGE_SCRIPT = `<script>
   function fmtDate(s){
     if(!s) return "";
     try {
-      return new Date(s + "T12:00:00").toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" });
+      // Robust to both date-only ("2026-06-24") and ISO with time
+      // ("2026-06-24T10:42:00Z"). Pin date-only to noon to dodge TZ rollback;
+      // parse anything with a time component as-is. v85: links table passes
+      // created_at which already carries a time, so the legacy "T12:00:00"
+      // suffix produced "Invalid Date".
+      const str = String(s);
+      const d = str.length <= 10 ? new Date(str + "T12:00:00") : new Date(str);
+      return d.toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" });
     } catch(e){ return s; }
   }
   // v54: description hygiene. Mirrors the server-side cleanDescription helper
@@ -3832,6 +3839,15 @@ const PAGE_SCRIPT = `<script>
     if(name === "payments") { loadPayments(); maybeReconcilePayments(); }
     if(name === "sales") loadSales();
     if(name === "create" && typeof fitDocToViewport === "function") fitDocToViewport();
+    // v85: persist active tab in URL hash so refresh stays on the same tab.
+    // Use replaceState to avoid pushing every tab click into browser history.
+    try {
+      const want = "#" + name;
+      if(location.hash !== want){
+        if(history && history.replaceState) history.replaceState(null, "", want);
+        else location.hash = name;
+      }
+    } catch(e){}
   }
   // v57: hoisted to IIFE scope so loadHistory can call it. Was previously
   // defined inside bindForm() — out of scope from loadHistory, causing a
@@ -4862,8 +4878,18 @@ const PAGE_SCRIPT = `<script>
   renderTotals();
   renderDoc();
   fetchNext();
+  // v85: restore active tab from URL hash so refresh stays put; default to
+  // Leads when no/invalid hash. Then run EVERY section loader on boot so each
+  // tab is fresh without a manual click (switchTab redundantly re-runs one
+  // loader for the active tab — harmless).
+  const _BOOT_TABS = ["leads","create","documents","links","payments","sales"];
+  const _hashTab = (location.hash || "").replace(/^#/, "");
+  const _bootTab = _BOOT_TABS.indexOf(_hashTab) >= 0 ? _hashTab : "leads";
+  switchTab(_bootTab);
+  loadLeads();
+  loadPayments();
+  loadLinks();
+  loadSales();
   loadHistory();
-  // Phase 1.4 — boot into Leads. switchTab("leads") also fires loadLeads().
-  switchTab("leads");
 })();
 </script>`;
