@@ -181,6 +181,9 @@ async function ensureSchema(env) {
     "client_email TEXT",
     "client_name TEXT",
     "excluded INTEGER DEFAULT 0",
+    // v86 — back-reference to the invoice this link is attached to (if any).
+    // Forward reference (billing_documents.nomod_link_id) already exists.
+    "invoice_number TEXT",
   ]) {
     try {
       await env.BILLING_DB.prepare(`ALTER TABLE payment_links ADD COLUMN ${col}`).run();
@@ -446,6 +449,32 @@ async function handleCreate(request, env) {
         console.error("LEADS stamp failed", e && (e.message || String(e)));
       }
     }
+    // v86 — when the create was seeded from a standalone payment_links row,
+    // attach it: copy the link's nomod_link_id/url/created_at onto the new
+    // invoice (REUSE the same Nomod link — do NOT mint a new one) and write
+    // the new invoice number back onto payment_links so the link row shows
+    // its attachment. Fail-open: an attach error must not undo the create.
+    const attachLinkId = (b.attach_link_id != null && /^\d+$/.test(String(b.attach_link_id))) ? Number(b.attach_link_id) : null;
+    if (attachLinkId && b.doc_type === "invoice") {
+      try {
+        const link = await env.BILLING_DB.prepare(
+          "SELECT id, nomod_link_id, nomod_link_url, invoice_number FROM payment_links WHERE id = ?"
+        ).bind(attachLinkId).first();
+        if (link && link.nomod_link_url && !link.invoice_number) {
+          const createdAt = new Date().toISOString();
+          await env.BILLING_DB.prepare(
+            `UPDATE billing_documents
+             SET nomod_link_id = ?, nomod_link_url = ?, nomod_link_created_at = ?
+             WHERE id = ?`
+          ).bind(link.nomod_link_id || null, link.nomod_link_url, createdAt, id).run();
+          await env.BILLING_DB.prepare(
+            "UPDATE payment_links SET invoice_number = ? WHERE id = ?"
+          ).bind(String(b.number), attachLinkId).run();
+        }
+      } catch (e) {
+        console.error("LINK attach on create failed", e && (e.message || String(e)));
+      }
+    }
     return json({ ok: true, id, number: b.number });
   } catch (e) {
     const msg = (e && (e.message || String(e))) || "db error";
@@ -610,8 +639,9 @@ async function nomodCreateLink(env, payload) {
   return { ok: true, data: body };
 }
 
-async function handlePaymentLink(id, env, opts) {
+async function handlePaymentLink(id, env, opts, override) {
   opts = opts || {};
+  override = override || {};
   await ensureSchema(env);
   const inv = await env.BILLING_DB.prepare(
     "SELECT * FROM billing_documents WHERE id = ?"
@@ -665,11 +695,24 @@ async function handlePaymentLink(id, env, opts) {
       };
     });
   }
+  // v86 — preview-modal overrides. Applied to the Nomod payload only; the
+  // underlying invoice is NEVER modified by a link regenerate. An explicit
+  // amount override collapses items to one consolidated line at that NET so
+  // the customer is charged exactly amount × 1.05 (Nomod adds the 5% account
+  // tax). Title, note and currency overrides are passed through as-is.
+  const ovAmt = Number(override.amount);
+  if (ovAmt > 0) {
+    items = [{
+      name: (String(override.title || inv.number) || "Invoice").slice(0, 50),
+      amount: ovAmt.toFixed(2),
+      quantity: 1,
+    }];
+  }
   const payload = {
-    currency: String(inv.currency || "AED"),
+    currency: String(override.currency || inv.currency || "AED"),
     items,
-    title: String(inv.number).slice(0, 50),
-    note: `Payment for UMC In Bound Tour Operator LLC invoice ${inv.number}`.slice(0, 280),
+    title: String(override.title || inv.number).slice(0, 50),
+    note: String(override.note || `Payment for UMC In Bound Tour Operator LLC invoice ${inv.number}`).slice(0, 280),
     success_url: PUBLIC_ORIGIN + "/?paid=" + encodeURIComponent(inv.number),
     failure_url: PUBLIC_ORIGIN + "/contact?invoice=" + encodeURIComponent(inv.number),
     allow_service_fee: NOMOD_ALLOW_SERVICE_FEE,
@@ -810,7 +853,8 @@ async function handleListLinks(env) {
   await ensureSchema(env);
   const { results } = await env.BILLING_DB.prepare(
     `SELECT id, title, amount, currency, note, nomod_link_id, nomod_link_url,
-            nomod_charge_id, COALESCE(excluded, 0) AS excluded, created_at
+            nomod_charge_id, COALESCE(excluded, 0) AS excluded, created_at,
+            client_name, client_email, invoice_number
      FROM payment_links ORDER BY id DESC LIMIT 500`
   ).all();
   return json({ ok: true, items: results || [] });
@@ -846,6 +890,52 @@ async function handleDeleteLead(id, env) {
   ).bind(id).run();
   if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
   return json({ ok: true, id });
+}
+
+// v86 — attach a standalone payment_links row to an existing invoice. Writes
+// the link's nomod_link_* fields onto the invoice (REUSE — never mint a new
+// Nomod link) and writes the invoice number back onto the link row. Refuses
+// if either side is already attached so attachments cannot be silently
+// overwritten. The link's underlying Nomod URL keeps working as before; the
+// invoice simply gains a payment URL without a Nomod round-trip.
+async function handleAttachLinkToInvoice(linkId, body, env) {
+  await ensureSchema(env);
+  const documentId = (body && body.document_id != null && /^\d+$/.test(String(body.document_id))) ? Number(body.document_id) : null;
+  if (!documentId) return json({ ok: false, error: "document_id required" }, 400);
+  const link = await env.BILLING_DB.prepare(
+    "SELECT id, nomod_link_id, nomod_link_url, invoice_number FROM payment_links WHERE id = ?"
+  ).bind(linkId).first();
+  if (!link) return json({ ok: false, error: "link not found" }, 404);
+  if (!link.nomod_link_url) return json({ ok: false, error: "link has no Nomod URL to reuse" }, 409);
+  if (link.invoice_number) return json({ ok: false, error: `link is already attached to ${link.invoice_number}` }, 409);
+  const inv = await env.BILLING_DB.prepare(
+    "SELECT id, number, doc_type, nomod_link_id FROM billing_documents WHERE id = ?"
+  ).bind(documentId).first();
+  if (!inv) return json({ ok: false, error: "invoice not found" }, 404);
+  if (inv.doc_type !== "invoice") return json({ ok: false, error: "links attach to invoices only" }, 400);
+  if (inv.nomod_link_id) return json({ ok: false, error: `invoice ${inv.number} already has a payment link attached` }, 409);
+  const createdAt = new Date().toISOString();
+  await env.BILLING_DB.prepare(
+    `UPDATE billing_documents
+     SET nomod_link_id = ?, nomod_link_url = ?, nomod_link_created_at = ?
+     WHERE id = ?`
+  ).bind(link.nomod_link_id || null, link.nomod_link_url, createdAt, documentId).run();
+  await env.BILLING_DB.prepare(
+    "UPDATE payment_links SET invoice_number = ? WHERE id = ?"
+  ).bind(String(inv.number), linkId).run();
+  return json({ ok: true, link_id: linkId, document_id: documentId, invoice_number: inv.number, nomod_link_url: link.nomod_link_url });
+}
+
+// v86 — invoices with no payment link yet, used by the link-attach picker.
+async function handleListUnlinkedInvoices(env) {
+  await ensureSchema(env);
+  const { results } = await env.BILLING_DB.prepare(
+    `SELECT id, number, doc_date, client_name, client_company, currency, total
+     FROM billing_documents
+     WHERE doc_type = 'invoice' AND (nomod_link_id IS NULL OR nomod_link_id = '')
+     ORDER BY id DESC LIMIT 200`
+  ).all();
+  return json({ ok: true, items: results || [] });
 }
 
 // Phase 1.3 — toggle revenue exclusion on a payment_links row. Used for
@@ -1903,6 +1993,8 @@ export async function handleAdmin(request, env) {
     if (!authed) return json({ ok: false, error: "auth required" }, 401);
     if (!env.BILLING_DB) return dbUnavailable();
     if (path === "/admin/api/billing/next" && method === "GET") return handleNext(url, env);
+    // v86 — invoices with no payment link yet (for the link-attach picker).
+    if (path === "/admin/api/billing/unlinked" && method === "GET") return handleListUnlinkedInvoices(env);
     if (path === "/admin/api/billing" && method === "POST") return handleCreate(request, env);
     if (path === "/admin/api/billing" && method === "GET") return handleList(env);
     const m = path.match(/^\/admin\/api\/billing\/(\d+)$/);
@@ -1913,7 +2005,11 @@ export async function handleAdmin(request, env) {
     const linkM = path.match(/^\/admin\/api\/billing\/(\d+)\/payment-link$/);
     if (linkM && method === "POST") {
       const regenerate = url.searchParams.get("regenerate") === "1";
-      return handlePaymentLink(parseInt(linkM[1], 10), env, { regenerate });
+      // v86 — optional overrides from the preview modal (title/amount/currency/note).
+      // Applied to the Nomod payload only; the underlying invoice is unchanged.
+      let body = {};
+      try { body = await request.json(); } catch {}
+      return handlePaymentLink(parseInt(linkM[1], 10), env, { regenerate }, body);
     }
     // v84 — manual mark-paid / mark-refunded actions for the Sales section.
     const mpM = path.match(/^\/admin\/api\/billing\/(\d+)\/mark-paid$/);
@@ -1976,6 +2072,13 @@ export async function handleAdmin(request, env) {
     if (path === "/admin/api/links" && method === "POST") return handleCreateStandaloneLink(request, env);
     const lm = path.match(/^\/admin\/api\/links\/(\d+)$/);
     if (lm && method === "DELETE") return handleDeleteLink(parseInt(lm[1], 10), env);
+    // v86 — attach a link to an existing invoice.
+    const am = path.match(/^\/admin\/api\/links\/(\d+)\/attach$/);
+    if (am && method === "POST") {
+      let body = {};
+      try { body = await request.json(); } catch {}
+      return handleAttachLinkToInvoice(parseInt(am[1], 10), body, env);
+    }
     return json({ ok: false, error: "not found" }, 404);
   }
 
@@ -2810,7 +2913,7 @@ function appShellHTML() {
     </div>
     <div class="hist-scroll">
       <table>
-        <thead><tr><th>Title</th><th style="text-align:right">Amount</th><th>Created</th><th>Link</th><th style="text-align:right">Actions</th></tr></thead>
+        <thead><tr><th>Title</th><th style="text-align:right">Amount</th><th>Created</th><th>Link</th><th>Attached</th><th aria-hidden="true"></th></tr></thead>
         <tbody id="lkBody"></tbody>
       </table>
     </div>
@@ -2981,7 +3084,11 @@ const PAGE_SCRIPT = `<script>
     internal_notes: "",
     source_quote_number: null,
     lead_id: null,
-    leadOriginal: null
+    leadOriginal: null,
+    // v86 — when the Create editor was seeded from a standalone payment link,
+    // this carries the link id so the server attaches the new invoice to the
+    // link (reuses the same Nomod URL, writes the invoice number back).
+    attach_link_id: null
   };
 
   // ---------- helpers
@@ -3490,91 +3597,64 @@ const PAGE_SCRIPT = `<script>
     $("lkRefresh").addEventListener("click", function(){ loadLinks(); });
     $("lkCreate").addEventListener("click", createStandaloneLink);
     let linksLoaded = false;
+    let lastLinksById = {};
     // v85: assign to the outer-scope loadLinks let (declared near switchTab)
     // so the IIFE-scope switchTab + boot init can call it. Closure still
     // captures setLkStatus, linksLoaded, deleteStandaloneLink, fmtDate, etc.
+    // v86: renders expandable rows with a click-to-reveal drawer mirroring the
+    // Payments tab exactly. Drawer carries Copy link, Create-invoice-from-link
+    // (when not attached and not Nomod-synced), Attach to existing invoice,
+    // Linked indicator (when invoice_number is set), Exclude/Restore (synced)
+    // and Delete (non-synced, non-attached).
     loadLinks = async function(){
       try {
         const r = await fetch("/admin/api/links");
         const j = await r.json();
         const tbody = $("lkBody");
         const empty = $("lkEmpty");
-        if(!j.ok || !j.items || !j.items.length){ tbody.innerHTML = ""; empty.hidden = false; linksLoaded = true; return; }
+        if(!j.ok || !j.items || !j.items.length){ tbody.innerHTML = ""; empty.hidden = false; linksLoaded = true; lastLinksById = {}; return; }
         empty.hidden = true;
+        lastLinksById = {};
         tbody.innerHTML = j.items.map(function(x){
+          lastLinksById[String(x.id)] = x;
           const u = String(x.nomod_link_url || "");
           const shortU = u.replace(/^https?:\\/\\//,'').slice(0,42) + (u.length > 50 ? '…' : '');
-          // Phase 1.3 — Nomod-synced rows cannot be hard-deleted; swap Delete for Exclude/Restore.
           const isSynced = !!x.nomod_charge_id;
           const isExcl = Number(x.excluded) === 1;
-          let trailingBtn;
-          if(isSynced){
-            trailingBtn = isExcl
-              ? '<button type="button" class="btn btn-small btn-ghost" data-lkexclude="0" data-id="'+x.id+'" title="Include this charge in revenue again">Restore</button>'
-              : '<button type="button" class="btn btn-small btn-danger" data-lkexclude="1" data-id="'+x.id+'" title="Keep the record but stop counting it in revenue">Exclude from revenue</button>';
-          } else {
-            trailingBtn = '<button type="button" class="btn btn-small btn-danger" data-lkdel="'+x.id+'" data-lktitle="'+esc(x.title)+'" title="Delete this link from the record (the Nomod URL itself stays live)">&times;</button>';
+          const attachedNum = x.invoice_number ? String(x.invoice_number) : "";
+          // Drawer actions, mirrored from Payments. Buttons sit in
+          // .hist-actions-panel inside a hidden sibling row.
+          const actions = [];
+          actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkcopy="'+esc(u)+'" title="Copy this Nomod payment link to clipboard">Copy link</button>');
+          if(attachedNum){
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkopen="'+esc(attachedNum)+'" title="Open the attached invoice in the editor">Open '+esc(attachedNum)+'</button>');
+          } else if(!isSynced){
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkmakeinv="'+x.id+'" title="Issue an invoice prefilled from this link. Reuses this Nomod URL on the new invoice.">Create invoice from link</button>');
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkattach="'+x.id+'" title="Pick an existing invoice to attach this link to. Reuses this Nomod URL on the chosen invoice.">Attach to existing invoice</button>');
           }
-          return '<tr'+(isExcl?' class="excluded"':'')+'>'
+          if(isSynced){
+            if(isExcl){
+              actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkexclude="0" data-id="'+x.id+'" title="Include this charge in revenue again">Restore</button>');
+            } else {
+              actions.push('<button type="button" class="btn btn-small btn-danger" data-lkexclude="1" data-id="'+x.id+'" title="Keep the record but stop counting it in revenue">Exclude from revenue</button>');
+            }
+          } else if(!attachedNum){
+            actions.push('<button type="button" class="btn btn-small btn-danger" data-lkdel="'+x.id+'" data-lktitle="'+esc(x.title)+'" title="Delete this link from the local record (the Nomod URL itself stays live)">Delete</button>');
+          }
+          const attachedCell = attachedNum
+            ? '<a href="#" class="hist-link" data-lkopen="'+esc(attachedNum)+'" title="Open the attached invoice">'+esc(attachedNum)+'</a>'
+            : '<span style="color:var(--muted)">&mdash;</span>';
+          const trClass = "expandable" + (isExcl ? " excluded" : "");
+          return '<tr class="'+trClass+'" data-expandable="1" data-lkid="'+x.id+'">'
             + '<td data-lbl="Title">'+esc(x.title)+(x.note ? '<div class="hist-link" style="color:var(--muted)">'+esc(x.note)+'</div>' : '')+'</td>'
             + '<td data-lbl="Amount" style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(Number(x.amount), x.currency))+'</td>'
             + '<td data-lbl="Created">'+esc(fmtDate(x.created_at))+'</td>'
             + '<td data-lbl="Link"><div class="hist-link"><a href="'+esc(u)+'" target="_blank" rel="noopener noreferrer" title="'+esc(u)+'">'+esc(shortU)+'</a></div></td>'
-            + '<td data-lbl="Actions" class="hist-actions">'
-            +   '<button type="button" class="btn btn-small btn-ghost" data-lkcopy="'+esc(u)+'" title="Copy link to clipboard">Copy link</button> '
-            +   trailingBtn
-            + '</td>'
-            + '</tr>';
+            + '<td data-lbl="Attached">'+attachedCell+'</td>'
+            + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
+            + '</tr>'
+            + '<tr class="hist-actions-row" hidden><td colspan="6"><div class="hist-actions-panel">'+actions.join(' ')+'</div></td></tr>';
         }).join("");
-        if(!tbody._lkClickBound){
-          tbody._lkClickBound = true;
-          tbody.addEventListener("click", function(e){
-            const cp = e.target.closest("[data-lkcopy]");
-            const dl = e.target.closest("[data-lkdel]");
-            if(cp){
-              e.preventDefault();
-              copyToClipboard(cp.getAttribute("data-lkcopy")).then(function(ok){
-                if(ok) flashCopied(cp, "Link copied");
-                else flashCopyFailed(cp);
-              });
-              return;
-            }
-            if(dl){
-              e.preventDefault();
-              const title = dl.getAttribute("data-lktitle") || "this link";
-              if(!confirm("Remove " + title + " from the standalone-links record?\\n\\nThe Nomod payment URL itself stays live; anyone with the link can still pay until it expires on Nomod. This only removes it from your local record.")) return;
-              deleteStandaloneLink(dl.getAttribute("data-lkdel"));
-              return;
-            }
-            const ex = e.target.closest("[data-lkexclude]");
-            if(ex){
-              e.preventDefault();
-              const flag = ex.getAttribute("data-lkexclude") === "1";
-              if(flag){
-                if(!confirm("Exclude this charge from revenue and reports? The record is kept but no longer counted.")) return;
-              }
-              const id = ex.getAttribute("data-id");
-              fetch("/admin/api/payments/" + id + "/exclude", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ excluded: flag })
-              })
-                .then(function(r){ return r.json(); })
-                .then(function(j){
-                  if(j && j.ok){
-                    setLkStatus(flag ? "Charge excluded from revenue." : "Charge restored to revenue.");
-                    loadLinks();
-                    if(typeof loadPayments === "function") loadPayments();
-                    if(typeof loadSales === "function") loadSales();
-                  } else {
-                    setLkStatus("Update failed: " + ((j && j.error) || ""));
-                  }
-                })
-                .catch(function(err){ setLkStatus("Update failed: " + (err.message || err)); });
-              return;
-            }
-          });
-        }
         linksLoaded = true;
       } catch(e){ setLkStatus("Links load failed."); }
     };
@@ -3588,42 +3668,71 @@ const PAGE_SCRIPT = `<script>
         .filter(function(it){ return it.price > 0; });
       if(!title){ setLkStatus("Name is required."); $("lkTitle").focus(); return; }
       if(!items.length){ setLkStatus("Add at least one item with a price > 0."); return; }
-      // Fill blank names with a default before sending so Nomod always shows something.
       items.forEach(function(it){ if(!it.name) it.name = "Service"; });
 
       const discValue = Math.max(0, Number($("lkDiscValue").value)||0);
       const discount = discValue > 0 ? { mode: discMode, value: discValue } : null;
       const expiryRaw = $("lkExpiry").value || "";
       const expiry_date = expiryRaw ? expiryRaw : null;
-      const payload = {
-        title, currency, note, items,
-        allow_tabby:        $("lkTabby").checked,
-        allow_tamara:       $("lkTamara").checked,
-        allow_tip:          $("lkTip").checked,
-        shipping_required:  $("lkShip").checked,
-      };
-      if(discount)    payload.discount    = discount;
-      if(expiry_date) payload.expiry_date = expiry_date;
+      const itemsSum = items.reduce(function(a, it){ return a + Number(it.price) * (Number(it.quantity)||1); }, 0);
+      const previewAmount = discount
+        ? (discount.mode === "flat"
+            ? Math.max(0, itemsSum - Number(discount.value))
+            : itemsSum * (1 - Number(discount.value)/100))
+        : itemsSum;
 
-      setLkStatus("Creating payment link via Nomod …");
-      $("lkCreate").disabled = true;
-      try {
-        const r = await fetch("/admin/api/links", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        const j = await r.json();
-        if(!j.ok){ setLkStatus("Failed: " + (j.error || r.status)); return; }
-        setLkStatus("Link created. Copying …");
-        const ok = await copyToClipboard(j.url);
-        setLkStatus(ok ? "Link created and copied to clipboard." : "Link created. (Auto-copy unavailable; use Copy link below.)");
-        // reset to a clean form
-        $("lkTitle").value = ""; $("lkNote").value = ""; $("lkDiscValue").value = ""; $("lkExpiry").value = "";
-        lkItems = [{ name:"", price:0 }]; renderLkItems();
-        await loadLinks();
-      } catch(e){ setLkStatus("Failed: " + (e.message || e)); console.log("createStandaloneLink error:", e); }
-      finally { $("lkCreate").disabled = false; }
+      // v86 — institutional confirm: never POST without an editable preview.
+      openLinkPreviewModal({
+        headerText: "Confirm standalone payment link",
+        presetTitle: title,
+        presetAmount: previewAmount,
+        presetCurrency: currency,
+        presetNote: note,
+        confirmLabel: "Generate link",
+        onConfirm: async function(values, ctx){
+          ctx.setBusy(true);
+          ctx.setStatus("Creating payment link via Nomod …");
+          // If the user edited the amount in the preview, collapse items into
+          // a single consolidated line so the link matches what they confirmed.
+          // The discount/expiry passthrough is preserved when the amount was
+          // not edited (within 1 cent).
+          const amountChanged = Math.abs(Number(values.amount) - Number(previewAmount)) > 0.005;
+          const payload = {
+            title: values.title,
+            currency: values.currency,
+            note: values.note,
+            items: amountChanged
+              ? [{ name: values.title || "Service", price: Number(values.amount), quantity: 1 }]
+              : items,
+            allow_tabby:        $("lkTabby").checked,
+            allow_tamara:       $("lkTamara").checked,
+            allow_tip:          $("lkTip").checked,
+            shipping_required:  $("lkShip").checked,
+          };
+          if(discount && !amountChanged) payload.discount = discount;
+          if(expiry_date) payload.expiry_date = expiry_date;
+          try {
+            const r = await fetch("/admin/api/links", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            });
+            const j = await r.json();
+            if(!j.ok){ ctx.setStatus("Failed: " + (j.error || r.status)); ctx.setBusy(false); return; }
+            const ok = await copyToClipboard(j.url);
+            ctx.close();
+            setLkStatus(ok ? "Link created and copied to clipboard." : "Link created (auto-copy unavailable).");
+            // reset to a clean form
+            $("lkTitle").value = ""; $("lkNote").value = ""; $("lkDiscValue").value = ""; $("lkExpiry").value = "";
+            lkItems = [{ name:"", price:0 }]; renderLkItems();
+            await loadLinks();
+          } catch(e){
+            ctx.setStatus("Failed: " + (e.message || e));
+            ctx.setBusy(false);
+            console.log("createStandaloneLink error:", e);
+          }
+        }
+      });
     }
     async function deleteStandaloneLink(id){
       try {
@@ -3715,7 +3824,9 @@ const PAGE_SCRIPT = `<script>
       total: r.total,
       notes: state.notes,
       internal_notes: state.internal_notes,
-      lead_id: state.lead_id
+      lead_id: state.lead_id,
+      // v86 — attach the new invoice to a standalone link, if seeded from one.
+      attach_link_id: state.attach_link_id
     };
     try {
       const res = await fetch("/admin/api/billing", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload) });
@@ -3730,9 +3841,12 @@ const PAGE_SCRIPT = `<script>
       // documents (e.g. New) do not re-stamp the same lead.
       state.lead_id = null;
       state.leadOriginal = null;
+      // v86 — clear link attachment so the next document does not re-attach.
+      state.attach_link_id = null;
       updateLeadRevertButton();
       loadHistory();
       if(typeof loadLeads === "function") loadLeads();
+      if(typeof loadLinks === "function") loadLinks();
 
       // Email-to-client (item 6): if checkbox on, generate the branded email
       // body now and reveal the panel for copy-paste alongside the PDF.
@@ -3760,6 +3874,8 @@ const PAGE_SCRIPT = `<script>
     state.source_quote_number = null;
     state.lead_id = null;
     state.leadOriginal = null;
+    // v86 — New also clears any pending link attachment.
+    state.attach_link_id = null;
     state.doc_date = new Date().toISOString().slice(0,10);
     ["cName","cCompany","cAddress","cEmail","cPhone","fDiscount","fNotes","fInternalNotes","fEmailRecipients"].forEach(function(id){ const el = $(id); if(el) el.value = ""; });
     $("fDate").value = state.doc_date;
@@ -4468,6 +4584,339 @@ const PAGE_SCRIPT = `<script>
     lastAutoReconcile = now;
     reconcilePaymentsNow();
   }
+  // v86 — delegated click handler on stable #tab-links ancestor. Mirrors
+  // bindPayClickOnce: drawer toggle on row click, dispatch each action by
+  // its data-* attribute. Bound once at boot so the handler survives
+  // loadLinks re-renders (which would otherwise lose a tbody-bound handler).
+  function bindLinksClickOnce(){
+    const root = document.getElementById("tab-links");
+    if(!root || root._linksClickBound) return;
+    root._linksClickBound = true;
+    root.addEventListener("click", function(e){
+      const cp = e.target.closest("[data-lkcopy]");
+      if(cp){
+        e.preventDefault(); e.stopPropagation();
+        copyToClipboard(cp.getAttribute("data-lkcopy")).then(function(ok){
+          if(ok) flashCopied(cp, "Link copied");
+          else flashCopyFailed(cp);
+        });
+        return;
+      }
+      const op = e.target.closest("[data-lkopen]");
+      if(op){
+        e.preventDefault(); e.stopPropagation();
+        const num = op.getAttribute("data-lkopen") || "";
+        // Reuse the Documents-tab open flow: find the invoice id by number
+        // from the in-memory history list, fall back to a quick fetch.
+        openInvoiceByNumber(num);
+        return;
+      }
+      const mk = e.target.closest("[data-lkmakeinv]");
+      if(mk){
+        e.preventDefault(); e.stopPropagation();
+        const link = lastLinksById[mk.getAttribute("data-lkmakeinv")];
+        if(link) prefillFromLink(link);
+        return;
+      }
+      const at = e.target.closest("[data-lkattach]");
+      if(at){
+        e.preventDefault(); e.stopPropagation();
+        openAttachPicker(at.getAttribute("data-lkattach"));
+        return;
+      }
+      const dl = e.target.closest("[data-lkdel]");
+      if(dl){
+        e.preventDefault(); e.stopPropagation();
+        const title = dl.getAttribute("data-lktitle") || "this link";
+        if(!confirm("Remove " + title + " from the standalone-links record?\\n\\nThe Nomod payment URL itself stays live; anyone with the link can still pay until it expires on Nomod. This only removes it from your local record.")) return;
+        deleteStandaloneLink(dl.getAttribute("data-lkdel"));
+        return;
+      }
+      const ex = e.target.closest("[data-lkexclude]");
+      if(ex){
+        e.preventDefault(); e.stopPropagation();
+        const flag = ex.getAttribute("data-lkexclude") === "1";
+        if(flag){
+          if(!confirm("Exclude this charge from revenue and reports? The record is kept but no longer counted.")) return;
+        }
+        const id = ex.getAttribute("data-id");
+        fetch("/admin/api/payments/" + id + "/exclude", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ excluded: flag })
+        })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if(j && j.ok){
+              setLkStatus(flag ? "Charge excluded from revenue." : "Charge restored to revenue.");
+              loadLinks();
+              if(typeof loadPayments === "function") loadPayments();
+              if(typeof loadSales === "function") loadSales();
+            } else {
+              setLkStatus("Update failed: " + ((j && j.error) || ""));
+            }
+          })
+          .catch(function(err){ setLkStatus("Update failed: " + (err.message || err)); });
+        return;
+      }
+      const rf = e.target.closest("#lkRefresh");
+      if(rf){
+        // already wired separately; do not double-handle here.
+        return;
+      }
+      const lkCreateBtn = e.target.closest("#lkCreate");
+      if(lkCreateBtn){
+        return;
+      }
+      // Row click toggles the drawer (skipped for clicks on links/buttons).
+      const expTr = e.target.closest("tr[data-expandable='1']");
+      if(expTr && !e.target.closest("a, button")){
+        toggleAccordionRow(expTr, root);
+      }
+    });
+  }
+
+  // v86 — find an invoice by number in the most recent history snapshot;
+  // fall back to GET /admin/api/billing for the lookup if not yet loaded.
+  let lastHistoryItems = [];
+  async function openInvoiceByNumber(num){
+    if(!num) return;
+    let row = lastHistoryItems.find(function(r){ return String(r.number) === String(num); });
+    if(!row){
+      try {
+        const r = await fetch("/admin/api/billing");
+        const j = await r.json();
+        if(j && j.ok && Array.isArray(j.items)){
+          lastHistoryItems = j.items;
+          row = j.items.find(function(rr){ return String(rr.number) === String(num); });
+        }
+      } catch(_){}
+    }
+    if(!row){ setLkStatus("Invoice " + num + " not found."); return; }
+    if(typeof loadDoc === "function") loadDoc(row.id);
+  }
+
+  // v86 — seed the Create editor from a standalone payment link. Mirrors the
+  // shape of prefillFromLead but with link-derived values and explicitly
+  // CLEARS lead_id + leadOriginal so the Revert-to-original button stays
+  // hidden (the link is its own baseline; lead-revert does not apply).
+  function prefillFromLink(link){
+    if(!link) return;
+    state.lead_id = null;
+    state.leadOriginal = null;
+    state.attach_link_id = link.id;
+    state.doc_type = "invoice";
+    $("tQuote").classList.toggle("on", false);
+    $("tInvoice").classList.toggle("on", true);
+    $("lblClient").textContent = "Billed to";
+    state.client = {
+      name:    link.client_name  || "",
+      company: "",
+      address: "",
+      email:   link.client_email || "",
+      phone:   ""
+    };
+    $("cName").value    = state.client.name;
+    $("cCompany").value = "";
+    $("cAddress").value = "";
+    $("cEmail").value   = state.client.email;
+    if($("cPhone")) $("cPhone").value = state.client.phone;
+    // Default to one line item with the link title as description and the
+    // link's stored NET amount as the rate. vat_mode stays exclusive so the
+    // displayed total matches what Nomod will charge (rate + 5%).
+    const rate = Number(link.amount) || 0;
+    state.line_items = [{ description: link.title || "Payment", qty: 1, rate: rate }];
+    state.discount = 0;
+    state.currency = String(link.currency || "AED");
+    state.notes = link.note || "";
+    state.internal_notes = "From standalone link #" + link.id + " (reusing Nomod URL " + (link.nomod_link_url || "") + ")";
+    state.source_quote_number = null;
+    state.doc_date = new Date().toISOString().slice(0,10);
+    $("fNotes").value = state.notes;
+    if($("fInternalNotes")) $("fInternalNotes").value = state.internal_notes;
+    $("fDiscount").value = "";
+    $("fDate").value = state.doc_date;
+    renderLineRows(); renderTotals(); renderDoc();
+    if(typeof fetchNext === "function"){
+      try { Promise.resolve(fetchNext()).catch(function(){}); } catch(_){}
+    }
+    updateLeadRevertButton();
+    switchTab("create");
+    setLkStatus("Create tab prefilled from link #" + link.id + ". Save to attach this link to the new invoice.");
+  }
+
+  // v86 — institutional confirm modal for any link generation (standalone
+  // create AND invoice regenerate). Shows title, amount, currency, note as
+  // EDITABLE inputs with a primary "Generate link" and Cancel. Only on
+  // confirm does the caller hit Nomod. Uses the existing ed-modal classes
+  // for backdrop/positioning and is built on demand so it can coexist with
+  // the document editor modal without DOM conflicts.
+  function openLinkPreviewModal(opts){
+    opts = opts || {};
+    const modal = document.createElement("div");
+    modal.className = "ed-modal lk-preview-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    const backdrop = document.createElement("div");
+    backdrop.className = "ed-backdrop";
+    backdrop.setAttribute("aria-hidden", "true");
+    const shell = document.createElement("div");
+    shell.className = "ed-shell";
+    shell.style.cssText = "max-width:520px;max-height:none;inset:auto;position:absolute;top:8vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
+    shell.innerHTML =
+      '<header class="ed-head">'
+      + '  <h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.18rem">'+esc(opts.headerText || "Confirm payment link")+'</h2>'
+      + '  <button type="button" class="btn btn-small btn-ghost" data-lkpv-cancel>Cancel</button>'
+      + '</header>'
+      + '<div class="ed-body" style="padding:1.1rem 1.2rem 1.2rem">'
+      + '  <p class="hist-sub" style="margin:0 0 .9rem">Review what the customer will see, then confirm. Editing these values affects only the link, not the underlying invoice.</p>'
+      + '  <div class="field" style="margin-bottom:.7rem"><label class="lbl" for="lkpvTitle">Title or client label</label><input id="lkpvTitle" type="text" maxlength="50" autocomplete="off"></div>'
+      + '  <div class="field" style="display:flex;gap:.6rem;margin-bottom:.7rem">'
+      + '    <div style="flex:1 1 auto"><label class="lbl" for="lkpvAmount">Amount (NET, customer pays +5%)</label><input id="lkpvAmount" type="number" min="0" step="0.01" inputmode="decimal"></div>'
+      + '    <div style="flex:0 0 130px"><label class="lbl" for="lkpvCurrency">Currency</label><select id="lkpvCurrency"><option value="AED">AED</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option></select></div>'
+      + '  </div>'
+      + '  <div class="field" style="margin-bottom:.9rem"><label class="lbl" for="lkpvNote">Note shown on the Nomod page</label><textarea id="lkpvNote" rows="2" maxlength="280"></textarea></div>'
+      + '  <div class="status-line" id="lkpvStatus" style="min-height:1.1em;margin:0 0 .8rem"></div>'
+      + '  <div class="actions" style="display:flex;gap:.6rem;justify-content:flex-end">'
+      + '    <button type="button" class="btn btn-small btn-ghost" data-lkpv-cancel>Cancel</button>'
+      + '    <button type="button" class="btn" id="lkpvGenerate">'+esc(opts.confirmLabel || "Generate link")+'</button>'
+      + '  </div>'
+      + '</div>';
+    modal.appendChild(backdrop);
+    modal.appendChild(shell);
+    document.body.appendChild(modal);
+    // Prefill values.
+    const inTitle    = modal.querySelector("#lkpvTitle");
+    const inAmount   = modal.querySelector("#lkpvAmount");
+    const inCurrency = modal.querySelector("#lkpvCurrency");
+    const inNote     = modal.querySelector("#lkpvNote");
+    const btnGen     = modal.querySelector("#lkpvGenerate");
+    const elStatus   = modal.querySelector("#lkpvStatus");
+    inTitle.value    = opts.presetTitle || "";
+    inAmount.value   = (opts.presetAmount != null ? Number(opts.presetAmount).toFixed(2) : "");
+    inCurrency.value = (opts.presetCurrency || "AED");
+    inNote.value     = opts.presetNote || "";
+    setTimeout(function(){ try { inTitle.focus(); inTitle.select(); } catch(_){} }, 30);
+    function close(){
+      try { document.body.removeChild(modal); } catch(_){}
+    }
+    function setStatusLine(s){ if(elStatus) elStatus.textContent = s || ""; }
+    function setBusy(busy){
+      btnGen.disabled = !!busy;
+      modal.querySelectorAll("[data-lkpv-cancel]").forEach(function(b){ b.disabled = !!busy; });
+      [inTitle, inAmount, inCurrency, inNote].forEach(function(i){ if(i) i.disabled = !!busy; });
+    }
+    modal.querySelectorAll("[data-lkpv-cancel]").forEach(function(b){
+      b.addEventListener("click", function(e){ e.preventDefault(); close(); });
+    });
+    backdrop.addEventListener("click", close);
+    document.addEventListener("keydown", function escListener(e){
+      if(e.key === "Escape"){ e.preventDefault(); close(); document.removeEventListener("keydown", escListener); }
+    });
+    btnGen.addEventListener("click", function(e){
+      e.preventDefault();
+      const title    = (inTitle.value || "").trim();
+      const amount   = Number(inAmount.value);
+      const currency = inCurrency.value || "AED";
+      const note     = (inNote.value || "").trim();
+      if(!title){ setStatusLine("Title is required."); inTitle.focus(); return; }
+      if(!(amount > 0)){ setStatusLine("Amount must be greater than zero."); inAmount.focus(); return; }
+      if(typeof opts.onConfirm === "function"){
+        opts.onConfirm({ title: title, amount: amount, currency: currency, note: note }, { setStatus: setStatusLine, setBusy: setBusy, close: close });
+      } else {
+        close();
+      }
+    });
+  }
+
+  // v86 — pick an existing invoice (one with no payment link yet) to attach
+  // this standalone link to. Fetches /admin/api/billing/unlinked, renders a
+  // compact list, posts to /admin/api/links/:id/attach on click.
+  function openAttachPicker(linkId){
+    if(!linkId) return;
+    const modal = document.createElement("div");
+    modal.className = "ed-modal lk-attach-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    const backdrop = document.createElement("div");
+    backdrop.className = "ed-backdrop";
+    backdrop.setAttribute("aria-hidden", "true");
+    const shell = document.createElement("div");
+    shell.className = "ed-shell";
+    shell.style.cssText = "max-width:560px;max-height:80vh;inset:auto;position:absolute;top:8vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55);display:flex;flex-direction:column";
+    shell.innerHTML =
+      '<header class="ed-head">'
+      + '  <h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.18rem">Attach link to invoice</h2>'
+      + '  <button type="button" class="btn btn-small btn-ghost" data-lkat-cancel>Close</button>'
+      + '</header>'
+      + '<div class="ed-body" style="padding:1rem 1.2rem 1.2rem;flex:1 1 auto;overflow:auto">'
+      + '  <p class="hist-sub" style="margin:0 0 .9rem">Invoices below have no payment link yet. Choose one to reuse this standalone link as its payment URL.</p>'
+      + '  <div class="status-line" id="lkatStatus" style="min-height:1.1em;margin:0 0 .6rem"></div>'
+      + '  <div id="lkatList" style="display:flex;flex-direction:column;gap:.4rem"></div>'
+      + '</div>';
+    modal.appendChild(backdrop);
+    modal.appendChild(shell);
+    document.body.appendChild(modal);
+    const elStatus = modal.querySelector("#lkatStatus");
+    const elList   = modal.querySelector("#lkatList");
+    function close(){ try { document.body.removeChild(modal); } catch(_){} }
+    modal.querySelectorAll("[data-lkat-cancel]").forEach(function(b){
+      b.addEventListener("click", function(e){ e.preventDefault(); close(); });
+    });
+    backdrop.addEventListener("click", close);
+    document.addEventListener("keydown", function escListener(e){
+      if(e.key === "Escape"){ e.preventDefault(); close(); document.removeEventListener("keydown", escListener); }
+    });
+    elStatus.textContent = "Loading unlinked invoices …";
+    fetch("/admin/api/billing/unlinked")
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if(!j || !j.ok){ elStatus.textContent = "Failed to load invoices: " + ((j && j.error) || ""); return; }
+        const items = j.items || [];
+        if(!items.length){ elStatus.textContent = "No unlinked invoices. Issue one first or use Create invoice from link."; return; }
+        elStatus.textContent = "";
+        elList.innerHTML = items.map(function(it){
+          const right = '<span style="font-variant-numeric:tabular-nums;color:var(--ink-soft)">'+esc(fmtMoney(Number(it.total), it.currency))+'</span>';
+          const sub = '<div style="color:var(--muted);font-size:12px">'+esc(it.client_name || "")+(it.client_company ? ' &middot; '+esc(it.client_company) : '')+' &middot; '+esc(fmtDate(it.doc_date))+'</div>';
+          return '<button type="button" class="btn btn-small btn-ghost" data-lkat-pick="'+it.id+'" data-lkat-num="'+esc(it.number)+'" style="display:flex;align-items:center;justify-content:space-between;gap:.8rem;text-align:left;padding:.6rem .8rem">'
+            + '<span style="display:flex;flex-direction:column;align-items:flex-start"><b>'+esc(it.number)+'</b>'+sub+'</span>'
+            + right
+            + '</button>';
+        }).join("");
+        elList.addEventListener("click", function(e){
+          const pick = e.target.closest("[data-lkat-pick]");
+          if(!pick) return;
+          e.preventDefault();
+          const docId = pick.getAttribute("data-lkat-pick");
+          const num   = pick.getAttribute("data-lkat-num") || "";
+          elStatus.textContent = "Attaching link to " + num + " …";
+          elList.querySelectorAll("button").forEach(function(b){ b.disabled = true; });
+          fetch("/admin/api/links/" + linkId + "/attach", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ document_id: Number(docId) })
+          })
+            .then(function(r){ return r.json(); })
+            .then(function(j){
+              if(j && j.ok){
+                close();
+                setLkStatus("Link attached to " + num + ".");
+                if(typeof loadLinks === "function") loadLinks();
+                if(typeof loadHistory === "function") loadHistory();
+              } else {
+                elStatus.textContent = "Attach failed: " + ((j && j.error) || "");
+                elList.querySelectorAll("button").forEach(function(b){ b.disabled = false; });
+              }
+            })
+            .catch(function(err){
+              elStatus.textContent = "Attach failed: " + (err.message || err);
+              elList.querySelectorAll("button").forEach(function(b){ b.disabled = false; });
+            });
+        });
+      })
+      .catch(function(err){ elStatus.textContent = "Failed to load invoices: " + (err.message || err); });
+  }
+
   // Delegated click handler on stable #tab-payments ancestor.
   function bindPayClickOnce(){
     const root = document.getElementById("tab-payments");
@@ -4790,19 +5239,58 @@ const PAGE_SCRIPT = `<script>
       await loadDoc(j.id);
     } catch(e){ setStatus("Convert failed: " + (e.message || e)); }
   }
+  // v86 — every link generation routes through openLinkPreviewModal first.
+  // Loads the invoice to derive defaults (NET = total / 1.05, title = number,
+  // currency, default note) and lets the operator tweak before Nomod is
+  // called. First-time generation does not need a preview, but on regen the
+  // preview is required; we present the modal in both cases so the operator
+  // sees what is about to be sent. Overrides ride to the server as a body.
   async function generatePaymentLink(id, num, regen){
-    if(regen && !confirm("Regenerate the payment link for " + num + "?\\n\\nThe existing link will be replaced with a new one and overwritten in the record.")) return;
-    setStatus((regen ? "Regenerating" : "Generating") + " payment link for " + num + " …");
+    setStatus("Preparing payment link preview for " + num + " …");
+    let inv;
     try {
-      const r = await fetch("/admin/api/billing/" + id + "/payment-link" + (regen ? "?regenerate=1" : ""), { method: "POST" });
+      const r = await fetch("/admin/api/billing/" + encodeURIComponent(id));
       const j = await r.json();
-      if(!j.ok){ setStatus("Payment link failed: " + (j.error || r.status)); return; }
-      setStatus("Payment link ready for " + num + (j.reused ? " (existing link reused)" : "") + ".");
-      await loadHistory();
-      // Convenience: auto-copy so Usman can paste straight away
-      const ok = await copyToClipboard(j.url);
-      if(ok) setStatus("Payment link copied to clipboard (" + num + ").");
-    } catch(e){ setStatus("Payment link failed: " + (e.message || e)); }
+      if(!j.ok || !j.item){ setStatus("Failed to load invoice for preview: " + ((j && j.error) || "")); return; }
+      inv = j.item;
+    } catch(e){ setStatus("Failed to load invoice for preview: " + (e.message || e)); return; }
+    const netAmount = (Number(inv.total) || 0) / 1.05;
+    const defaultNote = "Payment for UMC In Bound Tour Operator LLC invoice " + inv.number;
+    openLinkPreviewModal({
+      headerText: (regen ? "Regenerate payment link" : "Generate payment link") + " for " + inv.number,
+      presetTitle: inv.number,
+      presetAmount: netAmount,
+      presetCurrency: inv.currency || "AED",
+      presetNote: defaultNote,
+      confirmLabel: regen ? "Regenerate link" : "Generate link",
+      onConfirm: async function(values, ctx){
+        ctx.setBusy(true);
+        ctx.setStatus((regen ? "Regenerating" : "Generating") + " payment link via Nomod …");
+        try {
+          const r = await fetch("/admin/api/billing/" + id + "/payment-link" + (regen ? "?regenerate=1" : ""), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title: values.title,
+              amount: values.amount,
+              currency: values.currency,
+              note: values.note
+            })
+          });
+          const j = await r.json();
+          if(!j.ok){ ctx.setStatus("Payment link failed: " + (j.error || r.status)); ctx.setBusy(false); return; }
+          ctx.close();
+          setStatus("Payment link ready for " + inv.number + (j.reused ? " (existing link reused)" : "") + ".");
+          await loadHistory();
+          if(typeof loadLinks === "function") loadLinks();
+          const ok = await copyToClipboard(j.url);
+          if(ok) setStatus("Payment link copied to clipboard (" + inv.number + ").");
+        } catch(e){
+          ctx.setStatus("Payment link failed: " + (e.message || e));
+          ctx.setBusy(false);
+        }
+      }
+    });
   }
   async function deleteDoc(id, num){
     setStatus("Deleting " + (num || id) + " …");
@@ -4835,6 +5323,8 @@ const PAGE_SCRIPT = `<script>
       // Opening an existing doc must not re-stamp its (already converted) lead.
       state.lead_id = null;
       state.leadOriginal = null;
+      // v86 — opening an existing doc must not re-attach a link on save.
+      state.attach_link_id = null;
       // reflect into UI
       $("tQuote").classList.toggle("on", state.doc_type === "quote");
       $("tInvoice").classList.toggle("on", state.doc_type === "invoice");
@@ -4889,6 +5379,9 @@ const PAGE_SCRIPT = `<script>
   bindForm();
   // v60: bind Payments-tab delegated click handler once (stable ancestor).
   bindPayClickOnce();
+  // v86: same pattern for Links-tab actions (Copy, Create-invoice-from-link,
+  // Attach, Exclude/Restore, Delete, row drawer toggle).
+  bindLinksClickOnce();
   renderTotals();
   renderDoc();
   fetchNext();
