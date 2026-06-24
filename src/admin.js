@@ -415,7 +415,7 @@ async function handleCreate(request, env) {
     const total = Number(b.total) || 0;
     const hasPositiveRate = (b.line_items || []).some(li => Number(li && li.rate) > 0);
     if (total <= 0 || !hasPositiveRate) {
-      return json({ ok: false, error: "price required — enter a non-zero rate on at least one line item before issuing" }, 400);
+      return json({ ok: false, error: "price required: enter a non-zero rate on at least one line item before issuing" }, 400);
     }
   }
   await ensureSchema(env);
@@ -578,7 +578,7 @@ async function handleConvertToInvoice(id, env) {
     return json({ ok: true, id: newId, number: newNumber, source_quote_number: src.number });
   } catch (e) {
     const msg = (e && (e.message || String(e))) || "db error";
-    if (/UNIQUE/i.test(msg)) return json({ ok: false, error: "duplicate invoice number — please refresh and retry", detail: msg }, 409);
+    if (/UNIQUE/i.test(msg)) return json({ ok: false, error: "duplicate invoice number, please refresh and retry", detail: msg }, 409);
     return json({ ok: false, error: "db error during convert", detail: msg }, 500);
   }
 }
@@ -648,7 +648,7 @@ async function handlePaymentLink(id, env, opts, override) {
   ).bind(id).first();
   if (!inv) return json({ ok: false, error: "not found" }, 404);
   if (inv.doc_type !== "invoice") {
-    return json({ ok: false, error: "payment links are issued for invoices only — convert the quote first" }, 400);
+    return json({ ok: false, error: "payment links are issued for invoices only. Convert the quote first" }, 400);
   }
   if (inv.nomod_link_url && !opts.regenerate) {
     return json({ ok: true, url: inv.nomod_link_url, id: inv.nomod_link_id, reused: true });
@@ -813,7 +813,7 @@ async function handleCreateStandaloneLink(request, env) {
     currency,
     items: payloadItems,
     title: title.slice(0, 50),
-    note: (note || `Payment to UMC In Bound Tour Operator LLC — ${title}`).slice(0, 280),
+    note: (note || `Payment to UMC In Bound Tour Operator LLC · ${title}`).slice(0, 280),
     success_url: PUBLIC_ORIGIN + "/?paid=" + encodeURIComponent(title),
     failure_url: PUBLIC_ORIGIN + "/contact?ref=" + encodeURIComponent(title),
     allow_service_fee: NOMOD_ALLOW_SERVICE_FEE,
@@ -2123,7 +2123,7 @@ function PAGE_HTML(authed, env) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>UMC Dubai — Billing</title>
+<title>UMC Dubai · Billing</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Outfit:wght@300;400;500;600&family=Fraunces:opsz,wght@9..144,300;9..144,400&display=swap" rel="stylesheet">
@@ -2682,10 +2682,10 @@ function appShellHTML() {
       <div class="field">
         <label class="lbl">Currency</label>
         <select id="fCurrency">
-          <option value="AED" selected>AED — UAE Dirham</option>
-          <option value="USD">USD — US Dollar</option>
-          <option value="EUR">EUR — Euro</option>
-          <option value="GBP">GBP — Pound Sterling</option>
+          <option value="AED" selected>AED · UAE Dirham</option>
+          <option value="USD">USD · US Dollar</option>
+          <option value="EUR">EUR · Euro</option>
+          <option value="GBP">GBP · Pound Sterling</option>
         </select>
       </div>
       <div class="field">
@@ -2723,13 +2723,13 @@ function appShellHTML() {
 
     <div class="field" style="margin-top:1rem"><label class="lbl">Discount (optional)</label><input id="fDiscount" type="number" min="0" step="0.01" placeholder="0.00"></div>
     <div class="field"><label class="lbl">Notes (optional)</label><textarea id="fNotes" rows="3" placeholder="Anything you want printed at the bottom (terms-on-top, payment window, special arrangements …)"></textarea></div>
-    <div class="field"><label class="lbl">Internal notes (not shown to client)</label><textarea id="fInternalNotes" rows="3" placeholder="Admin-only — lineage, ops notes, anything you want recorded but never printed on the PDF."></textarea></div>
+    <div class="field"><label class="lbl">Internal notes (not shown to client)</label><textarea id="fInternalNotes" rows="3" placeholder="Admin-only: lineage, ops notes, anything you want recorded but never printed on the PDF."></textarea></div>
 
     <div class="totals">
-      <div class="r"><span>Net subtotal</span><span id="tSub">—</span></div>
-      <div class="r"><span>VAT 5%</span><span id="tVat">—</span></div>
-      <div class="r" id="rDisc" style="display:none"><span>Discount</span><span id="tDisc">—</span></div>
-      <div class="r total"><span>Total</span><span id="tTot">—</span></div>
+      <div class="r"><span>Net subtotal</span><span id="tSub">·</span></div>
+      <div class="r"><span>VAT 5%</span><span id="tVat">·</span></div>
+      <div class="r" id="rDisc" style="display:none"><span>Discount</span><span id="tDisc">·</span></div>
+      <div class="r total"><span>Total</span><span id="tTot">·</span></div>
     </div>
 
     <div class="field" style="margin-top:1rem">
@@ -2756,7 +2756,7 @@ function appShellHTML() {
 
     <div class="email-out" id="emailOut" hidden>
       <hr class="amber">
-      <h3>Client email — copy &amp; send</h3>
+      <h3>Client email · copy &amp; send</h3>
       <div class="meta-row">
         <div><b>To</b> <span id="emailToShow"></span></div>
         <div><b>Subject</b> <span id="emailSubjectShow"></span></div>
@@ -2802,7 +2802,7 @@ function appShellHTML() {
     <div class="hist-head">
       <div>
         <h2>Documents</h2>
-        <p class="hist-sub">The institutional ledger — every quote and invoice issued, ordered most recent first.</p>
+        <p class="hist-sub">The institutional ledger. Every quote and invoice issued, ordered most recent first.</p>
       </div>
       <button type="button" class="btn btn-small btn-ghost" id="btnRefresh">Refresh</button>
     </div>
@@ -2845,16 +2845,16 @@ function appShellHTML() {
 
   <section class="panel" aria-label="Create a standalone payment link">
     <h2>New payment link</h2>
-    <p class="hist-sub">Create a Nomod link without a full invoice &mdash; for deposits, ad-hoc charges or WhatsApp collection. Enter the price excluding VAT &mdash; Nomod adds 5% VAT and the customer pays the total.</p>
+    <p class="hist-sub">Create a Nomod link without a full invoice. Use it for deposits, ad-hoc charges or WhatsApp collection. Enter the price excluding VAT; Nomod adds 5% VAT and the customer pays the total.</p>
 
     <small class="lbl" style="margin-top:.8rem;display:block">Items</small>
     <div class="field">
       <label class="lbl" for="lkCurrency" style="font-size:10px">Currency</label>
       <select id="lkCurrency" style="width:auto;max-width:180px;font-size:14px">
-        <option value="AED" selected>AED &mdash; UAE Dirham</option>
-        <option value="USD">USD &mdash; US Dollar</option>
-        <option value="EUR">EUR &mdash; Euro</option>
-        <option value="GBP">GBP &mdash; Pound Sterling</option>
+        <option value="AED" selected>AED · UAE Dirham</option>
+        <option value="USD">USD · US Dollar</option>
+        <option value="EUR">EUR · Euro</option>
+        <option value="GBP">GBP · Pound Sterling</option>
       </select>
     </div>
 
@@ -2873,9 +2873,9 @@ function appShellHTML() {
     </div>
 
     <div class="lk-totals">
-      <div class="r"><span>Items subtotal</span><span id="lkSub">&mdash;</span></div>
-      <div class="r" id="lkDiscRow" style="display:none"><span>Discount</span><span id="lkDiscShow">&mdash;</span></div>
-      <div class="r tot"><span>Total (NET)</span><span id="lkTot">&mdash;</span></div>
+      <div class="r"><span>Items subtotal</span><span id="lkSub">&middot;</span></div>
+      <div class="r" id="lkDiscRow" style="display:none"><span>Discount</span><span id="lkDiscShow">&middot;</span></div>
+      <div class="r tot"><span>Total (NET)</span><span id="lkTot">&middot;</span></div>
       <div class="lk-vat-note">Nomod adds 5% VAT on the payment page. Customer pays NET &times; 1.05.</div>
     </div>
 
@@ -2932,7 +2932,7 @@ function appShellHTML() {
     <div class="hist-head">
       <div>
         <h2>Payments</h2>
-        <p class="hist-sub">Reconciliation &mdash; which invoices and links are paid. Status is polled from Nomod.</p>
+        <p class="hist-sub">Reconciliation. Which invoices and links are paid; status is polled from Nomod.</p>
       </div>
       <div class="hist-tools">
         <span class="lbl" id="payLastChecked" style="margin-right:.8rem">&nbsp;</span>
@@ -2958,7 +2958,7 @@ function appShellHTML() {
           <option value="amount-asc">Amount: low → high</option>
         </select>
       </div>
-      <a id="btnCustomersCsv" class="btn btn-small btn-ghost" href="/admin/api/customers.csv" download="umc-customers.csv" style="margin-left:auto" title="De-duplicated customers grouped by email — orders, first/last purchase, total spent.">Download customers (CSV)</a>
+      <a id="btnCustomersCsv" class="btn btn-small btn-ghost" href="/admin/api/customers.csv" download="umc-customers.csv" style="margin-left:auto" title="De-duplicated customers grouped by email: orders, first/last purchase, total spent.">Download customers (CSV)</a>
     </div>
     <div class="hist-scroll">
       <table>
@@ -2989,18 +2989,18 @@ function appShellHTML() {
       </div>
     </header>
     <div class="sales-kpis">
-      <div class="kpi"><span class="lbl">Net (turnover) <span id="kpiYearTag" class="muted" style="font-size:.7em">—</span></span><span class="val" id="kpiNet">—</span></div>
-      <div class="kpi"><span class="lbl">VAT collected <span class="muted" style="font-size:.7em">selected year</span></span><span class="val" id="kpiVat">—</span></div>
-      <div class="kpi"><span class="lbl">Gross received <span class="muted" style="font-size:.7em">selected year</span></span><span class="val" id="kpiGross">—</span></div>
-      <div class="kpi"><span class="lbl">Refunds <span class="muted" style="font-size:.7em">selected year</span></span><span class="val" id="kpiRefunds">—</span></div>
-      <div class="kpi"><span class="lbl">Lifetime collected <span class="muted" style="font-size:.7em">all years</span></span><span class="val" id="kpiLifetime">—</span></div>
+      <div class="kpi"><span class="lbl">Net (turnover) <span id="kpiYearTag" class="muted" style="font-size:.7em">·</span></span><span class="val" id="kpiNet">·</span></div>
+      <div class="kpi"><span class="lbl">VAT collected <span class="muted" style="font-size:.7em">selected year</span></span><span class="val" id="kpiVat">·</span></div>
+      <div class="kpi"><span class="lbl">Gross received <span class="muted" style="font-size:.7em">selected year</span></span><span class="val" id="kpiGross">·</span></div>
+      <div class="kpi"><span class="lbl">Refunds <span class="muted" style="font-size:.7em">selected year</span></span><span class="val" id="kpiRefunds">·</span></div>
+      <div class="kpi"><span class="lbl">Lifetime collected <span class="muted" style="font-size:.7em">all years</span></span><span class="val" id="kpiLifetime">·</span></div>
     </div>
     <div class="sales-split">
       <span class="lbl">Source split (gross)</span>
-      <span class="src" id="splitNomod">Nomod links —</span>
-      <span class="src" id="splitBank">Bank —</span>
-      <span class="src" id="splitCash">Cash —</span>
-      <span class="src" id="splitStandalone">Standalone links —</span>
+      <span class="src" id="splitNomod">Nomod links</span>
+      <span class="src" id="splitBank">Bank</span>
+      <span class="src" id="splitCash">Cash</span>
+      <span class="src" id="splitStandalone">Standalone links</span>
     </div>
     <div class="sales-monthly-wrap">
       <table class="sales-monthly" aria-label="Monthly breakdown">
@@ -3011,7 +3011,7 @@ function appShellHTML() {
       </table>
     </div>
     <div class="sales-dupes" id="salesDupes" hidden>
-      <h3>Possible duplicates &mdash; review</h3>
+      <h3>Possible duplicates · review</h3>
       <p class="muted">Heuristic match: same client (prefix), gross within 5%, paid within &plusmn;7 days. Reconcile manually if these are the same payment recorded twice.</p>
       <ul id="salesDupesList"></ul>
     </div>
@@ -3166,7 +3166,7 @@ const PAGE_SCRIPT = `<script>
       const tot = (Number(li.qty)||0) * (Number(li.rate)||0);
       return ''
         + '<tr data-i="'+i+'">'
-        + '<td><textarea data-k="description" rows="1" placeholder="e.g. S-Class — DXB to DIFC&#10;(Enter for a new line)">'+esc(li.description)+'</textarea></td>'
+        + '<td><textarea data-k="description" rows="1" placeholder="e.g. S-Class · DXB to DIFC&#10;(Enter for a new line)">'+esc(li.description)+'</textarea></td>'
         + '<td class="qty"><input data-k="qty" type="text" inputmode="decimal" pattern="[0-9.]*" value="'+li.qty+'"></td>'
         + '<td class="rate"><input data-k="rate" type="text" inputmode="decimal" pattern="[0-9.]*" value="'+li.rate+'"></td>'
         + '<td class="tot"><input type="text" readonly value="'+tot.toFixed(2)+'"></td>'
@@ -3283,12 +3283,12 @@ const PAGE_SCRIPT = `<script>
     }).join("");
     const discRow = r.discount > 0 ? '<div class="r"><span>Discount</span><span>− '+fmtMoney(r.discount, state.currency)+'</span></div>' : '';
     const trnRow = isInv ? '<span class="trn">TRN '+COMPANY.trn+'</span>' : '';
-    const vatModeNote = state.vat_mode === "inclusive" ? '<div style="font-size:9px;color:#7A6F5F;letter-spacing:.16em;text-transform:uppercase;margin-top:.4rem">VAT inclusive — 5% included in line rates</div>' : '';
+    const vatModeNote = state.vat_mode === "inclusive" ? '<div style="font-size:9px;color:#7A6F5F;letter-spacing:.16em;text-transform:uppercase;margin-top:.4rem">VAT inclusive. 5% included in line rates</div>' : '';
     const notesBlk = state.notes && state.notes.trim() ? '<div class="notes"><h4>Notes</h4><p>'+esc(state.notes)+'</p></div>' : '';
 
     // discRow / vatNote with new classes
     const discRowFmt = r.discount > 0 ? '<div class="r"><span>Discount</span><span>− '+fmtMoney(r.discount, state.currency)+'</span></div>' : '';
-    const vatNoteFmt = state.vat_mode === "inclusive" ? '<div class="tot-vat-note">VAT inclusive — 5% included in line rates</div>' : '';
+    const vatNoteFmt = state.vat_mode === "inclusive" ? '<div class="tot-vat-note">VAT inclusive. 5% included in line rates</div>' : '';
     // TRN sits as the tail line of the address stack on invoices; quotes omit it.
     const trnLine = isInv ? '<span class="trn">TRN '+COMPANY.trn+'</span>' : '';
 
@@ -3342,7 +3342,7 @@ const PAGE_SCRIPT = `<script>
       +   '<div class="terms"><h4>Terms &amp; Conditions</h4><ol>'
       +     TERMS.map(function(t){ return '<li>'+esc(t)+'</li>'; }).join("")
       +   '</ol></div>'
-      +   '<div class="bank"><h4>Payment — bank transfer</h4>'
+      +   '<div class="bank"><h4>Payment · bank transfer</h4>'
       +     '<table>'
       +       '<tr><td class="k">Bank</td><td>'+esc(BANK.name)+'</td></tr>'
       +       '<tr><td class="k">Account</td><td>'+esc(BANK.title)+'</td></tr>'
@@ -3366,7 +3366,7 @@ const PAGE_SCRIPT = `<script>
     const isInv = state.doc_type === "invoice";
     const docLabel = isInv ? "invoice" : "quote";
     const greetingName = (state.client.name || "there").trim().split(/\\s+/)[0];
-    const subject = (isInv ? "Your invoice" : "Your quote") + " from UMC Dubai — " + (state.number || "");
+    const subject = (isInv ? "Your invoice" : "Your quote") + " from UMC Dubai · " + (state.number || "");
     // Plain text
     const text = [
       "Dear " + greetingName + ",",
@@ -3597,7 +3597,9 @@ const PAGE_SCRIPT = `<script>
     $("lkRefresh").addEventListener("click", function(){ loadLinks(); });
     $("lkCreate").addEventListener("click", createStandaloneLink);
     let linksLoaded = false;
-    let lastLinksById = {};
+    // v86b: lastLinksById is declared at IIFE scope (near loadLinks). Do NOT
+    // re-declare here — that would shadow the outer let and the IIFE-scope
+    // delegated #tab-links handler would keep reading the empty outer map.
     // v85: assign to the outer-scope loadLinks let (declared near switchTab)
     // so the IIFE-scope switchTab + boot init can call it. Closure still
     // captures setLkStatus, linksLoaded, deleteStandaloneLink, fmtDate, etc.
@@ -3643,7 +3645,7 @@ const PAGE_SCRIPT = `<script>
           }
           const attachedCell = attachedNum
             ? '<a href="#" class="hist-link" data-lkopen="'+esc(attachedNum)+'" title="Open the attached invoice">'+esc(attachedNum)+'</a>'
-            : '<span style="color:var(--muted)">&mdash;</span>';
+            : '<span style="color:var(--muted)">&middot;</span>';
           const trClass = "expandable" + (isExcl ? " excluded" : "");
           return '<tr class="'+trClass+'" data-expandable="1" data-lkid="'+x.id+'">'
             + '<td data-lbl="Title">'+esc(x.title)+(x.note ? '<div class="hist-link" style="color:var(--muted)">'+esc(x.note)+'</div>' : '')+'</td>'
@@ -3832,7 +3834,7 @@ const PAGE_SCRIPT = `<script>
       const res = await fetch("/admin/api/billing", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload) });
       const j = await res.json();
       if(!j.ok){
-        if(res.status === 409){ setStatus("Number already used — fetching next."); await fetchNext(); return; }
+        if(res.status === 409){ setStatus("Number already used. Fetching next."); await fetchNext(); return; }
         setStatus("Save failed: " + (j.error || res.status));
         return;
       }
@@ -3935,6 +3937,12 @@ const PAGE_SCRIPT = `<script>
   // bindForm() at boot, which runs BEFORE switchTab/boot loader calls.
   // Same architectural shape as v58 (switchTab) and v57 (applyHistoryFilter).
   let loadLinks;
+  // v86b: id -> link record map populated by loadLinks. The delegated
+  // #tab-links click handler (bindLinksClickOnce, also IIFE-scope) reads it
+  // to drive Create-invoice-from-link prefill and Attach actions. Hoisted
+  // here for the same reason as loadLinks: bindForm closes around the
+  // populating code, but the reader is IIFE-scope.
+  let lastLinksById = {};
 
   // v58: hoisted to IIFE scope. Was local to bindForm(), so loadDoc's
   // (typeof switchTab === "function") guard at the end of the Re-open
@@ -4079,10 +4087,10 @@ const PAGE_SCRIPT = `<script>
           ? esc(x.client_name || "") + (x.client_company ? ' <span style="color:var(--muted)">('+esc(x.client_company)+')</span>' : '')
           : (x.client_email
               ? '<span style="color:var(--muted)">'+esc(x.client_email)+'</span>'
-              : '<span style="color:var(--muted)">&mdash;</span>');
+              : '<span style="color:var(--muted)">&middot;</span>');
         const status = String(x.payment_status || "unknown").toLowerCase();
         const statusCell = '<span class="pay-status '+status+'">'+status.toUpperCase()+'</span>';
-        const paidCell = x.paid_at ? esc(fmtDate(String(x.paid_at).slice(0,10))) : '<span style="color:var(--muted)">&mdash;</span>';
+        const paidCell = x.paid_at ? esc(fmtDate(String(x.paid_at).slice(0,10))) : '<span style="color:var(--muted)">&middot;</span>';
         const sortDate = String(x.paid_at || x.doc_date || "");
         const sortAmount = Number(x.amount) || 0;
         const actions = [];
@@ -4293,7 +4301,7 @@ const PAGE_SCRIPT = `<script>
           + "<td>"+fmt(m.net)+"</td>"
           + "<td>"+fmt(m.vat)+"</td>"
           + "<td>"+fmt(m.gross)+"</td>"
-          + "<td>"+(m.refunds>0?fmt(m.refunds):'<span style="color:var(--muted)">—</span>')+"</td>"
+          + "<td>"+(m.refunds>0?fmt(m.refunds):'<span style="color:var(--muted)">·</span>')+"</td>"
           + "<td>"+fmt(m.nomod_gross)+"</td>"
           + "<td>"+fmt(m.bank_gross)+"</td>"
           + "<td>"+fmt(m.cash_gross)+"</td>"
@@ -4418,7 +4426,7 @@ const PAGE_SCRIPT = `<script>
         const serviceBits = [x.service, x.vehicle].filter(Boolean).join(" · ");
         const consent = Number(x.marketing_consent) === 1
           ? '<span style="color:var(--muted)">Yes</span>'
-          : '<span style="color:var(--muted)">—</span>';
+          : '<span style="color:var(--muted)">·</span>';
         const actionsParts = [];
         if(status === "new"){
           actionsParts.push('<button type="button" class="btn btn-small btn-ghost" data-leadquote="'+x.id+'">Create quote</button>');
@@ -4432,9 +4440,9 @@ const PAGE_SCRIPT = `<script>
         return '<tr data-leadstat="'+status+'" data-sortdate="'+esc(x.created_at||"")+'" data-sortamount="'+sortAmount+'">'
           + '<td data-lbl="Date">'+esc(created)+'</td>'
           + '<td data-lbl="Name">'+esc(x.name || "")+'</td>'
-          + '<td data-lbl="Contact">'+(contactBits.join('<br>') || '<span style="color:var(--muted)">—</span>')+'</td>'
-          + '<td data-lbl="Service">'+esc(serviceBits || "—")+'</td>'
-          + '<td data-lbl="Route">'+esc(route || "—")+'</td>'
+          + '<td data-lbl="Contact">'+(contactBits.join('<br>') || '<span style="color:var(--muted)">·</span>')+'</td>'
+          + '<td data-lbl="Service">'+esc(serviceBits || "·")+'</td>'
+          + '<td data-lbl="Route">'+esc(route || "·")+'</td>'
           + '<td data-lbl="Consent">'+consent+'</td>'
           + '<td data-lbl="Status">'+statusCell+'</td>'
           + '<td data-lbl="Actions" style="text-align:right;white-space:nowrap" class="hist-actions">'+actions+'</td>'
@@ -4569,7 +4577,7 @@ const PAGE_SCRIPT = `<script>
       const r = await fetch("/admin/api/payments/reconcile", { method:"POST" });
       const j = await r.json();
       if(!j.ok){ setStatus("Reconcile failed: " + (j.error || r.status)); return; }
-      const msg = "Checked " + j.checked + " — " + (j.newlyPaid ? j.newlyPaid + " newly paid · " : "") + j.stillUnpaid + " still unpaid"
+      const msg = "Checked " + j.checked + ", " + (j.newlyPaid ? j.newlyPaid + " newly paid · " : "") + j.stillUnpaid + " still unpaid"
                 + (j.errors ? " (" + j.errors + " errors)" : "");
       setStatus(msg);
       await loadPayments();
@@ -5193,8 +5201,8 @@ const PAGE_SCRIPT = `<script>
         const isPaidDoc = String(x.payment_status || "").toLowerCase() === "paid";
         actions.push('<button type="button" class="btn btn-small btn-danger" data-del="'+x.id+'" data-num="'+esc(x.number)+'" data-type="'+esc(x.doc_type)+'" data-paid="'+(isPaidDoc?"1":"0")+'" title="Delete">×</button>');
         const statusTxt = isInvoice
-          ? (hasLink ? '<span class="hist-status linked">Link sent</span>' : '<span class="hist-status">&mdash;</span>')
-          : (x.source_quote_number ? '<span class="hist-status">Converted</span>' : '<span class="hist-status">&mdash;</span>');
+          ? (hasLink ? '<span class="hist-status linked">Link sent</span>' : '<span class="hist-status">&middot;</span>')
+          : (x.source_quote_number ? '<span class="hist-status">Converted</span>' : '<span class="hist-status">&middot;</span>');
         const searchText = [x.number, x.client_name || "", x.client_company || "", x.source_quote_number || ""].join(" ");
         const sortDate = String(x.doc_date || "");
         const sortAmount = Number(x.total) || 0;
@@ -5228,7 +5236,7 @@ const PAGE_SCRIPT = `<script>
     } catch { return Promise.resolve(false); }
   }
   async function convertQuote(id, num){
-    if(!confirm("Convert quote " + num + " to an invoice?\\n\\nA new invoice will be created with the next UMC-INV-#### number, today's date, and the TRN — copying this quote's client, line items, currency, discount and totals. The original quote stays in history unchanged.")) return;
+    if(!confirm("Convert quote " + num + " to an invoice?\\n\\nA new invoice will be created with the next UMC-INV-#### number, today's date, and the TRN, copying this quote's client, line items, currency, discount and totals. The original quote stays in history unchanged.")) return;
     setStatus("Converting " + num + " …");
     try {
       const r = await fetch("/admin/api/billing/" + id + "/convert", { method: "POST" });
