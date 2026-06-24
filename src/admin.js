@@ -3521,7 +3521,8 @@ const PAGE_SCRIPT = `<script>
             if(cp){
               e.preventDefault();
               copyToClipboard(cp.getAttribute("data-lkcopy")).then(function(ok){
-                setLkStatus(ok ? "Link copied." : "Copy failed.");
+                if(ok) flashCopied(cp, "Link copied");
+                else flashCopyFailed(cp);
               });
               return;
             }
@@ -3630,13 +3631,46 @@ const PAGE_SCRIPT = `<script>
       if(!e.target.checked){ $("emailOut").hidden = true; }
     });
 
-    $("copyHtml").addEventListener("click", function(){ copy($("emailHtml")); });
-    $("copyText").addEventListener("click", function(){ copy($("emailText")); });
+    $("copyHtml").addEventListener("click", function(e){ copy($("emailHtml"), e.currentTarget); });
+    $("copyText").addEventListener("click", function(e){ copy($("emailText"), e.currentTarget); });
   }
-  function copy(ta){
-    ta.select(); document.execCommand("copy");
-    const orig = ta.dataset.label || "Copied";
-    setStatus("Copied to clipboard.");
+  // Phase 1.x — inline success/failure confirmation on the clicked Copy
+  // button: flips the label to "Copied" (or a custom variant) in the warm
+  // amber accent with a check, then reverts after ~1.5s. Self-contained on
+  // the button so it works on any tab without toast infrastructure.
+  function flashCopyState(btn, label){
+    if(!btn) return;
+    const orig = (btn._copyOrigText != null) ? btn._copyOrigText : btn.textContent;
+    btn._copyOrigText = orig;
+    if(btn._copyResetTimer){ clearTimeout(btn._copyResetTimer); btn._copyResetTimer = null; }
+    btn.textContent = label;
+    btn.style.color = "#C75B12";
+    btn.style.borderColor = "#C75B12";
+    btn._copyResetTimer = setTimeout(function(){
+      btn.textContent = btn._copyOrigText;
+      btn.style.color = "";
+      btn.style.borderColor = "";
+      btn._copyResetTimer = null;
+    }, 1500);
+  }
+  function flashCopied(btn, label){ flashCopyState(btn, "✓ " + (label || "Copied")); }
+  function flashCopyFailed(btn){ flashCopyState(btn, "Copy failed"); }
+  function copy(ta, btn){
+    if(!ta) return;
+    const text = ta.value;
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(
+        function(){ flashCopied(btn, "Copied"); },
+        function(){ flashCopyFailed(btn); }
+      );
+      return;
+    }
+    try {
+      ta.select();
+      const ok = document.execCommand("copy");
+      if(ok) flashCopied(btn, "Copied");
+      else flashCopyFailed(btn);
+    } catch(_){ flashCopyFailed(btn); }
   }
 
   // ---------- async ops
@@ -4424,7 +4458,10 @@ const PAGE_SCRIPT = `<script>
       const copyB = e.target.closest("[data-paycopy]");
       if(copyB){
         e.preventDefault();
-        copyToClipboard(copyB.getAttribute("data-paycopy")).then(ok => setStatus(ok ? "Payment link copied." : "Copy failed."));
+        copyToClipboard(copyB.getAttribute("data-paycopy")).then(function(ok){
+          if(ok) flashCopied(copyB, "Payment link copied");
+          else flashCopyFailed(copyB);
+        });
         return;
       }
       const openB = e.target.closest("[data-payload]");
@@ -4590,7 +4627,10 @@ const PAGE_SCRIPT = `<script>
       if(copyB){
         e.preventDefault();
         const u = copyB.getAttribute("data-copy");
-        copyToClipboard(u).then(function(ok){ setStatus(ok ? "Payment link copied." : "Copy failed."); });
+        copyToClipboard(u).then(function(ok){
+          if(ok) flashCopied(copyB, "Payment link copied");
+          else flashCopyFailed(copyB);
+        });
         return;
       }
       if(convB){
