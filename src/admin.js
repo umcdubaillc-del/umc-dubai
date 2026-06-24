@@ -3484,10 +3484,16 @@ const PAGE_SCRIPT = `<script>
     }
     bindLkInputs(); renderLkItems();
 
-    $("lkRefresh").addEventListener("click", loadLinks);
+    // v85: lazy ref — loadLinks is the outer-scope let, assigned below.
+    // Binding loadLinks directly here would capture undefined (assignment
+    // hasn't run yet). Wrapper looks it up at click time.
+    $("lkRefresh").addEventListener("click", function(){ loadLinks(); });
     $("lkCreate").addEventListener("click", createStandaloneLink);
     let linksLoaded = false;
-    async function loadLinks(){
+    // v85: assign to the outer-scope loadLinks let (declared near switchTab)
+    // so the IIFE-scope switchTab + boot init can call it. Closure still
+    // captures setLkStatus, linksLoaded, deleteStandaloneLink, fmtDate, etc.
+    loadLinks = async function(){
       try {
         const r = await fetch("/admin/api/links");
         const j = await r.json();
@@ -3571,7 +3577,7 @@ const PAGE_SCRIPT = `<script>
         }
         linksLoaded = true;
       } catch(e){ setLkStatus("Links load failed."); }
-    }
+    };
     function setLkStatus(s){ const el = $("lkStatus"); if(el) el.textContent = s; }
     async function createStandaloneLink(){
       const title    = $("lkTitle").value.trim();
@@ -3805,6 +3811,14 @@ const PAGE_SCRIPT = `<script>
       if(modal && !modal.hidden) closeEditorModal();
     }
   });
+
+  // v85: loadLinks lives inside bindForm() (because it closes over lkItems,
+  // setLkStatus, deleteStandaloneLink, etc.), but switchTab and the boot init
+  // need to call it from IIFE scope. Declare an outer-scope handle here so
+  // both can reference it; the real implementation is assigned during
+  // bindForm() at boot, which runs BEFORE switchTab/boot loader calls.
+  // Same architectural shape as v58 (switchTab) and v57 (applyHistoryFilter).
+  let loadLinks;
 
   // v58: hoisted to IIFE scope. Was local to bindForm(), so loadDoc's
   // (typeof switchTab === "function") guard at the end of the Re-open
