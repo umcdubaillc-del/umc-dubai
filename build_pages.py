@@ -1166,7 +1166,7 @@ def render_rentacar_page(em):
     <h1>{em['h1']}</h1>
     <p class="lede">{em['hero_sub']}</p>
     <div class="btns rv" style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
-      <a class="btn btn-ink" href="/booking">Reserve a chauffeur</a>
+      <a class="btn btn-ink" href="/booking">Reserve your car</a>
       <a class="btn btn-ghost" href="/contact">Request a quote</a>
     </div>
   </div>
@@ -1232,7 +1232,7 @@ def render_rentacar_page(em):
 </section>
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">{em['closing']}</h2>
-  <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve a chauffeur</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
+  <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your car</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
 </section>
 """ + FOOTER + f"""
 <script>document.addEventListener("DOMContentLoaded",function(){{renderFleet(document.getElementById("rentFleet"),{{emirate:"{em['slug']}"}})}});</script>
@@ -1325,7 +1325,7 @@ def render_rentacar_hub():
     <h1>Chauffeur service, across the Emirates.</h1>
     <p class="lede">A dedicated chauffeur and a luxury vehicle, for a half day or a full day, in any emirate.</p>
     <div class="btns rv" style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
-      <a class="btn btn-ink" href="/booking">Reserve a chauffeur</a>
+      <a class="btn btn-ink" href="/booking">Reserve your car</a>
       <a class="btn btn-ghost" href="/contact">Request a quote</a>
     </div>
   </div>
@@ -1374,7 +1374,7 @@ def render_rentacar_hub():
 </section>
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">A chauffeur for the half day, the full day, or the airport run.</h2>
-  <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve a chauffeur</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
+  <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your car</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
 </section>
 """ + FOOTER + "</body></html>"
     (SITE / "rent-a-car-with-driver").mkdir(parents=True, exist_ok=True)
@@ -1482,10 +1482,6 @@ about_body = header("about.html") + f"""
     <p class="lede">UMC Dubai exists because &ldquo;good enough&rdquo; ground transport is not good enough for the people we serve. Every car immaculate. Every chauffeur vetted. Every detail attended to. Every hour of every day.</p>
   </div>
 </section>
-<figure class="frame wrap rv">
-  <img src="/assets/home/s-class-rear-seats.jpg" alt="Executive rear seats, UMC Dubai chauffeur fleet" style="aspect-ratio:16/8;object-fit:cover" width="768" height="680">
-  <figcaption class="lbl">Detail is the discipline</figcaption>
-</figure>
 <section class="closing band-dark numband-sec" style="padding:3.6rem 0">
   <div class="wrap">
     <div class="numband rv">
@@ -1910,12 +1906,12 @@ sc_details_html = "".join(
     for i, (src, alt) in enumerate(SC_INT_DETAILS)
 )
 sc_primary_html = responsive_img("s-class/interior.webp", "sc-int__photo",
-                                 "Mercedes-Benz S-Class rear cabin interior",
+                                 "Mercedes Benz S-Class rear cabin interior",
                                  sizes_attr="(max-width:899px) 100vw, 720px")
 
 sc_body = header("fleet.html") + f"""
 <!-- HERO, single static exterior image (no rotation, no dots). Fits viewport minus header. -->
-<section class="sc-hero" aria-label="Mercedes-Benz S-Class">
+<section class="sc-hero" aria-label="Mercedes Benz S-Class">
   <div class="sc-hero__stage">
     <!-- TEMPORARY hero image, replace with real UMC S-Class photography. -->
     <img class="sc-hero__img" src="/assets/fleet/s-class/{SC_HERO_IMG[0]}" alt="{SC_HERO_IMG[1]}" fetchpriority="high" style="--hero-pos:50% 50%;--hero-pos-mobile:0% 50%">
@@ -1923,7 +1919,7 @@ sc_body = header("fleet.html") + f"""
   <div class="sc-hero__caps">
     <div class="sc-hero__caps-inner">
       <div>
-        <div class="sc-hero__kicker">Mercedes-Benz S-Class</div>
+        <div class="sc-hero__kicker">Mercedes Benz S-Class</div>
         <div class="sc-hero__tagline">{SC_HERO_TAGLINE}</div>
       </div>
       <div class="sc-hero__ctas">
@@ -2164,7 +2160,7 @@ sc_head = sc_head.replace('<title>', '<base href="/">\n<title>', 1)
 # entry mirrors its already-published treatment; that page is NOT re-rendered.
 ALL_CARS = {
   "mb-s-class": {
-    "name": "Mercedes-Benz S-Class", "marque": "Mercedes-Benz", "category": "Flagship Sedan",
+    "name": "Mercedes Benz S-Class", "marque": "Mercedes Benz", "category": "Flagship Sedan",
     "page": "fleet/s-class", "strap": "The reference standard.",
     "ac_body": "The reference point for executive travel in Dubai, reclining rear seats, a hushed cabin.",
     "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the S-Class",
@@ -2176,7 +2172,7 @@ ALL_CARS = {
     "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the 7 Series",
   },
   "mb-e-class": {
-    "name": "Mercedes-Benz E-Class", "marque": "Mercedes-Benz", "category": "Business Sedan",
+    "name": "Mercedes Benz E-Class", "marque": "Mercedes Benz", "category": "Business Sedan",
     "page": "fleet/e-class", "strap": "The quiet professional.",
     "ac_body": "The business saloon that moves people who matter, without announcing it.",
     "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the E-Class",
@@ -2200,13 +2196,13 @@ ALL_CARS = {
     "pax": 6, "luggage": "5 large", "reserve_label": "Reserve the Yukon XL",
   },
   "mb-v-class": {
-    "name": "Mercedes-Benz V-Class", "marque": "Mercedes-Benz", "category": "Luxury Van",
+    "name": "Mercedes Benz V-Class", "marque": "Mercedes Benz", "category": "Luxury Van",
     "page": "fleet/v-class", "strap": "A room that travels together.",
     "ac_body": "Two facing benches in the rear cabin, seven travelling together face to face.",
     "pax": 7, "luggage": "5 large", "reserve_label": "Reserve the V-Class",
   },
   "mb-sprinter": {
-    "name": "Mercedes-Benz Sprinter", "marque": "Mercedes-Benz", "category": "Executive Van",
+    "name": "Mercedes Benz Sprinter", "marque": "Mercedes Benz", "category": "Executive Van",
     "page": "fleet/sprinter", "strap": "The group, moved well.",
     "ac_body": "Premium group transport for delegations, teams and events.",
     "pax": 19, "luggage": "10 bags", "reserve_label": "Reserve the Sprinter",
@@ -2284,7 +2280,7 @@ FLEET_PAGES_DRAFT = [
      ("Two travelling","The rear bench gives each guest a full seat, with generous legroom."),
      ("Three travelling","Two across the rear, the third in the front beside the chauffeur."),
    ],
-   "seo_body":"The Mercedes-Benz E-Class is the business sedan of the Dubai professional class, composed, dependable, quietly equipped. Controlled climate, generous rear-seat space, and the same chauffeur standard as the rest of the fleet. Suited to daily transfers, between-meetings journeys, and the airport runs that need to be dignified without ceremony.",
+   "seo_body":"The Mercedes Benz E-Class is the business sedan of the Dubai professional class, composed, dependable, quietly equipped. Controlled climate, generous rear-seat space, and the same chauffeur standard as the rest of the fleet. Suited to daily transfers, between-meetings journeys, and the airport runs that need to be dignified without ceremony.",
    "also_consider":["lexus-es"]},
 
   {"id":"lexus-es",
@@ -2397,7 +2393,7 @@ FLEET_PAGES_DRAFT = [
      ("Facing benches","Two facing bench rows in the rear cabin, three seats to a row, so six travel together face to face rather than in rows."),
      ("Total capacity","Up to seven passengers, including the front cabin."),
    ],
-   "seo_body":"The Mercedes-Benz V-Class is the conversational people-mover, with two facing bench rows in the rear cabin, generous luggage, and the same chauffeur standard as the saloons. Suited to family travel, group transfers, and the journey that is meant to be spent in company rather than in rows.",
+   "seo_body":"The Mercedes Benz V-Class is the conversational people-mover, with two facing bench rows in the rear cabin, generous luggage, and the same chauffeur standard as the saloons. Suited to family travel, group transfers, and the journey that is meant to be spent in company rather than in rows.",
    "also_consider":["gmc-yukon-xl","cadillac-escalade"]},
 
   {"id":"mb-sprinter",
@@ -2428,7 +2424,7 @@ FLEET_PAGES_DRAFT = [
      ("Configurations","Available in several seating configurations, confirmed at booking."),
      ("Storage","Overhead and rear-cabin luggage stowage."),
    ],
-   "seo_body":"The Mercedes-Benz Sprinter is the executive minibus, coach-scale capacity with the manners of a Mercedes. Forward-facing rows, aisle access, and integrated climate. Suited to corporate group transport, event shuttles, and the team that has to arrive together and composed.",
+   "seo_body":"The Mercedes Benz Sprinter is the executive minibus, coach-scale capacity with the manners of a Mercedes. Forward-facing rows, aisle access, and integrated climate. Suited to corporate group transport, event shuttles, and the team that has to arrive together and composed.",
    "also_consider":["luxury-coach"]},
 
   # v83: King Long page consolidated into /fleet/luxury-coach. Hero, interior
@@ -3206,7 +3202,7 @@ BLOG_POSTS = [
 """,
     "cta_heading": "An evening, undisturbed.",
     "cta_body": "Book a chauffeur for the evening, on the hour or for a fixed block. Arrive, leave, the car is there.",
-    "cta_primary": ("/booking", "Reserve a chauffeur"),
+    "cta_primary": ("/booking", "Reserve your car"),
     "cta_secondary": ("/fleet", "See the fleet"),
   },
   {
@@ -3318,7 +3314,7 @@ BLOG_POSTS = [
 """,
     "cta_heading": "A day in Abu Dhabi, on your terms.",
     "cta_body": "Reserve a chauffeur-at-disposal block. Build the day as you go. Five hours, ten hours, or longer.",
-    "cta_primary": ("/booking", "Reserve a chauffeur"),
+    "cta_primary": ("/booking", "Reserve your car"),
     "cta_secondary": ("/fleet", "See the fleet"),
   },
   {
@@ -3360,7 +3356,7 @@ BLOG_POSTS = [
 """,
     "cta_heading": "Five hours, properly used.",
     "cta_body": "Reserve a half-day chauffeur block. Anchor stops, easy transitions, the car at the door.",
-    "cta_primary": ("/booking", "Reserve a chauffeur"),
+    "cta_primary": ("/booking", "Reserve your car"),
     "cta_secondary": ("/fleet", "See the fleet"),
   },
   {
@@ -3421,7 +3417,7 @@ BLOG_POSTS = [
 """,
     "cta_heading": "Shop Dubai, calmly.",
     "cta_body": "Reserve a chauffeur for the day. Door to door, bags in the car, the route handled.",
-    "cta_primary": ("/booking", "Reserve a chauffeur"),
+    "cta_primary": ("/booking", "Reserve your car"),
     "cta_secondary": ("/fleet", "See the fleet"),
   },
 ]
