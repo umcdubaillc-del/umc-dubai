@@ -3721,7 +3721,7 @@ const PAGE_SCRIPT = `<script>
             });
             const j = await r.json();
             if(!j.ok){ ctx.setStatus("Failed: " + (j.error || r.status)); ctx.setBusy(false); return; }
-            const ok = await copyToClipboard(j.url);
+            const ok = await copyToClipboard(paymentLinkMessage(j.url));
             ctx.close();
             setLkStatus(ok ? "Link created and copied to clipboard." : "Link created (auto-copy unavailable).");
             // reset to a clean form
@@ -3943,6 +3943,15 @@ const PAGE_SCRIPT = `<script>
   // here for the same reason as loadLinks: bindForm closes around the
   // populating code, but the reader is IIFE-scope.
   let lastLinksById = {};
+
+  // v87: every payment-link Copy action puts the link on the clipboard with
+  // Nomod's default sharing message in front, so a paste into WhatsApp/email
+  // is already a complete sentence. Bare URLs would otherwise paste raw.
+  // Only payment-link copy paths call this; other Copy buttons (e.g. email
+  // body, invoice number) stay literal.
+  function paymentLinkMessage(url){
+    return "Thanks for your business. Please make payment using this link: " + String(url || "");
+  }
 
   // v58: hoisted to IIFE scope. Was local to bindForm(), so loadDoc's
   // (typeof switchTab === "function") guard at the end of the Re-open
@@ -4604,7 +4613,7 @@ const PAGE_SCRIPT = `<script>
       const cp = e.target.closest("[data-lkcopy]");
       if(cp){
         e.preventDefault(); e.stopPropagation();
-        copyToClipboard(cp.getAttribute("data-lkcopy")).then(function(ok){
+        copyToClipboard(paymentLinkMessage(cp.getAttribute("data-lkcopy"))).then(function(ok){
           if(ok) flashCopied(cp, "Link copied");
           else flashCopyFailed(cp);
         });
@@ -4945,7 +4954,7 @@ const PAGE_SCRIPT = `<script>
       const copyB = e.target.closest("[data-paycopy]");
       if(copyB){
         e.preventDefault();
-        copyToClipboard(copyB.getAttribute("data-paycopy")).then(function(ok){
+        copyToClipboard(paymentLinkMessage(copyB.getAttribute("data-paycopy"))).then(function(ok){
           if(ok) flashCopied(copyB, "Payment link copied");
           else flashCopyFailed(copyB);
         });
@@ -5114,7 +5123,7 @@ const PAGE_SCRIPT = `<script>
       if(copyB){
         e.preventDefault();
         const u = copyB.getAttribute("data-copy");
-        copyToClipboard(u).then(function(ok){
+        copyToClipboard(paymentLinkMessage(u)).then(function(ok){
           if(ok) flashCopied(copyB, "Payment link copied");
           else flashCopyFailed(copyB);
         });
@@ -5291,7 +5300,7 @@ const PAGE_SCRIPT = `<script>
           setStatus("Payment link ready for " + inv.number + (j.reused ? " (existing link reused)" : "") + ".");
           await loadHistory();
           if(typeof loadLinks === "function") loadLinks();
-          const ok = await copyToClipboard(j.url);
+          const ok = await copyToClipboard(paymentLinkMessage(j.url));
           if(ok) setStatus("Payment link copied to clipboard (" + inv.number + ").");
         } catch(e){
           ctx.setStatus("Payment link failed: " + (e.message || e));
