@@ -1883,9 +1883,17 @@ STANDARD_AMENITIES = list(SC_AMENITIES)
 STANDARD_AMENITIES[2] = (SC_AMENITIES[2][0], "Tissues", "Restocked daily")
 standard_amenities_html = "".join(sc_amenity_cell(a) for a in STANDARD_AMENITIES)
 
+# v90: the Lexus ES does not have an independent rear climate zone (that is
+# an S-Class / V-Class feature). Override the climate amenity sub-line for
+# this car only; everything else mirrors STANDARD_AMENITIES.
+LEXUS_ES_AMENITIES = list(STANDARD_AMENITIES)
+LEXUS_ES_AMENITIES[4] = (STANDARD_AMENITIES[4][0], "Climate your way", "Rear climate vents")
+lexus_es_amenities_html = "".join(sc_amenity_cell(a) for a in LEXUS_ES_AMENITIES)
+
 AMENITY_HTML = {
   "full": sc_amenities_html,
   "standard": standard_amenities_html,
+  "lexus_es": lexus_es_amenities_html,
 }
 
 ARCHETYPES = {
@@ -2303,6 +2311,7 @@ FLEET_PAGES_DRAFT = [
 
   {"id":"lexus-es",
    "archetype":"sedan",
+   "amenities":"lexus_es",
    "title_seo":"Lexus ES Chauffeur in Dubai, Business Sedan | UMC Dubai",
    "meta_seo":"Chauffeur driven Lexus ES in Dubai. Japanese refinement, exceptional quiet, vetted UMC chauffeur.",
    "tagline":"Stillness, as standard.",
