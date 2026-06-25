@@ -197,7 +197,7 @@ window.umcPhone = {
       e.preventDefault();
       const v = id => (document.getElementById(id)||{}).value || "";
       const q = new URLSearchParams({mode, from:v("bFrom"), to:v("bTo"), hours:v("bHours"), date:v("bDate"), time:v("bTime")});
-      window.location.href = "booking.html?" + q.toString();
+      window.location.href = "/booking?" + q.toString();
     });
   }
 

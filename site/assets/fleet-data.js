@@ -189,7 +189,7 @@ function renderFleet(el, opts){
     const ovr = umcRatesFor(v.id, defaultEm);
     const rv = ovr ? {ra:ovr.ra, r5:ovr.r5, r10:ovr.r10, name:v.name, seats:v.seats, luggage:v.luggage, category:v.category, page:v.page, marque:v.marque, img:v.img, photo:v.photo, flipImg:v.flipImg, id:v.id} : v;
     const from = fromRate(rv);
-    const bk = "booking.html?vehicle=" + encodeURIComponent(v.id);
+    const bk = "/booking?vehicle=" + encodeURIComponent(v.id);
     const opts = UMC_EMIRATES.map(p =>
       `<option value="${p[0]}"${p[0]===defaultEm?" selected":""}>${p[1]}</option>`
     ).join("");
