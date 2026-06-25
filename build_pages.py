@@ -2270,7 +2270,9 @@ FLEET_PAGES_DRAFT = [
    "hero_sub":"The executive saloon for those who know the difference. Quiet authority, precisely built.",
    # v73-C: real imagery wired in.
    "hero_img":"bmw-7/hero.png",
-   "hero_object_pos_mobile":"100% 50%",
+   # v91: mobile-only crop tuned at 402px live; pushes the car right + up so
+   # the full front 3/4 lands and the roofline holds at the top of the frame.
+   "hero_object_pos_mobile":"65% 32%",
    "interior_primary":"bmw-7/interior.webp",
    "interior_details":["bmw-7/detail-1.webp","bmw-7/detail-2.webp","bmw-7/detail-3.webp","bmw-7/detail-4.webp"],
    "interior_heading":"The considered cabin.",
@@ -2495,7 +2497,9 @@ FLEET_PAGES_DRAFT = [
    # and hero_sub kept from the original luxury-coach entry.
    # TODO: this hero is a 2:1 source, replace with a proper 3:2 coach photo.
    "hero_img":"luxury-coach/hero.jpg",
-   "hero_object_pos_mobile":"90% 50%", # v89: confirmed correct (front-centred at 5/7)
+   # v91: mobile-only crop re-tuned at 402px live; coach centred horizontally,
+   # sky trimmed. Previous 90% 50% over-pushed to the right.
+   "hero_object_pos_mobile":"68% 50%",
    "interior_primary":"king-long/interior.jpg",
    "interior_details":["king-long/detail-1.jpg","king-long/detail-4.jpg","king-long/detail-3.jpg","king-long/detail-2.jpg"],
    "configurations_cta": {
