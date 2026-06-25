@@ -1214,6 +1214,49 @@ async function handleInspectPayment(id, env) {
 // v60: Svix-signed Nomod webhook. Verifies signature, finds the matching
 // record by link_id, marks paid. If NOMOD_WEBHOOK_SECRET is not configured
 // we return 501 + a setup hint (polling stays the live reconcile mechanism).
+// v93: branded "payment received" notification email. Self-contained shell
+// that visually matches the booking-form lead email in src/index.js
+// (bone #F6F1E7 / card #FBF8F1 / ink #221B14 / amber eyebrow #A84B0C /
+// accent rule #C75B12 / dark footer #231B12). Used by handleNomodWebhook
+// when a charge is newly marked paid. Fail-open: send errors must never
+// fail the webhook (caller wraps in try/catch and the webhook still 2xx).
+function pmtEmailEsc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function pmtEmailRows(pairs){return pairs.filter(([,v])=>v!=null&&String(v).trim()!==""&&String(v).trim()!=="-").map(([k,v])=>`<tr><td style="padding:9px 16px 9px 0;color:#7A6F5F;vertical-align:top;white-space:nowrap;font-size:11px;letter-spacing:.22em;text-transform:uppercase;font-weight:500;border-bottom:1px solid rgba(34,27,20,.08)">${pmtEmailEsc(k)}</td><td style="padding:9px 0;color:#221B14;border-bottom:1px solid rgba(34,27,20,.08);word-break:break-word">${pmtEmailEsc(v)}</td></tr>`).join("");}
+async function sendPaymentReceivedEmail(env, info){
+  if(!env.RESEND_API_KEY) return;
+  const to = env.LEAD_EMAIL_TO || "contact@umcdubai.ae";
+  const amountStr = (info.currency||"AED") + " " + Number(info.amount||0).toLocaleString("en-AE",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const subject = `Payment received — ${info.client||"Client"} — ${amountStr}`;
+  const rows = pmtEmailRows([
+    ["Client", info.client],
+    ["Amount", amountStr],
+    ["Payment link", info.linkTitle],
+    ["Invoice", info.invoiceNumber],
+    ["Reference", info.chargeId],
+    ["Paid at", info.paidAt]
+  ]);
+  const wordmark = `<tr><td style="padding:28px 28px 6px 28px;text-align:center"><span style="font-family:Georgia,'Times New Roman',serif;font-size:24px;letter-spacing:.36em;color:#221B14">UMC</span><div style="height:1px;background:#C75B12;width:28px;margin:10px auto"></div><span style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:#7A6F5F">Dubai</span></td></tr>`;
+  const html =
+    `<!doctype html><html><body style="margin:0;padding:24px 16px;background:#F6F1E7;font-family:-apple-system,Segoe UI,Roboto,sans-serif">`+
+    `<table align="center" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:580px;width:100%;margin:0 auto;background:#FBF8F1;border-radius:6px;overflow:hidden;border:1px solid rgba(34,27,20,.10)">`+
+    wordmark+
+    `<tr><td style="padding:18px 28px 8px 28px;text-align:center">`+
+      `<h1 style="font-family:Georgia,'Times New Roman',serif;font-weight:400;font-size:22px;color:#221B14;margin:0;letter-spacing:-.01em">Payment received</h1>`+
+      `<p style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#A84B0C;margin:10px 0 0">via Nomod</p>`+
+    `</td></tr>`+
+    `<tr><td style="padding:18px 28px 8px 28px">`+
+      `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:14px;border-collapse:collapse">${rows}</table>`+
+    `</td></tr>`+
+    `<tr><td style="padding:20px 28px 22px 28px;background:#231B12;text-align:center">`+
+      `<p style="margin:0;color:#D9D0C0;font-size:12px">Recorded automatically from the Nomod payment webhook</p>`+
+      `<p style="margin:8px 0 0;color:#7A6F5F;font-size:11px;letter-spacing:.16em;text-transform:uppercase">UMC Dubai &middot; contact@umcdubai.ae &middot; +971 58 649 7861</p>`+
+    `</td></tr>`+
+    `</table></body></html>`;
+  try{
+    await fetch("https://api.resend.com/emails",{method:"POST",headers:{Authorization:"Bearer "+env.RESEND_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({from:"UMC Dubai billing <noreply@umcdubai.ae>",to:[to],subject,html})});
+  }catch(e){ console.error("payment email send failed", e && (e.message||e)); }
+}
+
 async function handleNomodWebhook(request, env) {
   if (!env.NOMOD_WEBHOOK_SECRET) {
     return json({
@@ -1291,6 +1334,17 @@ async function handleNomodWebhook(request, env) {
     return json({ ok: true, linkId, chargeId, event: evtType, action: "refunded", amount: refundAmt });
   }
   if (treatAsPaid) {
+    // v93: capture whether this link was ALREADY paid before we update,
+    // so a Svix retry of the same event does not email twice. paid_at is
+    // set to COALESCE(paid_at, now) below, so after the update the row is
+    // always paid; we need the pre-update view.
+    const priorPaid = await env.BILLING_DB.prepare(
+      `SELECT MAX(p) AS p FROM (
+         SELECT CASE WHEN paid_at IS NOT NULL THEN 1 ELSE 0 END AS p FROM payment_links WHERE nomod_link_id = ?
+         UNION ALL
+         SELECT CASE WHEN paid_at IS NOT NULL THEN 1 ELSE 0 END AS p FROM billing_documents WHERE nomod_link_id = ?)`
+    ).bind(linkId, linkId).first();
+    const wasAlreadyPaid = !!(priorPaid && priorPaid.p);
     // Mark paid wherever this link_id lives. Also stamp payment_method='nomod'
     // so the Sales ledger can split source (a) Nomod vs (b) bank/cash.
     const upInv = await env.BILLING_DB.prepare(
@@ -1357,6 +1411,33 @@ async function handleNomodWebhook(request, env) {
         ).run();
         inserted = true;
       }
+    }
+    // v93: branded payment-received email on first settlement only. Looks up
+    // the link row for client/amount/currency/title/invoice; falls back to
+    // webhook payload values if absent. Wrapped in try/catch so the webhook
+    // still returns 2xx and Nomod does not retry on email transport faults.
+    if (!wasAlreadyPaid) {
+      try {
+        const lk = await env.BILLING_DB.prepare(
+          `SELECT title, invoice_number, client_name, amount, currency FROM payment_links WHERE nomod_link_id = ? LIMIT 1`
+        ).bind(linkId).first();
+        let invNo = lk && lk.invoice_number;
+        if (!invNo) {
+          const doc = await env.BILLING_DB.prepare(
+            `SELECT number FROM billing_documents WHERE doc_type='invoice' AND (nomod_link_id = ? OR nomod_charge_id = ?) ORDER BY id DESC LIMIT 1`
+          ).bind(linkId, chargeId).first();
+          invNo = doc && doc.number;
+        }
+        await sendPaymentReceivedEmail(env, {
+          client: (lk && lk.client_name) || data.customer_name || data.client_name || (data.customer && data.customer.name) || "",
+          amount: (lk && lk.amount) || data.amount || data.gross || data.total || 0,
+          currency: (lk && lk.currency) || data.currency || "AED",
+          linkTitle: (lk && lk.title) || "Nomod payment link",
+          invoiceNumber: invNo || "",
+          chargeId: chargeId || "",
+          paidAt: now
+        });
+      } catch (e) { console.error("payment email lookup/send failed", e && (e.message||e)); }
     }
     return json({
       ok: true, linkId, chargeId, event: evtType, action: "paid",
