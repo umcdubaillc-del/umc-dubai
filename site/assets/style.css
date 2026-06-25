@@ -485,6 +485,15 @@ dialog.terms li{margin-bottom:.8rem;font-size:.9rem;color:var(--ink-soft)}
 .payline .paypop{position:absolute;bottom:calc(100% + .55rem);right:-6px;width:max-content;max-width:280px;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:.75rem .95rem;box-shadow:0 14px 32px -22px rgba(34,27,20,.4);font-size:.78rem;line-height:1.55;color:var(--ink-soft);font-family:var(--sans);letter-spacing:normal;text-transform:none;font-weight:400;z-index:30;opacity:0;pointer-events:none;transform:translateY(3px);transition:opacity .18s ease,transform .18s ease}
 .payline .paywrap:hover .paypop,.payline .paywrap:focus-within .paypop,.payline .paywrap.is-open .paypop{opacity:1;pointer-events:auto;transform:translateY(0)}
 @media(prefers-reduced-motion:reduce){.payline .paypop,.payline .payplus{transition:none}}
+/* v92: mobile-only re-anchor. Desktop opens leftward from the button (right:-6px
+   + width:max-content/max-width:280px). At ~400px viewports the computed left
+   edge spills off-screen and the text clips. On phones we anchor to the button's
+   right edge and cap the width so the popover always fits the viewport.
+   Verified live at 402px: popover sits fully inside the viewport with both
+   sides padded. Vertical position (bottom offset) is unchanged. */
+@media (max-width:600px){
+  .payline .paypop{left:auto;right:0;width:min(280px,calc(100vw - 32px));max-width:none}
+}
 
 /* intl-tel-input: keep our minimal field */
 .iti{width:100%;display:block}
