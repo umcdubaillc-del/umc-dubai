@@ -9,7 +9,7 @@ SITE = HERE / "site"
 # cell. The build generates the 360w + 720w variants on demand (LANCZOS, high-
 # quality JPEG/WebP). Future cars' interior images get this automatically, no
 # per-page wiring needed. (Diagnosed live: 1280->249 single-step crush is what
-# was causing the blocky mottling in dark/shadow areas on the V-Class details.)
+# was causing the blocky mottling in dark/shadow areas on the V Class details.)
 _INT_VARIANT_WIDTHS = (360, 720, 1080)
 _RESP_CACHE = {}
 
@@ -787,10 +787,10 @@ fleet_body = header("fleet.html") + f"""
     <div class="scen rv">
       <div class="sc"><svg viewBox="0 0 24 24"><path d="M21 15.5l-8-3V5.2a1.7 1.7 0 0 0-3.4 0v7.3l-6.6 2.5v2l6.6-1.4v3.6L7.5 21v1.4l4.8-1 4.8 1V21l-2.1-1.8v-3.6l6 1.3z"/></svg>
         <h3>The arrival</h3><p>Touching down at DXB after a long flight. Quiet, space and a chauffeur already waiting.</p>
-        <div class="pick"><a href="/booking?vehicle=s-class">S-Class</a><a href="/booking?vehicle=escalade">Escalade</a><a href="/booking?vehicle=v-class">V-Class</a></div></div>
+        <div class="pick"><a href="/booking?vehicle=s-class">S Class</a><a href="/booking?vehicle=escalade">Escalade</a><a href="/booking?vehicle=v-class">V Class</a></div></div>
       <div class="sc"><svg viewBox="0 0 24 24"><path d="M9 11a3 3 0 1 0-3-3 3 3 0 0 0 3 3zM17 11a2.5 2.5 0 1 0-2.5-2.5A2.5 2.5 0 0 0 17 11z"/><path d="M2.5 20c.5-3.2 2.8-4.8 6.5-4.8s6 1.6 6.5 4.8M14.8 15.6c2.8.2 4.5 1.7 4.9 4.4"/></svg>
         <h3>The family season</h3><p>School pick-ups, the mall, the beach club. Seven seats, cases and a pushchair, one calm cabin.</p>
-        <div class="pick"><a href="/booking?vehicle=v-class">V-Class</a><a href="/booking?vehicle=yukon">Yukon XL</a></div></div>
+        <div class="pick"><a href="/booking?vehicle=v-class">V Class</a><a href="/booking?vehicle=yukon">Yukon XL</a></div></div>
       <div class="sc"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="13" rx="2"/><path d="M3 9.5h18M8 18v2.5M16 18v2.5"/></svg>
         <h3>The roadshow</h3><p>Investor days and delegations. Multi-car movements coordinated to the minute under one contact.</p>
         <div class="pick"><a href="/booking?vehicle=sprinter">Sprinter</a><a href="/contact?vehicle=Roadshow">Convoy desk</a></div></div>
@@ -1203,7 +1203,7 @@ def render_rentacar_page(em):
     <div class="shead rv"><span class="lbl">How it works</span><h2>From request to kerbside, in a few clean steps.</h2></div>
     <div class="timeline rv">
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
-        <div><h3>Choose your vehicle<span class="lbl">From the fleet</span></h3><p>Mercedes E-Class, S-Class, BMW 7 Series, Cadillac Escalade, GMC Yukon XL, Mercedes V-Class, Lexus ES, or a Sprinter or coach for a group.</p></div></div>
+        <div><h3>Choose your vehicle<span class="lbl">From the fleet</span></h3><p>Mercedes E Class, S Class, BMW 7 Series, Cadillac Escalade, GMC Yukon XL, Mercedes V Class, Lexus ES, or a Sprinter or coach for a group.</p></div></div>
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
         <div><h3>Pick the duration<span class="lbl">5hr, 10hr, transfer</span></h3><p>A 5-hour block for an afternoon, a 10-hour day for a full programme, or a single airport transfer. All quoted up-front.</p></div></div>
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M3 12h13l-4-4M16 12l-4 4"/></svg></div>
@@ -1575,7 +1575,7 @@ events_body = header("events.html") + f"""
       </div>
       <div class="fm-pair">
         <div><span class="fm-pair-lbl">Coordination</span><p>Your coordinator briefs ours once. From there the entire vehicle layer is ours to run.</p></div>
-        <div><span class="fm-pair-lbl">The fleet</span><p>Rolls-Royce, limousines, S-Class, a matched fleet of any marque. You name it, we arrange it.</p></div>
+        <div><span class="fm-pair-lbl">The fleet</span><p>Rolls-Royce, limousines, S Class, a matched fleet of any marque. You name it, we arrange it.</p></div>
       </div>
       <footer class="ds-foot">
         <span class="ds-foot-line">One movement &middot; One point of contact &middot; Nothing your guests see go wrong</span>
@@ -1637,7 +1637,7 @@ contact_body = header("contact.html") + f"""
             </div><span class="fhint phone-err"></span></div>
         </div>
         <div class="f"><label class="req" for="cEmail">Email</label><input id="cEmail" type="email" autocomplete="email" required><span class="fhint">Enter a valid email address, e.g. name@domain.com</span></div>
-        <div class="f"><label for="cVehicle">Vehicle or service</label><input id="cVehicle" name="vehicle" placeholder="S-Class, airport transfer, corporate account&hellip;"></div>
+        <div class="f"><label for="cVehicle">Vehicle or service</label><input id="cVehicle" name="vehicle" placeholder="S Class, airport transfer, corporate account&hellip;"></div>
         <div class="f"><label for="cMsg">Your request</label><textarea id="cMsg" rows="4" placeholder="Route, date and time, number of guests&hellip;"></textarea></div>
         <div class="cf-turnstile" data-sitekey="0x4AAAAAADpUlIS_5IkgJa-H" id="ctTs" style="margin:.2rem 0 1rem"></div>
         <button class="btn btn-ink" style="width:100%" id="cSend" type="button">Send request</button>
@@ -1836,7 +1836,7 @@ SC_INT_DETAILS = [
   ("hero-4.webp", "Cabin detail"),
   ("hero-5.webp", "Cabin detail"),
 ]
-# SC_AMENITIES = the FULL list, S-Class and BMW 7 Series only. All other
+# SC_AMENITIES = the FULL list, S Class and BMW 7 Series only. All other
 # vehicles use STANDARD_AMENITIES (defined below), which is identical except
 # item #3 swaps "Tissues &amp; wipes" for just "Tissues" (dry, no wipes).
 SC_AMENITIES = [
@@ -1862,8 +1862,8 @@ sc_amenities_html = "".join(sc_amenity_cell(a) for a in SC_AMENITIES)
 
 # ---------- archetype configuration (per-class page structure) ----------
 # Each fleet page renders one of three archetypes:
-#   sedan ,executive/business sedans (S-Class, BMW 7 Series, E-Class, Lexus ES)
-#   suv   ,SUVs and people-movers (Escalade, Yukon XL, V-Class)
+#   sedan ,executive/business sedans (S Class, BMW 7 Series, E Class, Lexus ES)
+#   suv   ,SUVs and people-movers (Escalade, Yukon XL, V Class)
 #   group ,group transport (Sprinter, King Long Coach)
 # All three share the brand system, components, CSS, JS, modals and responsive-
 # image pipeline. The archetype controls per-class section LABELS, the
@@ -1873,7 +1873,7 @@ sc_amenities_html = "".join(sc_amenity_cell(a) for a in SC_AMENITIES)
 #
 # Amenities are a SEPARATE dimension (set per-car via the `amenities` field):
 #   "full"    ,Water, Phone chargers, Tissues & wipes, Clean cabin,
-#                Climate your way, Quiet on request. S-Class + BMW 7 only.
+#                Climate your way, Quiet on request. S Class + BMW 7 only.
 #   "standard",same six items but Tissues only (no wipes). All other cars.
 # Default if unset is "standard".
 
@@ -1884,7 +1884,7 @@ STANDARD_AMENITIES[2] = (SC_AMENITIES[2][0], "Tissues", "Restocked daily")
 standard_amenities_html = "".join(sc_amenity_cell(a) for a in STANDARD_AMENITIES)
 
 # v90: the Lexus ES does not have an independent rear climate zone (that is
-# an S-Class / V-Class feature). Override the climate amenity sub-line for
+# an S Class / V Class feature). Override the climate amenity sub-line for
 # this car only; everything else mirrors STANDARD_AMENITIES.
 LEXUS_ES_AMENITIES = list(STANDARD_AMENITIES)
 LEXUS_ES_AMENITIES[4] = (STANDARD_AMENITIES[4][0], "Climate your way", "Rear climate vents")
@@ -1932,24 +1932,24 @@ sc_details_html = "".join(
     for i, (src, alt) in enumerate(SC_INT_DETAILS)
 )
 sc_primary_html = responsive_img("s-class/interior.webp", "sc-int__photo",
-                                 "Mercedes Benz S-Class rear cabin interior",
+                                 "Mercedes Benz S Class rear cabin interior",
                                  sizes_attr="(max-width:899px) 100vw, 720px")
 
 sc_body = header("fleet.html") + f"""
 <!-- HERO, single static exterior image (no rotation, no dots). Fits viewport minus header. -->
-<section class="sc-hero" aria-label="Mercedes Benz S-Class">
+<section class="sc-hero" aria-label="Mercedes Benz S Class">
   <div class="sc-hero__stage">
-    <!-- TEMPORARY hero image, replace with real UMC S-Class photography. -->
+    <!-- TEMPORARY hero image, replace with real UMC S Class photography. -->
     <img class="sc-hero__img" src="/assets/fleet/s-class/{SC_HERO_IMG[0]}" alt="{SC_HERO_IMG[1]}" fetchpriority="high" style="--hero-pos:50% 50%;--hero-pos-mobile:0% 50%">
   </div>
   <div class="sc-hero__caps">
     <div class="sc-hero__caps-inner">
       <div>
-        <div class="sc-hero__kicker">Mercedes Benz S-Class</div>
+        <div class="sc-hero__kicker">Mercedes Benz S Class</div>
         <div class="sc-hero__tagline">{SC_HERO_TAGLINE}</div>
       </div>
       <div class="sc-hero__ctas">
-        <a class="btn btn-ink" href="/booking?vehicle=mb-s-class">Reserve the S-Class</a>
+        <a class="btn btn-ink" href="/booking?vehicle=mb-s-class">Reserve the S Class</a>
       </div>
     </div>
   </div>
@@ -1961,7 +1961,7 @@ sc_body = header("fleet.html") + f"""
       <span class="lbl">The interior</span>
       <h2>The quiet room.</h2>
     </div>
-    <p class="lede">The rear of an S-Class is a private room that happens to move. <em>The light is warm, the line is straight, the world outside is muted.</em> Sit, recline, take a call, or stay silent.</p>
+    <p class="lede">The rear of an S Class is a private room that happens to move. <em>The light is warm, the line is straight, the world outside is muted.</em> Sit, recline, take a call, or stay silent.</p>
   </div>
   <div class="sc-int__canvas">
     <div class="sc-int__grid">
@@ -2048,7 +2048,7 @@ sc_body = header("fleet.html") + f"""
     <div>
       <span class="lbl">The chauffeur</span>
       <h2>Held to one standard.</h2>
-      <p>Every S-Class on our fleet travels with a chauffeur on UMC payroll. Vetted, trained, and bound to the same standing rules as the chauffeur before them. They hold the door, they know the route, and they keep the cabin quiet until you choose to speak.</p>
+      <p>Every S Class on our fleet travels with a chauffeur on UMC payroll. Vetted, trained, and bound to the same standing rules as the chauffeur before them. They hold the door, they know the route, and they keep the cabin quiet until you choose to speak.</p>
       <ul class="sc-chau__points">
         <li>Employed by UMC, not contracted, not supplied by a platform.</li>
         <li>Routes are planned before the engine starts; airport arrivals tracked from departure.</li>
@@ -2066,9 +2066,9 @@ sc_body = header("fleet.html") + f"""
 <section class="closing band-dark">
   <div class="wrap">
     <span class="lbl">Reservations</span>
-    <h2 class="rv">Reserve the S-Class.</h2>
+    <h2 class="rv">Reserve the S Class.</h2>
     <div class="btns rv">
-      <a class="btn btn-ink" href="/booking?vehicle=mb-s-class">Reserve the S-Class</a>
+      <a class="btn btn-ink" href="/booking?vehicle=mb-s-class">Reserve the S Class</a>
       <a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a>
     </div>
   </div>
@@ -2180,16 +2180,16 @@ sc_head = sc_head.replace('<title>', '<base href="/">\n<title>', 1)
 (SITE/"fleet"/"s-class.html").write_text(sc_head + sc_body)
 
 # ---------- sitemap & robots & headers ----------
-# ---------- additional fleet model pages (S-Class is generated above) ----------
+# ---------- additional fleet model pages (S Class is generated above) ----------
 # ALL_CARS: lookup for every fleet vehicle. Used by the also-consider renderer
-# and by fleet-data.js (URLs propagated below) to wire card links. The S-Class
+# and by fleet-data.js (URLs propagated below) to wire card links. The S Class
 # entry mirrors its already-published treatment; that page is NOT re-rendered.
 ALL_CARS = {
   "mb-s-class": {
-    "name": "Mercedes Benz S-Class", "marque": "Mercedes Benz", "category": "Flagship Sedan",
+    "name": "Mercedes Benz S Class", "marque": "Mercedes Benz", "category": "Flagship Sedan",
     "page": "fleet/s-class", "strap": "The reference standard.",
     "ac_body": "The reference point for executive travel in Dubai, reclining rear seats, a hushed cabin.",
-    "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the S-Class",
+    "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the S Class",
   },
   "bmw-7": {
     "name": "BMW 7 Series", "marque": "Bayerische Motoren Werke", "category": "Flagship Sedan",
@@ -2198,10 +2198,10 @@ ALL_CARS = {
     "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the 7 Series",
   },
   "mb-e-class": {
-    "name": "Mercedes Benz E-Class", "marque": "Mercedes Benz", "category": "Business Sedan",
+    "name": "Mercedes Benz E Class", "marque": "Mercedes Benz", "category": "Business Sedan",
     "page": "fleet/e-class", "strap": "The quiet professional.",
     "ac_body": "The business saloon that moves people who matter, without announcing it.",
-    "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the E-Class",
+    "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the E Class",
   },
   "lexus-es": {
     "name": "Lexus ES", "marque": "Lexus", "category": "Business Sedan",
@@ -2222,10 +2222,10 @@ ALL_CARS = {
     "pax": 6, "luggage": "5 large", "reserve_label": "Reserve the Yukon XL",
   },
   "mb-v-class": {
-    "name": "Mercedes Benz V-Class", "marque": "Mercedes Benz", "category": "Luxury Van",
+    "name": "Mercedes Benz V Class", "marque": "Mercedes Benz", "category": "Luxury Van",
     "page": "fleet/v-class", "strap": "A room that travels together.",
     "ac_body": "Two facing benches in the rear cabin, seven travelling together face to face.",
-    "pax": 7, "luggage": "5 large", "reserve_label": "Reserve the V-Class",
+    "pax": 7, "luggage": "5 large", "reserve_label": "Reserve the V Class",
   },
   "mb-sprinter": {
     "name": "Mercedes Benz Sprinter", "marque": "Mercedes Benz", "category": "Executive Van",
@@ -2306,7 +2306,7 @@ FLEET_PAGES_DRAFT = [
      ("Two travelling","The rear bench gives each guest a full seat, with generous legroom."),
      ("Three travelling","Two across the rear, the third in the front beside the chauffeur."),
    ],
-   "seo_body":"The Mercedes Benz E-Class is the business sedan of the Dubai professional class, composed, dependable, quietly equipped. Controlled climate, generous rear-seat space, and the same chauffeur standard as the rest of the fleet. Suited to daily transfers, between-meetings journeys, and the airport runs that need to be dignified without ceremony.",
+   "seo_body":"The Mercedes Benz E Class is the business sedan of the Dubai professional class, composed, dependable, quietly equipped. Controlled climate, generous rear-seat space, and the same chauffeur standard as the rest of the fleet. Suited to daily transfers, between-meetings journeys, and the airport runs that need to be dignified without ceremony.",
    "also_consider":["lexus-es"]},
 
   {"id":"lexus-es",
@@ -2398,7 +2398,7 @@ FLEET_PAGES_DRAFT = [
    "meta_seo":"Chauffeur driven Mercedes-Benz V-Class in Dubai. Two facing benches in the rear cabin, seating up to seven, face-to-face layout.",
    "tagline":"A room that travels together.",
    "hero_sub":"When the group moves as one, a cabin arranged for conversation, where everyone faces in rather than forward.",
-   # Real V-Class photography self-hosted in assets/fleet/v-class/. v49
+   # Real V Class photography self-hosted in assets/fleet/v-class/. v49
    # live-measured: source 1895x1813 (nearly square) in a wide-short hero;
    # at 1440 desktop the horizontal overflow is 0 (full width shown) so X is
    # a no-op, only Y crops. 50% 58% is the lock, both tyres fully visible
@@ -2414,14 +2414,14 @@ FLEET_PAGES_DRAFT = [
    "chauffeur_heading":"Held to one standard.",
    "suited_to":"Group travel, face-to-face",
    "luggage_label":"Up to 7 cases, mixed sizes","luggage_kind":"large","luggage_count":5,
-   "luggage_sg_title":"What fits in the V-Class",
+   "luggage_sg_title":"What fits in the V Class",
    "luggage_sg_intro":"With the rear seats in place, the luggage area takes any one of these loads:",
    "luggage_sg_loads":["3 extra-large + 4 cabin cases","3 extra-large + 4 medium cases","3 large + 4 medium cases"],
    "seating_items":[
      ("Facing benches","Two facing bench rows in the rear cabin, three seats to a row, so six travel together face to face rather than in rows."),
      ("Total capacity","Up to seven passengers, including the front cabin."),
    ],
-   "seo_body":"The Mercedes Benz V-Class is the conversational people-mover, with two facing bench rows in the rear cabin, generous luggage, and the same chauffeur standard as the saloons. Suited to family travel, group transfers, and the journey that is meant to be spent in company rather than in rows.",
+   "seo_body":"The Mercedes Benz V Class is the conversational people-mover, with two facing bench rows in the rear cabin, generous luggage, and the same chauffeur standard as the saloons. Suited to family travel, group transfers, and the journey that is meant to be spent in company rather than in rows.",
    "also_consider":["gmc-yukon-xl","cadillac-escalade"]},
 
   {"id":"mb-sprinter",
@@ -2621,7 +2621,7 @@ def render_fleet_page_body(car):
         sg_intro = "Cabin storage is configured for a mix of cabin-size bags and check-in cases up to large; total capacity reflects the realistic load for the vehicle."
         sg_rows = [("Total capacity", f"Up to {lcount} bags"), ("Notes", "Mix of overhead and rear / under-floor storage; arranged on arrival.")]
     sg_rows_html = "".join(f'<div><dt>{k}</dt><dd>{v}</dd></div>' for k, v in sg_rows)
-    # v81: cars that carry mixed-size loads (V-Class, Yukon XL, Escalade) use a
+    # v81: cars that carry mixed-size loads (V Class, Yukon XL, Escalade) use a
     # different modal: short intro, loading configurations as a list, then a
     # shared four-size case-size key. Opt-in per car via luggage_sg_loads.
     if car.get("luggage_sg_loads"):
@@ -3380,7 +3380,7 @@ BLOG_POSTS = [
 <h3>Is the rate all-inclusive?</h3>
 <p>Yes. Fuel, Salik and parking are included. There is no meter.</p>
 <h3>Which vehicle should I choose?</h3>
-<p>A Mercedes E-Class or BMW 7 Series is comfortable for two. A V-Class is the practical choice for families or four to six guests.</p>
+<p>A Mercedes E Class or BMW 7 Series is comfortable for two. A V Class is the practical choice for families or four to six guests.</p>
 """,
     "cta_heading": "Five hours, properly used.",
     "cta_body": "Reserve a half-day chauffeur block. Anchor stops, easy transitions, the car at the door.",
@@ -3408,7 +3408,7 @@ BLOG_POSTS = [
 <p>Tell us when, where you would like to be collected, and where you intend to start. A morning start with a quiet first mall is usually the calmest opening.</p>
 
 <h3>Select your vehicle</h3>
-<p>A Mercedes E-Class for two, a V-Class for a family or three to six guests, or an SUV like the Cadillac Escalade when comfort and boot space matter. See the <a href="/fleet">fleet</a> for the full set.</p>
+<p>A Mercedes E Class for two, a V Class for a family or three to six guests, or an SUV like the Cadillac Escalade when comfort and boot space matter. See the <a href="/fleet">fleet</a> for the full set.</p>
 
 <h3>Get a quote</h3>
 <p>All-inclusive for the block you need (fuel, Salik, parking). The quote you receive is the quote you pay.</p>
@@ -3441,7 +3441,7 @@ BLOG_POSTS = [
 <h3>Can the car wait outside while I am inside the mall?</h3>
 <p>The chauffeur waits at a sensible nearby spot and meets you at the door when you are ready.</p>
 <h3>Which vehicle is best for shopping?</h3>
-<p>For two, an E-Class. For three or four with larger bags, a V-Class or Cadillac Escalade. The full range is on the <a href="/fleet">fleet</a> page.</p>
+<p>For two, an E Class. For three or four with larger bags, a V Class or Cadillac Escalade. The full range is on the <a href="/fleet">fleet</a> page.</p>
 """,
     "cta_heading": "Shop Dubai, calmly.",
     "cta_body": "Reserve a chauffeur for the day. Door to door, bags in the car, the route handled.",
