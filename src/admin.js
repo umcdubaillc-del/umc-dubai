@@ -4031,7 +4031,7 @@ const PAGE_SCRIPT = `<script>
   // Only payment-link copy paths call this; other Copy buttons (e.g. email
   // body, invoice number) stay literal.
   function paymentLinkMessage(url){
-    return "Thanks for your business. Please make payment using this link: " + String(url || "");
+    return "Thank you for your business! Please make payment using this link: " + String(url || "");
   }
 
   // v58: hoisted to IIFE scope. Was local to bindForm(), so loadDoc's
