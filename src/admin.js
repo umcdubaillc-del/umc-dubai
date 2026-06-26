@@ -927,11 +927,24 @@ async function handleCreateStandaloneLink(request, env) {
   // v97: optional client_name persisted verbatim. Standalone links have no
   // invoice_number by definition; that column stays NULL.
   const clientName = String((b && b.client_name) || "").trim() || null;
+  // v98 — if the operator left Note blank, carry the typed item names through as
+  // the persisted note, so a future invoice-from-link gets a real description
+  // instead of the generic fallback. Only genuinely-typed names are used
+  // (placeholders and the title-derived backwards-compat name are skipped).
+  // This does NOT change what is sent to Nomod (payload.note above is untouched).
+  let derivedNote = "";
+  if (items_in && items_in.length) {
+    const names = items
+      .map(function(it){ return String((it && it.name) || "").trim(); })
+      .filter(function(n){ return n && n !== "Item" && n !== "Service"; });
+    if (names.length) derivedNote = names.join(" · ");
+  }
+  const persistedNote = note || derivedNote || null;
   try {
     const ins = await env.BILLING_DB.prepare(
       `INSERT INTO payment_links (title, amount, currency, note, nomod_link_id, nomod_link_url, client_name)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).bind(title, persistedNet, currency, note || null, nomodBody.id || null, nomodBody.url, clientName).run();
+    ).bind(title, persistedNet, currency, persistedNote, nomodBody.id || null, nomodBody.url, clientName).run();
     const id = ins && ins.meta && ins.meta.last_row_id;
     return json({ ok: true, id, url: nomodBody.url, nomod_id: nomodBody.id, amount: persistedNet });
   } catch (e) {
@@ -1058,8 +1071,14 @@ async function handleCreateInvoiceFromPaidLink(linkId, env) {
   // can add it later by opening the invoice and saving.
   const clientEmail = (link.client_email && String(link.client_email).trim()) || null;
   const rate = Number(link.amount) || 0;
+  // v98 — description priority: a real note on the link, else a generic service
+  // line. NEVER the title (that is the client name, which belongs in client_name
+  // only) and never a system-generated "Auto-captured from Nomod" note.
+  const noteRaw = String(link.note || "").trim();
+  const noteIsSystem = /^Auto-captured from Nomod/i.test(noteRaw);
+  const itemDesc = (noteRaw && !noteIsSystem) ? noteRaw : "Chauffeur service";
   const lineItems = [{
-    description: String(link.title || link.note || "Payment"),
+    description: itemDesc,
     qty: 1,
     rate: rate
   }];
