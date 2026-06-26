@@ -1010,6 +1010,91 @@ async function handleAttachLinkToInvoice(linkId, body, env) {
   return json({ ok: true, link_id: linkId, document_id: documentId, invoice_number: inv.number, nomod_link_url: link.nomod_link_url });
 }
 
+// Fix 8: create a brand-new pre-paid invoice from a paid payment_links row.
+// The new invoice carries the link's Nomod identifiers (link id, link url,
+// charge id) so the pair stays associated, and the link gets its invoice_number
+// stamped back the same way the attach flow does. Refuses if the link is not
+// paid yet, or if it is already attached (operator should open the attached
+// invoice instead). The invoice is created via the same INSERT path as a
+// genuinely-new doc; it just enters the table already marked paid.
+async function handleCreateInvoiceFromPaidLink(linkId, env) {
+  await ensureSchema(env);
+  const link = await env.BILLING_DB.prepare(
+    `SELECT id, title, amount, currency, note, client_name, client_email,
+            nomod_link_id, nomod_link_url, nomod_charge_id, payment_status,
+            payment_method, paid_at, created_at, invoice_number
+     FROM payment_links WHERE id = ?`
+  ).bind(linkId).first();
+  if (!link) return json({ ok: false, error: "link not found" }, 404);
+  if (link.invoice_number) {
+    return json({
+      ok: false,
+      error: `link is already attached to ${link.invoice_number}`,
+      invoice_number: link.invoice_number
+    }, 409);
+  }
+  const status = String(link.payment_status || "").toLowerCase();
+  if (status !== "paid") {
+    return json({ ok: false, error: "link is not paid yet; only paid links create a pre-paid invoice" }, 409);
+  }
+  const number = await nextNumber(env, "invoice");
+  const docDate = (function(){
+    const s = String(link.paid_at || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    return new Date().toISOString().slice(0, 10);
+  })();
+  const clientName = String((link.client_name && link.client_name.trim()) || link.title || "Client");
+  // No fabrication: leave email blank when the link has none. The operator
+  // can add it later by opening the invoice and saving.
+  const clientEmail = (link.client_email && String(link.client_email).trim()) || null;
+  const rate = Number(link.amount) || 0;
+  const lineItems = [{
+    description: String(link.title || link.note || "Payment"),
+    qty: 1,
+    rate: rate
+  }];
+  const subtotal = rate;
+  const vat = Math.round(rate * 0.05 * 100) / 100;
+  const total = Math.round((rate + vat) * 100) / 100;
+  const currency = String(link.currency || "AED");
+  const method = String(link.payment_method || "nomod");
+  const now = new Date().toISOString();
+  let newId;
+  try {
+    const res = await env.BILLING_DB.prepare(
+      `INSERT INTO billing_documents
+        (doc_type, number, doc_date, client_name, client_email,
+         currency, vat_mode, line_items, discount, subtotal, vat, total,
+         notes, internal_notes,
+         nomod_link_id, nomod_link_url, nomod_link_created_at,
+         nomod_charge_id, payment_status, paid_at, payment_method)
+       VALUES ('invoice', ?, ?, ?, ?, ?, 'exclusive', ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?)`
+    ).bind(
+      number, docDate, clientName, clientEmail,
+      currency, JSON.stringify(lineItems),
+      subtotal, vat, total,
+      null,
+      "From paid link #" + link.id + (link.nomod_charge_id ? (" (Nomod charge " + link.nomod_charge_id + ")") : ""),
+      link.nomod_link_id || null, link.nomod_link_url || null, link.created_at || now,
+      link.nomod_charge_id || null,
+      link.paid_at || now, method
+    ).run();
+    newId = res && res.meta && res.meta.last_row_id;
+  } catch (e) {
+    const msg = (e && (e.message || String(e))) || "db error";
+    if (/UNIQUE/i.test(msg)) return json({ ok: false, error: "duplicate number", detail: msg }, 409);
+    return json({ ok: false, error: "db error", detail: msg }, 500);
+  }
+  try {
+    await env.BILLING_DB.prepare(
+      "UPDATE payment_links SET invoice_number = ? WHERE id = ?"
+    ).bind(String(number), linkId).run();
+  } catch (e) {
+    console.error("LINK back-ref on create-from-paid-link failed", e && (e.message || String(e)));
+  }
+  return json({ ok: true, id: newId, number, link_id: linkId });
+}
+
 // v86 — invoices with no payment link yet, used by the link-attach picker.
 async function handleListUnlinkedInvoices(env) {
   await ensureSchema(env);
@@ -2540,6 +2625,9 @@ export async function handleAdmin(request, env) {
       try { body = await request.json(); } catch {}
       return handleAttachLinkToInvoice(parseInt(am[1], 10), body, env);
     }
+    // Fix 8: create a brand-new pre-paid invoice from a paid payment_links row.
+    const cim = path.match(/^\/admin\/api\/links\/(\d+)\/create-invoice$/);
+    if (cim && method === "POST") return handleCreateInvoiceFromPaidLink(parseInt(cim[1], 10), env);
     return json({ ok: false, error: "not found" }, 404);
   }
 
@@ -4089,12 +4177,23 @@ const PAGE_SCRIPT = `<script>
                 : '<span class="hist-status linked">Unpaid</span>');
           // Drawer actions: lifecycle only. Copy-link is now in the row, so we
           // do not duplicate it here.
+          // Fix 8: split create-invoice into two flows. UNPAID standalone links
+          // open the editor pre-filled (operator can edit then save). PAID links
+          // (Nomod-imported sales) create a pre-paid invoice server-side via
+          // POST /admin/api/links/:id/create-invoice, same back-ref pattern as
+          // attach. Charge-backed (synced) rows only ever show Exclude/Restore;
+          // they never show Delete (the server would refuse anyway), avoiding
+          // a dead-click on real revenue.
           const actions = [];
           if(attachedNum){
             actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkopen="'+esc(attachedNum)+'" title="Open the attached invoice in the editor">Open '+esc(attachedNum)+'</button>');
-          } else if(!isSynced){
-            actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkmakeinv="'+x.id+'" title="Issue an invoice prefilled from this link. Reuses this Nomod URL on the new invoice.">Create invoice from link</button>');
-            actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkattach="'+x.id+'" title="Pick an existing invoice to attach this link to. Reuses this Nomod URL on the chosen invoice.">Attach to existing invoice</button>');
+          } else {
+            if(isSynced && isPaid){
+              actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkmakeinvpaid="'+x.id+'" title="Issue a pre-paid invoice from this paid payment. Marked Paid on creation and attached to this link.">Create invoice from link</button>');
+            } else if(!isSynced){
+              actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkmakeinv="'+x.id+'" title="Issue an invoice prefilled from this link. Reuses this Nomod URL on the new invoice.">Create invoice from link</button>');
+              actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkattach="'+x.id+'" title="Pick an existing invoice to attach this link to. Reuses this Nomod URL on the chosen invoice.">Attach to existing invoice</button>');
+            }
           }
           if(isSynced){
             if(isExcl){
@@ -4212,13 +4311,25 @@ const PAGE_SCRIPT = `<script>
         }
       });
     }
-    async function deleteStandaloneLink(id){
+    async function deleteStandaloneLink(id, title, btn, origLabel){
       try {
         const r = await fetch("/admin/api/links/" + id, { method: "DELETE" });
-        const j = await r.json();
-        if(j.ok){ setLkStatus("Removed."); loadLinks(); }
-        else { setLkStatus("Delete failed: " + (j.error || r.status)); }
-      } catch(e){ setLkStatus("Delete failed: " + (e.message || e)); }
+        const j = await r.json().catch(function(){ return {}; });
+        if(r.ok && j && j.ok){
+          // Fix 8: name the link in the status so the operator can see which
+          // row was removed even after the list re-renders without it.
+          setLkStatus("Removed " + (title || ("link #" + id)) + ".");
+          loadLinks();
+        } else {
+          // Surface the server's exact message (e.g. the 409 "use Exclude
+          // instead" reply for any synced row that slipped past the UI guard).
+          setLkStatus("Delete failed: " + ((j && j.error) || r.status));
+          if(btn){ btn.disabled = false; btn.textContent = origLabel || "Delete"; }
+        }
+      } catch(e){
+        setLkStatus("Delete failed: " + (e.message || e));
+        if(btn){ btn.disabled = false; btn.textContent = origLabel || "Delete"; }
+      }
     }
 
     // v100: the email copy-paste UI is gone; sending is now a one-click action
@@ -5127,6 +5238,43 @@ const PAGE_SCRIPT = `<script>
         if(link) prefillFromLink(link);
         return;
       }
+      // Fix 8: paid Nomod sale, server-side create of a pre-paid invoice.
+      // Distinct from data-lkmakeinv (which opens the editor for unpaid links).
+      const mkp = e.target.closest("[data-lkmakeinvpaid]");
+      if(mkp){
+        e.preventDefault(); e.stopPropagation();
+        if(mkp.disabled) return;
+        const lkId = mkp.getAttribute("data-lkmakeinvpaid");
+        const link = lastLinksById[lkId];
+        const label = (link && (link.client_name || link.title)) || ("link #" + lkId);
+        if(!confirm("Create a pre-paid invoice from this paid payment ("+label+")?\\nThe invoice will be marked Paid and attached to this link.")) return;
+        mkp.disabled = true;
+        const origLabel = mkp.textContent;
+        mkp.textContent = "Creating …";
+        setLkStatus("Creating invoice from link …");
+        fetch("/admin/api/links/" + lkId + "/create-invoice", { method: "POST" })
+          .then(function(r){ return r.json().then(function(j){ return { status: r.status, body: j }; }); })
+          .then(function(o){
+            const j = o.body || {};
+            if(o.status === 200 && j.ok){
+              setLkStatus("Invoice " + j.number + " created and marked Paid.");
+              loadLinks();
+              if(typeof loadHistory === "function") loadHistory();
+              if(typeof loadPayments === "function") loadPayments();
+            } else if(o.status === 409 && j.invoice_number){
+              setLkStatus("Link already attached to " + j.invoice_number + ".");
+              loadLinks();
+            } else {
+              setLkStatus("Create failed: " + ((j && j.error) || o.status));
+              mkp.disabled = false; mkp.textContent = origLabel;
+            }
+          })
+          .catch(function(err){
+            setLkStatus("Create failed: " + (err.message || err));
+            mkp.disabled = false; mkp.textContent = origLabel;
+          });
+        return;
+      }
       const at = e.target.closest("[data-lkattach]");
       if(at){
         e.preventDefault(); e.stopPropagation();
@@ -5136,9 +5284,16 @@ const PAGE_SCRIPT = `<script>
       const dl = e.target.closest("[data-lkdel]");
       if(dl){
         e.preventDefault(); e.stopPropagation();
+        if(dl.disabled) return;
         const title = dl.getAttribute("data-lktitle") || "this link";
         if(!confirm("Remove " + title + " from the standalone-links record?\\n\\nThe Nomod payment URL itself stays live; anyone with the link can still pay until it expires on Nomod. This only removes it from your local record.")) return;
-        deleteStandaloneLink(dl.getAttribute("data-lkdel"));
+        // Fix 8: re-entrancy guard, disable the button so a frantic double-click
+        // can't fire two DELETEs (the second one would 404 on a now-gone row and
+        // surface a misleading error).
+        dl.disabled = true;
+        const origLabel = dl.textContent;
+        dl.textContent = "Removing …";
+        deleteStandaloneLink(dl.getAttribute("data-lkdel"), title, dl, origLabel);
         return;
       }
       const ex = e.target.closest("[data-lkexclude]");
