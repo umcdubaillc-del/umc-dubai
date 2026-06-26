@@ -6173,7 +6173,7 @@ const PAGE_SCRIPT = `<script>
     root._histClickBound = true;
     root.addEventListener("click", function(e){
       const loadB = e.target.closest("[data-load]");
-      const printB = e.target.closest("[data-print]");
+      const printB = e.target.closest("[data-pdf]");
       const delB  = e.target.closest("[data-del]");
       const convB = e.target.closest("[data-convert]");
       const linkB = e.target.closest("[data-link]");
@@ -6236,17 +6236,13 @@ const PAGE_SCRIPT = `<script>
         return;
       }
       if(loadB){ e.preventDefault(); loadDoc(loadB.getAttribute("data-load")); return; }
-      // v98: per-row Print loads the invoice then opens the print dialog.
-      // loadDoc populates state + opens the editor modal; once it resolves,
-      // onPrint sets document.title and calls window.print(). Wrapped in
-      // try/catch so a load failure surfaces in the status line rather than
-      // throwing.
+      // Stage 7: per-row Download PDF opens the server-rendered PDF in a new
+      // tab. The signed-in session cookie is forwarded automatically, so the
+      // /admin/api/billing/:id/pdf endpoint returns the institutional PDF.
       if(printB){
         e.preventDefault();
-        const id = printB.getAttribute("data-print");
-        Promise.resolve(loadDoc(id)).then(function(){ onPrint(); }).catch(function(err){
-          setStatus("Print failed: " + (err && (err.message || err)));
-        });
+        const id = printB.getAttribute("data-pdf");
+        window.open("/admin/api/billing/" + id + "/pdf", "_blank", "noopener");
         return;
       }
       if(delB){
@@ -6297,7 +6293,7 @@ const PAGE_SCRIPT = `<script>
         // v98: per-row Print action on invoices. Loads the doc then triggers
         // the same browser print/PDF flow as the editor's Print button.
         if(x.doc_type === "invoice"){
-          actions.push('<button type="button" class="btn btn-small btn-ghost" data-print="'+x.id+'" title="Open this invoice and trigger the browser print dialog">Print</button>');
+          actions.push('<button type="button" class="btn btn-small btn-ghost" data-pdf="'+x.id+'" title="Download the institutional PDF invoice">Download PDF</button>');
         }
         if(isQuote){
           if(x.converted_invoice_number){
