@@ -3132,8 +3132,8 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
   body { background:#fff; }
   header.top, .app .panel, .history-wrap, .email-out, .actions, .preview-wrap > .lbl, .status-line { display:none !important; }
   .app { grid-template-columns: 1fr !important; padding:0 !important; gap:0 !important; }
-  .preview-wrap { position:static !important; top:auto !important; height:auto !important; overflow:visible !important; }
-  .doc { border:0 !important; min-height:auto !important; box-shadow:none !important; border-radius:0 !important; transform:none !important; width:100% !important; }
+  .preview-wrap { display:block !important; position:static !important; top:auto !important; height:auto !important; overflow:visible !important; }
+  .doc { display:block !important; border:0 !important; min-height:auto !important; box-shadow:none !important; border-radius:0 !important; transform:none !important; width:100% !important; }
   .doc .dfoot { padding-left:14mm !important; padding-right:14mm !important; }
   .doc .dbody { padding:14mm 14mm 10mm !important; }
 }
@@ -3246,9 +3246,10 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
   .history tr.hist-actions-row > td{padding:0;background:var(--bone2)}
   .history .hist-actions-panel{padding:.7rem 1rem 1rem;justify-content:center}
 
-  /* Editor: hide inline PDF preview, gate behind a button */
-  .preview-wrap{display:none}
-  .ed-preview-btn{display:inline-flex}
+  /* v102: inline PDF preview restored on mobile. The v100 gating hid #doc
+     (inside .preview-wrap); since per-row Print uses window.print(), the
+     hidden invoice made Print export the admin page instead of the invoice.
+     Inline preview is back; the Preview-PDF button returns to hidden default. */
 
   /* Editor line items -> stacked, hairline (not bone card) */
   #ltTable,#ltTable tbody{display:block}
