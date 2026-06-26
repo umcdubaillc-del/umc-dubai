@@ -2743,7 +2743,7 @@ function PAGE_HTML(authed, env) {
   --hair:rgba(34,27,20,.10); --espresso:#231B12;
 }
 *{box-sizing:border-box}
-html,body{margin:0;padding:0}
+html,body{margin:0;padding:0;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 body{background:var(--bone);color:var(--ink);font-family:Outfit,system-ui,sans-serif;font-weight:400;line-height:1.55;font-size:14px}
 h1,h2,h3,h4{font-family:Marcellus,Georgia,serif;font-weight:400;letter-spacing:-.005em;margin:0 0 .4rem}
 h1{font-size:1.75rem}
