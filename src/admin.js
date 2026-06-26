@@ -3193,8 +3193,8 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
   .lockup .uni{font-size:1.05rem;letter-spacing:.3em}
 
   /* List goes edge-to-edge like an app list */
-  .history-wrap{padding:1rem 0 2rem}
-  .links-page,.sales-page{padding-left:0;padding-right:0}
+  .history-wrap{padding:1.1rem 1rem 2rem}
+  .links-page,.sales-page{padding-left:1rem;padding-right:1rem}
   .history{padding:0;border:0;border-radius:0;background:transparent}
 
   /* Dense hairline rows (admin-app, not consumer cards) */
@@ -3202,7 +3202,7 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
   .history thead{display:none}
   .history tbody tr:not(.hist-actions-row){
     display:flex;flex-wrap:wrap;align-items:baseline;gap:.12rem .55rem;
-    padding:.8rem 1rem;margin:0;border:0;border-bottom:1px solid var(--hair);
+    padding:.8rem 0;margin:0;border:0;border-bottom:1px solid var(--hair);
     border-radius:0;background:transparent;position:relative
   }
   .history tbody tr.open{background:var(--bone2)}
@@ -3231,10 +3231,12 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
   .history td[data-lbl="Link"],.history td[data-lbl="Route"],.history td[data-lbl="Consent"]{display:none}
 
   /* Chevron pinned top-right */
-  .history .hist-chev-cell{position:absolute;right:.9rem;top:.8rem;width:auto;padding:0}
+  .history .hist-chev-cell{position:static;order:1;flex:0 0 auto;align-self:baseline;margin-left:.45rem;padding:0;width:auto;color:var(--muted)}
+  #tab-leads .hist-chev-cell{display:none}
+  #btnRefresh,#lkRefresh{display:none}
 
   /* Leads inline Actions -> full width below meta */
-  .history td[data-lbl="Actions"]{order:4;flex-basis:100%;margin-top:.5rem;text-align:left}
+  .history td[data-lbl="Actions"]{order:4;flex-basis:100%;margin-top:.5rem;text-align:center}
   .history td[data-lbl="Actions"] .btn{margin:.25rem .25rem 0 0}
 
   /* Denser status pills */
@@ -3242,7 +3244,7 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 
   /* Drawer keeps function, loses card chrome */
   .history tr.hist-actions-row > td{padding:0;background:var(--bone2)}
-  .history .hist-actions-panel{padding:.6rem 1rem 1rem}
+  .history .hist-actions-panel{padding:.7rem 1rem 1rem;justify-content:center}
 
   /* Editor: hide inline PDF preview, gate behind a button */
   .preview-wrap{display:none}
