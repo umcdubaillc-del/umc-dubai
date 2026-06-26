@@ -1257,47 +1257,102 @@ async function reconcileAllOutstanding(env) {
   return out;
 }
 
+// v103 — Payments is a DEDUPLICATED, SETTLED-ONLY ledger of money actually
+// received. One row per real payment, keyed on nomod_charge_id then
+// nomod_link_id then a doc fallback. Outstanding/unpaid lives in Quotes &
+// Invoices, not here.
+function paymentMethodLabel(payment_method, invoice_number, nomod_charge_id) {
+  const m = String(payment_method || "").toLowerCase();
+  if (m === "bank") return "Bank transfer";
+  if (m === "cash") return "Cash";
+  if (nomod_charge_id) return invoice_number ? "Nomod link" : "Nomod sale";
+  return "Nomod";
+}
 async function handleListPayments(env) {
   await ensureSchema(env);
-  // Invoices that have a Nomod link (paid or not)
+  // Paid invoices: every billing_documents row marked paid (Nomod, bank, or
+  // cash). Includes those with no nomod_link_id (pure cash/bank settlements).
   const inv = await env.BILLING_DB.prepare(
-    `SELECT 'invoice' AS source, id, number, doc_date, client_name, client_company, total AS amount,
-            currency, nomod_link_id, nomod_link_url, COALESCE(payment_status,'unpaid') AS payment_status,
-            paid_at, last_checked_at, nomod_charge_id
+    `SELECT id, number, doc_date, client_name, client_company, total AS amount,
+            currency, nomod_link_id, nomod_charge_id, paid_at, payment_method
        FROM billing_documents
-      WHERE nomod_link_id IS NOT NULL
+      WHERE doc_type = 'invoice'
+        AND COALESCE(payment_status,'unpaid') = 'paid'
       ORDER BY id DESC LIMIT 500`
   ).all();
-  // v97: link rows now return the REAL client_name (falling back to title
-  // only when missing) plus the back-reference invoice_number, so Payments
-  // can render the same identity rule used in the Links tab.
+  // Paid payment_links: standalone Nomod sales and invoice-attached link
+  // rows. The dual-write (Fix 3) means every invoice-generated link also
+  // lives here; dedup below collapses the pair into one row.
   const lks = await env.BILLING_DB.prepare(
-    `SELECT 'link' AS source, id, title AS number, created_at AS doc_date,
+    `SELECT id, title, created_at AS doc_date,
             COALESCE(NULLIF(TRIM(client_name), ''), title) AS client_name,
             COALESCE(client_email, '') AS client_email,
-            NULL AS client_company, invoice_number, amount, currency,
-            nomod_link_id, nomod_link_url, COALESCE(payment_status,'unpaid') AS payment_status,
-            paid_at, last_checked_at, nomod_charge_id,
+            invoice_number, amount, currency,
+            nomod_link_id, nomod_charge_id, paid_at, payment_method,
             COALESCE(excluded, 0) AS excluded
        FROM payment_links
-      WHERE nomod_link_id IS NOT NULL
+      WHERE COALESCE(payment_status,'unpaid') = 'paid'
       ORDER BY id DESC LIMIT 500`
   ).all();
-  const items = [...(inv.results || []), ...(lks.results || [])];
-  // Summary by status + currency-naive sum (operator's books are AED-only in practice).
-  // Phase 1.3: rows flagged excluded are kept on the list but skipped from
-  // the collected total so the KPI matches Sales.
-  let paid = 0, unpaid = 0, expired = 0, collected = 0, outstanding = 0;
-  for (const x of items) {
-    const isExcluded = Number(x.excluded) === 1;
-    if (x.payment_status === "paid") {
-      paid++;
-      if (!isExcluded) collected += Number(x.amount) || 0;
-    }
-    else if (x.payment_status === "expired") { expired++; }
-    else { unpaid++; outstanding += Number(x.amount) || 0; }
+  const merged = new Map();
+  // Invoice rows first so their identity wins when a link row dedups to the
+  // same key (invoice client_name + invoice total).
+  for (const r of (inv.results || [])) {
+    const key = r.nomod_charge_id || r.nomod_link_id || ("inv:" + r.id);
+    if (merged.has(key)) continue;
+    merged.set(key, {
+      key, source: "invoice", doc_id: r.id,
+      client_name: r.client_name || "",
+      client_company: r.client_company || null,
+      amount: Number(r.amount) || 0,
+      currency: String(r.currency || "AED"),
+      invoice_number: r.number,
+      nomod_link_id: r.nomod_link_id || null,
+      nomod_charge_id: r.nomod_charge_id || null,
+      paid_at: r.paid_at || null,
+      payment_method: r.payment_method || null,
+      method: paymentMethodLabel(r.payment_method, r.number, r.nomod_charge_id),
+      excluded: 0
+    });
   }
-  return json({ ok: true, items, summary: { paid, unpaid, expired, collected, outstanding } });
+  for (const r of (lks.results || [])) {
+    const key = r.nomod_charge_id || r.nomod_link_id || ("lnk:" + r.id);
+    if (merged.has(key)) {
+      // Same payment already represented by its invoice; carry the link's
+      // excluded flag through so the KPI math stays honest.
+      const existing = merged.get(key);
+      if (Number(r.excluded) === 1) existing.excluded = 1;
+      // Backfill identifying fields the invoice row lacked.
+      if (!existing.nomod_link_id && r.nomod_link_id) existing.nomod_link_id = r.nomod_link_id;
+      if (!existing.nomod_charge_id && r.nomod_charge_id) existing.nomod_charge_id = r.nomod_charge_id;
+      continue;
+    }
+    merged.set(key, {
+      key, source: "link", link_id: r.id,
+      client_name: r.client_name || "",
+      client_company: null,
+      client_email: r.client_email || "",
+      amount: Number(r.amount) || 0,
+      currency: String(r.currency || "AED"),
+      invoice_number: r.invoice_number || null,
+      nomod_link_id: r.nomod_link_id || null,
+      nomod_charge_id: r.nomod_charge_id || null,
+      paid_at: r.paid_at || null,
+      payment_method: r.payment_method || null,
+      method: paymentMethodLabel(r.payment_method, r.invoice_number, r.nomod_charge_id),
+      excluded: Number(r.excluded) === 1 ? 1 : 0
+    });
+  }
+  // Sort newest-paid first, fall back to doc_date when paid_at is missing.
+  const items = Array.from(merged.values()).sort(function(a, b){
+    const da = String(a.paid_at || ""); const db = String(b.paid_at || "");
+    return db.localeCompare(da);
+  });
+  let collected = 0;
+  for (const x of items) {
+    if (!x.excluded) collected += Number(x.amount) || 0;
+  }
+  return json({ ok: true, items, summary: { paid: items.length, collected } });
 }
 
 async function handleReconcilePayments(env) {
@@ -1633,7 +1688,7 @@ async function handleMarkPaid(id, request, env) {
   }
   // Only allow on invoices (quotes never settle). Reject if already refunded.
   const row = await env.BILLING_DB.prepare(
-    `SELECT id, doc_type, payment_status FROM billing_documents WHERE id = ?`
+    `SELECT id, doc_type, payment_status, nomod_link_id FROM billing_documents WHERE id = ?`
   ).bind(id).first();
   if (!row) return json({ ok: false, error: "not found" }, 404);
   if (row.doc_type !== "invoice") return json({ ok: false, error: "only invoices can be marked paid" }, 400);
@@ -1645,6 +1700,23 @@ async function handleMarkPaid(id, request, env) {
            last_checked_at=?
      WHERE id = ?`
   ).bind(paidAt, method, new Date().toISOString(), id).run();
+  // v103: reciprocal stamp on the attached payment_links row so the two
+  // tables stay in sync (the Payments dedup keys on nomod_link_id and would
+  // otherwise show the link as still unpaid). Idempotent via COALESCE.
+  if (row.nomod_link_id) {
+    try {
+      await env.BILLING_DB.prepare(
+        `UPDATE payment_links
+           SET payment_status = 'paid',
+               paid_at = COALESCE(paid_at, ?),
+               last_checked_at = ?,
+               payment_method = COALESCE(payment_method, ?)
+         WHERE nomod_link_id = ?`
+      ).bind(paidAt, new Date().toISOString(), method, row.nomod_link_id).run();
+    } catch (e) {
+      console.error("reciprocal link stamp on mark-paid failed", e && (e.message || String(e)));
+    }
+  }
   return json({ ok: true, id, paid_at: paidAt, payment_method: method });
 }
 
@@ -3273,7 +3345,7 @@ function appShellHTML() {
     <div class="hist-head">
       <div>
         <h2>Payments</h2>
-        <p class="hist-sub">Reconciliation. Which invoices and links are paid; status is polled from Nomod.</p>
+        <p class="hist-sub">Money received. Each settled payment once, by method. Outstanding invoices live in Quotes &amp; Invoices.</p>
       </div>
       <div class="hist-tools">
         <span class="lbl" id="payLastChecked" style="margin-right:.8rem">&nbsp;</span>
@@ -3303,11 +3375,11 @@ function appShellHTML() {
     </div>
     <div class="hist-scroll">
       <table>
-        <thead><tr><th>Number / Title</th><th>Type</th><th>Client / Note</th><th style="text-align:right">Amount</th><th>Status</th><th>Paid</th><th style="text-align:right">Actions</th></tr></thead>
+        <thead><tr><th>Client</th><th>Method</th><th style="text-align:right">Amount</th><th>Invoice</th><th>Date paid</th><th aria-hidden="true"></th></tr></thead>
         <tbody id="payBody"></tbody>
       </table>
     </div>
-    <p class="hist-empty" id="payEmpty" hidden>No payment links yet. Generate one from an invoice or the Links tab.</p>
+    <p class="hist-empty" id="payEmpty" hidden>No payments received yet. Settled payments will appear here, once.</p>
   </div>
 </section>
 </section><!-- /#tab-payments -->
@@ -4433,68 +4505,55 @@ const PAGE_SCRIPT = `<script>
       const j = await r.json();
       if(!j.ok){ setStatus("Payments load failed: " + (j.error || r.status)); return; }
       const items = j.items || [];
-      const s = j.summary || { paid:0, unpaid:0, expired:0, collected:0, outstanding:0 };
+      const s = j.summary || { paid:0, collected:0 };
+      // v103: settled-money KPI strip. No more unpaid/outstanding — those
+      // live in Quotes & Invoices. Just count + AED collected.
       sum.innerHTML = items.length
-        ? '<span>'+s.paid+' paid</span><span class="sep">·</span><span>'+s.unpaid+' unpaid</span>'
-          + (s.expired ? '<span class="sep">·</span><span>'+s.expired+' expired</span>' : '')
-          + '<span class="sep">·</span><span>AED <b>'+Number(s.collected).toLocaleString()+'</b> collected</span>'
-          + '<span class="sep">·</span><span>AED <b>'+Number(s.outstanding).toLocaleString()+'</b> outstanding</span>'
+        ? '<span>'+s.paid+' settled</span><span class="sep">·</span><span>AED <b>'+Number(s.collected).toLocaleString()+'</b> received</span>'
         : '';
       if(!items.length){ body.innerHTML = ""; empty.hidden = false; return; }
       empty.hidden = true;
       body.innerHTML = items.map(function(x){
-        const isInv = x.source === "invoice";
-        const u = String(x.nomod_link_url || "");
-        const numCell = isInv
-          ? '<a href="#" data-payload="'+x.id+'">'+esc(x.number)+'</a>'
-          : esc(x.number);
-        // v97: identity rule consistent with the Links tab. For invoice rows
-        // the client_name + (optional company) is unchanged; for link rows we
-        // now show the real client_name (server falls back to title only when
-        // empty) and append a small invoice_number tag when the link is
-        // attached, so a link payment never reads as a bare number.
-        const invTag = (!isInv && x.invoice_number)
-          ? ' <span class="hist-status linked" style="margin-left:.4em">'+esc(x.invoice_number)+'</span>'
-          : '';
-        const clientCell = isInv
-          ? esc(x.client_name || "") + (x.client_company ? ' <span style="color:var(--muted)">('+esc(x.client_company)+')</span>' : '')
-          : (esc(x.client_name || x.client_email || "·") + invTag);
-        const status = String(x.payment_status || "unknown").toLowerCase();
-        const statusCell = '<span class="pay-status '+status+'">'+status.toUpperCase()+'</span>';
-        const paidCell = x.paid_at ? esc(fmtDate(String(x.paid_at).slice(0,10))) : '<span style="color:var(--muted)">&middot;</span>';
-        const sortDate = String(x.paid_at || x.doc_date || "");
-        const sortAmount = Number(x.amount) || 0;
-        const actions = [];
-        actions.push('<button type="button" class="btn btn-small btn-ghost" data-paycopy="'+esc(u)+'" title="Link the client uses to pay this invoice">Copy payment link</button>');
-        if(isInv) actions.push('<button type="button" class="btn btn-small btn-ghost" data-payload="'+x.id+'">Open</button>');
-        if(status !== "paid" && isInv){
-          actions.push('<button type="button" class="btn btn-small btn-ghost" data-payregen="'+x.id+'" data-num="'+esc(x.number)+'" title="Issues a fresh Nomod payment link, replacing the previous one">Regenerate payment link</button>');
-          // v84 — manual mark-paid for invoices settled outside Nomod.
-          actions.push('<button type="button" class="btn btn-small btn-ghost" data-paymark="bank" data-id="'+x.id+'" data-num="'+esc(x.number)+'" title="Mark this invoice paid via bank wire">Mark paid via bank</button>');
-          actions.push('<button type="button" class="btn btn-small btn-ghost" data-paymark="cash" data-id="'+x.id+'" data-num="'+esc(x.number)+'" title="Mark this invoice paid via cash">Mark paid via cash</button>');
-        }
-        // Phase 1.3 — Nomod-synced charges show Exclude/Restore instead of Delete.
-        // Hard-delete is refused server-side: a full re-sync would resurrect the row.
-        const isNomodSynced = !!x.nomod_charge_id;
+        // v103: read-only settled ledger. Identity = client_name primary,
+        // attached invoice number as a small reference tag. No type column,
+        // no per-row Copy/Open/Regenerate/Mark-paid actions; those moved
+        // (Copy lives in Payment Links; Mark paid lives on the invoice).
+        const clientPrimary = String(x.client_name || x.client_email || "").trim() || "·";
+        const invCell = x.invoice_number
+          ? '<span class="hist-status linked">'+esc(x.invoice_number)+'</span>'
+          : '<span style="color:var(--muted)">&middot;</span>';
+        const methodLbl = String(x.method || "Nomod");
         const isExcluded = Number(x.excluded) === 1;
-        if(!isInv && isNomodSynced){
-          if(isExcluded){
-            actions.push('<button type="button" class="btn btn-small btn-ghost" data-payexclude="0" data-id="'+x.id+'" title="Include this charge in revenue and reports again">Restore</button>');
+        const paidCell = x.paid_at ? esc(fmtDate(String(x.paid_at).slice(0,10))) : '<span style="color:var(--muted)">&middot;</span>';
+        const sortDate = String(x.paid_at || "");
+        const sortAmount = Number(x.amount) || 0;
+        // Only retain the Exclude/Restore action for Nomod-synced rows so
+        // the operator can still suppress a misposted charge from the
+        // collected KPI without leaving a phantom row behind. Everything
+        // else is read-only.
+        const actions = [];
+        const isNomodSynced = !!x.nomod_charge_id;
+        const linkId = x.source === "link" ? x.link_id : null;
+        if (isNomodSynced && linkId){
+          if (isExcluded){
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-payexclude="0" data-id="'+linkId+'" title="Include this charge in revenue and reports again">Restore</button>');
           } else {
-            actions.push('<button type="button" class="btn btn-small btn-danger" data-payexclude="1" data-id="'+x.id+'" title="Keep the record but stop counting it in revenue">Exclude from revenue</button>');
+            actions.push('<button type="button" class="btn btn-small btn-danger" data-payexclude="1" data-id="'+linkId+'" title="Keep the record but stop counting it in revenue">Exclude from revenue</button>');
           }
         }
         const trClass = "expandable" + (isExcluded ? " excluded" : "");
-        return '<tr class="'+trClass+'" data-expandable="1" data-paystat="'+status+'" data-sortdate="'+esc(sortDate)+'" data-sortamount="'+sortAmount+'">'
-          + '<td data-lbl="Number">'+numCell+'</td>'
-          + '<td data-lbl="Type"><span class="pay-type">'+(isInv?'Invoice':'Link')+'</span></td>'
-          + '<td data-lbl="Client">'+clientCell+'</td>'
+        const drawer = actions.length
+          ? ('<tr class="hist-actions-row" hidden><td colspan="6"><div class="hist-actions-panel">'+actions.join(' ')+'</div></td></tr>')
+          : ('<tr class="hist-actions-row" hidden><td colspan="6"><div class="hist-actions-panel"><span style="color:var(--muted);font-size:12px">Payments is read-only. Mark paid (cash or bank) on the invoice; copy a payment link from Payment Links.</span></div></td></tr>');
+        return '<tr class="'+trClass+'" data-expandable="1" data-paystat="paid" data-sortdate="'+esc(sortDate)+'" data-sortamount="'+sortAmount+'">'
+          + '<td data-lbl="Client">'+esc(clientPrimary)+'</td>'
+          + '<td data-lbl="Method"><span class="pay-type">'+esc(methodLbl)+'</span></td>'
           + '<td data-lbl="Amount" style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(Number(x.amount), x.currency))+'</td>'
-          + '<td data-lbl="Status">'+statusCell+'</td>'
-          + '<td data-lbl="Paid">'+paidCell+'</td>'
+          + '<td data-lbl="Invoice">'+invCell+'</td>'
+          + '<td data-lbl="Date paid">'+paidCell+'</td>'
           + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">▾</span></td>'
           + '</tr>'
-          + '<tr class="hist-actions-row" hidden><td colspan="7"><div class="hist-actions-panel">'+actions.join(' ')+'</div></td></tr>';
+          + drawer;
       }).join("");
       applyPaymentsFilter();
       payLastFetched = Date.now();
@@ -5184,6 +5243,87 @@ const PAGE_SCRIPT = `<script>
     });
   }
 
+  // v103 — choose a settlement method (Cash / Bank transfer) for a manual
+  // mark-paid on an invoice row. Tiny ed-modal popup; POSTs to the existing
+  // /admin/api/billing/:id/mark-paid route and refreshes the lists on
+  // success. handleMarkPaid stamps payment_status='paid', payment_method,
+  // paid_at (now) on the invoice AND reciprocally on its payment_links row
+  // when nomod_link_id is present, so the new row appears in Payments
+  // under the chosen method.
+  function openMarkPaidChoice(id, num){
+    if(!id) return;
+    const modal = document.createElement("div");
+    modal.className = "ed-modal mark-paid-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    const backdrop = document.createElement("div");
+    backdrop.className = "ed-backdrop";
+    backdrop.setAttribute("aria-hidden", "true");
+    const shell = document.createElement("div");
+    shell.className = "ed-shell";
+    shell.style.cssText = "max-width:440px;max-height:none;inset:auto;position:absolute;top:14vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
+    shell.innerHTML =
+      '<header class="ed-head" style="padding:1rem 1.4rem">'
+      + '  <h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.15rem">Mark '+pmtEsc(num || "invoice")+' paid</h2>'
+      + '  <button type="button" class="btn btn-small btn-ghost" data-mpcancel>Close</button>'
+      + '</header>'
+      + '<div class="ed-body" style="padding:1.2rem 1.4rem 1.4rem">'
+      + '  <p class="hist-sub" style="margin:0 0 1rem">How was this invoice settled? It will appear in Payments under the chosen method.</p>'
+      + '  <div class="status-line" id="mpStatus" style="min-height:1.1em;margin:0 0 .8rem"></div>'
+      + '  <div style="display:flex;flex-direction:column;gap:.7rem">'
+      + '    <button type="button" class="btn" data-mppick="cash" style="text-align:left;padding:.8rem 1rem">Cash</button>'
+      + '    <button type="button" class="btn btn-ghost" data-mppick="bank" style="text-align:left;padding:.8rem 1rem">Bank transfer</button>'
+      + '  </div>'
+      + '  <div class="actions" style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.2rem">'
+      + '    <button type="button" class="btn btn-small btn-ghost" data-mpcancel>Cancel</button>'
+      + '  </div>'
+      + '</div>';
+    modal.appendChild(backdrop);
+    modal.appendChild(shell);
+    document.body.appendChild(modal);
+    function close(){ try { document.body.removeChild(modal); } catch(_){} }
+    function setMpStatus(s){ const el = modal.querySelector("#mpStatus"); if(el) el.textContent = s || ""; }
+    modal.querySelectorAll("[data-mpcancel]").forEach(function(b){ b.addEventListener("click", function(e){ e.preventDefault(); close(); }); });
+    backdrop.addEventListener("click", close);
+    document.addEventListener("keydown", function escListener(e){
+      if(e.key === "Escape"){ e.preventDefault(); close(); document.removeEventListener("keydown", escListener); }
+    });
+    modal.addEventListener("click", function(e){
+      const pick = e.target.closest("[data-mppick]");
+      if(!pick) return;
+      e.preventDefault();
+      const method = pick.getAttribute("data-mppick");
+      if(!confirm("Mark " + (num || "this invoice") + " paid by " + (method === "cash" ? "cash" : "bank transfer") + "?")) return;
+      modal.querySelectorAll("[data-mppick],[data-mpcancel]").forEach(function(b){ b.disabled = true; });
+      setMpStatus("Marking paid …");
+      fetch("/admin/api/billing/" + encodeURIComponent(id) + "/mark-paid", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ method: method })
+      })
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          if(j && j.ok){
+            close();
+            setStatus("Marked " + (num || ("#" + id)) + " paid (" + method + ").");
+            if(typeof loadHistory === "function") loadHistory();
+            if(typeof loadPayments === "function") loadPayments();
+            if(typeof loadLinks === "function") loadLinks();
+          } else {
+            setMpStatus("Mark paid failed: " + ((j && j.error) || ""));
+            modal.querySelectorAll("[data-mppick],[data-mpcancel]").forEach(function(b){ b.disabled = false; });
+          }
+        })
+        .catch(function(err){
+          setMpStatus("Mark paid failed: " + (err && (err.message || err)));
+          modal.querySelectorAll("[data-mppick],[data-mpcancel]").forEach(function(b){ b.disabled = false; });
+        });
+    });
+  }
+  // tiny local esc used only inside openMarkPaidChoice's header literal so
+  // we do not depend on the wider esc being in scope at popup-build time.
+  function pmtEsc(s){ return String(s==null?"":s).replace(/[&<>"']/g, function(c){return ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]);}); }
+
   // v86 — find an invoice by number in the most recent history snapshot;
   // fall back to GET /admin/api/billing for the lookup if not yet loaded.
   let lastHistoryItems = [];
@@ -5648,6 +5788,18 @@ const PAGE_SCRIPT = `<script>
       const linkB = e.target.closest("[data-link]");
       const copyB = e.target.closest("[data-copy]");
       const emailB = e.target.closest("[data-emailclient]");
+      // v103: Mark paid (cash or bank) on an invoice row. Opens a small
+      // choice modal; on selection POSTs /admin/api/billing/:id/mark-paid
+      // and reloads the Documents list (and Payments + Links, since the
+      // reciprocal stamp on payment_links keeps everything in sync).
+      const mpB = e.target.closest("[data-markpaid]");
+      if(mpB && !mpB.disabled){
+        e.preventDefault(); e.stopPropagation();
+        const id = mpB.getAttribute("data-markpaid");
+        const num = mpB.getAttribute("data-num") || "";
+        openMarkPaidChoice(id, num);
+        return;
+      }
       // v100: send the branded invoice/quote to the document's client_email
       // via /admin/api/billing/:id/email. Re-entrancy: disable the button
       // while the request is in flight so a double-click cannot double-send.
@@ -5772,6 +5924,11 @@ const PAGE_SCRIPT = `<script>
             actions.push('<button type="button" class="btn btn-small btn-ghost" data-link="'+x.id+'" data-num="'+esc(x.number)+'" data-regen="1" title="Regenerate the payment link (creates a new one and overwrites the saved URL)">Regenerate</button>');
           } else {
             actions.push('<button type="button" class="btn btn-small btn-ink" data-link="'+x.id+'" data-num="'+esc(x.number)+'" title="Create a Nomod payment link for this invoice">Generate payment link</button>');
+          }
+          // v103: cash/bank Mark paid lives on the invoice now (not Payments).
+          // Only offered on unpaid invoices; opens a small choice popup.
+          if(String(x.payment_status || "").toLowerCase() !== "paid"){
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-markpaid="'+x.id+'" data-num="'+esc(x.number)+'" title="Mark this invoice paid by cash or bank transfer">Mark paid</button>');
           }
         }
         // v100: per-row "Email client" sends the branded invoice/quote to
