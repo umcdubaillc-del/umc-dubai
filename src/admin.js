@@ -3130,7 +3130,7 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
   @page { size: A4; margin: 0; }
   *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   body { background:#fff; }
-  header.top, nav.tabbar, .app .panel, .history-wrap, .email-out, .actions, .preview-wrap > .lbl, .status-line, .ed-head, .ed-backdrop { display:none !important; }
+  header.top, nav.tabbar, .tab-panel, .app .panel, .email-out, .actions, .preview-wrap > .lbl, .status-line, .ed-head, .ed-backdrop { display:none !important; }
   /* v103: the editor opens in a modal on mobile, so a per-row Print baked the modal
      header (.ed-head: title + Close), the tab bar (nav.tabbar: tabs + "+ Create") and
      the backdrop straight into the PDF. Hide them in print. Also neutralize the fixed /
@@ -3233,7 +3233,7 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
   .history td[data-lbl="Invoice"],.history td[data-lbl="Status"],.history td[data-lbl="Contact"],
   .history td[data-lbl="Service"]{order:2;font-size:12px;color:var(--muted);line-height:1.5;margin-right:.55rem}
   /* First meta cell breaks onto its own line */
-  .history td[data-lbl="Number"],.history td[data-lbl="Date"]{flex-basis:100%;margin-right:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .history td[data-lbl="Number"],.history td[data-lbl="Date"],.history td[data-lbl="Created"],.history td[data-lbl="Method"]{flex-basis:100%;margin-right:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
   /* Hide noise on the collapsed row (still in the drawer / desktop) */
   .history td[data-lbl="Link"],.history td[data-lbl="Route"],.history td[data-lbl="Consent"]{display:none}
