@@ -2603,14 +2603,16 @@ export async function handleAdmin(request, env) {
     if (!env.BILLING_DB) return dbUnavailable();
     const pm = path.match(/^\/admin\/api\/billing\/(\d+)\/pdf$/);
     if (pm && method === "GET") {
-      const row = await env.BILLING_DB.prepare("SELECT * FROM billing_documents WHERE id = ?").bind(parseInt(pm[1],10)).first();
+      const id = parseInt(pm[1],10);
+      const row = await env.BILLING_DB.prepare("SELECT * FROM billing_documents WHERE id = ?").bind(id).first();
       if (!row) return json({ ok:false, error:"not found" }, 404);
       try { row.line_items = JSON.parse(row.line_items||"[]"); } catch(e){ row.line_items = []; }
       const { renderInvoicePdf } = await import("./pdf.js");
       const bytes = await renderInvoicePdf(row);
+      const fname = String(row.number || ('UMC-' + id)).replace(/[^A-Za-z0-9_-]/g, '') || ('UMC-' + id);
       return new Response(bytes, { status:200, headers:{
         "Content-Type":"application/pdf",
-        "Content-Disposition":"inline; filename=\""+(row.number||"invoice")+".pdf\"",
+        "Content-Disposition": `inline; filename="${fname}.pdf"`,
         "Cache-Control":"no-store"
       }});
     }
