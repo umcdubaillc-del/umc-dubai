@@ -2520,6 +2520,9 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 .history .hist-typefilter .seg.on{background:var(--ink);color:var(--bone)}
 .history .hist-status{display:inline-block;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
 .history .hist-status.linked{color:var(--amber-deep)}
+/* v96 — settled invoices in the Documents list use a muted positive tone so
+   PAID reads at a glance without competing with the warm amber accent. */
+.history .hist-status.paid{color:#2E7D54;font-weight:600}
 .history .empty{padding:1.5rem .5rem;color:var(--muted);font-size:13px;text-align:center;border-top:1px solid var(--hair)}
 
 /* Phase 1.1 — expandable row actions. The main row carries only the data
@@ -3197,7 +3200,11 @@ const PAGE_SCRIPT = `<script>
     // v86 — when the Create editor was seeded from a standalone payment link,
     // this carries the link id so the server attaches the new invoice to the
     // link (reuses the same Nomod URL, writes the invoice number back).
-    attach_link_id: null
+    attach_link_id: null,
+    // v96 — when a previously-issued invoice is re-opened from Documents,
+    // this carries its current payment_status so renderDoc can stamp PAID
+    // and show a zero Balance Due. New documents leave it null (no stamp).
+    payment_status: null
   };
 
   // ---------- helpers
@@ -3423,6 +3430,9 @@ const PAGE_SCRIPT = `<script>
       +     '</div>'
       +     '<div class="d">'+esc(fmtDate(state.doc_date))+'</div>'
       +     (isInv && state.source_quote_number ? '<div class="d" style="font-size:10px;letter-spacing:.16em;color:var(--muted);text-transform:uppercase;margin-top:.15rem">Converted from quote '+esc(state.source_quote_number)+'</div>' : '')
+      // v96 — PAID stamp on settled invoices. Reads state.payment_status set
+      // by loadDoc; renders nothing for unpaid invoices, quotes, or new docs.
+      +     (isInv && state.payment_status === "paid" ? '<div class="d" style="font-size:10px;letter-spacing:.22em;color:#2E7D54;text-transform:uppercase;font-weight:600;margin-top:.25rem">Paid</div>' : '')
       +     '<div class="client">'
       +       '<h4>'+esc(clientLbl)+'</h4>'
       +       clientName
@@ -3441,6 +3451,9 @@ const PAGE_SCRIPT = `<script>
       +   '<div class="r"><span>VAT 5%</span><span>'+fmtMoney(r.vat, state.currency)+'</span></div>'
       +   discRowFmt
       +   '<div class="r grand"><span>Total</span><span>'+fmtMoney(r.total, state.currency)+'</span></div>'
+      // v96 — when this invoice has been settled, show a zero Balance due
+      // row below the grand total so the open-document view reflects truth.
+      +   (isInv && state.payment_status === "paid" ? '<div class="r" style="color:#2E7D54;font-weight:600"><span>Balance due</span><span>'+fmtMoney(0, state.currency)+'</span></div>' : '')
       +   vatNoteFmt
       + '</div></div>'
       // --- (optional) notes flow between totals and the sticky legal band ---
@@ -3564,7 +3577,28 @@ const PAGE_SCRIPT = `<script>
     $("btnSavePrint").addEventListener("click", onSavePrint);
     $("btnNew").addEventListener("click", onNew);
     $("btnLogout").addEventListener("click", onLogout);
-    $("btnRefresh").addEventListener("click", loadHistory);
+    // v96 — Refresh on the Documents tab now reconciles with Nomod first
+    // (same call /admin/api/payments/reconcile that the Payments "Check now"
+    // button uses), then reloads the list so freshly-stamped payment_status
+    // values land in the Status column. Resilient: any reconcile error still
+    // falls through to loadHistory() so the button never becomes a dead end.
+    $("btnRefresh").addEventListener("click", async function(){
+      setStatus("Checking payments …");
+      try {
+        const r = await fetch("/admin/api/payments/reconcile", { method: "POST" });
+        const j = await r.json();
+        if (j && j.ok) {
+          const msg = "Checked " + j.checked + ", " + (j.newlyPaid ? j.newlyPaid + " newly paid · " : "") + j.stillUnpaid + " still unpaid"
+                    + (j.errors ? " (" + j.errors + " errors)" : "");
+          setStatus(msg);
+        } else {
+          setStatus("Reconcile failed: " + ((j && j.error) || r.status));
+        }
+      } catch (e) {
+        setStatus("Reconcile failed: " + (e.message || e));
+      }
+      try { await loadHistory(); } catch(_){}
+    });
     const btnRevert = document.getElementById("btnRevertLead");
     if(btnRevert) btnRevert.addEventListener("click", revertToOriginal);
 
@@ -3954,6 +3988,8 @@ const PAGE_SCRIPT = `<script>
       state.leadOriginal = null;
       // v86 — clear link attachment so the next document does not re-attach.
       state.attach_link_id = null;
+      // v96 — newly-saved invoices start in their default (unpaid) state.
+      state.payment_status = null;
       updateLeadRevertButton();
       loadHistory();
       if(typeof loadLeads === "function") loadLeads();
@@ -3987,6 +4023,8 @@ const PAGE_SCRIPT = `<script>
     state.leadOriginal = null;
     // v86 — New also clears any pending link attachment.
     state.attach_link_id = null;
+    // v96 — New starts in default (unpaid) state, so the PAID stamp is hidden.
+    state.payment_status = null;
     state.doc_date = new Date().toISOString().slice(0,10);
     ["cName","cCompany","cAddress","cEmail","cPhone","fDiscount","fNotes","fInternalNotes","fEmailRecipients"].forEach(function(id){ const el = $(id); if(el) el.value = ""; });
     $("fDate").value = state.doc_date;
@@ -5318,8 +5356,15 @@ const PAGE_SCRIPT = `<script>
         }
         const isPaidDoc = String(x.payment_status || "").toLowerCase() === "paid";
         actions.push('<button type="button" class="btn btn-small btn-danger" data-del="'+x.id+'" data-num="'+esc(x.number)+'" data-type="'+esc(x.doc_type)+'" data-paid="'+(isPaidDoc?"1":"0")+'" title="Delete">×</button>');
+        // v96 — read payment_status first so settled invoices show "Paid"
+        // (reusing the isPaidDoc boolean already computed above). Falls back
+        // to "Link generated" when a Nomod URL exists but it isn't paid yet,
+        // then to a quiet middot when nothing has happened. Quotes branch
+        // unchanged (Converted / middot).
         const statusTxt = isInvoice
-          ? (hasLink ? '<span class="hist-status linked">Link sent</span>' : '<span class="hist-status">&middot;</span>')
+          ? (isPaidDoc
+              ? '<span class="hist-status paid">Paid</span>'
+              : (hasLink ? '<span class="hist-status linked">Link generated</span>' : '<span class="hist-status">&middot;</span>'))
           : (x.source_quote_number ? '<span class="hist-status">Converted</span>' : '<span class="hist-status">&middot;</span>');
         const searchText = [x.number, x.client_name || "", x.client_company || "", x.source_quote_number || ""].join(" ");
         const sortDate = String(x.doc_date || "");
@@ -5451,6 +5496,9 @@ const PAGE_SCRIPT = `<script>
       state.leadOriginal = null;
       // v86 — opening an existing doc must not re-attach a link on save.
       state.attach_link_id = null;
+      // v96 — surface paid state in the printed/preview document so a re-open
+      // of a settled invoice shows PAID and a zero balance.
+      state.payment_status = String(x.payment_status || "").toLowerCase() || null;
       // reflect into UI
       $("tQuote").classList.toggle("on", state.doc_type === "quote");
       $("tInvoice").classList.toggle("on", state.doc_type === "invoice");
