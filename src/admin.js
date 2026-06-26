@@ -735,6 +735,47 @@ async function handlePaymentLink(id, env, opts, override) {
       warning: "Link created but DB persistence failed: " + ((e && e.message) || String(e)),
     });
   }
+  // v97: dual-write — every invoice-generated link is also a real
+  // payment_links row, so the Links tab shows it AND payment_links carries
+  // the back-reference (invoice_number + client_name) to the invoice. Keyed
+  // on nomod_link_id so regenerate updates the existing row instead of
+  // duplicating. NET amount = inv.total / 1.05 (Nomod adds 5% account tax).
+  // Title prefers the invoice's client_name (the relational identity); falls
+  // back to the invoice number so the row is never anonymous. Fail-open: a
+  // persistence error must not undo the link creation.
+  try {
+    const persistedNet = (Number(inv.total) || 0) / 1.05;
+    const linkTitle = (inv.client_name && String(inv.client_name).trim()) || String(inv.number);
+    const linkNote = payload.note;
+    const existing = await env.BILLING_DB.prepare(
+      "SELECT id FROM payment_links WHERE nomod_link_id = ? LIMIT 1"
+    ).bind(nomodBody.id || "").first();
+    if (existing && existing.id) {
+      await env.BILLING_DB.prepare(
+        `UPDATE payment_links
+         SET title = ?, amount = ?, currency = ?, note = ?,
+             nomod_link_url = ?, client_name = ?, invoice_number = ?
+         WHERE id = ?`
+      ).bind(
+        linkTitle.slice(0, 120), persistedNet, payload.currency, linkNote,
+        nomodBody.url, inv.client_name || null, String(inv.number),
+        existing.id
+      ).run();
+    } else {
+      await env.BILLING_DB.prepare(
+        `INSERT INTO payment_links
+          (title, amount, currency, note, nomod_link_id, nomod_link_url,
+           client_name, invoice_number, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        linkTitle.slice(0, 120), persistedNet, payload.currency, linkNote,
+        nomodBody.id || null, nomodBody.url,
+        inv.client_name || null, String(inv.number), createdAt
+      ).run();
+    }
+  } catch (e) {
+    console.error("payment_links dual-write failed", e && (e.message || String(e)));
+  }
   return json({
     ok: true,
     url: nomodBody.url,
@@ -834,11 +875,14 @@ async function handleCreateStandaloneLink(request, env) {
   const persistedNet = (discount_flat > 0) ? Math.max(0, netSum - discount_flat)
                     : (discount_pct  > 0) ? netSum * (1 - discount_pct/100)
                     : netSum;
+  // v97: optional client_name persisted verbatim. Standalone links have no
+  // invoice_number by definition; that column stays NULL.
+  const clientName = String((b && b.client_name) || "").trim() || null;
   try {
     const ins = await env.BILLING_DB.prepare(
-      `INSERT INTO payment_links (title, amount, currency, note, nomod_link_id, nomod_link_url)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).bind(title, persistedNet, currency, note || null, nomodBody.id || null, nomodBody.url).run();
+      `INSERT INTO payment_links (title, amount, currency, note, nomod_link_id, nomod_link_url, client_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(title, persistedNet, currency, note || null, nomodBody.id || null, nomodBody.url, clientName).run();
     const id = ins && ins.meta && ins.meta.last_row_id;
     return json({ ok: true, id, url: nomodBody.url, nomod_id: nomodBody.id, amount: persistedNet });
   } catch (e) {
@@ -854,7 +898,8 @@ async function handleListLinks(env) {
   const { results } = await env.BILLING_DB.prepare(
     `SELECT id, title, amount, currency, note, nomod_link_id, nomod_link_url,
             nomod_charge_id, COALESCE(excluded, 0) AS excluded, created_at,
-            client_name, client_email, invoice_number
+            client_name, client_email, invoice_number,
+            COALESCE(payment_status,'unpaid') AS payment_status, paid_at
      FROM payment_links ORDER BY id DESC LIMIT 500`
   ).all();
   return json({ ok: true, items: results || [] });
@@ -1101,6 +1146,25 @@ async function reconcilePaymentStatus(env, record, table) {
            payment_method = CASE WHEN ? = 'paid' THEN COALESCE(payment_method, 'nomod') ELSE payment_method END
      WHERE id = ?`
   ).bind(m.status, paidAt, now, m.chargeId, m.status, record.id).run();
+  // v97: reciprocal stamp so the invoice ↔ payment_links pair always agrees.
+  // Both directions key on nomod_link_id (the shared identity). All updates
+  // are idempotent (COALESCE on paid_at so a retry never moves the timestamp).
+  if (m.status === "paid" && record.nomod_link_id) {
+    const sideTable = table === "billing_documents" ? "payment_links" : "billing_documents";
+    try {
+      await env.BILLING_DB.prepare(
+        `UPDATE ${sideTable}
+           SET payment_status = 'paid',
+               paid_at = COALESCE(paid_at, ?),
+               last_checked_at = ?,
+               nomod_charge_id = COALESCE(nomod_charge_id, ?),
+               payment_method = COALESCE(payment_method, 'nomod')
+         WHERE nomod_link_id = ?`
+      ).bind(paidAt, now, m.chargeId, record.nomod_link_id).run();
+    } catch (e) {
+      console.error("cross-table stamp failed", e && (e.message || String(e)));
+    }
+  }
   return { id: record.id, status: m.status, newlyPaid, chargeId: m.chargeId };
 }
 
@@ -1108,17 +1172,25 @@ async function reconcileAllOutstanding(env) {
   await ensureSchema(env);
   const sixtySecAgo = new Date(Date.now() - 60_000).toISOString();
   // Outstanding = has a Nomod link AND not already paid AND not checked < 60s ago.
+  // v97: include rows that are flagged paid but missing the supporting
+  // stamps (paid_at or nomod_charge_id). A previous race could leave
+  // payment_status='paid' with NULLs in those columns, which then never
+  // re-checked. Widening the selection lets a Refresh self-heal them.
   const inv = await env.BILLING_DB.prepare(
     `SELECT id, nomod_link_id, payment_status, paid_at FROM billing_documents
       WHERE nomod_link_id IS NOT NULL
-        AND COALESCE(payment_status,'unpaid') != 'paid'
+        AND (COALESCE(payment_status,'unpaid') != 'paid'
+             OR paid_at IS NULL
+             OR nomod_charge_id IS NULL)
         AND (last_checked_at IS NULL OR last_checked_at < ?)
       LIMIT 50`
   ).bind(sixtySecAgo).all();
   const lks = await env.BILLING_DB.prepare(
     `SELECT id, nomod_link_id, payment_status, paid_at FROM payment_links
       WHERE nomod_link_id IS NOT NULL
-        AND COALESCE(payment_status,'unpaid') != 'paid'
+        AND (COALESCE(payment_status,'unpaid') != 'paid'
+             OR paid_at IS NULL
+             OR nomod_charge_id IS NULL)
         AND (last_checked_at IS NULL OR last_checked_at < ?)
       LIMIT 50`
   ).bind(sixtySecAgo).all();
@@ -1148,10 +1220,14 @@ async function handleListPayments(env) {
       WHERE nomod_link_id IS NOT NULL
       ORDER BY id DESC LIMIT 500`
   ).all();
+  // v97: link rows now return the REAL client_name (falling back to title
+  // only when missing) plus the back-reference invoice_number, so Payments
+  // can render the same identity rule used in the Links tab.
   const lks = await env.BILLING_DB.prepare(
     `SELECT 'link' AS source, id, title AS number, created_at AS doc_date,
-            title AS client_name, COALESCE(client_email, '') AS client_email,
-            NULL AS client_company, amount, currency,
+            COALESCE(NULLIF(TRIM(client_name), ''), title) AS client_name,
+            COALESCE(client_email, '') AS client_email,
+            NULL AS client_company, invoice_number, amount, currency,
             nomod_link_id, nomod_link_url, COALESCE(payment_status,'unpaid') AS payment_status,
             paid_at, last_checked_at, nomod_charge_id,
             COALESCE(excluded, 0) AS excluded
@@ -2551,7 +2627,10 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 .history .hist-ctrl > .lbl{font-family:Outfit;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);font-weight:500}
 
 /* v53 Phase 2: Links tab layout */
-.links-page{padding:1.5rem;display:grid;gap:1.5rem;max-width:920px;margin:0 auto}
+/* v97: drop the 920px cap so the Payment links table matches the Payments
+   table's full-width feel. The .panel (create form) keeps its 640px width
+   so the create UI stays compact and the table stretches below it. */
+.links-page{padding:1.5rem;display:grid;gap:1.5rem;margin:0 auto}
 .links-page > .panel{max-width:640px}
 .links-page .actions{margin-top:.6rem}
 .links-page .history-wrap{padding:0}
@@ -2995,6 +3074,7 @@ function appShellHTML() {
 
     <small class="lbl" style="margin-bottom:.4rem;display:block">Details</small>
     <div class="field"><label class="lbl" for="lkTitle">Name (link title)</label><input id="lkTitle" type="text" placeholder="Deposit &middot; Mr Smith &middot; 18 Jun 2026" maxlength="50" autocomplete="off"></div>
+    <div class="field"><label class="lbl" for="lkClient">Client name (optional)</label><input id="lkClient" type="text" placeholder="Shown in the Links list and on the payment-received notification" maxlength="120" autocomplete="off"></div>
     <div class="field"><label class="lbl" for="lkNote">Note (optional)</label><textarea id="lkNote" rows="2" maxlength="280" placeholder="Shown on the Nomod payment page"></textarea></div>
 
     <hr class="hair">
@@ -3018,18 +3098,18 @@ function appShellHTML() {
   <div class="history">
     <div class="hist-head">
       <div>
-        <h2>Standalone links</h2>
-        <p class="hist-sub">Payment links not attached to an invoice. Use for deposits, ad-hoc charges and WhatsApp collection.</p>
+        <h2>Payment links</h2>
+        <p class="hist-sub">Payment links, standalone or attached to an invoice. Status reconciles automatically from Nomod. Use for deposits, ad-hoc charges and WhatsApp collection.</p>
       </div>
       <button type="button" class="btn btn-small btn-ghost" id="lkRefresh">Refresh</button>
     </div>
     <div class="hist-scroll">
       <table>
-        <thead><tr><th>Title</th><th style="text-align:right">Amount</th><th>Created</th><th>Link</th><th>Attached</th><th aria-hidden="true"></th></tr></thead>
+        <thead><tr><th>Client</th><th style="text-align:right">Amount</th><th>Created</th><th>Link</th><th>Status</th><th aria-hidden="true"></th></tr></thead>
         <tbody id="lkBody"></tbody>
       </table>
     </div>
-    <div class="empty" id="lkEmpty" hidden>No standalone links yet.</div>
+    <div class="empty" id="lkEmpty" hidden>No payment links yet.</div>
   </div>
 
 </div>
@@ -3760,6 +3840,11 @@ const PAGE_SCRIPT = `<script>
         if(!j.ok || !j.items || !j.items.length){ tbody.innerHTML = ""; empty.hidden = false; linksLoaded = true; lastLinksById = {}; return; }
         empty.hidden = true;
         lastLinksById = {};
+        // v97: identity = client_name primary with an optional invoice_number
+        // secondary tag. Status pill from payment_status. Copy-link sits in
+        // the row (Link cell) so it's reachable without opening the drawer;
+        // the drawer keeps the lifecycle actions (Open invoice / Create from
+        // link / Attach / Exclude / Delete).
         tbody.innerHTML = j.items.map(function(x){
           lastLinksById[String(x.id)] = x;
           const u = String(x.nomod_link_url || "");
@@ -3767,10 +3852,23 @@ const PAGE_SCRIPT = `<script>
           const isSynced = !!x.nomod_charge_id;
           const isExcl = Number(x.excluded) === 1;
           const attachedNum = x.invoice_number ? String(x.invoice_number) : "";
-          // Drawer actions, mirrored from Payments. Buttons sit in
-          // .hist-actions-panel inside a hidden sibling row.
+          const status = String(x.payment_status || "unpaid").toLowerCase();
+          const isPaid = status === "paid";
+          // Primary identity = client_name (fall back to title only if empty),
+          // never a bare invoice number. Invoice number rides as a small tag.
+          const clientPrimary = String((x.client_name && x.client_name.trim()) || x.title || "").trim();
+          const invTag = attachedNum
+            ? ' <span class="hist-status linked" style="margin-left:.4em">'+esc(attachedNum)+'</span>'
+            : '';
+          const subline = x.note ? '<div class="hist-link" style="color:var(--muted)">'+esc(x.note)+'</div>' : '';
+          const statusPill = isPaid
+            ? '<span class="hist-status paid">Paid</span>'
+            : (status === "expired"
+                ? '<span class="hist-status">Expired</span>'
+                : '<span class="hist-status linked">Unpaid</span>');
+          // Drawer actions: lifecycle only. Copy-link is now in the row, so we
+          // do not duplicate it here.
           const actions = [];
-          actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkcopy="'+esc(u)+'" title="Copy this Nomod payment link to clipboard">Copy link</button>');
           if(attachedNum){
             actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkopen="'+esc(attachedNum)+'" title="Open the attached invoice in the editor">Open '+esc(attachedNum)+'</button>');
           } else if(!isSynced){
@@ -3786,16 +3884,18 @@ const PAGE_SCRIPT = `<script>
           } else if(!attachedNum){
             actions.push('<button type="button" class="btn btn-small btn-danger" data-lkdel="'+x.id+'" data-lktitle="'+esc(x.title)+'" title="Delete this link from the local record (the Nomod URL itself stays live)">Delete</button>');
           }
-          const attachedCell = attachedNum
-            ? '<a href="#" class="hist-link" data-lkopen="'+esc(attachedNum)+'" title="Open the attached invoice">'+esc(attachedNum)+'</a>'
-            : '<span style="color:var(--muted)">&middot;</span>';
           const trClass = "expandable" + (isExcl ? " excluded" : "");
           return '<tr class="'+trClass+'" data-expandable="1" data-lkid="'+x.id+'">'
-            + '<td data-lbl="Title">'+esc(x.title)+(x.note ? '<div class="hist-link" style="color:var(--muted)">'+esc(x.note)+'</div>' : '')+'</td>'
+            + '<td data-lbl="Client">'+esc(clientPrimary || "·")+invTag+subline+'</td>'
             + '<td data-lbl="Amount" style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(Number(x.amount), x.currency))+'</td>'
             + '<td data-lbl="Created">'+esc(fmtDate(x.created_at))+'</td>'
-            + '<td data-lbl="Link"><div class="hist-link"><a href="'+esc(u)+'" target="_blank" rel="noopener noreferrer" title="'+esc(u)+'">'+esc(shortU)+'</a></div></td>'
-            + '<td data-lbl="Attached">'+attachedCell+'</td>'
+            + '<td data-lbl="Link">'
+            +   '<div class="hist-link" style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">'
+            +     '<a href="'+esc(u)+'" target="_blank" rel="noopener noreferrer" title="'+esc(u)+'">'+esc(shortU)+'</a>'
+            +     '<button type="button" class="btn btn-small btn-ghost" data-lkcopy="'+esc(u)+'" title="Copy this Nomod payment link to clipboard">Copy</button>'
+            +   '</div>'
+            + '</td>'
+            + '<td data-lbl="Status">'+statusPill+'</td>'
             + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
             + '</tr>'
             + '<tr class="hist-actions-row" hidden><td colspan="6"><div class="hist-actions-panel">'+actions.join(' ')+'</div></td></tr>';
@@ -3808,6 +3908,10 @@ const PAGE_SCRIPT = `<script>
       const title    = $("lkTitle").value.trim();
       const currency = $("lkCurrency").value || "AED";
       const note     = $("lkNote").value.trim();
+      // v97: optional client name; persisted on payment_links.client_name so
+      // the Links list shows a real client, the payment-received email picks
+      // it up, and the relational chain holds.
+      const clientName = ($("lkClient") && $("lkClient").value || "").trim();
       const items    = lkItems
         .map(function(it){ return { name: (it.name||"").trim(), price: Number(it.price)||0, quantity: 1 }; })
         .filter(function(it){ return it.price > 0; });
@@ -3846,6 +3950,9 @@ const PAGE_SCRIPT = `<script>
             title: values.title,
             currency: values.currency,
             note: values.note,
+            // v97: forwarded to handleCreateStandaloneLink; stored verbatim
+            // on payment_links.client_name when present.
+            client_name: clientName || null,
             items: amountChanged
               ? [{ name: values.title || "Service", price: Number(values.amount), quantity: 1 }]
               : items,
@@ -3869,6 +3976,7 @@ const PAGE_SCRIPT = `<script>
             setLkStatus(ok ? "Link created and copied to clipboard." : "Link created (auto-copy unavailable).");
             // reset to a clean form
             $("lkTitle").value = ""; $("lkNote").value = ""; $("lkDiscValue").value = ""; $("lkExpiry").value = "";
+            if($("lkClient")) $("lkClient").value = "";
             lkItems = [{ name:"", price:0 }]; renderLkItems();
             await loadLinks();
           } catch(e){
@@ -4239,11 +4347,17 @@ const PAGE_SCRIPT = `<script>
         const numCell = isInv
           ? '<a href="#" data-payload="'+x.id+'">'+esc(x.number)+'</a>'
           : esc(x.number);
+        // v97: identity rule consistent with the Links tab. For invoice rows
+        // the client_name + (optional company) is unchanged; for link rows we
+        // now show the real client_name (server falls back to title only when
+        // empty) and append a small invoice_number tag when the link is
+        // attached, so a link payment never reads as a bare number.
+        const invTag = (!isInv && x.invoice_number)
+          ? ' <span class="hist-status linked" style="margin-left:.4em">'+esc(x.invoice_number)+'</span>'
+          : '';
         const clientCell = isInv
           ? esc(x.client_name || "") + (x.client_company ? ' <span style="color:var(--muted)">('+esc(x.client_company)+')</span>' : '')
-          : (x.client_email
-              ? '<span style="color:var(--muted)">'+esc(x.client_email)+'</span>'
-              : '<span style="color:var(--muted)">&middot;</span>');
+          : (esc(x.client_name || x.client_email || "·") + invTag);
         const status = String(x.payment_status || "unknown").toLowerCase();
         const statusCell = '<span class="pay-status '+status+'">'+status.toUpperCase()+'</span>';
         const paidCell = x.paid_at ? esc(fmtDate(String(x.paid_at).slice(0,10))) : '<span style="color:var(--muted)">&middot;</span>';
