@@ -3178,42 +3178,97 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
   .sales-kpis{grid-template-columns:repeat(2,1fr)}
   .sales-monthly{font-size:.78rem}
 }
-/* ============ v99: mobile app-polish pass (Stage 1) ============
-   Scoped to phones. Pins section nav, reflows the editor line-item table
-   into stacked labelled rows (its one remaining non-responsive table), and
-   tightens card/spacing rhythm so the workspace reads as an app, not a
-   shrunk desktop page. Desktop (>619px) is untouched. */
+/* ed-preview button: hidden on desktop, shown only on phones (rule lives outside the media query) */
+.ed-preview-btn{display:none}
+
+/* ============ v100: mobile admin-app pass ============
+   Dense hairline rows keyed off data-lbl (not cell position), two-line
+   hierarchy (identity + amount on line 1, muted meta on line 2), noise hidden,
+   editor line-items reflowed, PDF preview gated behind a fullscreen button.
+   Desktop (>619px) untouched. */
 @media (max-width:619px){
-  /* App chrome: keep the section tabs pinned while long lists scroll. */
+  /* App chrome */
+  header.top{position:sticky;top:0;z-index:31;padding:.7rem 1rem}
   nav.tabbar{position:sticky;top:0;z-index:30;box-shadow:0 1px 0 var(--hair)}
-  header.top{padding:.7rem 1rem}
   .lockup .uni{font-size:1.05rem;letter-spacing:.3em}
 
-  /* Unify page gutters across every tab. */
-  .history-wrap,.links-page,.sales-page{padding-left:1rem;padding-right:1rem}
+  /* List goes edge-to-edge like an app list */
+  .history-wrap{padding:1rem 0 2rem}
+  .links-page,.sales-page{padding-left:0;padding-right:0}
+  .history{padding:0;border:0;border-radius:0;background:transparent}
 
-  /* List cards: calmer padding + rhythm, wider label column so values align. */
-  .history tr{padding:.9rem 1rem;margin-bottom:.75rem;border-radius:6px}
-  .history td{padding:.3rem 0;gap:1rem}
-  .history td::before{flex:0 0 94px}
+  /* Dense hairline rows (admin-app, not consumer cards) */
+  .history table,.history tbody{display:block}
+  .history thead{display:none}
+  .history tbody tr:not(.hist-actions-row){
+    display:flex;flex-wrap:wrap;align-items:baseline;gap:.12rem .55rem;
+    padding:.8rem 1rem;margin:0;border:0;border-bottom:1px solid var(--hair);
+    border-radius:0;background:transparent;position:relative
+  }
+  .history tbody tr.open{background:var(--bone2)}
+  .history td{display:block;padding:0;border:0;width:auto;white-space:normal}
+  .history td::before{content:none!important}
 
-  /* Editor line items -> stacked labelled rows (was a cramped 4-col grid). */
-  #ltTable{display:block}
+  /* Line 1 left: identity */
+  .history td[data-lbl="Client"],.history td[data-lbl="Name"]{
+    order:0;flex:1 1 auto;max-width:64%;font-size:14.5px;font-weight:500;color:var(--ink);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+  }
+  /* Line 1 right: amount */
+  .history td[data-lbl="Amount"],.history td[data-lbl="Total"]{
+    order:1;margin-left:auto;font-size:14.5px;font-weight:600;color:var(--ink);
+    font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right
+  }
+  /* Line 2: muted meta */
+  .history td[data-lbl="Number"],.history td[data-lbl="Type"],.history td[data-lbl="Date"],
+  .history td[data-lbl="Date paid"],.history td[data-lbl="Created"],.history td[data-lbl="Method"],
+  .history td[data-lbl="Invoice"],.history td[data-lbl="Status"],.history td[data-lbl="Contact"],
+  .history td[data-lbl="Service"]{order:2;font-size:12px;color:var(--muted);line-height:1.5;margin-right:.55rem}
+  /* First meta cell breaks onto its own line */
+  .history td[data-lbl="Number"],.history td[data-lbl="Date"]{flex-basis:100%;margin-right:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* Hide noise on the collapsed row (still in the drawer / desktop) */
+  .history td[data-lbl="Link"],.history td[data-lbl="Route"],.history td[data-lbl="Consent"]{display:none}
+
+  /* Chevron pinned top-right */
+  .history .hist-chev-cell{position:absolute;right:.9rem;top:.8rem;width:auto;padding:0}
+
+  /* Leads inline Actions -> full width below meta */
+  .history td[data-lbl="Actions"]{order:4;flex-basis:100%;margin-top:.5rem;text-align:left}
+  .history td[data-lbl="Actions"] .btn{margin:.25rem .25rem 0 0}
+
+  /* Denser status pills */
+  .hist-status{padding:2px 8px;font-size:10.5px;letter-spacing:.06em;line-height:1.3}
+
+  /* Drawer keeps function, loses card chrome */
+  .history tr.hist-actions-row > td{padding:0;background:var(--bone2)}
+  .history .hist-actions-panel{padding:.6rem 1rem 1rem}
+
+  /* Editor: hide inline PDF preview, gate behind a button */
+  .preview-wrap{display:none}
+  .ed-preview-btn{display:inline-flex}
+
+  /* Editor line items -> stacked, hairline (not bone card) */
+  #ltTable,#ltTable tbody{display:block}
   #ltTable thead{display:none}
-  #ltTable tbody{display:block}
-  #ltTable tr{display:block;background:var(--bone2);border:1px solid var(--hair);border-radius:6px;padding:.7rem .85rem;margin-bottom:.7rem}
-  #ltTable td{display:flex;align-items:center;justify-content:space-between;gap:.85rem;padding:.32rem 0;border:0;width:auto}
+  #ltTable tr{display:block;background:transparent;border:0;border-top:1px solid var(--hair);border-radius:0;padding:.55rem 0;margin:0}
+  #ltTable tr:last-child{border-bottom:1px solid var(--hair)}
+  #ltTable td{display:flex;align-items:center;justify-content:space-between;gap:.7rem;padding:.28rem 0;border:0;width:auto}
   #ltTable td::before{font-family:Outfit;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:500;flex:0 0 auto}
-  #ltTable td:first-child{flex-direction:column;align-items:stretch;gap:.35rem}
+  #ltTable td:first-child{flex-direction:column;align-items:stretch;gap:.3rem}
   #ltTable td:first-child::before{content:"Description"}
-  #ltTable td:first-child textarea,#ltTable td:first-child input{width:100%}
+  #ltTable td:first-child textarea,#ltTable td:first-child input{width:100%;font-size:13.5px}
   #ltTable td.qty::before{content:"Qty"}
   #ltTable td.rate::before{content:"Rate"}
   #ltTable td.tot::before{content:"Total"}
-  #ltTable td.qty input,#ltTable td.rate input,#ltTable td.tot input{max-width:60%;text-align:right}
+  #ltTable td.qty input,#ltTable td.rate input,#ltTable td.tot input{max-width:62%;text-align:right;font-size:13.5px}
   #ltTable td.del{justify-content:flex-end;padding-top:.1rem}
   #ltTable td.del::before{content:""}
   #ltTable td.del button{font-size:20px;padding:.2rem .4rem}
+
+  /* Sticky editor action bar + full-width buttons */
+  .ed-body .actions{position:sticky;bottom:0;background:var(--card);padding:.8rem 0;border-top:1px solid var(--hair);margin-top:1rem;z-index:5}
+  .ed-body .actions .btn{flex:1 1 0;min-width:0}
 }
 </style>
 </head>
@@ -3396,6 +3451,7 @@ function appShellHTML() {
     <div class="actions">
       <button type="button" class="btn" id="btnSave">Save</button>
       <button type="button" class="btn btn-ghost" id="btnPrint">Print</button>
+      <button type="button" class="btn btn-ghost ed-preview-btn" id="btnPreviewPdf">Preview PDF</button>
     </div>
     <p class="hint" id="priceGateHint" hidden style="margin:.6rem 0 0;color:var(--muted)">Enter a price before this can be issued.</p>
     <div class="status-row" style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
@@ -6471,6 +6527,29 @@ const PAGE_SCRIPT = `<script>
     _btnCreate._bound = true;
     _btnCreate.addEventListener("click", function(){ openCreatePicker(); });
   }
+  document.addEventListener("click", function(e){
+    var t = e.target.closest && e.target.closest("#btnPreviewPdf");
+    if(!t) return;
+    var doc = document.getElementById("doc");
+    if(!doc) return;
+    var ov = document.createElement("div");
+    ov.style.cssText = "position:fixed;inset:0;z-index:9999;background:#fff;overflow:auto;-webkit-overflow-scrolling:touch";
+    var bar = document.createElement("div");
+    bar.style.cssText = "position:sticky;top:0;display:flex;justify-content:flex-end;padding:.6rem;background:#fff;border-bottom:1px solid rgba(34,27,20,.1)";
+    var close = document.createElement("button");
+    close.textContent = "Close";
+    close.className = "btn btn-small btn-ghost";
+    close.addEventListener("click", function(){ ov.remove(); });
+    bar.appendChild(close);
+    var clone = doc.cloneNode(true);
+    clone.id = "";
+    clone.style.transform = "none";
+    clone.style.margin = "0 auto";
+    clone.style.boxShadow = "none";
+    ov.appendChild(bar);
+    ov.appendChild(clone);
+    document.body.appendChild(ov);
+  });
   loadLeads();
   loadPayments();
   loadLinks();
