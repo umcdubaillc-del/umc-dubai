@@ -420,6 +420,44 @@ async function handleCreate(request, env) {
   }
   await ensureSchema(env);
   const lineItemsJson = JSON.stringify(b.line_items);
+  // v99: an edit (b.id present) UPDATEs the existing billing_documents row
+  // in place — preserves number, nomod_link_id/url/created_at, payment_status,
+  // paid_at, nomod_charge_id, payment_method, the lead linkage and any link
+  // attachment. Skips the lead-stamp and attach-link blocks below, since the
+  // chain is already wired from the original INSERT and re-stamping would
+  // confuse the linkage. A genuinely-new document keeps the original INSERT
+  // path verbatim.
+  const editId = (b.id != null && /^\d+$/.test(String(b.id))) ? Number(b.id) : null;
+  if (editId) {
+    try {
+      const upRes = await env.BILLING_DB.prepare(
+        `UPDATE billing_documents SET
+           doc_type = ?, doc_date = ?, client_name = ?, client_company = ?, client_address = ?,
+           client_email = ?, client_phone = ?, currency = ?, vat_mode = ?, line_items = ?,
+           discount = ?, subtotal = ?, vat = ?, total = ?, notes = ?, internal_notes = ?
+         WHERE id = ?`
+      ).bind(
+        b.doc_type, String(b.doc_date),
+        String(b.client_name || ""), b.client_company || null, b.client_address || null,
+        b.client_email || null, b.client_phone || null,
+        String(b.currency || "AED"), b.vat_mode, lineItemsJson,
+        b.discount == null ? null : Number(b.discount),
+        Number(b.subtotal), Number(b.vat), Number(b.total),
+        b.notes || null, b.internal_notes || null,
+        editId
+      ).run();
+      if (!upRes || !upRes.meta || !upRes.meta.changes) {
+        return json({ ok: false, error: "not found", detail: "no row with that id" }, 404);
+      }
+      const row = await env.BILLING_DB.prepare(
+        "SELECT number FROM billing_documents WHERE id = ?"
+      ).bind(editId).first();
+      return json({ ok: true, id: editId, number: (row && row.number) || b.number, updated: true });
+    } catch (e) {
+      const msg = (e && (e.message || String(e))) || "db error";
+      return json({ ok: false, error: "db error", detail: msg }, 500);
+    }
+  }
   try {
     const res = await env.BILLING_DB.prepare(
       `INSERT INTO billing_documents
@@ -2849,7 +2887,7 @@ function appShellHTML() {
     </div>
     <div class="hist-scroll">
       <table>
-        <thead><tr><th>Date</th><th>Name</th><th>Contact</th><th>Service</th><th>Route</th><th>Consent</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
+        <thead><tr><th>Date</th><th>Name</th><th>Contact</th><th>Service</th><th>Route</th><th>Consent</th><th>Status</th><th style="text-align:right">Actions</th><th aria-hidden="true"></th></tr></thead>
         <tbody id="leadsBody"></tbody>
       </table>
     </div>
@@ -3276,6 +3314,10 @@ const PAGE_SCRIPT = `<script>
 
   // ---------- state
   let state = {
+    // v99: state.id is the billing_documents primary key for the currently-
+    // loaded document. Populated by loadDoc on open; null for new documents.
+    // onSave reads it: present -> server UPDATE in place; null -> server INSERT.
+    id: null,
     doc_type: "quote",
     number: "",
     doc_date: new Date().toISOString().slice(0,10),
@@ -4077,6 +4119,10 @@ const PAGE_SCRIPT = `<script>
     setStatus("Saving …");
     const r = compute();
     const payload = {
+      // v99: when state.id is set, the server UPDATEs that row (preserving
+      // number, lead linkage, link attachment, paid state). When null, the
+      // server INSERTs a fresh row with a new number.
+      id: state.id || null,
       doc_type: state.doc_type,
       number: state.number,
       doc_date: state.doc_date,
@@ -4107,6 +4153,10 @@ const PAGE_SCRIPT = `<script>
         return;
       }
       setStatus("Saved " + state.number + ".");
+      // v99: stamp the returned id onto state so a subsequent Save click
+      // UPDATEs this same row instead of creating a duplicate. On INSERT the
+      // server returns the new id; on UPDATE it returns the same id back.
+      if (j && j.id != null) state.id = j.id;
       // Phase 1 — clear lead_id once successfully issued so subsequent
       // documents (e.g. New) do not re-stamp the same lead.
       state.lead_id = null;
@@ -4142,6 +4192,9 @@ const PAGE_SCRIPT = `<script>
     setTimeout(function(){ window.print(); document.title = prev; }, 60);
   }
   function onNew(){
+    // v99: New starts a genuinely fresh document; clear the id so the next
+    // save INSERTs with a new number rather than overwriting the prior row.
+    state.id = null;
     state.client = { name:"", company:"", address:"", email:"", phone:"" };
     state.line_items = [{ description:"", qty:1, rate:0 }];
     state.discount = 0;
@@ -4728,7 +4781,21 @@ const PAGE_SCRIPT = `<script>
         actionsParts.push('<button type="button" class="btn btn-small btn-danger" data-leaddel="'+x.id+'" title="Delete this lead">&times;</button>');
         const actions = actionsParts.join(' ');
         const sortAmount = 0;
-        return '<tr data-leadstat="'+status+'" data-sortdate="'+esc(x.created_at||"")+'" data-sortamount="'+sortAmount+'">'
+        // v99: row-level drawer. The only drawer action is "Open <doctype>";
+        // shown enabled when the lead has a linked_doc_number, disabled with
+        // a quiet hint otherwise. The label tracks the linked doc's series
+        // (UMC-INV-* -> invoice, UMC-Q-* -> quote, else generic document).
+        const linkedNum = x.linked_doc_number ? String(x.linked_doc_number) : "";
+        let openBtn;
+        if (linkedNum) {
+          const openLbl = /^UMC-INV-/i.test(linkedNum) ? "Open invoice"
+                       : /^UMC-Q-/i.test(linkedNum) ? "Open quote"
+                       : "Open document";
+          openBtn = '<button type="button" class="btn btn-small btn-ghost" data-leadopen="'+esc(linkedNum)+'" title="Switch to Documents and open '+esc(linkedNum)+'">'+openLbl+' '+esc(linkedNum)+'</button>';
+        } else {
+          openBtn = '<button type="button" class="btn btn-small btn-ghost" disabled title="Convert this lead to a quote or invoice first" style="opacity:.55;cursor:not-allowed">Not yet invoiced</button>';
+        }
+        return '<tr class="expandable" data-expandable="1" data-leadstat="'+status+'" data-sortdate="'+esc(x.created_at||"")+'" data-sortamount="'+sortAmount+'">'
           + '<td data-lbl="Date">'+esc(created)+'</td>'
           + '<td data-lbl="Name">'+esc(x.name || "")+'</td>'
           + '<td data-lbl="Contact">'+(contactBits.join('<br>') || '<span style="color:var(--muted)">·</span>')+'</td>'
@@ -4737,7 +4804,9 @@ const PAGE_SCRIPT = `<script>
           + '<td data-lbl="Consent">'+consent+'</td>'
           + '<td data-lbl="Status">'+statusCell+'</td>'
           + '<td data-lbl="Actions" style="text-align:right;white-space:nowrap" class="hist-actions">'+actions+'</td>'
-          + '</tr>';
+          + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
+          + '</tr>'
+          + '<tr class="hist-actions-row" hidden><td colspan="9"><div class="hist-actions-panel">'+openBtn+'</div></td></tr>';
       }).join("");
       applyLeadsFilter();
     } catch(e){ setStatus("Leads load failed."); console.log("loadLeads error:", e); }
@@ -4747,6 +4816,8 @@ const PAGE_SCRIPT = `<script>
   // field must NEVER detach it. Server still enforces the price gate.
   function prefillFromLead(lead, docType){
     if(!lead) return;
+    // v99: starting a brand-new document from a lead; clear any prior id.
+    state.id = null;
     state.lead_id = lead.id;
     // doc type — direct toggle manipulation (mirrors loadDoc pattern;
     // setType is bindForm-scoped so we replicate its visible effects here).
@@ -5001,6 +5072,8 @@ const PAGE_SCRIPT = `<script>
   // hidden (the link is its own baseline; lead-revert does not apply).
   function prefillFromLink(link){
     if(!link) return;
+    // v99: starting a brand-new invoice seeded from a link; clear any prior id.
+    state.id = null;
     state.lead_id = null;
     state.leadOriginal = null;
     state.attach_link_id = link.id;
@@ -5374,6 +5447,38 @@ const PAGE_SCRIPT = `<script>
           .catch(function(err){ setStatus("Delete failed: " + (err.message || err)); });
         return;
       }
+      // v99: drawer button — switch to Documents and open the linked doc by
+      // its number. Resolves the number to a billing_documents id via the
+      // history list (cached if loaded, else a one-shot fetch).
+      const oBtn = e.target.closest("[data-leadopen]");
+      if(oBtn){
+        e.preventDefault();
+        e.stopPropagation();
+        const num = oBtn.getAttribute("data-leadopen") || "";
+        if(!num) return;
+        (async function(){
+          setStatus("Opening " + num + " …");
+          try {
+            const lr = await fetch("/admin/api/billing");
+            const lj = await lr.json();
+            const row = lj && lj.ok && Array.isArray(lj.items)
+              ? lj.items.find(function(rr){ return String(rr.number) === String(num); })
+              : null;
+            if (!row) { setStatus("Document " + num + " not found."); return; }
+            switchTab("documents");
+            if (typeof loadDoc === "function") loadDoc(row.id);
+          } catch (err) {
+            setStatus("Open failed: " + (err && (err.message || err)));
+          }
+        })();
+        return;
+      }
+      // v99: row click toggles the drawer; skip when the click landed on a
+      // link or button so per-row Action buttons keep their behaviour.
+      const expTr = e.target.closest("tr[data-expandable='1']");
+      if(expTr && !e.target.closest("a, button")){
+        toggleAccordionRow(expTr, root);
+      }
     });
     const sortSel = document.getElementById("leadsSort");
     if(sortSel){
@@ -5636,6 +5741,9 @@ const PAGE_SCRIPT = `<script>
       const j = await r.json();
       if(!j.ok) { setStatus("Not found."); return; }
       const x = j.item;
+      // v99: capture the primary key so onSave can UPDATE this row in place
+      // instead of inserting a duplicate.
+      state.id = x.id;
       state.doc_type = x.doc_type;
       state.number = x.number;
       state.doc_date = x.doc_date;
