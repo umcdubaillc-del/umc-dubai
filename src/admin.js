@@ -6294,11 +6294,9 @@ const PAGE_SCRIPT = `<script>
           : '';
         const actions = [];
         actions.push('<button type="button" class="btn btn-small btn-ghost" data-load="'+x.id+'">Open</button>');
-        // v98: per-row Print action on invoices. Loads the doc then triggers
-        // the same browser print/PDF flow as the editor's Print button.
-        if(x.doc_type === "invoice"){
-          actions.push('<button type="button" class="btn btn-small btn-ghost" data-pdf="'+x.id+'" title="Download the institutional PDF invoice">Download PDF</button>');
-        }
+        // Server PDF route renders both invoices and quotes; surface the
+        // Download PDF button on every saved row, not just invoices.
+        actions.push('<button type="button" class="btn btn-small btn-ghost" data-pdf="'+x.id+'" title="Download the institutional PDF">Download PDF</button>');
         if(isQuote){
           if(x.converted_invoice_number){
             // v55: a quote with a converted invoice no longer offers a Convert
