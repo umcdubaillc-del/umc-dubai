@@ -109,6 +109,17 @@ function wrapDescription(str, font, sizePx, maxWpx){
   return out;
 }
 
+function compute(doc){
+  const items = doc.line_items||[];
+  const sumLines = items.reduce((a,li)=> a + (Number(li.qty)||0)*(Number(li.rate)||0), 0);
+  let subtotal, vat, total;
+  if((doc.vat_mode||"exclusive")==="exclusive"){ subtotal=sumLines; vat=subtotal*0.05; total=subtotal+vat; }
+  else { total=sumLines; subtotal=total/1.05; vat=total-subtotal; }
+  const discount = Math.max(0, Number(doc.discount)||0);
+  if(discount>0) total = Math.max(0, total-discount);
+  return { subtotal, vat, discount, total };
+}
+
 /* ---------- the invoice document ---------- */
 const COMPANY = { legal:"UMC In Bound Tour Operator LLC", trn:"104201356300003", addr:"Ras Al Khor, Dubai, UAE", phone:"+971 58 649 7861", email:"contact@umcdubai.ae" };
 
@@ -225,6 +236,50 @@ export async function renderInvoicePdf(doc){
   }
   // expose where the table ended for later stages
   const tableEndY = y;
+
+  // ===== TOTALS BOX (right-anchored, min-width 280px) =====
+  const r = compute(doc);
+  const isPaid = isInv && doc.payment_status === "paid";
+  const boxW = sx(280);
+  const boxL = rightX - boxW;          // left edge of the 280px box
+  let ty = tableEndY + 28.8;           // 1.8rem margin above totals
+
+  // helper: one label/figure row with optional hairline + styling
+  function totalRow(label, figure, opts={}){
+    const padY = opts.grandTop ? 11.2 : 6.4;          // .7rem top for grand, .4rem otherwise
+    ty += padY;
+    const labelFont = opts.grand ? f.marcellus : f.outfit;
+    const labelSize = opts.grand ? 16.8 : 10;          // 1.05rem vs 10px
+    const labelColor = opts.grand ? C.ink : C.muted;
+    const labelTrack = opts.grand ? 0.06 : 0.2;
+    const figFont = f.fraunces;
+    const figSize = opts.grand ? 20.8 : (opts.balance?12:12); // 1.3rem grand
+    const figColor = opts.green ? C.paid : C.ink;
+    // top border for grand row (1px --ink-soft); else nothing here
+    if(opts.grandTop){
+      page.drawRectangle({ x:boxL, y:PAGE_H - sx(ty) + sx(4), width:boxW, height:sx(1), color:C.inkSoft });
+      ty += 3.2; // margin-top .2rem after the border
+    }
+    drawText(page, label, boxL, ty, labelFont, labelSize, opts.green?C.paid:labelColor, {trackingEm:labelTrack, upper:!opts.grand?true:true});
+    drawRight(page, figure, rightX, ty, figFont, figSize, figColor);
+    ty += (opts.grand?labelSize:labelSize) + padY;
+    // hairline under non-grand rows (var(--hair) 10% ink)
+    if(!opts.grand && !opts.noBorder){
+      page.drawRectangle({ x:boxL, y:PAGE_H - sx(ty) - sx(0.5), width:boxW, height:sx(1), color:C.hair, opacity:0.10 });
+    }
+  }
+
+  totalRow("Net subtotal", fmtMoney(r.subtotal, doc.currency));
+  totalRow("VAT 5%", fmtMoney(r.vat, doc.currency));
+  if(r.discount > 0) totalRow("Discount", "− "+fmtMoney(r.discount, doc.currency));
+  totalRow("Total", fmtMoney(r.total, doc.currency), { grand:true, grandTop:true });
+  if(isPaid) totalRow("Balance due", fmtMoney(0, doc.currency), { green:true, balance:true, noBorder:true });
+  if((doc.vat_mode||"exclusive")==="inclusive"){
+    ty += 8;
+    drawRight(page,"VAT inclusive. 5% included in line rates",rightX,ty,f.outfit,9,C.muted,{trackingEm:0.18,upper:true});
+    ty += 9;
+  }
+  const totalsEndY = ty;   // thread for Stage 5
 
   return await pdf.save();
 }
