@@ -530,9 +530,10 @@ async function handleList(env) {
   // returns NULL for invoices and for un-converted quotes.
   const { results } = await env.BILLING_DB.prepare(
     `SELECT b.id, b.doc_type, b.number, b.doc_date, b.client_name, b.client_company,
-            b.client_phone,
+            b.client_phone, b.client_email,
             b.currency, b.total, b.source_quote_number, b.nomod_link_id,
             b.nomod_link_url, b.nomod_link_created_at, b.created_at,
+            b.nomod_charge_id, b.paid_at,
             COALESCE(b.payment_status, 'unpaid') AS payment_status,
             (SELECT i.number FROM billing_documents i
               WHERE i.doc_type = 'invoice' AND i.source_quote_number = b.number
@@ -3169,73 +3170,11 @@ function appShellHTML() {
 
 <section id="tab-links" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnLinks" hidden>
 <div class="links-page">
-
-  <section class="panel" aria-label="Create a standalone payment link">
-    <h2>New payment link</h2>
-    <p class="hist-sub">Create a Nomod link without a full invoice. Use it for deposits, ad-hoc charges or WhatsApp collection. Enter the price excluding VAT; Nomod adds 5% VAT and the customer pays the total.</p>
-
-    <small class="lbl" style="margin-top:.8rem;display:block">Items</small>
-    <div class="field">
-      <label class="lbl" for="lkCurrency" style="font-size:10px">Currency</label>
-      <select id="lkCurrency" style="width:auto;max-width:180px;font-size:14px">
-        <option value="AED" selected>AED · UAE Dirham</option>
-        <option value="USD">USD · US Dollar</option>
-        <option value="EUR">EUR · Euro</option>
-        <option value="GBP">GBP · Pound Sterling</option>
-      </select>
-    </div>
-
-    <div class="lk-items" id="lkItems"></div>
-    <button type="button" class="lk-add" id="lkAddItem">+ Add item</button>
-
-    <div class="field" style="margin-top:1rem">
-      <label class="lbl">Discount (optional)</label>
-      <div class="lk-disc">
-        <div class="lk-disc-toggle" role="tablist" aria-label="Discount type">
-          <button type="button" id="lkDiscPct"  class="on" data-disc="percentage">%</button>
-          <button type="button" id="lkDiscFlat"           data-disc="flat">AED</button>
-        </div>
-        <input id="lkDiscValue" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0">
-      </div>
-    </div>
-
-    <div class="lk-totals">
-      <div class="r"><span>Items subtotal</span><span id="lkSub">&middot;</span></div>
-      <div class="r" id="lkDiscRow" style="display:none"><span>Discount</span><span id="lkDiscShow">&middot;</span></div>
-      <div class="r tot"><span>Total (NET)</span><span id="lkTot">&middot;</span></div>
-      <div class="lk-vat-note">Nomod adds 5% VAT on the payment page. Customer pays NET &times; 1.05.</div>
-    </div>
-
-    <hr class="hair">
-
-    <small class="lbl" style="margin-bottom:.4rem;display:block">Details</small>
-    <div class="field"><label class="lbl" for="lkTitle">Name (link title)</label><input id="lkTitle" type="text" placeholder="Deposit &middot; Mr Smith &middot; 18 Jun 2026" maxlength="50" autocomplete="off"></div>
-    <div class="field"><label class="lbl" for="lkClient">Client name (optional)</label><input id="lkClient" type="text" placeholder="Shown in the Links list and on the payment-received notification" maxlength="120" autocomplete="off"></div>
-    <div class="field"><label class="lbl" for="lkNote">Note (optional)</label><textarea id="lkNote" rows="2" maxlength="280" placeholder="Shown on the Nomod payment page"></textarea></div>
-
-    <hr class="hair">
-
-    <small class="lbl" style="margin-bottom:.4rem;display:block">Payment options</small>
-    <div class="lk-toggles">
-      <label class="lk-toggle"><input id="lkTabby"    type="checkbox" checked><span>Pay with Tabby <small>BNPL allowed; merchant receives the full amount.</small></span></label>
-      <label class="lk-toggle"><input id="lkTamara"   type="checkbox" checked><span>Pay with Tamara <small>BNPL allowed; merchant receives the full amount.</small></span></label>
-      <label class="lk-toggle"><input id="lkTip"      type="checkbox"><span>Allow customer to add tip</span></label>
-      <label class="lk-toggle"><input id="lkShip"     type="checkbox"><span>Ask for shipping address</span></label>
-    </div>
-
-    <div class="field"><label class="lbl" for="lkExpiry">Expiry date (optional)</label><input id="lkExpiry" type="date"></div>
-
-    <div class="actions">
-      <button type="button" class="btn" id="lkCreate">Create payment link</button>
-    </div>
-    <div class="status-line" id="lkStatus"></div>
-  </section>
-
   <div class="history">
     <div class="hist-head">
       <div>
         <h2>Payment links</h2>
-        <p class="hist-sub">Payment links, standalone or attached to an invoice. Status reconciles automatically from Nomod. Use for deposits, ad-hoc charges and WhatsApp collection.</p>
+        <p class="hist-sub">Payment links, standalone or attached to an invoice. Status reconciles automatically from Nomod. Use the right-aligned Create button above to issue a new standalone link.</p>
       </div>
       <button type="button" class="btn btn-small btn-ghost" id="lkRefresh">Refresh</button>
     </div>
@@ -3247,9 +3186,83 @@ function appShellHTML() {
     </div>
     <div class="empty" id="lkEmpty" hidden>No payment links yet.</div>
   </div>
-
 </div>
 </section><!-- /#tab-links -->
+
+<!-- v102: standalone-link create form moved out of the Links tab and into a
+     modal opened from the Create popup (openCreatePicker -> "Create payment
+     link"). DOM ids (lkTitle/lkClient/lkCurrency/lkItems/lkDiscPct/...) are
+     preserved so the existing bindForm wiring + createStandaloneLink +
+     openLinkPreviewModal flow keeps working unchanged; only the host moves. -->
+<div id="lkCreateModal" class="ed-modal" hidden role="dialog" aria-modal="true" aria-labelledby="lkCreateTitle">
+  <div class="ed-backdrop" data-lkmclose aria-hidden="true"></div>
+  <div class="ed-shell" style="max-width:680px;max-height:90vh;inset:auto;position:absolute;top:5vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55);display:flex;flex-direction:column">
+    <header class="ed-head" style="padding:1rem 1.4rem">
+      <h2 id="lkCreateTitle" style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.22rem">New payment link</h2>
+      <button type="button" class="btn btn-small btn-ghost" data-lkmclose>Close</button>
+    </header>
+    <div class="ed-body" style="padding:1.2rem 1.4rem 1.4rem;overflow:auto">
+      <p class="hist-sub" style="margin:0 0 1rem">Create a Nomod link without a full invoice. Use it for deposits, ad-hoc charges or WhatsApp collection. Enter the price excluding VAT; Nomod adds 5% VAT and the customer pays the total.</p>
+
+      <small class="lbl" style="margin-top:.4rem;display:block">Items</small>
+      <div class="field">
+        <label class="lbl" for="lkCurrency" style="font-size:10px">Currency</label>
+        <select id="lkCurrency" style="width:auto;max-width:180px;font-size:14px">
+          <option value="AED" selected>AED · UAE Dirham</option>
+          <option value="USD">USD · US Dollar</option>
+          <option value="EUR">EUR · Euro</option>
+          <option value="GBP">GBP · Pound Sterling</option>
+        </select>
+      </div>
+
+      <div class="lk-items" id="lkItems"></div>
+      <button type="button" class="lk-add" id="lkAddItem">+ Add item</button>
+
+      <div class="field" style="margin-top:1rem">
+        <label class="lbl">Discount (optional)</label>
+        <div class="lk-disc">
+          <div class="lk-disc-toggle" role="tablist" aria-label="Discount type">
+            <button type="button" id="lkDiscPct"  class="on" data-disc="percentage">%</button>
+            <button type="button" id="lkDiscFlat"           data-disc="flat">AED</button>
+          </div>
+          <input id="lkDiscValue" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0">
+        </div>
+      </div>
+
+      <div class="lk-totals">
+        <div class="r"><span>Items subtotal</span><span id="lkSub">&middot;</span></div>
+        <div class="r" id="lkDiscRow" style="display:none"><span>Discount</span><span id="lkDiscShow">&middot;</span></div>
+        <div class="r tot"><span>Total (NET)</span><span id="lkTot">&middot;</span></div>
+        <div class="lk-vat-note">Nomod adds 5% VAT on the payment page. Customer pays NET &times; 1.05.</div>
+      </div>
+
+      <hr class="hair">
+
+      <small class="lbl" style="margin-bottom:.4rem;display:block">Details</small>
+      <div class="field"><label class="lbl" for="lkTitle">Name (link title)</label><input id="lkTitle" type="text" placeholder="Deposit &middot; Mr Smith &middot; 18 Jun 2026" maxlength="50" autocomplete="off"></div>
+      <div class="field"><label class="lbl" for="lkClient">Client name (optional)</label><input id="lkClient" type="text" placeholder="Shown in the Links list and on the payment-received notification" maxlength="120" autocomplete="off"></div>
+      <div class="field"><label class="lbl" for="lkNote">Note (optional)</label><textarea id="lkNote" rows="2" maxlength="280" placeholder="Shown on the Nomod payment page"></textarea></div>
+
+      <hr class="hair">
+
+      <small class="lbl" style="margin-bottom:.4rem;display:block">Payment options</small>
+      <div class="lk-toggles">
+        <label class="lk-toggle"><input id="lkTabby"    type="checkbox" checked><span>Pay with Tabby <small>BNPL allowed; merchant receives the full amount.</small></span></label>
+        <label class="lk-toggle"><input id="lkTamara"   type="checkbox" checked><span>Pay with Tamara <small>BNPL allowed; merchant receives the full amount.</small></span></label>
+        <label class="lk-toggle"><input id="lkTip"      type="checkbox"><span>Allow customer to add tip</span></label>
+        <label class="lk-toggle"><input id="lkShip"     type="checkbox"><span>Ask for shipping address</span></label>
+      </div>
+
+      <div class="field"><label class="lbl" for="lkExpiry">Expiry date (optional)</label><input id="lkExpiry" type="date"></div>
+
+      <div class="actions" style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.2rem">
+        <button type="button" class="btn btn-small btn-ghost" data-lkmclose>Cancel</button>
+        <button type="button" class="btn" id="lkCreate">Create payment link</button>
+      </div>
+      <div class="status-line" id="lkStatus"></div>
+    </div>
+  </div>
+</div>
 
 <!-- v60: Payments tab — reconciliation view. Lists every record that has a
      Nomod payment link, with status reconciled via polling. Reuses Documents'
@@ -4065,6 +4078,10 @@ const PAGE_SCRIPT = `<script>
             if($("lkClient")) $("lkClient").value = "";
             lkItems = [{ name:"", price:0 }]; renderLkItems();
             await loadLinks();
+            // v102: close the create-link modal and land the operator on
+            // the Payment Links tab so the new row is in view.
+            try { if (typeof closeLinkCreateModal === "function") closeLinkCreateModal(); } catch(_){}
+            try { if (typeof switchTab === "function") switchTab("links"); } catch(_){}
           } catch(e){
             ctx.setStatus("Failed: " + (e.message || e));
             ctx.setBusy(false);
@@ -5059,6 +5076,32 @@ const PAGE_SCRIPT = `<script>
     });
   }
 
+  // v102 — show/hide the standalone payment-link create modal. The form's
+  // DOM ids stay constant, so bindForm wiring (lkCreate / lkRefresh / etc.)
+  // keeps working from any host. close handlers are bound once on first
+  // open so re-opening doesn't double-bind.
+  function openLinkCreateModal(){
+    const m = document.getElementById("lkCreateModal");
+    if (!m) return;
+    if (!m._closeBound) {
+      m._closeBound = true;
+      m.querySelectorAll("[data-lkmclose]").forEach(function(b){
+        b.addEventListener("click", function(e){ e.preventDefault(); closeLinkCreateModal(); });
+      });
+      document.addEventListener("keydown", function(e){
+        if (e.key === "Escape" && !m.hidden) { e.preventDefault(); closeLinkCreateModal(); }
+      });
+    }
+    m.hidden = false;
+    setTimeout(function(){
+      const t = $("lkTitle"); if (t) try { t.focus(); } catch(_){}
+    }, 30);
+  }
+  function closeLinkCreateModal(){
+    const m = document.getElementById("lkCreateModal");
+    if (m) m.hidden = true;
+  }
+
   // v101 — start a brand-new document of the given type and open the editor
   // modal. Threads through onNew (which clears id / lead_id / leadOriginal /
   // attach_link_id / payment_status) then sets the doc_type and re-fetches
@@ -5093,20 +5136,22 @@ const PAGE_SCRIPT = `<script>
     backdrop.setAttribute("aria-hidden", "true");
     const shell = document.createElement("div");
     shell.className = "ed-shell";
-    shell.style.cssText = "max-width:460px;max-height:none;inset:auto;position:absolute;top:10vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
+    // v102: widened from a cramped 460px to 520px with more generous padding
+    // and gap between options so the menu reads as deliberate, not squeezed.
+    shell.style.cssText = "max-width:520px;max-height:none;inset:auto;position:absolute;top:10vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
     shell.innerHTML =
-      '<header class="ed-head">'
-      + '  <h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.18rem">Create</h2>'
+      '<header class="ed-head" style="padding:1.1rem 1.6rem">'
+      + '  <h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.22rem">Create</h2>'
       + '  <button type="button" class="btn btn-small btn-ghost" data-cpick-cancel>Close</button>'
       + '</header>'
-      + '<div class="ed-body" style="padding:1.1rem 1.2rem 1.2rem">'
-      + '  <p class="hist-sub" style="margin:0 0 .9rem">What would you like to start?</p>'
-      + '  <div style="display:flex;flex-direction:column;gap:.55rem">'
-      + '    <button type="button" class="btn" data-cpick="invoice" style="text-align:left;padding:.7rem .9rem">Create invoice</button>'
-      + '    <button type="button" class="btn" data-cpick="quote" style="text-align:left;padding:.7rem .9rem">Create quote</button>'
-      + '    <button type="button" class="btn btn-ghost" data-cpick="link" style="text-align:left;padding:.7rem .9rem">Create payment link</button>'
+      + '<div class="ed-body" style="padding:1.5rem 1.6rem 1.6rem">'
+      + '  <p class="hist-sub" style="margin:0 0 1.1rem">What would you like to start?</p>'
+      + '  <div style="display:flex;flex-direction:column;gap:.75rem">'
+      + '    <button type="button" class="btn" data-cpick="invoice" style="text-align:left;padding:.85rem 1rem">Create invoice</button>'
+      + '    <button type="button" class="btn" data-cpick="quote" style="text-align:left;padding:.85rem 1rem">Create quote</button>'
+      + '    <button type="button" class="btn btn-ghost" data-cpick="link" style="text-align:left;padding:.85rem 1rem">Create payment link</button>'
       + '  </div>'
-      + '  <div class="actions" style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1rem">'
+      + '  <div class="actions" style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.4rem">'
       + '    <button type="button" class="btn btn-small btn-ghost" data-cpick-cancel>Cancel</button>'
       + '  </div>'
       + '</div>';
@@ -5130,14 +5175,11 @@ const PAGE_SCRIPT = `<script>
       if (choice === "invoice" || choice === "quote") {
         openFreshEditor(choice);
       } else if (choice === "link") {
-        // The standalone-link create form already lives on #tab-links and
-        // already routes through openLinkPreviewModal; switch to that tab
-        // and focus the title input so the operator can type immediately.
-        if (typeof switchTab === "function") switchTab("links");
-        setTimeout(function(){
-          const t = $("lkTitle");
-          if (t) { try { t.focus(); t.scrollIntoView({ behavior: "smooth", block: "center" }); } catch(_){} }
-        }, 80);
+        // v102: standalone-link form lives in a modal (#lkCreateModal) now,
+        // not under the Payment Links tab. The Create popup opens it; the
+        // bindForm wiring + createStandaloneLink + openLinkPreviewModal
+        // flow keeps working unchanged because the DOM ids are preserved.
+        openLinkCreateModal();
       }
     });
   }
