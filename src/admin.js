@@ -2953,12 +2953,17 @@ function loginHTML(adminMissing) {
 function appShellHTML() {
   return `
 <nav class="tabbar" role="tablist" aria-label="Billing sections">
-  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="leads"     id="tabBtnLeads">Leads</button>
-  <button type="button" class="tab on" role="tab" aria-selected="true"  data-tab="create"    id="tabBtnCreate">Create</button>
-  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="documents" id="tabBtnDocuments">Documents</button>
-  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="links"     id="tabBtnLinks">Links</button>
+  <button type="button" class="tab on" role="tab" aria-selected="true"  data-tab="leads"     id="tabBtnLeads">Leads</button>
+  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="documents" id="tabBtnDocuments">Quotes &amp; Invoices</button>
+  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="links"     id="tabBtnLinks">Payment Links</button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="payments"  id="tabBtnPayments">Payments</button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="sales"     id="tabBtnSales">Sales</button>
+  <!-- v101: right-aligned Create action button. Not a tab (no data-tab, no
+       role=tab). Opens a 3-option popup: Create quote / Create invoice /
+       Create payment link. The Create tab and tabBtnCreate are gone; the
+       editor host (#editorHome / #editorHost) still lives in #tab-create
+       but is reached only via openEditorModal(). -->
+  <button type="button" class="btn btn-small btn-ink" id="btnCreateAction" style="margin-left:auto" title="Start a new quote, invoice or payment link">+ Create</button>
 </nav>
 
 <!-- Phase 1 — Leads tab: bookings from the public form, with one-click
@@ -3002,7 +3007,11 @@ function appShellHTML() {
 </section>
 </section><!-- /#tab-leads -->
 
-<section id="tab-create" class="tab-panel on" role="tabpanel" aria-labelledby="tabBtnCreate">
+<!-- v101: #tab-create is no longer a navigable tab; it is the offscreen home
+     for #editorHost, which openEditorModal moves into the modal body and
+     closeEditorModal returns here. Kept in the DOM so the editor markup,
+     listeners and state machine never lose their mount point. -->
+<section id="tab-create" class="tab-panel" role="region" aria-label="Document editor host" hidden>
 <!-- v59: #editorHost is moveable. Default location is here (#editorHome).
      When a Documents row is "Open"-ed, the host is moved into #editorSlot
      inside the modal overlay — so the same editor markup, listeners and
@@ -4181,6 +4190,11 @@ const PAGE_SCRIPT = `<script>
       // v98: Save no longer auto-prints; the operator hits Print separately.
       // v100: the editor no longer builds an email body for copy-paste; sending
       // is a single click on the Documents row "Email client" button.
+      // v101: after a successful save, close the editor modal and land the
+      // operator on Quotes & Invoices so the new (or just-edited) row is in
+      // view. Applies to both INSERT and UPDATE.
+      try { if(typeof closeEditorModal === "function") closeEditorModal(); } catch(_){}
+      try { if(typeof switchTab === "function") switchTab("documents"); } catch(_){}
     } catch(e){ setStatus("Save failed: " + (e.message || e)); }
   }
   // v98: Print operates on the CURRENT live preview, including unsaved edits,
@@ -4865,8 +4879,11 @@ const PAGE_SCRIPT = `<script>
     if(typeof fetchNext === "function"){
       try { Promise.resolve(fetchNext()).catch(function(){}); } catch(_){}
     }
-    switchTab("create");
-    // Focus the first line-item rate so the only blocker (price) is one tab away.
+    // v101: there is no longer a Create tab. The editor opens in the modal
+    // overlay (same path as Documents-row Open) regardless of how it was
+    // seeded — from a lead, a payment link, or the Create action button.
+    openEditorModal((state.doc_type === "invoice" ? "New invoice" : "New quote") + " from lead #" + lead.id);
+    // Focus the first line-item rate so the only blocker (price) is one click away.
     const firstRate = document.querySelector("#ltBody tr input.r");
     if(firstRate) try { firstRate.focus(); } catch(_){}
     setStatus("Prefilled from lead #" + lead.id + ". Enter a price to issue.");
@@ -5042,6 +5059,89 @@ const PAGE_SCRIPT = `<script>
     });
   }
 
+  // v101 — start a brand-new document of the given type and open the editor
+  // modal. Threads through onNew (which clears id / lead_id / leadOriginal /
+  // attach_link_id / payment_status) then sets the doc_type and re-fetches
+  // the next number for that series so state.id stays null and Fix 6's
+  // INSERT-vs-UPDATE branch lands on INSERT.
+  function openFreshEditor(docType){
+    if (docType !== "invoice" && docType !== "quote") docType = "invoice";
+    if (typeof onNew === "function") onNew();
+    state.doc_type = docType;
+    if ($("tQuote"))    $("tQuote").classList.toggle("on", docType === "quote");
+    if ($("tInvoice"))  $("tInvoice").classList.toggle("on", docType === "invoice");
+    if ($("lblClient")) $("lblClient").textContent = docType === "invoice" ? "Billed to" : "Quote made for";
+    if (typeof fetchNext === "function") {
+      try { Promise.resolve(fetchNext()).catch(function(){}); } catch(_){}
+    }
+    if (typeof renderDoc === "function") renderDoc();
+    const label = docType === "invoice" ? "New invoice" : "New quote";
+    openEditorModal(label);
+  }
+
+  // v101 — the right-aligned Create action button popup. Three choices:
+  // Create quote, Create invoice, Create payment link. Built on the same
+  // ed-modal shell + inline shell-style override used by
+  // openLinkPreviewModal so it reads as part of the same system.
+  function openCreatePicker(){
+    const modal = document.createElement("div");
+    modal.className = "ed-modal create-picker-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    const backdrop = document.createElement("div");
+    backdrop.className = "ed-backdrop";
+    backdrop.setAttribute("aria-hidden", "true");
+    const shell = document.createElement("div");
+    shell.className = "ed-shell";
+    shell.style.cssText = "max-width:460px;max-height:none;inset:auto;position:absolute;top:10vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
+    shell.innerHTML =
+      '<header class="ed-head">'
+      + '  <h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.18rem">Create</h2>'
+      + '  <button type="button" class="btn btn-small btn-ghost" data-cpick-cancel>Close</button>'
+      + '</header>'
+      + '<div class="ed-body" style="padding:1.1rem 1.2rem 1.2rem">'
+      + '  <p class="hist-sub" style="margin:0 0 .9rem">What would you like to start?</p>'
+      + '  <div style="display:flex;flex-direction:column;gap:.55rem">'
+      + '    <button type="button" class="btn" data-cpick="invoice" style="text-align:left;padding:.7rem .9rem">Create invoice</button>'
+      + '    <button type="button" class="btn" data-cpick="quote" style="text-align:left;padding:.7rem .9rem">Create quote</button>'
+      + '    <button type="button" class="btn btn-ghost" data-cpick="link" style="text-align:left;padding:.7rem .9rem">Create payment link</button>'
+      + '  </div>'
+      + '  <div class="actions" style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1rem">'
+      + '    <button type="button" class="btn btn-small btn-ghost" data-cpick-cancel>Cancel</button>'
+      + '  </div>'
+      + '</div>';
+    modal.appendChild(backdrop);
+    modal.appendChild(shell);
+    document.body.appendChild(modal);
+    function close(){ try { document.body.removeChild(modal); } catch(_){} }
+    modal.querySelectorAll("[data-cpick-cancel]").forEach(function(b){
+      b.addEventListener("click", function(e){ e.preventDefault(); close(); });
+    });
+    backdrop.addEventListener("click", close);
+    document.addEventListener("keydown", function escListener(e){
+      if(e.key === "Escape"){ e.preventDefault(); close(); document.removeEventListener("keydown", escListener); }
+    });
+    modal.addEventListener("click", function(e){
+      const pick = e.target.closest("[data-cpick]");
+      if (!pick) return;
+      e.preventDefault();
+      const choice = pick.getAttribute("data-cpick");
+      close();
+      if (choice === "invoice" || choice === "quote") {
+        openFreshEditor(choice);
+      } else if (choice === "link") {
+        // The standalone-link create form already lives on #tab-links and
+        // already routes through openLinkPreviewModal; switch to that tab
+        // and focus the title input so the operator can type immediately.
+        if (typeof switchTab === "function") switchTab("links");
+        setTimeout(function(){
+          const t = $("lkTitle");
+          if (t) { try { t.focus(); t.scrollIntoView({ behavior: "smooth", block: "center" }); } catch(_){} }
+        }, 80);
+      }
+    });
+  }
+
   // v86 — find an invoice by number in the most recent history snapshot;
   // fall back to GET /admin/api/billing for the lookup if not yet loaded.
   let lastHistoryItems = [];
@@ -5109,8 +5209,9 @@ const PAGE_SCRIPT = `<script>
       try { Promise.resolve(fetchNext()).catch(function(){}); } catch(_){}
     }
     updateLeadRevertButton();
-    switchTab("create");
-    setLkStatus("Create tab prefilled from link #" + link.id + ". Save to attach this link to the new invoice.");
+    // v101: editor moves into the modal regardless of seed source.
+    openEditorModal("New invoice from link #" + link.id);
+    setLkStatus("Editor prefilled from link #" + link.id + ". Save to attach this link to the new invoice.");
   }
 
   // v86 — institutional confirm modal for any link generation (standalone
@@ -5853,10 +5954,21 @@ const PAGE_SCRIPT = `<script>
   // Leads when no/invalid hash. Then run EVERY section loader on boot so each
   // tab is fresh without a manual click (switchTab redundantly re-runs one
   // loader for the active tab — harmless).
-  const _BOOT_TABS = ["leads","create","documents","links","payments","sales"];
+  // v101: "create" is gone from the tab nav. A stale "#create" hash from a
+  // previous session falls back to the leads tab instead of leaving the user
+  // on a blank screen.
+  const _BOOT_TABS = ["leads","documents","links","payments","sales"];
   const _hashTab = (location.hash || "").replace(/^#/, "");
   const _bootTab = _BOOT_TABS.indexOf(_hashTab) >= 0 ? _hashTab : "leads";
   switchTab(_bootTab);
+  // v101: bind the right-aligned Create action button now that the editor
+  // host is wired up. The popup itself reuses the openLinkPreviewModal shell
+  // styling for visual parity.
+  const _btnCreate = document.getElementById("btnCreateAction");
+  if (_btnCreate && !_btnCreate._bound) {
+    _btnCreate._bound = true;
+    _btnCreate.addEventListener("click", function(){ openCreatePicker(); });
+  }
   loadLeads();
   loadPayments();
   loadLinks();
