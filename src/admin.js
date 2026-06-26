@@ -3130,7 +3130,15 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
   @page { size: A4; margin: 0; }
   *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   body { background:#fff; }
-  header.top, .app .panel, .history-wrap, .email-out, .actions, .preview-wrap > .lbl, .status-line { display:none !important; }
+  header.top, nav.tabbar, .app .panel, .history-wrap, .email-out, .actions, .preview-wrap > .lbl, .status-line, .ed-head, .ed-backdrop { display:none !important; }
+  /* v103: the editor opens in a modal on mobile, so a per-row Print baked the modal
+     header (.ed-head: title + Close), the tab bar (nav.tabbar: tabs + "+ Create") and
+     the backdrop straight into the PDF. Hide them in print. Also neutralize the fixed /
+     overflow-hidden modal containers so the invoice flows in full and is never clipped to
+     one screen height. A CLOSED modal still stays hidden via its [hidden] attribute
+     (display:none wins regardless of these position/overflow resets), so desktop inline
+     printing is unaffected. */
+  .ed-modal, .ed-shell, .ed-body { position:static !important; inset:auto !important; overflow:visible !important; height:auto !important; max-height:none !important; background:transparent !important; box-shadow:none !important; padding:0 !important; }
   .app { grid-template-columns: 1fr !important; padding:0 !important; gap:0 !important; }
   .preview-wrap { display:block !important; position:static !important; top:auto !important; height:auto !important; overflow:visible !important; }
   .doc { display:block !important; border:0 !important; min-height:auto !important; box-shadow:none !important; border-radius:0 !important; transform:none !important; width:100% !important; }
