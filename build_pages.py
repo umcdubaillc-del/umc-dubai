@@ -739,8 +739,7 @@ booking_body = header("booking.html") + f"""
     <div class="hide" id="bkDone">
       <div class="bk-card" style="max-width:560px;margin:0 auto;text-align:center">
         <h2>Request received</h2>
-        <p class="lede" style="margin-bottom:1rem">Opening WhatsApp to confirm the details with our team&hellip;</p>
-        <p class="bk-note">If WhatsApp did not open, call <a href="tel:+971586497861" style="border-bottom:1px solid var(--amber);color:var(--ink)">+971 58 649 7861</a>.</p>
+        <p class="lede" style="margin-bottom:1rem">Thank you! Our team will confirm the details with you shortly. We&rsquo;re opening WhatsApp so you can reach us directly, if it doesn&rsquo;t open, or you&rsquo;d prefer, call us on <a href="tel:+971586497861" style="border-bottom:1px solid var(--amber);color:var(--ink)">+971 58 649 7861</a> or email <a href="mailto:contact@umcdubai.ae" style="border-bottom:1px solid var(--amber);color:var(--ink)">contact@umcdubai.ae</a>.</p>
       </div>
     </div>
   </div>
@@ -1645,8 +1644,7 @@ contact_body = header("contact.html") + f"""
       </div>
       <div class="bk-card hide" id="ctDone" style="text-align:center">
         <h2>Request received</h2>
-        <p class="lede" style="margin-bottom:1rem">Opening WhatsApp to confirm the details with our team&hellip;</p>
-        <p class="bk-note">If WhatsApp did not open, call <a href="tel:+971586497861" style="border-bottom:1px solid var(--amber);color:var(--ink)">+971 58 649 7861</a>.</p>
+        <p class="lede" style="margin-bottom:1rem">Thank you! Our team will confirm the details with you shortly. We&rsquo;re opening WhatsApp so you can reach us directly, if it doesn&rsquo;t open, or you&rsquo;d prefer, call us on <a href="tel:+971586497861" style="border-bottom:1px solid var(--amber);color:var(--ink)">+971 58 649 7861</a> or email <a href="mailto:contact@umcdubai.ae" style="border-bottom:1px solid var(--amber);color:var(--ink)">contact@umcdubai.ae</a>.</p>
       </div>
       <div class="bk-card">
         <div class="chatcard rv" aria-hidden="true">

@@ -2943,13 +2943,13 @@ function appShellHTML() {
       <div class="email-recipients" id="emailRecipientsWrap" hidden>
         <label class="lbl">Recipient(s)</label>
         <input id="fEmailRecipients" type="text" placeholder="client@example.com, finance@example.com">
-        <p class="hint">When you click Save &amp; Print PDF, the matching branded email body is generated below for copy-paste alongside the PDF attachment.</p>
+        <p class="hint">When you click Save, the matching branded email body is generated below for copy-paste alongside the PDF attachment.</p>
       </div>
     </div>
 
     <div class="actions">
-      <button type="button" class="btn" id="btnSavePrint">Save &amp; Print PDF</button>
-      <button type="button" class="btn btn-ghost" id="btnNew">New</button>
+      <button type="button" class="btn" id="btnSave">Save</button>
+      <button type="button" class="btn btn-ghost" id="btnPrint">Print</button>
     </div>
     <p class="hint" id="priceGateHint" hidden style="margin:.6rem 0 0;color:var(--muted)">Enter a price before this can be issued.</p>
     <div class="status-row" style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
@@ -3461,7 +3461,10 @@ const PAGE_SCRIPT = `<script>
   // item has a rate > 0 (and the total > 0). Mirrors the server-side check so
   // a fresh lead cannot be issued with no price.
   function updatePriceGate(){
-    const btn = $("btnSavePrint");
+    // v98: Save and Print are separate. Price gate disables Save only;
+    // Print stays always enabled so the operator can preview/export the
+    // live editor state without committing to a save.
+    const btn = $("btnSave");
     const hint = $("priceGateHint");
     const hasPositiveRate = state.line_items.some(function(li){ return Number(li && li.rate) > 0; });
     if(btn) btn.disabled = !hasPositiveRate;
@@ -3666,8 +3669,10 @@ const PAGE_SCRIPT = `<script>
       fIN.addEventListener("input", function(e){ state.internal_notes = e.target.value; });
     }
 
-    $("btnSavePrint").addEventListener("click", onSavePrint);
-    $("btnNew").addEventListener("click", onNew);
+    // v98: Save and Print are separate buttons; the legacy "New" button is
+    // gone (onNew remains defined; it's still called from save success paths).
+    $("btnSave").addEventListener("click", onSave);
+    $("btnPrint").addEventListener("click", onPrint);
     $("btnLogout").addEventListener("click", onLogout);
     // v96 — Refresh on the Documents tab now reconciles with Nomod first
     // (same call /admin/api/payments/reconcile that the Payments "Check now"
@@ -4068,7 +4073,7 @@ const PAGE_SCRIPT = `<script>
       if(j.ok){ state.number = j.number; $("fNumber").value = j.number; renderDoc(); }
     } catch(e){ /* offline ok */ }
   }
-  async function onSavePrint(){
+  async function onSave(){
     setStatus("Saving …");
     const r = compute();
     const payload = {
@@ -4101,7 +4106,7 @@ const PAGE_SCRIPT = `<script>
         setStatus("Save failed: " + (j.error || res.status));
         return;
       }
-      setStatus("Saved " + state.number + ". Opening print dialog …");
+      setStatus("Saved " + state.number + ".");
       // Phase 1 — clear lead_id once successfully issued so subsequent
       // documents (e.g. New) do not re-stamp the same lead.
       state.lead_id = null;
@@ -4126,11 +4131,15 @@ const PAGE_SCRIPT = `<script>
         $("emailText").value = em.text;
         $("emailOut").hidden = false;
       }
-
-      const prev = document.title;
-      document.title = state.number;
-      setTimeout(function(){ window.print(); document.title = prev; }, 200);
+      // v98: Save no longer auto-prints; the operator hits Print separately.
     } catch(e){ setStatus("Save failed: " + (e.message || e)); }
+  }
+  // v98: Print operates on the CURRENT live preview, including unsaved edits,
+  // and does NOT save. Always available (no price gate).
+  function onPrint(){
+    const prev = document.title;
+    document.title = state.number || "UMC Dubai document";
+    setTimeout(function(){ window.print(); document.title = prev; }, 60);
   }
   function onNew(){
     state.client = { name:"", company:"", address:"", email:"", phone:"" };
@@ -5389,6 +5398,7 @@ const PAGE_SCRIPT = `<script>
     root._histClickBound = true;
     root.addEventListener("click", function(e){
       const loadB = e.target.closest("[data-load]");
+      const printB = e.target.closest("[data-print]");
       const delB  = e.target.closest("[data-del]");
       const convB = e.target.closest("[data-convert]");
       const linkB = e.target.closest("[data-link]");
@@ -5417,6 +5427,19 @@ const PAGE_SCRIPT = `<script>
         return;
       }
       if(loadB){ e.preventDefault(); loadDoc(loadB.getAttribute("data-load")); return; }
+      // v98: per-row Print loads the invoice then opens the print dialog.
+      // loadDoc populates state + opens the editor modal; once it resolves,
+      // onPrint sets document.title and calls window.print(). Wrapped in
+      // try/catch so a load failure surfaces in the status line rather than
+      // throwing.
+      if(printB){
+        e.preventDefault();
+        const id = printB.getAttribute("data-print");
+        Promise.resolve(loadDoc(id)).then(function(){ onPrint(); }).catch(function(err){
+          setStatus("Print failed: " + (err && (err.message || err)));
+        });
+        return;
+      }
       if(delB){
         e.preventDefault();
         const num = delB.getAttribute("data-num");
@@ -5462,6 +5485,11 @@ const PAGE_SCRIPT = `<script>
           : '';
         const actions = [];
         actions.push('<button type="button" class="btn btn-small btn-ghost" data-load="'+x.id+'">Open</button>');
+        // v98: per-row Print action on invoices. Loads the doc then triggers
+        // the same browser print/PDF flow as the editor's Print button.
+        if(x.doc_type === "invoice"){
+          actions.push('<button type="button" class="btn btn-small btn-ghost" data-print="'+x.id+'" title="Open this invoice and trigger the browser print dialog">Print</button>');
+        }
         if(isQuote){
           if(x.converted_invoice_number){
             // v55: a quote with a converted invoice no longer offers a Convert
@@ -5555,7 +5583,10 @@ const PAGE_SCRIPT = `<script>
     const defaultNote = "Payment for UMC In Bound Tour Operator LLC invoice " + inv.number;
     openLinkPreviewModal({
       headerText: (regen ? "Regenerate payment link" : "Generate payment link") + " for " + inv.number,
-      presetTitle: inv.number,
+      // v98: prefill the client name in the preview so the popup leads with
+      // identity (matches the new Links-tab identity rule). Falls back to
+      // the invoice number when there is no client name on file.
+      presetTitle: (inv.client_name && inv.client_name.trim()) ? inv.client_name : inv.number,
       presetAmount: netAmount,
       presetCurrency: inv.currency || "AED",
       presetNote: defaultNote,
@@ -5646,7 +5677,7 @@ const PAGE_SCRIPT = `<script>
       // listeners and the state machine keep working unchanged.
       const label = (state.doc_type === "invoice" ? "Invoice " : "Quote ") + (state.number || "");
       openEditorModal(label);
-      setStatus("Loaded " + state.number + ". Use Save & Print PDF to re-export.");
+      setStatus("Loaded " + state.number + ". Use Save to persist edits, or Print to re-export.");
     } catch(e){ setStatus("Load failed."); console.log("loadDoc error:", e); }
   }
 
