@@ -1,4 +1,4 @@
-import { PDFDocument, rgb } from "pdf-lib";
+import { PDFDocument, rgb, pushGraphicsState, popGraphicsState, concatTransformationMatrix } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { MARCELLUS_400, OUTFIT_400, OUTFIT_500, FRAUNCES_400 } from "./fonts.js";
 
@@ -44,23 +44,34 @@ async function loadFonts(pdf){
 }
 
 /* tracking-aware text drawer (CSS letter-spacing is em-based) */
+const OBLIQUE = 0.213; // tan(12°) — matches the browser's synthetic italic
+
 function drawText(page, str, x, yTop, font, sizePx, color, opts={}){
   const size = sx(sizePx);
   const y = PAGE_H - sx(yTop) - size; // place by top of cap box approx
   const tracking = (opts.trackingEm||0) * size;
   let text = str==null ? "" : String(str);
   if(opts.upper) text = text.toUpperCase();
+  // Synthetic italic: shear (x,y) -> (x + OBLIQUE*y, y). Subtract OBLIQUE*y
+  // from the start x so the baseline position is preserved across the line.
+  if(opts.oblique){ page.pushOperators(pushGraphicsState(), concatTransformationMatrix(1, 0, OBLIQUE, 1, 0, 0)); }
+  const x0 = opts.oblique ? (x - OBLIQUE*y) : x;
+  let endX;
   if(tracking){
-    let cx = x;
+    let cx = x0;
     for(const ch of text){
       page.drawText(ch, { x:cx, y, size, font, color });
       cx += font.widthOfTextAtSize(ch, size) + tracking;
     }
-    return cx - tracking; // right edge x
+    endX = cx - tracking;
   } else {
-    page.drawText(text, { x, y, size, font, color });
-    return x + font.widthOfTextAtSize(text, size);
+    page.drawText(text, { x:x0, y, size, font, color });
+    endX = x0 + font.widthOfTextAtSize(text, size);
   }
+  if(opts.oblique){ page.pushOperators(popGraphicsState()); }
+  // Return the right-edge x in the unsheared coordinate space so callers'
+  // layout math (right-alignment, column anchors) stays correct.
+  return opts.oblique ? (endX + OBLIQUE*y) : endX;
 }
 function textWidth(str, font, sizePx, trackingEm=0){
   const size = sx(sizePx); const t=(trackingEm||0)*size;
@@ -342,7 +353,7 @@ export async function renderInvoicePdf(doc){
     ry += 10.5*1.6;
   }
   ry += 4.8;
-  for(const ln of noteWrapped){ drawText(page, ln, colRX, ry, f.outfit, 10, C.muted); ry += 10*1.55; }
+  for(const ln of noteWrapped){ drawText(page, ln, colRX, ry, f.outfit, 10, C.muted, {oblique:true}); ry += 10*1.55; }
 
   return await pdf.save();
 }
