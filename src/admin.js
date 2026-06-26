@@ -2197,6 +2197,108 @@ async function handleCustomersCsv(env) {
 
 // ============================================================ dispatcher
 
+// v100: send a branded invoice/quote email to the document's client_email.
+// Replaces the editor's "copy the HTML, paste it into Gmail" panel with a
+// real Resend send triggered from the Documents row. Reuses pmtEmailEsc +
+// the existing branded shell (bone/card/UMC wordmark/dark footer with the
+// #C9BFAE colour-locked contact line). No PDF attachment — line items, VAT
+// breakdown and total all render inline so the client sees everything in
+// one read.
+async function handleEmailClient(id, env) {
+  if (!env.RESEND_API_KEY) return json({ ok: false, error: "email not configured" }, 503);
+  await ensureSchema(env);
+  const inv = await env.BILLING_DB.prepare(
+    "SELECT * FROM billing_documents WHERE id = ?"
+  ).bind(id).first();
+  if (!inv) return json({ ok: false, error: "not found" }, 404);
+  const to = String(inv.client_email || "").trim();
+  if (!to) return json({ ok: false, error: "no client email on file" }, 400);
+  const isInv = inv.doc_type === "invoice";
+  const label = isInv ? "invoice" : "quote";
+  const subject = `Your ${label} from UMC Dubai · ${inv.number}`;
+  const firstName = (String(inv.client_name || "").trim().split(/\s+/)[0]) || "there";
+  const currency = String(inv.currency || "AED");
+  const fmt = (n) => currency + " " + Number(n||0).toLocaleString("en-AE", { minimumFractionDigits:2, maximumFractionDigits:2 });
+  let lineItems = [];
+  try { lineItems = JSON.parse(inv.line_items) || []; } catch { lineItems = []; }
+  let dateStr = String(inv.doc_date || "");
+  try {
+    const d = new Date(String(inv.doc_date) + "T12:00:00");
+    if (!isNaN(d.getTime())) dateStr = d.toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" });
+  } catch(_){}
+  const itemRows = lineItems.map(function(li){
+    const qty = Number(li && li.qty) || 0;
+    const rate = Number(li && li.rate) || 0;
+    const t = qty * rate;
+    return `<tr><td style="padding:8px 12px 8px 0;color:#221B14;border-bottom:1px solid rgba(34,27,20,.08);vertical-align:top">${pmtEmailEsc((li && li.description) || "")}</td><td style="padding:8px 12px;color:#4A4136;border-bottom:1px solid rgba(34,27,20,.08);text-align:right;white-space:nowrap">${pmtEmailEsc(qty.toFixed(2))}</td><td style="padding:8px 12px;color:#4A4136;border-bottom:1px solid rgba(34,27,20,.08);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${pmtEmailEsc(fmt(rate))}</td><td style="padding:8px 0 8px 12px;color:#221B14;border-bottom:1px solid rgba(34,27,20,.08);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${pmtEmailEsc(fmt(t))}</td></tr>`;
+  }).join("");
+  const subtotalRow = `<tr><td colspan="3" style="padding:10px 12px 6px 0;text-align:right;color:#7A6F5F;font-size:11px;letter-spacing:.22em;text-transform:uppercase">Net subtotal</td><td style="padding:10px 0 6px 12px;text-align:right;color:#221B14;font-variant-numeric:tabular-nums">${pmtEmailEsc(fmt(inv.subtotal))}</td></tr>`;
+  const vatRow = `<tr><td colspan="3" style="padding:6px 12px 6px 0;text-align:right;color:#7A6F5F;font-size:11px;letter-spacing:.22em;text-transform:uppercase">VAT 5%</td><td style="padding:6px 0 6px 12px;text-align:right;color:#221B14;font-variant-numeric:tabular-nums">${pmtEmailEsc(fmt(inv.vat))}</td></tr>`;
+  const discRow = (Number(inv.discount) > 0)
+    ? `<tr><td colspan="3" style="padding:6px 12px 6px 0;text-align:right;color:#7A6F5F;font-size:11px;letter-spacing:.22em;text-transform:uppercase">Discount</td><td style="padding:6px 0 6px 12px;text-align:right;color:#221B14;font-variant-numeric:tabular-nums">${pmtEmailEsc(fmt(inv.discount))}</td></tr>`
+    : "";
+  const totalRow = `<tr><td colspan="3" style="padding:12px 12px 12px 0;text-align:right;color:#221B14;font-family:Georgia,'Times New Roman',serif;font-size:16px;font-weight:600;border-top:1px solid rgba(34,27,20,.18)">Total</td><td style="padding:12px 0 12px 12px;text-align:right;color:#221B14;font-family:Georgia,'Times New Roman',serif;font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;border-top:1px solid rgba(34,27,20,.18)">${pmtEmailEsc(fmt(inv.total))}</td></tr>`;
+  const refRowsHtml = pmtEmailRows([
+    ["Reference", inv.number],
+    ["Date", dateStr]
+  ]);
+  const wordmark = `<tr><td style="padding:28px 28px 6px 28px;text-align:center"><span style="font-family:Georgia,'Times New Roman',serif;font-size:24px;letter-spacing:.36em;color:#221B14">UMC</span><div style="height:1px;background:#C75B12;width:28px;margin:10px auto"></div><span style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:#7A6F5F">Dubai</span></td></tr>`;
+  const html =
+    `<!doctype html><html><body style="margin:0;padding:24px 16px;background:#F6F1E7;font-family:-apple-system,Segoe UI,Roboto,sans-serif">`+
+    `<table align="center" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:580px;width:100%;margin:0 auto;background:#FBF8F1;border-radius:6px;overflow:hidden;border:1px solid rgba(34,27,20,.10)">`+
+    wordmark+
+    `<tr><td style="padding:18px 28px 6px 28px;text-align:center">`+
+      `<h1 style="font-family:Georgia,'Times New Roman',serif;font-weight:400;font-size:22px;color:#221B14;margin:0;letter-spacing:-.01em">Dear ${pmtEmailEsc(firstName)},</h1>`+
+      `<p style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#A84B0C;margin:10px 0 0">Your ${pmtEmailEsc(label)} from UMC Dubai</p>`+
+    `</td></tr>`+
+    `<tr><td style="padding:14px 28px 6px 28px">`+
+      `<p style="font-size:14px;color:#4A4136;line-height:1.65;margin:0">The details of ${pmtEmailEsc(label)} <b style="color:#221B14">${pmtEmailEsc(inv.number)}</b> are below. Please reply to this email or call our team if you need anything adjusted.</p>`+
+    `</td></tr>`+
+    `<tr><td style="padding:14px 28px 4px 28px">`+
+      `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:14px;border-collapse:collapse">${refRowsHtml}</table>`+
+    `</td></tr>`+
+    `<tr><td style="padding:14px 28px 4px 28px">`+
+      `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:13px;border-collapse:collapse">`+
+        `<thead><tr>`+
+          `<th align="left" style="padding:8px 12px 8px 0;color:#7A6F5F;font-size:11px;letter-spacing:.22em;text-transform:uppercase;font-weight:500;border-bottom:1px solid rgba(34,27,20,.18)">Description</th>`+
+          `<th align="right" style="padding:8px 12px;color:#7A6F5F;font-size:11px;letter-spacing:.22em;text-transform:uppercase;font-weight:500;border-bottom:1px solid rgba(34,27,20,.18)">Qty</th>`+
+          `<th align="right" style="padding:8px 12px;color:#7A6F5F;font-size:11px;letter-spacing:.22em;text-transform:uppercase;font-weight:500;border-bottom:1px solid rgba(34,27,20,.18)">Rate</th>`+
+          `<th align="right" style="padding:8px 0 8px 12px;color:#7A6F5F;font-size:11px;letter-spacing:.22em;text-transform:uppercase;font-weight:500;border-bottom:1px solid rgba(34,27,20,.18)">Amount</th>`+
+        `</tr></thead>`+
+        `<tbody>${itemRows}</tbody>`+
+        `<tfoot>${subtotalRow}${vatRow}${discRow}${totalRow}</tfoot>`+
+      `</table>`+
+    `</td></tr>`+
+    `<tr><td style="padding:18px 28px 22px 28px;text-align:center">`+
+      `<p style="font-size:13px;color:#4A4136;line-height:1.7;margin:0">For any question, reply to this email or call <a href="tel:+971586497861" style="color:#A84B0C;text-decoration:none;border-bottom:1px solid #C75B12">+971 58 649 7861</a>.</p>`+
+    `</td></tr>`+
+    `<tr><td style="padding:20px 28px 22px 28px;background:#231B12;text-align:center">`+
+      `<p style="margin:0;color:#D9D0C0;font-size:12px">The UMC Dubai concierge desk</p>`+
+      `<p style="margin:8px 0 0;color:#C9BFAE;font-size:11px;letter-spacing:.16em;text-transform:uppercase">UMC Dubai &middot; <a href="mailto:contact@umcdubai.ae" style="color:#C9BFAE;text-decoration:none">contact@umcdubai.ae</a> &middot; <a href="tel:+971586497861" style="color:#C9BFAE;text-decoration:none">+971 58 649 7861</a></p>`+
+    `</td></tr>`+
+    `</table></body></html>`;
+  try {
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + env.RESEND_API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: "UMC Dubai billing <noreply@umcdubai.ae>",
+        to: [to],
+        subject,
+        html,
+        reply_to: env.LEAD_EMAIL_TO || "contact@umcdubai.ae"
+      })
+    });
+    if (!r.ok) {
+      const detail = (await r.text()).slice(0, 300);
+      return json({ ok: false, error: "send failed", detail }, 200);
+    }
+    return json({ ok: true, sentTo: to });
+  } catch (e) {
+    return json({ ok: false, error: "transport error", detail: (e && (e.message || String(e))) }, 200);
+  }
+}
+
 export async function handleAdmin(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -2243,6 +2345,10 @@ export async function handleAdmin(request, env) {
       try { body = await request.json(); } catch {}
       return handlePaymentLink(parseInt(linkM[1], 10), env, { regenerate }, body);
     }
+    // v100 — send the branded invoice/quote email to the document's
+    // client_email. Triggered from the Documents row "Email client" button.
+    const emM = path.match(/^\/admin\/api\/billing\/(\d+)\/email$/);
+    if (emM && method === "POST") return handleEmailClient(parseInt(emM[1], 10), env);
     // v84 — manual mark-paid / mark-refunded actions for the Sales section.
     const mpM = path.match(/^\/admin\/api\/billing\/(\d+)\/mark-paid$/);
     if (mpM && method === "POST") return handleMarkPaid(parseInt(mpM[1], 10), request, env);
@@ -2973,18 +3079,6 @@ function appShellHTML() {
       <div class="r total"><span>Total</span><span id="tTot">·</span></div>
     </div>
 
-    <div class="field" style="margin-top:1rem">
-      <label class="checkrow">
-        <input type="checkbox" id="fEmailTo">
-        <span>Email to client</span>
-      </label>
-      <div class="email-recipients" id="emailRecipientsWrap" hidden>
-        <label class="lbl">Recipient(s)</label>
-        <input id="fEmailRecipients" type="text" placeholder="client@example.com, finance@example.com">
-        <p class="hint">When you click Save, the matching branded email body is generated below for copy-paste alongside the PDF attachment.</p>
-      </div>
-    </div>
-
     <div class="actions">
       <button type="button" class="btn" id="btnSave">Save</button>
       <button type="button" class="btn btn-ghost" id="btnPrint">Print</button>
@@ -2995,23 +3089,6 @@ function appShellHTML() {
       <button type="button" id="btnRevertLead" hidden class="btn btn-small btn-ghost" style="color:var(--amber-deep);border-color:var(--amber);background:transparent" title="Restore the original values prefilled from this lead. Editing again is allowed.">Revert to original</button>
     </div>
 
-    <div class="email-out" id="emailOut" hidden>
-      <hr class="amber">
-      <h3>Client email · copy &amp; send</h3>
-      <div class="meta-row">
-        <div><b>To</b> <span id="emailToShow"></span></div>
-        <div><b>Subject</b> <span id="emailSubjectShow"></span></div>
-      </div>
-      <hr class="hair">
-      <small class="lbl">HTML body (paste into Gmail / Outlook)</small>
-      <textarea id="emailHtml" readonly></textarea>
-      <small class="lbl" style="margin-top:.8rem;display:block">Plain-text fallback</small>
-      <textarea id="emailText" rows="6" readonly></textarea>
-      <div class="row2">
-        <button type="button" class="btn btn-small btn-ghost" id="copyHtml">Copy HTML</button>
-        <button type="button" class="btn btn-small btn-ghost" id="copyText">Copy text</button>
-      </div>
-    </div>
   </section>
 
   <section class="preview-wrap" aria-label="Preview">
@@ -3619,69 +3696,10 @@ const PAGE_SCRIPT = `<script>
       + '<div class="dfoot">umcdubai.ae</div>';
   }
 
-  // ---------- email body (HTML + text)
-  function buildEmail(){
-    const r = compute();
-    const isInv = state.doc_type === "invoice";
-    const docLabel = isInv ? "invoice" : "quote";
-    const greetingName = (state.client.name || "there").trim().split(/\\s+/)[0];
-    const subject = (isInv ? "Your invoice" : "Your quote") + " from UMC Dubai · " + (state.number || "");
-    // Plain text
-    const text = [
-      "Dear " + greetingName + ",",
-      "",
-      "Please find your " + docLabel + " attached.",
-      "",
-      "Reference: " + (state.number || ""),
-      "Date:      " + fmtDate(state.doc_date),
-      "Total:     " + fmtMoney(r.total, state.currency),
-      "",
-      "For any questions please reply to this email or call +971 58 649 7861.",
-      "",
-      "Kind regards,",
-      "UMC Dubai concierge desk",
-      COMPANY.email,
-      COMPANY.phone
-    ].join("\\n");
-
-    // HTML — table-layout, inline styles for email client safety
-    const headline = isInv ? "Your invoice is attached" : "Your quote is attached";
-    const html = ''
-      + '<!doctype html><html><body style="margin:0;padding:24px 16px;background:#F6F1E7;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">'
-      + '<table align="center" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:580px;width:100%;margin:0 auto;background:#FBF8F1;border-radius:6px;overflow:hidden;border:1px solid rgba(34,27,20,.10)">'
-      + '<tr><td style="padding:28px 28px 6px 28px;text-align:center">'
-      +   '<span style="font-family:Georgia,\\'Times New Roman\\',serif;font-size:24px;letter-spacing:.36em;color:#221B14">UMC</span>'
-      +   '<div style="height:1px;background:#C75B12;width:28px;margin:10px auto"></div>'
-      +   '<span style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:#7A6F5F">Dubai</span>'
-      + '</td></tr>'
-      + '<tr><td style="padding:18px 28px 8px 28px;text-align:center">'
-      +   '<h1 style="font-family:Georgia,\\'Times New Roman\\',serif;font-weight:400;font-size:22px;color:#221B14;margin:0 0 10px;letter-spacing:-.01em">Dear ' + esc(greetingName) + ',</h1>'
-      +   '<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px;color:#4A4136;line-height:1.65;margin:0 auto;max-width:44ch">' + esc(headline) + '. The full document, including the line items, VAT breakdown, bank details, and our terms, is attached as a PDF.</p>'
-      + '</td></tr>'
-      + '<tr><td style="padding:22px 28px 6px 28px">'
-      +   '<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:14px;border-collapse:collapse">'
-      +     '<tr><td style="padding:9px 16px 9px 0;color:#7A6F5F;vertical-align:top;white-space:nowrap;font-size:11px;letter-spacing:.22em;text-transform:uppercase;font-weight:500;border-bottom:1px solid rgba(34,27,20,.08)">Reference</td><td style="padding:9px 0;color:#221B14;border-bottom:1px solid rgba(34,27,20,.08);font-family:Georgia,serif">' + esc(state.number || "") + '</td></tr>'
-      +     '<tr><td style="padding:9px 16px 9px 0;color:#7A6F5F;vertical-align:top;white-space:nowrap;font-size:11px;letter-spacing:.22em;text-transform:uppercase;font-weight:500;border-bottom:1px solid rgba(34,27,20,.08)">Date</td><td style="padding:9px 0;color:#221B14;border-bottom:1px solid rgba(34,27,20,.08)">' + esc(fmtDate(state.doc_date)) + '</td></tr>'
-      +     '<tr><td style="padding:9px 16px 9px 0;color:#7A6F5F;vertical-align:top;white-space:nowrap;font-size:11px;letter-spacing:.22em;text-transform:uppercase;font-weight:500;border-bottom:1px solid rgba(34,27,20,.08)">Total</td><td style="padding:9px 0;color:#221B14;border-bottom:1px solid rgba(34,27,20,.08);font-family:Georgia,serif;font-size:16px">' + esc(fmtMoney(r.total, state.currency)) + '</td></tr>'
-      +   '</table>'
-      + '</td></tr>'
-      + (isInv ? (''
-      +   '<tr><td style="padding:18px 28px 6px 28px">'
-      +     '<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#A84B0C;margin:0 0 8px;font-weight:500">Payment</p>'
-      +     '<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:13px;color:#4A4136;line-height:1.65;margin:0">Bank transfer to <b style="color:#221B14">' + esc(BANK.title) + '</b>, ' + esc(BANK.name) + '. IBAN <span style="font-family:Georgia,serif;letter-spacing:.04em;color:#221B14">' + esc(BANK.iban) + '</span> · BIC ' + esc(BANK.bic) + '.</p>'
-      +   '</td></tr>'
-      ) : "")
-      + '<tr><td style="padding:18px 28px 22px 28px;text-align:center">'
-      +   '<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:13px;color:#4A4136;line-height:1.7;margin:0">For any question please reply, or call <a href="tel:' + esc(COMPANY.phone.replace(/\\s/g,"")) + '" style="color:#A84B0C;text-decoration:none;border-bottom:1px solid #C75B12">' + esc(COMPANY.phone) + '</a>.</p>'
-      + '</td></tr>'
-      + '<tr><td style="padding:22px 28px;background:#231B12;text-align:center;font-family:-apple-system,Segoe UI,Roboto,sans-serif">'
-      +   '<p style="margin:0;color:#D9D0C0;font-size:13px;letter-spacing:.06em">UMC Dubai concierge desk</p>'
-      +   '<p style="margin:8px 0 0;color:#7A6F5F;font-size:11px;letter-spacing:.06em">' + esc(COMPANY.legal) + ' · ' + esc(COMPANY.addr) + '</p>'
-      + '</td></tr>'
-      + '</table></body></html>';
-
-    return { subject, html, text };
-  }
+  // v100: the in-editor buildEmail() / copy-paste UI is gone. Sending the
+  // branded invoice/quote to the client is now a single click on each row
+  // (POST /admin/api/billing/:id/email). The server builds the email using
+  // the same shell as the payment-received notification.
 
   // ---------- bindings
   function bindForm(){
@@ -4055,18 +4073,8 @@ const PAGE_SCRIPT = `<script>
       } catch(e){ setLkStatus("Delete failed: " + (e.message || e)); }
     }
 
-    // Email-to-client checkbox: reveal recipients input; pre-fill with the
-    // client-email field if it is set and no override has been typed yet.
-    $("fEmailTo").addEventListener("change", function(e){
-      $("emailRecipientsWrap").hidden = !e.target.checked;
-      if(e.target.checked && !$("fEmailRecipients").value && state.client.email){
-        $("fEmailRecipients").value = state.client.email;
-      }
-      if(!e.target.checked){ $("emailOut").hidden = true; }
-    });
-
-    $("copyHtml").addEventListener("click", function(e){ copy($("emailHtml"), e.currentTarget); });
-    $("copyText").addEventListener("click", function(e){ copy($("emailText"), e.currentTarget); });
+    // v100: the email copy-paste UI is gone; sending is now a one-click action
+    // on each document row (POST /admin/api/billing/:id/email).
   }
   // Phase 1.x — inline success/failure confirmation on the clicked Copy
   // button: flips the label to "Copied" (or a custom variant) in the warm
@@ -4170,18 +4178,9 @@ const PAGE_SCRIPT = `<script>
       if(typeof loadLeads === "function") loadLeads();
       if(typeof loadLinks === "function") loadLinks();
 
-      // Email-to-client (item 6): if checkbox on, generate the branded email
-      // body now and reveal the panel for copy-paste alongside the PDF.
-      if($("fEmailTo").checked){
-        const recipients = ($("fEmailRecipients").value || state.client.email || "").trim();
-        const em = buildEmail();
-        $("emailToShow").textContent = recipients || "(no recipient entered)";
-        $("emailSubjectShow").textContent = em.subject;
-        $("emailHtml").value = em.html;
-        $("emailText").value = em.text;
-        $("emailOut").hidden = false;
-      }
       // v98: Save no longer auto-prints; the operator hits Print separately.
+      // v100: the editor no longer builds an email body for copy-paste; sending
+      // is a single click on the Documents row "Email client" button.
     } catch(e){ setStatus("Save failed: " + (e.message || e)); }
   }
   // v98: Print operates on the CURRENT live preview, including unsaved edits,
@@ -4208,11 +4207,8 @@ const PAGE_SCRIPT = `<script>
     // v96 — New starts in default (unpaid) state, so the PAID stamp is hidden.
     state.payment_status = null;
     state.doc_date = new Date().toISOString().slice(0,10);
-    ["cName","cCompany","cAddress","cEmail","cPhone","fDiscount","fNotes","fInternalNotes","fEmailRecipients"].forEach(function(id){ const el = $(id); if(el) el.value = ""; });
+    ["cName","cCompany","cAddress","cEmail","cPhone","fDiscount","fNotes","fInternalNotes"].forEach(function(id){ const el = $(id); if(el) el.value = ""; });
     $("fDate").value = state.doc_date;
-    $("fEmailTo").checked = false;
-    $("emailRecipientsWrap").hidden = true;
-    $("emailOut").hidden = true;
     renderLineRows(); renderTotals(); fetchNext(); renderDoc();
     setStatus("");
   }
@@ -5508,6 +5504,28 @@ const PAGE_SCRIPT = `<script>
       const convB = e.target.closest("[data-convert]");
       const linkB = e.target.closest("[data-link]");
       const copyB = e.target.closest("[data-copy]");
+      const emailB = e.target.closest("[data-emailclient]");
+      // v100: send the branded invoice/quote to the document's client_email
+      // via /admin/api/billing/:id/email. Re-entrancy: disable the button
+      // while the request is in flight so a double-click cannot double-send.
+      if(emailB && !emailB.disabled){
+        e.preventDefault(); e.stopPropagation();
+        const id = emailB.getAttribute("data-emailclient");
+        const num = emailB.getAttribute("data-num") || "";
+        const to = emailB.getAttribute("data-email") || "";
+        setStatus("Emailing client " + (to ? to + " " : "") + "(" + num + ") …");
+        const wasLabel = emailB.textContent;
+        emailB.disabled = true; emailB.textContent = "Sending …";
+        fetch("/admin/api/billing/" + encodeURIComponent(id) + "/email", { method: "POST" })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if (j && j.ok) setStatus("Emailed " + (j.sentTo || to) + " (" + num + ").");
+            else           setStatus("Email failed: " + ((j && j.error) || "unknown"));
+          })
+          .catch(function(err){ setStatus("Email failed: " + (err && (err.message || err))); })
+          .finally(function(){ emailB.disabled = false; emailB.textContent = wasLabel; });
+        return;
+      }
       if(copyB){
         e.preventDefault();
         const u = copyB.getAttribute("data-copy");
@@ -5612,6 +5630,14 @@ const PAGE_SCRIPT = `<script>
           } else {
             actions.push('<button type="button" class="btn btn-small btn-ink" data-link="'+x.id+'" data-num="'+esc(x.number)+'" title="Create a Nomod payment link for this invoice">Generate payment link</button>');
           }
+        }
+        // v100: per-row "Email client" sends the branded invoice/quote to
+        // the document's client_email. Disabled with a hint when missing.
+        const clientEmail = String(x.client_email || "").trim();
+        if(clientEmail){
+          actions.push('<button type="button" class="btn btn-small btn-ghost" data-emailclient="'+x.id+'" data-num="'+esc(x.number)+'" data-email="'+esc(clientEmail)+'" title="Send this '+(isInvoice?"invoice":"quote")+' to '+esc(clientEmail)+'">Email client</button>');
+        } else {
+          actions.push('<button type="button" class="btn btn-small btn-ghost" disabled style="opacity:.55;cursor:not-allowed" title="Add a client email to this document first">Email client</button>');
         }
         const isPaidDoc = String(x.payment_status || "").toLowerCase() === "paid";
         actions.push('<button type="button" class="btn btn-small btn-danger" data-del="'+x.id+'" data-num="'+esc(x.number)+'" data-type="'+esc(x.doc_type)+'" data-paid="'+(isPaidDoc?"1":"0")+'" title="Delete">×</button>');
@@ -5777,7 +5803,6 @@ const PAGE_SCRIPT = `<script>
       $("fNotes").value = state.notes;
       if($("fInternalNotes")) $("fInternalNotes").value = state.internal_notes || "";
       renderLineRows(); renderTotals(); renderDoc();
-      $("emailOut").hidden = true;
       // v59: open the editor in a modal OVERLAY on the Documents tab — the
       // user does NOT leave Documents. Reverses the v58 tab-switch behaviour
       // per the new "Create-tab for new docs only" UX rule. The modal
