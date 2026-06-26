@@ -3484,7 +3484,7 @@ function appShellHTML() {
 
     <div class="actions">
       <button type="button" class="btn" id="btnSave">Save</button>
-      <button type="button" class="btn btn-ghost" id="btnPrint">Print</button>
+      <button type="button" class="btn btn-ghost" id="btnPrint" title="Open the institutional PDF for this document">Download PDF</button>
       <button type="button" class="btn btn-ghost ed-preview-btn" id="btnPreviewPdf">Preview PDF</button>
     </div>
     <p class="hint" id="priceGateHint" hidden style="margin:.6rem 0 0;color:var(--muted)">Enter a price before this can be issued.</p>
@@ -4631,12 +4631,14 @@ const PAGE_SCRIPT = `<script>
       try { if(typeof switchTab === "function") switchTab("documents"); } catch(_){}
     } catch(e){ setStatus("Save failed: " + (e.message || e)); }
   }
-  // v98: Print operates on the CURRENT live preview, including unsaved edits,
-  // and does NOT save. Always available (no price gate).
+  // Stage 8: the editor's Print button is now Download PDF and opens the
+  // server-rendered institutional PDF in a new tab. The signed-in cookie
+  // rides automatically. Guard the unsaved case so a fresh editor without a
+  // saved id doesn't try to fetch /admin/api/billing/undefined/pdf.
   function onPrint(){
-    const prev = document.title;
-    document.title = state.number || "UMC Dubai document";
-    setTimeout(function(){ window.print(); document.title = prev; }, 60);
+    const _id = state.id;
+    if (!_id) { alert("Save this document first, then download its PDF."); return; }
+    window.open("/admin/api/billing/" + _id + "/pdf", "_blank", "noopener");
   }
   function onNew(){
     // v99: New starts a genuinely fresh document; clear the id so the next
