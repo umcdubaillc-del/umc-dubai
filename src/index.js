@@ -357,7 +357,7 @@ async function sendEmail(env, b) {
     `</td></tr>` +
     `<tr><td style="padding:20px 28px 22px 28px;background:#231B12;text-align:center;font-family:-apple-system,Segoe UI,Roboto,sans-serif">` +
       `<p style="margin:0;color:#D9D0C0;font-size:12px">Submitted ${emailEsc(b.ts)}</p>` +
-      `<p style="margin:8px 0 0;color:#7A6F5F;font-size:11px;letter-spacing:.16em;text-transform:uppercase">UMC Dubai &middot; contact@umcdubai.ae &middot; +971 58 649 7861</p>` +
+      `<p style="margin:8px 0 0;color:#C9BFAE;font-size:11px;letter-spacing:.16em;text-transform:uppercase">UMC Dubai &middot; <a href="mailto:contact@umcdubai.ae" style="color:#C9BFAE;text-decoration:none">contact@umcdubai.ae</a> &middot; <a href="tel:+971586497861" style="color:#C9BFAE;text-decoration:none">+971 58 649 7861</a></p>` +
     `</td></tr>` +
     `</table></body></html>`;
 
@@ -505,7 +505,7 @@ async function sendClientReceipt(env, b) {
     `</td></tr>` +
     `<tr><td style="padding:22px 28px;background:#231B12;text-align:center;font-family:-apple-system,Segoe UI,Roboto,sans-serif">` +
       `<p style="margin:0;color:#D9D0C0;font-size:13px;letter-spacing:.06em">The UMC Dubai concierge desk</p>` +
-      `<p style="margin:10px 0 0;color:#7A6F5F;font-size:11px;line-height:1.6">This is a receipt of your request, not a confirmed booking. We will write back with the next steps shortly.</p>` +
+      `<p style="margin:10px 0 0;color:#C9BFAE;font-size:11px;line-height:1.6">This is a receipt of your request, not a confirmed booking. We will write back with the next steps shortly.</p>` +
     `</td></tr>` +
     `</table></body></html>`;
 

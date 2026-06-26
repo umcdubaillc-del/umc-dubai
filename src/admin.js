@@ -1226,16 +1226,37 @@ async function sendPaymentReceivedEmail(env, info){
   if(!env.RESEND_API_KEY) return;
   const to = env.LEAD_EMAIL_TO || "contact@umcdubai.ae";
   const amountStr = (info.currency||"AED") + " " + Number(info.amount||0).toLocaleString("en-AE",{minimumFractionDigits:2,maximumFractionDigits:2});
-  const subject = `Payment received — ${info.client||"Client"} — ${amountStr}`;
+  // v95: subject drops the literal "Client" word and uses the resolved name
+  // when present; falls back cleanly to "Payment received — AED X" so the
+  // separator never dangles.
+  const clientName = String(info.client||"").trim();
+  const subject = clientName
+    ? `Payment received — ${clientName} — ${amountStr}`
+    : `Payment received — ${amountStr}`;
+  // v95: humanise the paidAt timestamp into Dubai time. Falls back to the raw
+  // value if Date parsing fails so we never lose the row.
+  let paidAtStr = info.paidAt || "";
+  try {
+    if (info.paidAt) {
+      const d = new Date(info.paidAt);
+      if (!isNaN(d.getTime())) {
+        paidAtStr = d.toLocaleString("en-GB", { timeZone:"Asia/Dubai", day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" }) + " GST";
+      }
+    }
+  } catch(_){}
   const rows = pmtEmailRows([
-    ["Client", info.client],
+    ["Client", clientName],
     ["Amount", amountStr],
     ["Payment link", info.linkTitle],
     ["Invoice", info.invoiceNumber],
     ["Reference", info.chargeId],
-    ["Paid at", info.paidAt]
+    ["Paid at", paidAtStr]
   ]);
   const wordmark = `<tr><td style="padding:28px 28px 6px 28px;text-align:center"><span style="font-family:Georgia,'Times New Roman',serif;font-size:24px;letter-spacing:.36em;color:#221B14">UMC</span><div style="height:1px;background:#C75B12;width:28px;margin:10px auto"></div><span style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:#7A6F5F">Dubai</span></td></tr>`;
+  // v95: footer contact line lifted from #7A6F5F to #C9BFAE so it reads on
+  // the dark band, and the email + phone are wrapped in pre-built mailto:
+  // / tel: anchors with inline colour so mail clients do not auto-linkify
+  // them into the default blue.
   const html =
     `<!doctype html><html><body style="margin:0;padding:24px 16px;background:#F6F1E7;font-family:-apple-system,Segoe UI,Roboto,sans-serif">`+
     `<table align="center" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:580px;width:100%;margin:0 auto;background:#FBF8F1;border-radius:6px;overflow:hidden;border:1px solid rgba(34,27,20,.10)">`+
@@ -1249,7 +1270,7 @@ async function sendPaymentReceivedEmail(env, info){
     `</td></tr>`+
     `<tr><td style="padding:20px 28px 22px 28px;background:#231B12;text-align:center">`+
       `<p style="margin:0;color:#D9D0C0;font-size:12px">Recorded automatically from the Nomod payment webhook</p>`+
-      `<p style="margin:8px 0 0;color:#7A6F5F;font-size:11px;letter-spacing:.16em;text-transform:uppercase">UMC Dubai &middot; contact@umcdubai.ae &middot; +971 58 649 7861</p>`+
+      `<p style="margin:8px 0 0;color:#C9BFAE;font-size:11px;letter-spacing:.16em;text-transform:uppercase">UMC Dubai &middot; <a href="mailto:contact@umcdubai.ae" style="color:#C9BFAE;text-decoration:none">contact@umcdubai.ae</a> &middot; <a href="tel:+971586497861" style="color:#C9BFAE;text-decoration:none">+971 58 649 7861</a></p>`+
     `</td></tr>`+
     `</table></body></html>`;
   try{
@@ -1421,19 +1442,26 @@ async function handleNomodWebhook(request, env) {
         const lk = await env.BILLING_DB.prepare(
           `SELECT title, invoice_number, client_name, amount, currency FROM payment_links WHERE nomod_link_id = ? LIMIT 1`
         ).bind(linkId).first();
-        let invNo = lk && lk.invoice_number;
-        if (!invNo) {
-          const doc = await env.BILLING_DB.prepare(
-            `SELECT number FROM billing_documents WHERE doc_type='invoice' AND (nomod_link_id = ? OR nomod_charge_id = ?) ORDER BY id DESC LIMIT 1`
-          ).bind(linkId, chargeId).first();
-          invNo = doc && doc.number;
-        }
+        // v95: pull the invoice row alongside the link, so we can take BOTH
+        // the invoice number AND its authoritative client_name (the Billed to /
+        // Name field on the invoice) when the payment is invoice-attached.
+        const invDoc = await env.BILLING_DB.prepare(
+          `SELECT number, client_name FROM billing_documents
+           WHERE doc_type='invoice' AND (nomod_link_id = ? OR nomod_charge_id = ?)
+           ORDER BY id DESC LIMIT 1`
+        ).bind(linkId, chargeId).first();
+        const invNo = (lk && lk.invoice_number) || (invDoc && invDoc.number) || "";
+        // Client priority: invoice client_name > link client_name > Nomod
+        // customer object (firstName + lastName) > blank.
+        const cust = (data && data.customer) || {};
+        const custFull = [cust.firstName, cust.lastName].filter(Boolean).join(" ").trim();
+        const client = (invDoc && invDoc.client_name) || (lk && lk.client_name) || custFull || "";
         await sendPaymentReceivedEmail(env, {
-          client: (lk && lk.client_name) || data.customer_name || data.client_name || (data.customer && data.customer.name) || "",
+          client,
           amount: (lk && lk.amount) || data.amount || data.gross || data.total || 0,
           currency: (lk && lk.currency) || data.currency || "AED",
           linkTitle: (lk && lk.title) || "Nomod payment link",
-          invoiceNumber: invNo || "",
+          invoiceNumber: invNo,
           chargeId: chargeId || "",
           paidAt: now
         });
