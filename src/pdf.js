@@ -75,6 +75,40 @@ function drawRight(page, str, rightX, yTop, font, sizePx, color, opts={}){
   return drawText(page, str, startX, yTop, font, sizePx, color, opts);
 }
 
+/* money formatter — mirrors fmtMoney: "AED 1,300.00" (currencyDisplay:code) */
+function fmtMoney(v, code){
+  const n = Number(v)||0;
+  try { return new Intl.NumberFormat("en-US",{style:"currency",currency:code||"AED",currencyDisplay:"code",minimumFractionDigits:2,maximumFractionDigits:2}).format(n); }
+  catch(e){ return (code||"AED")+" "+n.toFixed(2); }
+}
+/* description hygiene — mirrors cleanDescription (ordinal-after-month fix) */
+function cleanDescription(s){
+  if(!s) return "";
+  const months="January|February|March|April|May|June|July|August|September|October|November|December";
+  return String(s).replace(new RegExp("(\\d{1,2})\\s+("+months+")\\s+(th|st|nd|rd)\\b","gi"),
+    function(_,day,month,ord){ return day+ord.toLowerCase()+" "+month; });
+}
+/* wrap a single physical line to a max width (px units in, array of strings out) */
+function wrapLine(str, font, sizePx, maxWpx){
+  const maxPt = sx(maxWpx);
+  const words = String(str).split(/\s+/);
+  const lines=[]; let cur="";
+  for(const w of words){
+    const trial = cur ? cur+" "+w : w;
+    if(textWidth(trial,font,sizePx) <= maxPt || !cur){ cur=trial; }
+    else { lines.push(cur); cur=w; }
+  }
+  if(cur) lines.push(cur);
+  return lines.length?lines:[""];
+}
+/* full description: split on embedded \n first, then wrap each physical line */
+function wrapDescription(str, font, sizePx, maxWpx){
+  const clean = cleanDescription(str||"");
+  const out=[];
+  for(const physical of String(clean).split("\n")) out.push(...wrapLine(physical, font, sizePx, maxWpx));
+  return out;
+}
+
 /* ---------- the invoice document ---------- */
 const COMPANY = { legal:"UMC In Bound Tour Operator LLC", trn:"104201356300003", addr:"Ras Al Khor, Dubai, UAE", phone:"+971 58 649 7861", email:"contact@umcdubai.ae" };
 
@@ -148,7 +182,50 @@ export async function renderInvoicePdf(doc){
     drawRight(page,ln,rightX,yR,f.outfit,11.5,C.inkSoft); yR += 11.5*1.6;
   }
 
-  // (Stage 3+: line-items table, totals, terms+bank legal band go here)
+  // ===== LINE ITEMS TABLE =====
+  // table starts below whichever header column ran longer, + 1.8rem(.dh margin-bottom)
+  let y = Math.max(yC, yR) + 28.8;
+
+  // column x-positions (CSS px from left): description at padX; right edges for qty/rate/amount
+  const colDescX = leftX;
+  const colAmtR  = rightX;                 // Amount right edge
+  const colRateR = rightX - sx(150);       // Unit rate right edge
+  const colQtyR  = rightX - sx(300);       // Qty right edge
+  const descMaxW = (colQtyR - leftX)/PX - 18; // description wrap width in px, small gutter
+
+  // header row: top+bottom 1px var(--ink-soft) borders, .6rem .35rem padding, Outfit500 9px .26em upper muted
+  const thPadY=9.6, thPadX=5.6, thSize=9;
+  const thTop = y;
+  page.drawRectangle({ x:leftX, y:PAGE_H - sx(thTop) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.inkSoft }); // top border
+  const thTextY = thTop + thPadY;
+  drawText(page,"Description",colDescX+sx(thPadX),thTextY,f.outfitMed,thSize,C.muted,{trackingEm:0.26,upper:true});
+  drawRight(page,"Qty",colQtyR,thTextY,f.outfitMed,thSize,C.muted,{trackingEm:0.26,upper:true});
+  drawRight(page,"Unit rate",colRateR,thTextY,f.outfitMed,thSize,C.muted,{trackingEm:0.26,upper:true});
+  drawRight(page,"Amount",colAmtR,thTextY,f.outfitMed,thSize,C.muted,{trackingEm:0.26,upper:true});
+  const thBot = thTextY + thSize + thPadY*0.5;
+  page.drawRectangle({ x:leftX, y:PAGE_H - sx(thBot) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.inkSoft }); // bottom border
+  y = thBot;
+
+  // body rows: 11.5px, .75rem .35rem padding, bottom border var(--hair) at 10% ink
+  const tdPadY=12, tdSize=11.5, lineLeadPx=tdSize*1.35;
+  for(const li of (doc.line_items||[])){
+    const qty = Number(li.qty)||0, rate = Number(li.rate)||0, amt = qty*rate;
+    const descLines = wrapDescription(li.description||"", f.outfit, tdSize, descMaxW);
+    const rowTextTop = y + tdPadY;
+    // description (multi-line, Outfit, --ink)
+    let dy = rowTextTop;
+    for(const dl of descLines){ drawText(page,dl,colDescX+sx(thPadX),dy,f.outfit,tdSize,C.ink); dy += lineLeadPx; }
+    // qty / rate / amount — Fraunces, --ink-soft, top-aligned to first line
+    drawRight(page,qty.toFixed(2),colQtyR,rowTextTop,f.fraunces,tdSize,C.inkSoft);
+    drawRight(page,fmtMoney(rate,doc.currency),colRateR,rowTextTop,f.fraunces,tdSize,C.inkSoft);
+    drawRight(page,fmtMoney(amt,doc.currency),colAmtR,rowTextTop,f.fraunces,tdSize,C.inkSoft);
+    const rowBot = Math.max(dy, rowTextTop+lineLeadPx) + tdPadY*0.4;
+    page.drawRectangle({ x:leftX, y:PAGE_H - sx(rowBot) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.hair, opacity:0.10 });
+    y = rowBot;
+  }
+  // expose where the table ended for later stages
+  const tableEndY = y;
+
   return await pdf.save();
 }
 
