@@ -122,6 +122,15 @@ function compute(doc){
 
 /* ---------- the invoice document ---------- */
 const COMPANY = { legal:"UMC In Bound Tour Operator LLC", trn:"104201356300003", addr:"Ras Al Khor, Dubai, UAE", phone:"+971 58 649 7861", email:"contact@umcdubai.ae" };
+const TERMS = [
+  "The services provided are as per the agreed booking details, including date, time, destination(s), and duration.",
+  "Any additional requests or changes to the itinerary may incur extra charges and are subject to availability.",
+  "Payment is due as per the agreed terms.",
+  "Cancellations or modifications must be communicated in advance; otherwise, cancellation fees may apply.",
+  "The company is not liable for delays caused by unforeseen circumstances such as traffic, weather conditions, or road closures.",
+  "Clients are responsible for any damages caused to the vehicle during the service period."
+];
+const BANK = { name:"WIO Bank", title:"UMC In Bound Tour Operator LLC", iban:"AE210860000009022046225", bic:"WIOBAEADXXX" };
 
 function fmtDate(s){
   if(!s) return "";
@@ -213,7 +222,7 @@ export async function renderInvoicePdf(doc){
   drawRight(page,"Qty",colQtyR,thTextY,f.outfitMed,thSize,C.muted,{trackingEm:0.26,upper:true});
   drawRight(page,"Unit rate",colRateR,thTextY,f.outfitMed,thSize,C.muted,{trackingEm:0.26,upper:true});
   drawRight(page,"Amount",colAmtR,thTextY,f.outfitMed,thSize,C.muted,{trackingEm:0.26,upper:true});
-  const thBot = thTextY + thSize + thPadY*0.5;
+  const thBot = thTextY + thSize + thPadY;
   page.drawRectangle({ x:leftX, y:PAGE_H - sx(thBot) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.inkSoft }); // bottom border
   y = thBot;
 
@@ -260,7 +269,7 @@ export async function renderInvoicePdf(doc){
       page.drawRectangle({ x:boxL, y:PAGE_H - sx(ty) + sx(4), width:boxW, height:sx(1), color:C.inkSoft });
       ty += 3.2; // margin-top .2rem after the border
     }
-    drawText(page, label, boxL, ty, labelFont, labelSize, opts.green?C.paid:labelColor, {trackingEm:labelTrack, upper:!opts.grand?true:true});
+    drawText(page, label, boxL, ty, labelFont, labelSize, labelColor, {trackingEm:labelTrack, upper:!opts.grand?true:true});
     drawRight(page, figure, rightX, ty, figFont, figSize, figColor);
     ty += (opts.grand?labelSize:labelSize) + padY;
     // hairline under non-grand rows (var(--hair) 10% ink)
@@ -280,6 +289,60 @@ export async function renderInvoicePdf(doc){
     ty += 9;
   }
   const totalsEndY = ty;   // thread for Stage 5
+
+  // ===== LEGAL BAND (Terms | Bank) — pinned low, above the espresso footer (option a) =====
+  const contentWpx = (rightX - leftX)/PX;
+  const legalGapPx = 35.2;                                  // 2.2rem
+  const colLW = (contentWpx - legalGapPx)*(1.4/2.4);        // terms column width (px)
+  const colRW = (contentWpx - legalGapPx)*(1.0/2.4);        // bank column width (px)
+  const colRX = leftX + sx(colLW + legalGapPx);             // bank column left edge (pt)
+  const termsIndentPx = 17.6;                               // ol padding-left 1.1rem
+  const termsTextWpx = colLW - termsIndentPx;
+
+  const termWrapped = TERMS.map(t => wrapLine(t, f.outfit, 10.5, termsTextWpx));
+  let leftHpx = 9 + 9.6;                                    // h4 + margin-bottom .6rem
+  for(const lines of termWrapped){ leftHpx += lines.length*(10.5*1.6) + 4.8; }
+  const noteWrapped = wrapLine("For alternative payment arrangements, please contact our concierge.", f.outfit, 10, colRW);
+  let rightHpx = 9 + 9.6 + 4*(10.5*1.6) + 10.4 + noteWrapped.length*(10*1.55);
+  const bandBodyHpx = Math.max(leftHpx, rightHpx);
+  const bandHpx = 16 + bandBodyHpx;                         // padding-top 1rem
+
+  const pageHpx = PAGE_H/PX;                                // 1123
+  const footHpx = footBarH/PX;
+  const gapAboveFooterPx = 32;
+  let bandTopPx = pageHpx - footHpx - gapAboveFooterPx - bandHpx;
+  if(bandTopPx < totalsEndY + 28.8) bandTopPx = totalsEndY + 28.8;   // never collide with totals
+
+  // top hairline
+  page.drawRectangle({ x:leftX, y:PAGE_H - sx(bandTopPx) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.hair, opacity:0.10 });
+  const bandContentTop = bandTopPx + 16;
+
+  // LEFT: Terms
+  let ly = bandContentTop;
+  drawText(page,"Terms & Conditions",leftX,ly,f.outfit,9,C.muted,{trackingEm:0.26,upper:true});
+  ly += 9 + 9.6;
+  let tnum = 1;
+  for(const lines of termWrapped){
+    drawText(page, tnum+".", leftX, ly, f.outfit, 10.5, C.inkSoft);
+    for(const ln of lines){ drawText(page, ln, leftX + sx(termsIndentPx), ly, f.outfit, 10.5, C.inkSoft); ly += 10.5*1.6; }
+    ly += 4.8;
+    tnum++;
+  }
+
+  // RIGHT: Bank
+  let ry = bandContentTop;
+  drawText(page,"Payment · bank transfer",colRX,ry,f.outfit,9,C.muted,{trackingEm:0.26,upper:true});
+  ry += 9 + 9.6;
+  const bankRows = [["Bank",BANK.name],["Account",BANK.title],["IBAN",BANK.iban],["BIC",BANK.bic]];
+  const valX = colRX + sx(72);
+  for(const [k,v] of bankRows){
+    drawText(page,k,colRX,ry,f.outfit,9.5,C.muted,{trackingEm:0.18,upper:true});
+    if(k==="IBAN") drawText(page,v,valX,ry,f.fraunces,10.5,C.ink,{trackingEm:0.05});
+    else drawText(page,v,valX,ry,f.outfit,10.5,C.inkSoft);
+    ry += 10.5*1.6;
+  }
+  ry += 4.8;
+  for(const ln of noteWrapped){ drawText(page, ln, colRX, ry, f.outfit, 10, C.muted); ry += 10*1.55; }
 
   return await pdf.save();
 }
