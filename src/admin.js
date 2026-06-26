@@ -5440,7 +5440,11 @@ const PAGE_SCRIPT = `<script>
     shell.className = "ed-shell";
     // v102: widened from a cramped 460px to 520px with more generous padding
     // and gap between options so the menu reads as deliberate, not squeezed.
-    shell.style.cssText = "max-width:520px;max-height:none;inset:auto;position:absolute;top:10vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
+    // Fix 9: position:absolute with no explicit width collapses to content
+    // width (max-width alone never kicks in), so the picker was rendering at
+    // ~230px. Give it a concrete width that fills to 520px on desktop and
+    // safely shrinks on narrow viewports.
+    shell.style.cssText = "width:min(520px, calc(100vw - 48px));max-width:520px;max-height:none;inset:auto;position:absolute;top:10vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
     shell.innerHTML =
       '<header class="ed-head" style="padding:1.1rem 1.6rem">'
       + '  <h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.22rem">Create</h2>'
@@ -5448,10 +5452,10 @@ const PAGE_SCRIPT = `<script>
       + '</header>'
       + '<div class="ed-body" style="padding:1.5rem 1.6rem 1.6rem">'
       + '  <p class="hist-sub" style="margin:0 0 1.1rem">What would you like to start?</p>'
-      + '  <div style="display:flex;flex-direction:column;gap:.75rem">'
-      + '    <button type="button" class="btn" data-cpick="invoice" style="text-align:left;padding:.85rem 1rem">Create invoice</button>'
-      + '    <button type="button" class="btn" data-cpick="quote" style="text-align:left;padding:.85rem 1rem">Create quote</button>'
-      + '    <button type="button" class="btn btn-ghost" data-cpick="link" style="text-align:left;padding:.85rem 1rem">Create payment link</button>'
+      + '  <div style="display:flex;flex-direction:column;align-items:stretch;gap:.75rem">'
+      + '    <button type="button" class="btn" data-cpick="invoice" style="text-align:left;padding:.85rem 1rem;width:100%">Create invoice</button>'
+      + '    <button type="button" class="btn" data-cpick="quote" style="text-align:left;padding:.85rem 1rem;width:100%">Create quote</button>'
+      + '    <button type="button" class="btn btn-ghost" data-cpick="link" style="text-align:left;padding:.85rem 1rem;width:100%">Create payment link</button>'
       + '  </div>'
       + '  <div class="actions" style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.4rem">'
       + '    <button type="button" class="btn btn-small btn-ghost" data-cpick-cancel>Cancel</button>'
