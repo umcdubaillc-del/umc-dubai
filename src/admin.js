@@ -3213,7 +3213,7 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
     padding:.8rem 0;margin:0;border:0;border-bottom:1px solid var(--hair);
     border-radius:0;background:transparent;position:relative
   }
-  .history tbody tr.open{background:var(--bone2)}
+  .history tbody tr.open{background:var(--bone2);margin-left:-1rem;margin-right:-1rem;padding-left:1rem;padding-right:1rem}
   .history td{display:block;padding:0;border:0;width:auto;white-space:normal}
   .history td::before{content:none!important}
 
@@ -3251,7 +3251,7 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
   .hist-status{padding:2px 8px;font-size:10.5px;letter-spacing:.06em;line-height:1.3}
 
   /* Drawer keeps function, loses card chrome */
-  .history tr.hist-actions-row > td{padding:0;background:var(--bone2)}
+  .history tr.hist-actions-row > td{padding:0;background:var(--bone2);margin-left:-1rem;margin-right:-1rem}
   .history .hist-actions-panel{padding:.7rem 1rem 1rem;justify-content:center}
 
   /* v102: inline PDF preview restored on mobile. The v100 gating hid #doc
