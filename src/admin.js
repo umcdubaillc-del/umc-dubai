@@ -3178,6 +3178,43 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
   .sales-kpis{grid-template-columns:repeat(2,1fr)}
   .sales-monthly{font-size:.78rem}
 }
+/* ============ v99: mobile app-polish pass (Stage 1) ============
+   Scoped to phones. Pins section nav, reflows the editor line-item table
+   into stacked labelled rows (its one remaining non-responsive table), and
+   tightens card/spacing rhythm so the workspace reads as an app, not a
+   shrunk desktop page. Desktop (>619px) is untouched. */
+@media (max-width:619px){
+  /* App chrome: keep the section tabs pinned while long lists scroll. */
+  nav.tabbar{position:sticky;top:0;z-index:30;box-shadow:0 1px 0 var(--hair)}
+  header.top{padding:.7rem 1rem}
+  .lockup .uni{font-size:1.05rem;letter-spacing:.3em}
+
+  /* Unify page gutters across every tab. */
+  .history-wrap,.links-page,.sales-page{padding-left:1rem;padding-right:1rem}
+
+  /* List cards: calmer padding + rhythm, wider label column so values align. */
+  .history tr{padding:.9rem 1rem;margin-bottom:.75rem;border-radius:6px}
+  .history td{padding:.3rem 0;gap:1rem}
+  .history td::before{flex:0 0 94px}
+
+  /* Editor line items -> stacked labelled rows (was a cramped 4-col grid). */
+  #ltTable{display:block}
+  #ltTable thead{display:none}
+  #ltTable tbody{display:block}
+  #ltTable tr{display:block;background:var(--bone2);border:1px solid var(--hair);border-radius:6px;padding:.7rem .85rem;margin-bottom:.7rem}
+  #ltTable td{display:flex;align-items:center;justify-content:space-between;gap:.85rem;padding:.32rem 0;border:0;width:auto}
+  #ltTable td::before{font-family:Outfit;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:500;flex:0 0 auto}
+  #ltTable td:first-child{flex-direction:column;align-items:stretch;gap:.35rem}
+  #ltTable td:first-child::before{content:"Description"}
+  #ltTable td:first-child textarea,#ltTable td:first-child input{width:100%}
+  #ltTable td.qty::before{content:"Qty"}
+  #ltTable td.rate::before{content:"Rate"}
+  #ltTable td.tot::before{content:"Total"}
+  #ltTable td.qty input,#ltTable td.rate input,#ltTable td.tot input{max-width:60%;text-align:right}
+  #ltTable td.del{justify-content:flex-end;padding-top:.1rem}
+  #ltTable td.del::before{content:""}
+  #ltTable td.del button{font-size:20px;padding:.2rem .4rem}
+}
 </style>
 </head>
 <body>
