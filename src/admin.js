@@ -2961,7 +2961,7 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
    column). The hairline above it travels with the band — when line items
    are sparse there's whitespace between totals and this band, and as items
    grow the band moves up until it sits directly under totals. */
-.doc .legal{display:grid;grid-template-columns:1.4fr 1fr;gap:2.2rem;margin:auto 0 1.4rem;align-items:start;padding-top:1rem;border-top:1px solid var(--hair)}
+.doc .legal{display:grid;grid-template-columns:1.4fr 1fr;gap:2.2rem;margin:auto 0 1.4rem;align-items:start;padding-top:1rem;border-top:1px solid var(--hair);break-inside:avoid;page-break-inside:avoid}
 .doc .legal h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .6rem}
 .doc .terms ol{padding-left:1.1rem;margin:0;color:var(--ink-soft);font-size:10.5px;line-height:1.6}
 .doc .terms ol li{margin-bottom:.3rem}
@@ -3141,9 +3141,7 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
   .ed-modal, .ed-shell, .ed-body { position:static !important; inset:auto !important; overflow:visible !important; height:auto !important; max-height:none !important; background:transparent !important; box-shadow:none !important; padding:0 !important; }
   .app { grid-template-columns: 1fr !important; padding:0 !important; gap:0 !important; }
   .preview-wrap { display:block !important; position:static !important; top:auto !important; height:auto !important; overflow:visible !important; }
-  .doc { display:block !important; border:0 !important; min-height:auto !important; box-shadow:none !important; border-radius:0 !important; transform:none !important; width:100% !important; }
-  .doc .dfoot { padding-left:14mm !important; padding-right:14mm !important; }
-  .doc .dbody { padding:14mm 14mm 10mm !important; }
+  .doc { transform:none !important; width:100% !important; box-shadow:none !important; border:0 !important; border-radius:0 !important; }
 }
 /* v84 — Sales tab: quiet KPI strip + monthly table. Same brand tokens as the
    other admin tabs; no new fonts or colours. */
