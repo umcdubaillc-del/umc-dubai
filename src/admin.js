@@ -2601,6 +2601,19 @@ export async function handleAdmin(request, env) {
       }});
     }
     if (!env.BILLING_DB) return dbUnavailable();
+    const pm = path.match(/^\/admin\/api\/billing\/(\d+)\/pdf$/);
+    if (pm && method === "GET") {
+      const row = await env.BILLING_DB.prepare("SELECT * FROM billing_documents WHERE id = ?").bind(parseInt(pm[1],10)).first();
+      if (!row) return json({ ok:false, error:"not found" }, 404);
+      try { row.line_items = JSON.parse(row.line_items||"[]"); } catch(e){ row.line_items = []; }
+      const { renderInvoicePdf } = await import("./pdf.js");
+      const bytes = await renderInvoicePdf(row);
+      return new Response(bytes, { status:200, headers:{
+        "Content-Type":"application/pdf",
+        "Content-Disposition":"inline; filename=\""+(row.number||"invoice")+".pdf\"",
+        "Cache-Control":"no-store"
+      }});
+    }
     if (path === "/admin/api/billing/next" && method === "GET") return handleNext(url, env);
     // v86 — invoices with no payment link yet (for the link-attach picker).
     if (path === "/admin/api/billing/unlinked" && method === "GET") return handleListUnlinkedInvoices(env);
