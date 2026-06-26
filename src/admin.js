@@ -1,5 +1,7 @@
 /* (c) UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 
+import { renderTestPdf } from "./pdf.js";
+
 // /admin/billing — internal quote & invoice generator.
 //
 //   GET  /admin/billing                       login form OR generator UI
@@ -2590,6 +2592,14 @@ export async function handleAdmin(request, env) {
   if (path.startsWith("/admin/api/billing")) {
     const authed = await isAuthed(request, env);
     if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (path === "/admin/api/billing/pdftest" && method === "GET") {
+      const bytes = await renderTestPdf();
+      return new Response(bytes, { status: 200, headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": "inline; filename=\"umc-pdf-test.pdf\"",
+        "Cache-Control": "no-store"
+      }});
+    }
     if (!env.BILLING_DB) return dbUnavailable();
     if (path === "/admin/api/billing/next" && method === "GET") return handleNext(url, env);
     // v86 — invoices with no payment link yet (for the link-attach picker).
