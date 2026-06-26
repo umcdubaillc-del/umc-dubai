@@ -2303,7 +2303,18 @@ async function handleEmailClient(id, env) {
     const qty = Number(li && li.qty) || 0;
     const rate = Number(li && li.rate) || 0;
     const t = qty * rate;
-    return `<tr><td style="padding:8px 12px 8px 0;color:#221B14;border-bottom:1px solid rgba(34,27,20,.08);vertical-align:top">${pmtEmailEsc((li && li.description) || "")}</td><td style="padding:8px 12px;color:#4A4136;border-bottom:1px solid rgba(34,27,20,.08);text-align:right;white-space:nowrap">${pmtEmailEsc(qty.toFixed(2))}</td><td style="padding:8px 12px;color:#4A4136;border-bottom:1px solid rgba(34,27,20,.08);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${pmtEmailEsc(fmt(rate))}</td><td style="padding:8px 0 8px 12px;color:#221B14;border-bottom:1px solid rgba(34,27,20,.08);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${pmtEmailEsc(fmt(t))}</td></tr>`;
+    const rawDesc = String((li && li.description) || "");
+    let primary = rawDesc, details = "";
+    if (rawDesc.indexOf("\n") >= 0) {
+      const parts = rawDesc.split(/\r?\n/).map(function(x){return x.trim();}).filter(Boolean);
+      if (parts.length > 1) { primary = parts[0]; details = parts.slice(1).join(" · "); }
+    } else if (rawDesc.indexOf(" · ") >= 0) {
+      const parts = rawDesc.split(" · ").map(function(x){return x.trim();}).filter(Boolean);
+      if (parts.length > 1) { primary = parts[0]; details = parts.slice(1).join(" · "); }
+    }
+    const descCell = `<div style="color:#221B14;font-weight:600;font-size:13px;line-height:1.45">${pmtEmailEsc(primary)}</div>` +
+      (details ? `<div style="color:#7A6F5F;font-size:12px;margin-top:4px;line-height:1.55">${pmtEmailEsc(details)}</div>` : "");
+    return `<tr><td style="padding:11px 12px 11px 0;border-bottom:1px solid rgba(34,27,20,.08);vertical-align:top">${descCell}</td><td style="padding:11px 12px;color:#4A4136;border-bottom:1px solid rgba(34,27,20,.08);text-align:right;white-space:nowrap;vertical-align:top;font-size:13px">${pmtEmailEsc(qty.toFixed(2))}</td><td style="padding:11px 12px;color:#4A4136;border-bottom:1px solid rgba(34,27,20,.08);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;vertical-align:top;font-size:13px">${pmtEmailEsc(fmt(rate))}</td><td style="padding:11px 0 11px 12px;color:#221B14;border-bottom:1px solid rgba(34,27,20,.08);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;vertical-align:top;font-size:13px">${pmtEmailEsc(fmt(t))}</td></tr>`;
   }).join("");
   const subtotalRow = `<tr><td colspan="3" style="padding:10px 12px 6px 0;text-align:right;color:#7A6F5F;font-size:11px;letter-spacing:.22em;text-transform:uppercase">Net subtotal</td><td style="padding:10px 0 6px 12px;text-align:right;color:#221B14;font-variant-numeric:tabular-nums">${pmtEmailEsc(fmt(inv.subtotal))}</td></tr>`;
   const vatRow = `<tr><td colspan="3" style="padding:6px 12px 6px 0;text-align:right;color:#7A6F5F;font-size:11px;letter-spacing:.22em;text-transform:uppercase">VAT 5%</td><td style="padding:6px 0 6px 12px;text-align:right;color:#221B14;font-variant-numeric:tabular-nums">${pmtEmailEsc(fmt(inv.vat))}</td></tr>`;
@@ -2311,25 +2322,65 @@ async function handleEmailClient(id, env) {
     ? `<tr><td colspan="3" style="padding:6px 12px 6px 0;text-align:right;color:#7A6F5F;font-size:11px;letter-spacing:.22em;text-transform:uppercase">Discount</td><td style="padding:6px 0 6px 12px;text-align:right;color:#221B14;font-variant-numeric:tabular-nums">${pmtEmailEsc(fmt(inv.discount))}</td></tr>`
     : "";
   const totalRow = `<tr><td colspan="3" style="padding:12px 12px 12px 0;text-align:right;color:#221B14;font-family:Georgia,'Times New Roman',serif;font-size:16px;font-weight:600;border-top:1px solid rgba(34,27,20,.18)">Total</td><td style="padding:12px 0 12px 12px;text-align:right;color:#221B14;font-family:Georgia,'Times New Roman',serif;font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;border-top:1px solid rgba(34,27,20,.18)">${pmtEmailEsc(fmt(inv.total))}</td></tr>`;
-  const refRowsHtml = pmtEmailRows([
-    ["Reference", inv.number],
-    ["Date", dateStr]
-  ]);
   const wordmark = `<tr><td style="padding:28px 28px 6px 28px;text-align:center"><span style="font-family:Georgia,'Times New Roman',serif;font-size:24px;letter-spacing:.36em;color:#221B14">UMC</span><div style="height:1px;background:#C75B12;width:28px;margin:10px auto"></div><span style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:#7A6F5F">Dubai</span></td></tr>`;
+  // v100.1 institutional tax-invoice / quotation layout. Header block has
+  // doc identity on the left (eyebrow, number, date) and the issuing entity
+  // (UMC In Bound Tour Operator LLC, TRN) on the right, making this a valid
+  // UAE VAT invoice when doc_type is invoice. For quotes the eyebrow reads
+  // QUOTATION and the terms line drops the "due on receipt" wording.
+  const headerEyebrow = isInv ? "TAX INVOICE" : "QUOTATION";
+  const docHeader =
+    `<tr><td style="padding:14px 28px 4px 28px">`+
+      `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;border-collapse:collapse">`+
+        `<tr>`+
+          `<td valign="top" align="left" style="text-align:left">`+
+            `<div style="font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:#A84B0C;font-weight:600">${pmtEmailEsc(headerEyebrow)}</div>`+
+            `<div style="font-family:Georgia,'Times New Roman',serif;font-size:24px;color:#221B14;margin-top:8px;letter-spacing:-.01em;line-height:1.2">${pmtEmailEsc(inv.number)}</div>`+
+            `<div style="font-size:12px;color:#7A6F5F;margin-top:6px">${pmtEmailEsc(dateStr)}</div>`+
+          `</td>`+
+          `<td valign="top" align="right" style="text-align:right;font-size:11px;line-height:1.55">`+
+            `<div style="color:#221B14;font-weight:600">UMC In Bound Tour Operator LLC</div>`+
+            `<div style="color:#7A6F5F;margin-top:2px">TRN 104201356300003</div>`+
+            `<div style="color:#7A6F5F;margin-top:2px">Ras Al Khor, Dubai, UAE</div>`+
+            `<div style="color:#7A6F5F;margin-top:2px">contact@umcdubai.ae</div>`+
+          `</td>`+
+        `</tr>`+
+      `</table>`+
+    `</td></tr>`;
+  const billedLines = [];
+  if (inv.client_name)    billedLines.push(`<div style="color:#221B14;font-weight:600;font-size:14px">${pmtEmailEsc(inv.client_name)}</div>`);
+  if (inv.client_company) billedLines.push(`<div style="color:#4A4136;font-size:13px;margin-top:2px">${pmtEmailEsc(inv.client_company)}</div>`);
+  if (inv.client_address) billedLines.push(`<div style="color:#7A6F5F;font-size:12px;margin-top:3px;line-height:1.5">${pmtEmailEsc(inv.client_address)}</div>`);
+  if (inv.client_email)   billedLines.push(`<div style="color:#7A6F5F;font-size:12px;margin-top:3px">${pmtEmailEsc(inv.client_email)}</div>`);
+  const billedTo =
+    `<tr><td style="padding:18px 28px 4px 28px">`+
+      `<div style="font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:#7A6F5F;font-weight:600;margin-bottom:8px">Billed to</div>`+
+      billedLines.join("")+
+    `</td></tr>`;
+  const intro =
+    `<tr><td style="padding:18px 28px 4px 28px">`+
+      `<div style="font-size:13px;color:#4A4136;line-height:1.6">Dear ${pmtEmailEsc(firstName)},</div>`+
+      `<div style="font-size:13px;color:#4A4136;line-height:1.6;margin-top:6px">Please find the details of your ${pmtEmailEsc(label)} below.</div>`+
+    `</td></tr>`;
+  const payButton = (isInv && inv.nomod_link_url)
+    ? `<tr><td style="padding:10px 28px 4px 28px;text-align:center">`+
+        `<a href="${pmtEmailEsc(inv.nomod_link_url)}" style="display:inline-block;background:#A84B0C;color:#FBF8F1;text-decoration:none;padding:13px 28px;font-size:12px;letter-spacing:.22em;text-transform:uppercase;font-weight:600;border-radius:3px">Pay this invoice</a>`+
+      `</td></tr>`
+    : "";
+  const termsBody = isInv
+    ? `Payment is due on receipt. For any question, reply to this email or call <a href="tel:+971586497861" style="color:#A84B0C;text-decoration:none;border-bottom:1px solid #C75B12">+971 58 649 7861</a>.`
+    : `This quotation is valid for 30 days. Reply or call <a href="tel:+971586497861" style="color:#A84B0C;text-decoration:none;border-bottom:1px solid #C75B12">+971 58 649 7861</a> to confirm.`;
+  const terms =
+    `<tr><td style="padding:14px 28px 22px 28px;text-align:center">`+
+      `<p style="font-size:12px;color:#7A6F5F;line-height:1.7;margin:0">${termsBody}</p>`+
+    `</td></tr>`;
   const html =
     `<!doctype html><html><body style="margin:0;padding:24px 16px;background:#F6F1E7;font-family:-apple-system,Segoe UI,Roboto,sans-serif">`+
     `<table align="center" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:580px;width:100%;margin:0 auto;background:#FBF8F1;border-radius:6px;overflow:hidden;border:1px solid rgba(34,27,20,.10)">`+
     wordmark+
-    `<tr><td style="padding:18px 28px 6px 28px;text-align:center">`+
-      `<h1 style="font-family:Georgia,'Times New Roman',serif;font-weight:400;font-size:22px;color:#221B14;margin:0;letter-spacing:-.01em">Dear ${pmtEmailEsc(firstName)},</h1>`+
-      `<p style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#A84B0C;margin:10px 0 0">Your ${pmtEmailEsc(label)} from UMC Dubai</p>`+
-    `</td></tr>`+
-    `<tr><td style="padding:14px 28px 6px 28px">`+
-      `<p style="font-size:14px;color:#4A4136;line-height:1.65;margin:0">The details of ${pmtEmailEsc(label)} <b style="color:#221B14">${pmtEmailEsc(inv.number)}</b> are below. Please reply to this email or call our team if you need anything adjusted.</p>`+
-    `</td></tr>`+
-    `<tr><td style="padding:14px 28px 4px 28px">`+
-      `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:14px;border-collapse:collapse">${refRowsHtml}</table>`+
-    `</td></tr>`+
+    docHeader+
+    billedTo+
+    intro+
     `<tr><td style="padding:14px 28px 4px 28px">`+
       `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:13px;border-collapse:collapse">`+
         `<thead><tr>`+
@@ -2342,9 +2393,8 @@ async function handleEmailClient(id, env) {
         `<tfoot>${subtotalRow}${vatRow}${discRow}${totalRow}</tfoot>`+
       `</table>`+
     `</td></tr>`+
-    `<tr><td style="padding:18px 28px 22px 28px;text-align:center">`+
-      `<p style="font-size:13px;color:#4A4136;line-height:1.7;margin:0">For any question, reply to this email or call <a href="tel:+971586497861" style="color:#A84B0C;text-decoration:none;border-bottom:1px solid #C75B12">+971 58 649 7861</a>.</p>`+
-    `</td></tr>`+
+    payButton+
+    terms+
     `<tr><td style="padding:20px 28px 22px 28px;background:#231B12;text-align:center">`+
       `<p style="margin:0;color:#D9D0C0;font-size:12px">The UMC Dubai concierge desk</p>`+
       `<p style="margin:8px 0 0;color:#C9BFAE;font-size:11px;letter-spacing:.16em;text-transform:uppercase">UMC Dubai &middot; <a href="mailto:contact@umcdubai.ae" style="color:#C9BFAE;text-decoration:none">contact@umcdubai.ae</a> &middot; <a href="tel:+971586497861" style="color:#C9BFAE;text-decoration:none">+971 58 649 7861</a></p>`+
