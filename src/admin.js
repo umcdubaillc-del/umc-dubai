@@ -1172,26 +1172,35 @@ async function reconcileAllOutstanding(env) {
   await ensureSchema(env);
   const sixtySecAgo = new Date(Date.now() - 60_000).toISOString();
   // Outstanding = has a Nomod link AND not already paid AND not checked < 60s ago.
-  // v97: include rows that are flagged paid but missing the supporting
-  // stamps (paid_at or nomod_charge_id). A previous race could leave
-  // payment_status='paid' with NULLs in those columns, which then never
-  // re-checked. Widening the selection lets a Refresh self-heal them.
+  // v97.1: two distinct selection branches so a half-stamped paid row can
+  // self-heal regardless of how recently it was checked.
+  //   - Normal outstanding (unpaid / unknown): throttled to last_checked_at
+  //     older than 60s so we don't hammer Nomod on every Refresh.
+  //   - Half-stamped paid (payment_status='paid' but paid_at or
+  //     nomod_charge_id NULL): NOT throttled — always re-checkable until the
+  //     missing stamps are filled in.
   const inv = await env.BILLING_DB.prepare(
     `SELECT id, nomod_link_id, payment_status, paid_at FROM billing_documents
       WHERE nomod_link_id IS NOT NULL
-        AND (COALESCE(payment_status,'unpaid') != 'paid'
-             OR paid_at IS NULL
-             OR nomod_charge_id IS NULL)
-        AND (last_checked_at IS NULL OR last_checked_at < ?)
+        AND (
+          ( COALESCE(payment_status,'unpaid') != 'paid'
+            AND (last_checked_at IS NULL OR last_checked_at < ?) )
+          OR
+          ( COALESCE(payment_status,'unpaid') = 'paid'
+            AND (paid_at IS NULL OR nomod_charge_id IS NULL) )
+        )
       LIMIT 50`
   ).bind(sixtySecAgo).all();
   const lks = await env.BILLING_DB.prepare(
     `SELECT id, nomod_link_id, payment_status, paid_at FROM payment_links
       WHERE nomod_link_id IS NOT NULL
-        AND (COALESCE(payment_status,'unpaid') != 'paid'
-             OR paid_at IS NULL
-             OR nomod_charge_id IS NULL)
-        AND (last_checked_at IS NULL OR last_checked_at < ?)
+        AND (
+          ( COALESCE(payment_status,'unpaid') != 'paid'
+            AND (last_checked_at IS NULL OR last_checked_at < ?) )
+          OR
+          ( COALESCE(payment_status,'unpaid') = 'paid'
+            AND (paid_at IS NULL OR nomod_charge_id IS NULL) )
+        )
       LIMIT 50`
   ).bind(sixtySecAgo).all();
   const out = { checked: 0, newlyPaid: 0, stillUnpaid: 0, errors: 0 };
@@ -2397,7 +2406,10 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 .pay-summary b{font-family:Marcellus,Georgia,serif;font-weight:400;color:var(--ink);font-size:15px;letter-spacing:-.005em;margin-left:.2rem}
 .pay-summary .sep{color:var(--hair);user-select:none}
 .pay-status{display:inline-block;font-family:Outfit,sans-serif;font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;font-weight:500}
-.pay-status.paid{color:var(--amber-deep)}
+/* v97: Paid renders the same muted green across Documents (.hist-status.paid),
+   Links (.hist-status.paid) and Payments. Keeps the warm amber accent free for
+   action-pending states. */
+.pay-status.paid{color:#2E7D54}
 .pay-status.unpaid{color:var(--muted)}
 .pay-status.expired{color:var(--muted);text-decoration:line-through}
 .pay-status.unknown{color:var(--muted);opacity:.7}
