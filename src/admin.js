@@ -644,6 +644,16 @@ const NOMOD_ALLOW_TAMARA      = true;
 const NOMOD_API_URL           = "https://api.nomod.com/v1/links";
 const PUBLIC_ORIGIN           = "https://umc-dubai.umcdubaillc.workers.dev";
 
+// Bank-transfer details, one source of truth. Used by the invoice email
+// (handleEmailClient) and available for the PDF / future builders so the
+// IBAN / BIC / account name live in exactly one place.
+const COMPANY_BANK = {
+  bank:    "WIO Bank",
+  account: "UMC In Bound Tour Operator LLC",
+  iban:    "AE210860000009022046225",
+  bic:     "WIOBAEADXXX"
+};
+
 // Single source of truth for calling Nomod. Used by both the invoice-attached
 // payment-link endpoint AND the standalone-Links-tab endpoint, so the three
 // toggles above always apply uniformly.
@@ -2452,6 +2462,33 @@ async function handleEmailClient(id, env) {
         `<a href="${pmtEmailEsc(inv.nomod_link_url)}" style="display:inline-block;background:#A84B0C;color:#FBF8F1;text-decoration:none;padding:13px 28px;font-size:12px;letter-spacing:.22em;text-transform:uppercase;font-weight:600;border-radius:3px">Pay this invoice</a>`+
       `</td></tr>`
     : "";
+  // Bank-transfer block, invoices only. Quieter than the amber CTA above so
+  // the Nomod card link stays the primary call to action; this is the
+  // secondary option for clients who prefer to settle by wire. Quotes skip
+  // this entirely since a quote is not yet payable.
+  const bankRow = function(lbl, val, mono){
+    const valStyle = mono
+      ? `padding:7px 0 7px 14px;color:#221B14;font-family:Menlo,Consolas,'Courier New',monospace;font-size:12.5px;letter-spacing:.04em;white-space:nowrap;word-break:keep-all;border-bottom:1px solid rgba(34,27,20,.06)`
+      : `padding:7px 0 7px 14px;color:#221B14;font-size:13px;border-bottom:1px solid rgba(34,27,20,.06)`;
+    return `<tr>`+
+      `<td style="padding:7px 14px 7px 0;color:#7A6F5F;font-size:11px;letter-spacing:.22em;text-transform:uppercase;font-weight:500;white-space:nowrap;vertical-align:top;border-bottom:1px solid rgba(34,27,20,.06)">${pmtEmailEsc(lbl)}</td>`+
+      `<td style="${valStyle}">${pmtEmailEsc(val)}</td>`+
+    `</tr>`;
+  };
+  const bankBlock = isInv
+    ? `<tr><td style="padding:14px 28px 4px 28px">`+
+        `<div style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#7A6F5F;font-weight:500;margin-bottom:10px">Payment &middot; bank transfer</div>`+
+        `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;border-collapse:collapse;background:#F6F1E7;border:1px solid rgba(34,27,20,.10);border-radius:4px">`+
+          `<tr><td style="padding:8px 14px 0 14px"></td><td></td></tr>`+
+          bankRow("Bank",    COMPANY_BANK.bank,    false)+
+          bankRow("Account", COMPANY_BANK.account, false)+
+          bankRow("IBAN",    COMPANY_BANK.iban,    true)+
+          bankRow("BIC",     COMPANY_BANK.bic,     true)+
+          `<tr><td style="padding:0 14px 8px 14px"></td><td></td></tr>`+
+        `</table>`+
+        `<div style="font-size:11.5px;color:#7A6F5F;margin-top:8px;line-height:1.55">Please use the invoice number <span style="color:#221B14;font-weight:600">${pmtEmailEsc(inv.number)}</span> as the payment reference.</div>`+
+      `</td></tr>`
+    : "";
   const termsBody = isInv
     ? `Payment is due on receipt. For any question, reply to this email or call <a href="tel:+971586497861" style="color:#A84B0C;text-decoration:none;border-bottom:1px solid #C75B12">+971 58 649 7861</a>.`
     : `This quotation is valid for 30 days. Reply or call <a href="tel:+971586497861" style="color:#A84B0C;text-decoration:none;border-bottom:1px solid #C75B12">+971 58 649 7861</a> to confirm.`;
@@ -2479,6 +2516,7 @@ async function handleEmailClient(id, env) {
       `</table>`+
     `</td></tr>`+
     payButton+
+    bankBlock+
     terms+
     `<tr><td style="padding:20px 28px 22px 28px;background:#231B12;text-align:center">`+
       `<p style="margin:0;color:#D9D0C0;font-size:12px">The UMC Dubai concierge desk</p>`+
