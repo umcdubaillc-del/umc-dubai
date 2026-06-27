@@ -3251,23 +3251,23 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   nav.tabbar .tab:not(.on){color:var(--muted)}
   nav.tabbar .tab .tab-soon{display:none}
 
-  /* Float the Create button out of the tabbar flow into the header's
-     top-right corner (handler unchanged). */
-  nav.tabbar #btnCreateAction{
-    position:fixed;
-    top:calc(env(safe-area-inset-top) + .55rem);
-    right:.9rem;
-    margin:0;
-    width:36px; height:36px;
-    min-width:0; min-height:0;
-    padding:0;
-    border-radius:50%;
-    display:inline-flex; align-items:center; justify-content:center;
-    font-size:22px; line-height:1;
-    z-index:41;
+  /* Create button is reparented into header.top .hdr-right by a small JS
+     IIFE in PAGE_SCRIPT (the bottom tabbar's backdrop-filter clips
+     position:fixed children, so positioning had to escape the bar). The
+     rules below shape it as a round 36px "+" in the header on mobile. */
+  header.top .hdr-right{display:flex; align-items:center; gap:.55rem}
+  #btnCreateAction{
+    position:static; top:auto; right:auto; bottom:auto; left:auto; margin:0;
+    width:36px; height:36px; min-height:36px; padding:0; border-radius:999px;
+    flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center;
   }
-  nav.tabbar #btnCreateAction .bca-text{display:none}
-  nav.tabbar #btnCreateAction .bca-plus{font-size:22px; line-height:1}
+  #btnCreateAction .bca-text{display:none}
+  #btnCreateAction .bca-plus{font-size:22px; line-height:1}
+
+  /* Kill the 520px table floor that was forcing a horizontal scroll under
+     the v100 hairline-row reflow. */
+  .history table{min-width:0}
+  .history .hist-scroll{overflow-x:hidden}
 
   /* Page content clears the fixed bottom bar */
   body, .app{padding-bottom:calc(56px + env(safe-area-inset-bottom))}
@@ -6631,5 +6631,29 @@ const PAGE_SCRIPT = `<script>
   loadLinks();
   loadSales();
   loadHistory();
+  // Stage-1 fix-up: on phones, move the Create button out of the bottom tab
+  // bar (whose backdrop-filter clips fixed children) and into the header's
+  // top-right corner. Reverses to the desktop home slot above 620px.
+  (function(){
+    function setup(){
+      var bca = document.getElementById('btnCreateAction');
+      var hdrRight = document.querySelector('header.top .hdr-right');
+      if(!bca || !hdrRight) return;
+      if(!bca._homeParent){ bca._homeParent = bca.parentElement; bca._homeNext = bca.nextElementSibling; }
+      var mq = window.matchMedia('(max-width:620px)');
+      function place(){
+        if(mq.matches){
+          if(bca.parentElement !== hdrRight) hdrRight.insertBefore(bca, hdrRight.firstChild);
+        } else if(bca.parentElement !== bca._homeParent){
+          bca._homeParent.insertBefore(bca, bca._homeNext || null);
+        }
+      }
+      place();
+      if(mq.addEventListener) mq.addEventListener('change', place);
+      else if(mq.addListener) mq.addListener(place);
+    }
+    if(document.readyState !== 'loading') setup();
+    else document.addEventListener('DOMContentLoaded', setup);
+  })();
 })();
 </script>`;
