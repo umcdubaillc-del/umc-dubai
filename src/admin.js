@@ -3114,14 +3114,14 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 /* v55 — Documents + Links mobile card-stack. At narrow widths the tables
    reflow to vertical record cards (label : value), so nothing overflows
    horizontally at 360-430px. data-lbl on each <td> drives the label. */
-/* Stage-1 iOS pass: the prior `@media (max-width: 619px)` block A was
-   consolidated into the single `@media (max-width:620px)` block at the end
-   of this stylesheet. Rules kept from Block A: .hist-head / .hist-filterbar /
-   .hist-search / .hist-typefilter / .links-page padding / .lk-item-row grid.
-   Rules dropped (superseded by the v100 baseline): bordered-card .history tr,
-   .history td flex spec, the data-lbl ::before scheme, the .history tr td
-   Actions stacking. The old tabbar padding rules are obsolete now that the
-   tabbar moves to a fixed bottom bar on phones. */
+/* Stage-1 iOS pass: the prior 619px-with-space mobile block was consolidated
+   into the single 620px block at the end of this stylesheet. Rules kept from
+   that block: .hist-head, .hist-filterbar, .hist-search, .hist-typefilter,
+   .links-page padding, .lk-item-row grid. Rules dropped (superseded by the
+   v100 baseline): bordered-card .history tr, .history td flex spec, the
+   data-lbl ::before scheme, the .history tr td Actions stacking. The old
+   tabbar padding rules are obsolete now that the tabbar moves to a fixed
+   bottom bar on phones. */
 .empty{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
 
 /* Email body box */
