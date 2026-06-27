@@ -2856,6 +2856,10 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
    editor markup + listeners, no duplicate field logic. */
 .ed-modal{position:fixed;inset:0;z-index:1000}
 .ed-modal[hidden]{display:none}
+/* Create-popup cancel band: branded ink button reads loud on its own; the
+   sticky band background + hairline don't apply here. Global so desktop and
+   mobile both render the same. */
+.create-picker-modal .ed-body .actions{ background:transparent !important; border-top:0 !important; }
 .ed-backdrop{position:absolute;inset:0;background:rgba(34,27,20,.6);cursor:pointer}
 .ed-shell{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--bone);overflow:hidden}
 @media(min-width:880px){
@@ -3442,6 +3446,50 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   /* 2.6 Editor textareas taller (ride base font-size:16px to dodge iOS zoom) */
   .ed-modal #fNotes, .ed-modal #fInternalNotes{min-height:96px; line-height:1.5}
   .ed-modal #ltTable td:first-child textarea{min-height:52px; line-height:1.45}
+
+  /* Stage 2.1 — two-column row grid + status/spacing fixes */
+  #tab-documents .history tbody tr.expandable:first-of-type,
+  #tab-leads .history tbody tr.expandable:first-of-type,
+  #tab-payments .history tbody tr.expandable:first-of-type,
+  #tab-links .history tbody tr.expandable:first-of-type{ margin-top:.8rem; }
+
+  #tab-documents .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.12rem; }
+  #tab-documents td[data-lbl="Date"]{ grid-column:1; grid-row:1; }
+  #tab-documents td[data-lbl="Client"]{ grid-column:1; grid-row:2; }
+  #tab-documents td[data-lbl="Number"]{ grid-column:1; grid-row:3; }
+  #tab-documents td[data-lbl="Type"]{ grid-column:2; grid-row:1; justify-self:end; text-align:right; }
+  #tab-documents td[data-lbl="Total"]{ grid-column:2; grid-row:2; justify-self:end; text-align:right; }
+  #tab-documents td[data-lbl="Status"]{ grid-column:2; grid-row:3; justify-self:end; text-align:right; }
+  #tab-documents .hist-chev-cell{ grid-column:1 / -1; grid-row:4; justify-self:end; }
+
+  #tab-leads .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.08rem; }
+  #tab-leads td[data-lbl="Date"]{ grid-column:1; grid-row:1; }
+  #tab-leads td[data-lbl="Name"]{ grid-column:1; grid-row:2; white-space:normal; overflow:visible; text-overflow:clip; }
+  #tab-leads td[data-lbl="Service"]{ grid-column:1; grid-row:3; }
+  #tab-leads td[data-lbl="Contact"]{ grid-column:1; grid-row:4; }
+  #tab-leads td[data-lbl="Route"]{ display:none; }
+  #tab-leads td[data-lbl="Consent"]{ display:none; }
+  #tab-leads td[data-lbl="Status"]{ grid-column:2; grid-row:1 / 5; align-self:center; justify-self:end; text-align:right; white-space:normal; max-width:38vw; line-height:1.3; }
+  #tab-leads td[data-lbl="Actions"]{ grid-column:1 / -1; grid-row:5; margin-top:.5rem; display:flex; flex-wrap:wrap; gap:.4rem; justify-content:flex-start; }
+
+  #tab-payments .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.12rem; }
+  #tab-payments td[data-lbl="Date paid"]{ grid-column:1; grid-row:1; }
+  #tab-payments td[data-lbl="Client"]{ grid-column:1; grid-row:2; }
+  #tab-payments td[data-lbl="Invoice"]{ grid-column:1; grid-row:3; }
+  #tab-payments td[data-lbl="Amount"]{ grid-column:2; grid-row:1; justify-self:end; text-align:right; }
+  #tab-payments td[data-lbl="Method"]{ grid-column:2; grid-row:2; justify-self:end; text-align:right; }
+  #tab-payments .hist-chev-cell{ grid-column:1 / -1; grid-row:4; justify-self:end; align-self:end; }
+  #tab-payments tr[data-paystat="paid"] td[data-lbl="Amount"]::after{ content:"Paid"; display:block; color:var(--paid); font-size:11px; letter-spacing:.12em; text-transform:uppercase; font-weight:600; margin-top:.12rem; }
+
+  #tab-links .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.1rem; }
+  #tab-links td[data-lbl="Created"]{ grid-column:1; grid-row:1; }
+  #tab-links td[data-lbl="Client"]{ grid-column:1; grid-row:2; }
+  #tab-links td[data-lbl="Amount"]{ grid-column:2; grid-row:1; justify-self:end; text-align:right; }
+  #tab-links td[data-lbl="Status"]{ grid-column:2; grid-row:2; justify-self:end; align-self:start; text-align:right; }
+  #tab-links .hist-chev-cell{ grid-column:1 / -1; grid-row:3; justify-self:end; }
+  #tab-links td[data-lbl="Link"]{ display:none; }
+  #tab-links td[data-lbl="Client"] .hist-status.linked{ display:inline-block; margin-left:0 !important; margin-top:.15rem; }
+  #tab-links tr.excluded td[data-lbl="Status"]::after{ content:"Excluded" !important; display:block !important; margin-top:.1rem; text-transform:uppercase; font-size:10px; letter-spacing:.1em; }
 }
 </style>
 </head>
