@@ -3497,6 +3497,22 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #tab-links td[data-lbl="Link"]{ display:none; }
   #tab-links td[data-lbl="Client"] .hist-status.linked{ display:inline-block; margin-left:0 !important; margin-top:.15rem; }
   #tab-links tr.excluded td[data-lbl="Status"]::after{ content:"Excluded" !important; display:block !important; margin-top:.1rem; text-transform:uppercase; font-size:10px; letter-spacing:.1em; }
+
+  /* Stage 3 — Document detail bottom sheet (mobile only) */
+  #docSheetBackdrop{ position:fixed; inset:0; background:rgba(20,15,10,.45); opacity:0; pointer-events:none; transition:opacity .25s; z-index:55; }
+  #docSheetBackdrop.on{ opacity:1; pointer-events:auto; }
+  #tab-documents tr.expandable.open + tr.hist-actions-row > td{ padding:0 !important; border:0 !important; }
+  #tab-documents tr.expandable.open + tr.hist-actions-row .hist-actions-panel{ position:fixed !important; left:0; right:0; bottom:0; z-index:60; margin:0 !important; width:100%; border-radius:20px 20px 0 0; background:var(--card) !important; border:0 !important; box-shadow:0 -12px 44px rgba(0,0,0,.28); padding:.5rem 1.1rem 1.4rem !important; max-height:82vh; overflow:auto; display:flex !important; flex-direction:column; gap:.55rem; animation:docSheetUp .28s cubic-bezier(.32,.72,0,1); }
+  @keyframes docSheetUp{ from{ transform:translateY(100%); } to{ transform:translateY(0); } }
+  #tab-documents tr.expandable.open + tr.hist-actions-row .hist-actions-panel .hist-btn,
+  #tab-documents tr.expandable.open + tr.hist-actions-row .hist-actions-panel button{ width:100% !important; justify-content:center; padding:.85rem 1rem !important; margin:0 !important; }
+  .doc-sheet-grab{ width:40px; height:4px; border-radius:2px; background:var(--hair); margin:.4rem auto 1rem; }
+  .doc-sheet-row1{ display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; }
+  .doc-sheet-num{ font-family:'Marcellus',serif; font-size:1.35rem; color:var(--ink); line-height:1.1; }
+  .doc-sheet-client{ color:var(--muted); margin-top:.15rem; font-size:.95rem; }
+  .doc-sheet-total{ font-family:'Fraunces',serif; font-size:1.3rem; color:var(--ink); text-align:right; white-space:nowrap; }
+  .doc-sheet-meta{ display:flex; justify-content:space-between; align-items:center; margin-top:.5rem; color:var(--muted); font-size:.8rem; text-transform:uppercase; letter-spacing:.06em; }
+  .doc-sheet-hr{ height:1px; background:var(--hair); margin:.9rem 0 .2rem; }
 }
 </style>
 </head>
@@ -6812,5 +6828,64 @@ const PAGE_SCRIPT = `<script>
     if(document.readyState !== 'loading') setup();
     else document.addEventListener('DOMContentLoaded', setup);
   })();
+})();
+(function(){
+  if (window.__docSheetBound) return;
+  window.__docSheetBound = true;
+  function mq(){ return window.matchMedia('(max-width: 620px)').matches; }
+  function getBackdrop(){
+    var bk = document.getElementById('docSheetBackdrop');
+    if (!bk){
+      bk = document.createElement('div');
+      bk.id = 'docSheetBackdrop';
+      document.body.appendChild(bk);
+      bk.addEventListener('click', function(){
+        var open = document.querySelector('#tab-documents tr.expandable.open');
+        if (open){ var c = open.querySelector('td'); if (c) c.click(); }
+      });
+    }
+    return bk;
+  }
+  function cellText(row, lbl){
+    var c = row.querySelector('td[data-lbl="' + lbl + '"]');
+    return c ? c.textContent.trim() : '';
+  }
+  function buildHeader(row, panel){
+    if (panel.querySelector('.doc-sheet-head')) return;
+    var head = document.createElement('div');
+    head.className = 'doc-sheet-head';
+    var html = '<div class="doc-sheet-grab"></div>';
+    html += '<div class="doc-sheet-row1"><div><div class="doc-sheet-num">' + cellText(row,'Number') + '</div><div class="doc-sheet-client">' + cellText(row,'Client') + '</div></div><div class="doc-sheet-total">' + cellText(row,'Total') + '</div></div>';
+    html += '<div class="doc-sheet-meta"><span>' + cellText(row,'Type') + ' · ' + cellText(row,'Date') + '</span><span>' + cellText(row,'Status') + '</span></div>';
+    html += '<div class="doc-sheet-hr"></div>';
+    head.innerHTML = html;
+    panel.insertBefore(head, panel.firstChild);
+  }
+  function relabelDelete(panel){
+    var btns = panel.querySelectorAll('button, .hist-btn');
+    for (var i = 0; i < btns.length; i++){
+      if (btns[i].textContent.trim() === '×'){ btns[i].textContent = 'Delete'; }
+    }
+  }
+  function sync(){
+    var bk = getBackdrop();
+    var open = document.querySelector('#tab-documents tr.expandable.open');
+    if (open && mq()){
+      var next = open.nextElementSibling;
+      var panel = next ? next.querySelector('.hist-actions-panel') : null;
+      if (panel){ relabelDelete(panel); buildHeader(open, panel); }
+      bk.classList.add('on');
+    } else {
+      bk.classList.remove('on');
+    }
+  }
+  function start(){
+    var tab = document.getElementById('tab-documents');
+    if (!tab){ return setTimeout(start, 400); }
+    var obs = new MutationObserver(sync);
+    obs.observe(tab, { attributes:true, subtree:true, attributeFilter:['class'] });
+    sync();
+  }
+  if (document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', start); } else { start(); }
 })();
 </script>`;
