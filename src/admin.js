@@ -6841,17 +6841,32 @@ const PAGE_SCRIPT = `<script>
   if (window.__sheetBound) return;
   window.__sheetBound = true;
   var CFG = {
-    'tab-documents': { title:{lbl:'Number',link:true},  sub:{lbl:'Client'},  right:{lbl:'Total'},  metaL:['Type','Date'],     metaR:'Status', inline:false },
-    'tab-leads':     { title:{lbl:'Name',link:false},   sub:{lbl:'Contact'}, right:null,           metaL:['Service','Route'], metaR:'Status', inline:true  },
-    'tab-links':     { title:{lbl:'Client',link:false}, sub:null,            right:{lbl:'Amount'}, metaL:['Created'],         metaR:'Status', inline:false }
+    'tab-documents': { title:{lbl:'Number',link:true},  sub:{lbl:'Client'},  right:{lbl:'Total'},  metaL:['Type','Date'], metaR:'Status', inline:false },
+    'tab-leads':     { title:{lbl:'Name'},               sub:{lbl:'Contact'}, right:null,           metaL:['Service'],    metaR:'Status', inline:true  },
+    'tab-links':     { title:{lbl:'Client',first:true},  sub:null,            right:{lbl:'Amount'}, metaL:['Created'],    metaR:'Status', inline:false }
   };
   var TABS = ['tab-documents','tab-leads','tab-links'];
   function mq(){ return window.matchMedia('(max-width: 620px)').matches; }
   var sheetEl = null, backdropEl = null, currentRow = null;
-  function cellText(row, lbl){ var c = row.querySelector('td[data-lbl="' + lbl + '"]'); return c ? c.textContent.trim() : ''; }
+  function cell(row, lbl){ return row.querySelector('td[data-lbl="' + lbl + '"]'); }
+  function cellText(row, lbl){ var c = cell(row, lbl); return c ? c.textContent.trim() : ''; }
+  function cellJoined(row, lbl){
+    var c = cell(row, lbl);
+    if (!c) return '';
+    var parts = [];
+    for (var i = 0; i < c.childNodes.length; i++){ var t = (c.childNodes[i].textContent || '').trim(); if (t) parts.push(t); }
+    return parts.length ? parts.join(' · ') : c.textContent.trim();
+  }
   function titleText(row, cfg){
-    if (cfg.title.link){ var a = row.querySelector('td[data-lbl="' + cfg.title.lbl + '"] a[data-load]'); if (a) return a.textContent.trim(); }
-    return cellText(row, cfg.title.lbl);
+    var c = cell(row, cfg.title.lbl);
+    if (!c) return '';
+    if (cfg.title.link){ var a = c.querySelector('a[data-load]'); if (a) return a.textContent.trim(); }
+    if (cfg.title.first){
+      var t = '';
+      for (var i = 0; i < c.childNodes.length; i++){ var n = c.childNodes[i]; if (n.nodeType === 3){ t += n.textContent; } else if (n.nodeType === 1){ break; } }
+      t = t.trim(); if (t) return t;
+    }
+    return c.textContent.trim();
   }
   function ensureEls(){
     backdropEl = document.getElementById('docSheetBackdrop');
@@ -6873,6 +6888,7 @@ const PAGE_SCRIPT = `<script>
     var isCopy = /copy/i.test(label);
     b.addEventListener('click', function(){
       if (b.disabled) return;
+      var row = currentRow;
       orig.click();
       if (isCopy){
         var prev = b.textContent;
@@ -6881,6 +6897,7 @@ const PAGE_SCRIPT = `<script>
         setTimeout(function(){ b.textContent = prev; b.classList.remove('doc-sheet-ok'); }, 1400);
       } else {
         hide();
+        if (row && row.classList && row.classList.contains('open')){ var c = row.querySelector('td'); if (c) c.click(); }
       }
     });
     sheetEl.appendChild(b);
@@ -6888,13 +6905,14 @@ const PAGE_SCRIPT = `<script>
   function buildSheet(row, cfg){
     var drawer = row.nextElementSibling;
     var panel = (drawer && drawer.classList && drawer.classList.contains('hist-actions-row')) ? drawer.querySelector('.hist-actions-panel') : null;
-    var subTxt = cfg.sub ? cellText(row, cfg.sub.lbl) : '';
+    var subTxt = cfg.sub ? cellJoined(row, cfg.sub.lbl) : '';
     var rightHtml = cfg.right ? '<div class="doc-sheet-total">' + cellText(row, cfg.right.lbl) + '</div>' : '';
     var subHtml = subTxt ? '<div class="doc-sheet-client">' + subTxt + '</div>' : '';
     var html = '<div class="doc-sheet-grab" id="docSheetGrab"></div>';
     html += '<div class="doc-sheet-row1"><div><div class="doc-sheet-num">' + titleText(row, cfg) + '</div>' + subHtml + '</div>' + rightHtml + '</div>';
     var metaLeft = cfg.metaL.map(function(l){ return cellText(row, l); }).filter(Boolean).join(' · ');
     var metaRight = cfg.metaR ? cellText(row, cfg.metaR) : '';
+    if (/^[·.\s]*$/.test(metaRight)) metaRight = '';
     if (metaLeft || metaRight){ html += '<div class="doc-sheet-meta"><span>' + metaLeft + '</span><span>' + metaRight + '</span></div>'; }
     html += '<div class="doc-sheet-hr"></div>';
     sheetEl.innerHTML = html;
