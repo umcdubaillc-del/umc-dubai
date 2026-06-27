@@ -3348,6 +3348,100 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   /* Sticky editor action bar + full-width buttons */
   .ed-body .actions{position:sticky;bottom:0;background:var(--card);padding:.8rem 0;border-top:1px solid var(--hair);margin-top:1rem;z-index:5}
   .ed-body .actions .btn{flex:1 1 0;min-width:0}
+
+  /* === Stage 2: per-tab row cards (two-column layout via flex order), inset
+     padded drawer, Type+Sort one-line wrapper, taller editor textareas. The
+     v100 baseline row rule above still supplies display:flex / flex-wrap. */
+
+  /* 2.1 DOCS rows */
+  #tab-documents .history tbody tr.expandable{
+    align-items:flex-start; gap:.1rem .75rem;
+    background:var(--card); border:1px solid var(--hair); border-radius:14px;
+    margin:0 0 .6rem; padding:.85rem 1rem; border-bottom:1px solid var(--hair);
+    box-shadow:0 1px 2px rgba(34,27,20,.05);
+  }
+  #tab-documents .history tbody tr.expandable.open{
+    background:var(--card); margin:0 0 .6rem; padding:.85rem 1rem; border-color:var(--amber);
+  }
+  #tab-documents td[data-lbl="Date"]{order:1; flex:0 0 60%; max-width:60%; font-size:11.5px; color:var(--muted); padding:0; margin:0}
+  #tab-documents td[data-lbl="Client"]{order:3; flex:0 0 60%; max-width:60%; font-size:14.5px; font-weight:500; color:var(--ink); padding:.1rem 0 0; white-space:normal; margin:0; overflow:hidden; text-overflow:ellipsis}
+  #tab-documents td[data-lbl="Number"]{order:5; flex:0 0 60%; max-width:60%; font-size:12px; color:var(--muted); padding:.05rem 0 0; margin:0}
+  #tab-documents td[data-lbl="Type"]{order:2; flex:1 1 0; text-align:right; padding:0; margin-left:auto}
+  #tab-documents td[data-lbl="Total"]{order:4; flex:1 1 0; text-align:right; font-size:14.5px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; padding:.1rem 0 0; margin-left:auto; max-width:none}
+  #tab-documents td[data-lbl="Status"]{order:6; flex:1 1 0; text-align:right; padding:.05rem 0 0; margin-left:auto}
+  #tab-documents .hist-chev-cell{order:7; flex:0 0 100%; max-width:100%; text-align:right; padding:.15rem 0 0; margin-left:0; position:static}
+  #tab-documents .hist-link{font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60vw}
+
+  /* 2.2 LEADS rows */
+  #tab-leads .history tbody tr.expandable{
+    align-items:flex-start; gap:.1rem .75rem;
+    background:var(--card); border:1px solid var(--hair); border-radius:14px;
+    margin:0 0 .6rem; padding:.85rem 1rem; border-bottom:1px solid var(--hair);
+  }
+  #tab-leads .history tbody tr.expandable.open{
+    background:var(--card); margin:0 0 .6rem; padding:.85rem 1rem; border-color:var(--amber);
+  }
+  #tab-leads td[data-lbl="Date"]{order:1; flex:0 0 58%; max-width:58%; font-size:11.5px; color:var(--muted); padding:0; margin:0}
+  #tab-leads td[data-lbl="Name"]{order:3; flex:0 0 58%; max-width:58%; font-size:14.5px; font-weight:500; color:var(--ink); padding:.1rem 0 0; margin:0; overflow:hidden; text-overflow:ellipsis}
+  #tab-leads td[data-lbl="Service"]{order:5; flex:0 0 100%; max-width:100%; font-size:12px; color:var(--muted); padding:.15rem 0 0; margin:0}
+  #tab-leads td[data-lbl="Contact"]{order:6; flex:0 0 100%; max-width:100%; font-size:12px; color:var(--muted); padding:.15rem 0 0; margin:0; display:block}
+  #tab-leads td[data-lbl="Status"]{order:2; flex:1 1 0; text-align:right; padding:0; margin-left:auto}
+  #tab-leads td[data-lbl="Consent"]{display:none}
+  #tab-leads td[data-lbl="Actions"]{order:7; flex:0 0 100%; max-width:100%; margin-top:.5rem; display:flex; flex-wrap:wrap; gap:.4rem; text-align:center; justify-content:center}
+  #tab-leads td[data-lbl="Actions"] .btn{margin:0}
+
+  /* 2.2 PAYMENTS rows */
+  #tab-payments .history tbody tr.expandable{
+    align-items:flex-start; gap:.1rem .75rem;
+    background:var(--card); border:1px solid var(--hair); border-radius:14px;
+    margin:0 0 .6rem; padding:.85rem 1rem; border-bottom:1px solid var(--hair);
+  }
+  #tab-payments .history tbody tr.expandable.open{
+    background:var(--card); margin:0 0 .6rem; padding:.85rem 1rem; border-color:var(--amber);
+  }
+  #tab-payments td[data-lbl="Date paid"]{order:1; flex:0 0 58%; max-width:58%; font-size:11.5px; color:var(--muted); padding:0; margin:0}
+  #tab-payments td[data-lbl="Client"]{order:3; flex:0 0 58%; max-width:58%; font-size:14.5px; font-weight:500; color:var(--ink); padding:.1rem 0 0; white-space:normal; margin:0; overflow:hidden; text-overflow:ellipsis}
+  #tab-payments td[data-lbl="Invoice"]{order:5; flex:0 0 58%; max-width:58%; font-size:12px; padding:.05rem 0 0; margin:0}
+  #tab-payments td[data-lbl="Amount"]{order:2; flex:1 1 0; text-align:right; font-size:14.5px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; padding:0; margin-left:auto; max-width:none}
+  #tab-payments td[data-lbl="Method"]{order:4; flex:1 1 0; text-align:right; font-size:12px; color:var(--muted); padding:.1rem 0 0; margin-left:auto}
+  #tab-payments .hist-chev-cell{order:6; flex:0 0 100%; max-width:100%; text-align:right; padding:.15rem 0 0; margin-left:0; position:static}
+
+  /* 2.2 LINKS rows */
+  #tab-links .history tbody tr.expandable{
+    align-items:flex-start; gap:.1rem .75rem;
+    background:var(--card); border:1px solid var(--hair); border-radius:14px;
+    margin:0 0 .6rem; padding:.85rem 1rem; border-bottom:1px solid var(--hair);
+  }
+  #tab-links .history tbody tr.expandable.open{
+    background:var(--card); margin:0 0 .6rem; padding:.85rem 1rem; border-color:var(--amber);
+  }
+  #tab-links td[data-lbl="Created"]{order:1; flex:0 0 56%; max-width:56%; font-size:11.5px; color:var(--muted); padding:0; margin:0}
+  #tab-links td[data-lbl="Client"]{order:3; flex:0 0 56%; max-width:56%; font-size:14.5px; font-weight:500; color:var(--ink); padding:.1rem 0 0; white-space:normal; margin:0; overflow:hidden; text-overflow:ellipsis}
+  #tab-links td[data-lbl="Amount"]{order:2; flex:1 1 0; text-align:right; font-size:14.5px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; padding:0; margin-left:auto; max-width:none}
+  #tab-links td[data-lbl="Status"]{order:4; flex:1 1 0; text-align:right; padding:.1rem 0 0; margin-left:auto}
+  #tab-links td[data-lbl="Link"]{display:none}
+  #tab-links .hist-chev-cell{order:5; flex:0 0 100%; max-width:100%; text-align:right; padding:.15rem 0 0; margin-left:0; position:static}
+
+  /* 2.3 Drawer: inset rounded card with centred action buttons */
+  .history tr.hist-actions-row > td{background:var(--bone2); padding:0; border:0; margin:0}
+  .history .hist-actions-panel{
+    display:flex; flex-wrap:wrap; gap:.5rem; justify-content:center;
+    background:var(--bone2); border:1px solid var(--hair); border-radius:12px;
+    padding:.9rem 1rem; margin:.1rem 0 .7rem;
+  }
+  .history .hist-actions-panel .btn{margin:0}
+
+  /* 2.5 TYPE + SORT one line (wrapper-based; .hist-tsrow added in markup of
+     Docs + Leads filter bars). Wrapper is robust without :has(). */
+  .history .hist-tsrow{display:flex; flex-wrap:nowrap; align-items:center; gap:.6rem; width:100%}
+  .history .hist-tsrow .hist-ctrl{flex:0 1 auto; display:inline-flex; align-items:center; gap:.5rem; margin-left:0}
+  .history .hist-tsrow .hist-sort{flex:0 1 auto; display:inline-flex; align-items:center; gap:.5rem; margin-left:auto}
+  .history .hist-typefilter .seg{padding:.4rem .6rem; font-size:10px; letter-spacing:.1em}
+  .history .hist-sort select{font-size:12px; padding:.4rem .5rem}
+
+  /* 2.6 Editor textareas taller (ride base font-size:16px to dodge iOS zoom) */
+  .ed-modal #fNotes, .ed-modal #fInternalNotes{min-height:96px; line-height:1.5}
+  .ed-modal #ltTable td:first-child textarea{min-height:52px; line-height:1.45}
 }
 </style>
 </head>
@@ -3418,21 +3512,23 @@ function appShellHTML() {
       <button type="button" class="btn btn-small btn-ghost" id="leadsRefresh">Refresh</button>
     </div>
     <div class="hist-filter" style="display:flex;gap:1rem;flex-wrap:wrap">
-      <div class="hist-ctrl">
-        <span class="lbl">Status</span>
-        <div class="hist-typefilter" role="tablist" aria-label="Status filter">
-          <button type="button" class="seg on" data-leadstat="all">All</button>
-          <button type="button" class="seg"    data-leadstat="new">New</button>
-          <button type="button" class="seg"    data-leadstat="quoted">Quoted</button>
-          <button type="button" class="seg"    data-leadstat="invoiced">Invoiced</button>
+      <div class="hist-tsrow">
+        <div class="hist-ctrl">
+          <span class="lbl">Status</span>
+          <div class="hist-typefilter" role="tablist" aria-label="Status filter">
+            <button type="button" class="seg on" data-leadstat="all">All</button>
+            <button type="button" class="seg"    data-leadstat="new">New</button>
+            <button type="button" class="seg"    data-leadstat="quoted">Quoted</button>
+            <button type="button" class="seg"    data-leadstat="invoiced">Invoiced</button>
+          </div>
         </div>
-      </div>
-      <div class="hist-sort hist-ctrl" style="margin-left:auto">
-        <label class="lbl" for="leadsSort">Sort</label>
-        <select id="leadsSort" aria-label="Sort leads">
-          <option value="date-desc" selected>Latest first</option>
-          <option value="date-asc">Oldest first</option>
-        </select>
+        <div class="hist-sort hist-ctrl" style="margin-left:auto">
+          <label class="lbl" for="leadsSort">Sort</label>
+          <select id="leadsSort" aria-label="Sort leads">
+            <option value="date-desc" selected>Latest first</option>
+            <option value="date-asc">Oldest first</option>
+          </select>
+        </div>
       </div>
     </div>
     <div class="hist-scroll">
@@ -3578,22 +3674,24 @@ function appShellHTML() {
         <label class="lbl" for="histSearch">Search</label>
         <input id="histSearch" type="search" placeholder="Number, client, company …" autocomplete="off">
       </div>
-      <div class="hist-ctrl">
-        <span class="lbl">Type</span>
-        <div class="hist-typefilter" role="tablist" aria-label="Filter by type">
-          <button type="button" class="seg on" data-typefilter="all">All</button>
-          <button type="button" class="seg"     data-typefilter="quote">Quotes</button>
-          <button type="button" class="seg"     data-typefilter="invoice">Invoices</button>
+      <div class="hist-tsrow">
+        <div class="hist-ctrl">
+          <span class="lbl">Type</span>
+          <div class="hist-typefilter" role="tablist" aria-label="Filter by type">
+            <button type="button" class="seg on" data-typefilter="all">All</button>
+            <button type="button" class="seg"     data-typefilter="quote">Quotes</button>
+            <button type="button" class="seg"     data-typefilter="invoice">Invoices</button>
+          </div>
         </div>
-      </div>
-      <div class="hist-sort hist-ctrl" style="margin-left:auto">
-        <label class="lbl" for="histSort">Sort</label>
-        <select id="histSort" aria-label="Sort documents">
-          <option value="date-desc" selected>Latest first</option>
-          <option value="date-asc">Oldest first</option>
-          <option value="amount-desc">Amount: high → low</option>
-          <option value="amount-asc">Amount: low → high</option>
-        </select>
+        <div class="hist-sort hist-ctrl" style="margin-left:auto">
+          <label class="lbl" for="histSort">Sort</label>
+          <select id="histSort" aria-label="Sort documents">
+            <option value="date-desc" selected>Latest first</option>
+            <option value="date-asc">Oldest first</option>
+            <option value="amount-desc">Amount: high → low</option>
+            <option value="amount-asc">Amount: low → high</option>
+          </select>
+        </div>
       </div>
     </div>
     <div class="hist-scroll">
@@ -4434,6 +4532,10 @@ const PAGE_SCRIPT = `<script>
           } else if(!attachedNum){
             actions.push('<button type="button" class="btn btn-small btn-danger" data-lkdel="'+x.id+'" data-lktitle="'+esc(x.title)+'" title="Delete this link from the local record (the Nomod URL itself stays live)">Delete</button>');
           }
+          // Stage 2: surface Copy in the drawer too. On mobile the inline Link
+          // cell is hidden, so the row Copy button is unreachable without this.
+          // bindLinksClickOnce already dispatches data-lkcopy, so no new wiring.
+          actions.unshift('<button type="button" class="btn btn-small btn-ghost" data-lkcopy="'+esc(u)+'" title="Copy this Nomod payment link">Copy link</button>');
           const trClass = "expandable" + (isExcl ? " excluded" : "");
           return '<tr class="'+trClass+'" data-expandable="1" data-lkid="'+x.id+'">'
             + '<td data-lbl="Client">'+esc(clientPrimary || "·")+invTag+subline+'</td>'
@@ -5652,7 +5754,7 @@ const PAGE_SCRIPT = `<script>
       + '    <button type="button" class="btn btn-ghost" data-cpick="link" style="text-align:left;padding:.85rem 1rem;width:100%">Create payment link</button>'
       + '  </div>'
       + '  <div class="actions" style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.4rem">'
-      + '    <button type="button" class="btn btn-small btn-ghost" data-cpick-cancel>Cancel</button>'
+      + '    <button type="button" class="btn btn-small btn-ink" data-cpick-cancel>Cancel</button>'
       + '  </div>'
       + '</div>';
     modal.appendChild(backdrop);
