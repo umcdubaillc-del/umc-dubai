@@ -2979,7 +2979,6 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 .doc .tot-box .r.grand{border-bottom:0;border-top:1px solid var(--ink-soft);padding-top:.7rem;margin-top:.2rem;color:var(--ink);font-size:1.15rem}
 .doc .tot-box .r.grand span:first-child{font-family:Marcellus;font-size:1.05rem;letter-spacing:.06em;color:var(--ink);text-transform:uppercase}
 .doc .tot-box .r.grand span:last-child{font-family:Fraunces,Georgia,serif;color:var(--ink);font-size:1.3rem}
-.doc .tot-vat-note{font-size:9px;color:var(--muted);letter-spacing:.18em;text-transform:uppercase;margin-top:.5rem;text-align:right}
 
 /* Institutional 2-col fine-print band: Terms (wider) | Bank (narrower).
    margin-top:auto pins this band to the bottom of .dbody (which is a flex
@@ -4078,9 +4077,14 @@ const PAGE_SCRIPT = `<script>
       +   '<div class="r"><span>VAT 5%</span><span>'+fmtMoney(r.vat, state.currency)+'</span></div>'
       +   discRowFmt
       +   '<div class="r grand"><span>Total</span><span>'+fmtMoney(r.total, state.currency)+'</span></div>'
-      // v96 — when this invoice has been settled, show a zero Balance due
-      // row below the grand total so the open-document view reflects truth.
-      +   (isInv && state.payment_status === "paid" ? '<div class="r" style="color:#2E7D54;font-weight:600"><span>Balance due</span><span>'+fmtMoney(0, state.currency)+'</span></div>' : '')
+      // Balance due renders on every invoice: green when settled (0), amber
+      // when anything is still owed (> 0). Label stays ink; only the figure
+      // colour reflects state.
+      +   (isInv ? (function(){
+          var _bal = state.payment_status === "paid" ? 0 : r.total;
+          var _col = _bal > 0 ? "#C75B12" : "#2E7D54";
+          return '<div class="r" style="font-weight:600"><span style="color:var(--ink)">Balance due</span><span style="color:'+_col+';font-variant-numeric:tabular-nums">'+fmtMoney(_bal, state.currency)+'</span></div>';
+        })() : '')
       + '</div></div>'
       // --- (optional) notes flow between totals and the sticky legal band ---
       + notesBlk

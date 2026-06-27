@@ -274,7 +274,7 @@ export async function renderInvoicePdf(doc){
     const labelTrack = opts.grand ? 0.06 : 0.2;
     const figFont = f.fraunces;
     const figSize = opts.grand ? 20.8 : (opts.balance?12:12); // 1.3rem grand
-    const figColor = opts.green ? C.paid : C.ink;
+    const figColor = opts.figColor || C.ink;
     // top border for grand row (1px --ink-soft); else nothing here
     if(opts.grandTop){
       page.drawRectangle({ x:boxL, y:PAGE_H - sx(ty) + sx(4), width:boxW, height:sx(1), color:C.inkSoft });
@@ -293,7 +293,11 @@ export async function renderInvoicePdf(doc){
   totalRow("VAT 5%", fmtMoney(r.vat, doc.currency));
   if(r.discount > 0) totalRow("Discount", "− "+fmtMoney(r.discount, doc.currency));
   totalRow("Total", fmtMoney(r.total, doc.currency), { grand:true, grandTop:true });
-  if(isPaid) totalRow("Balance due", fmtMoney(0, doc.currency), { green:true, balance:true, noBorder:true });
+  if(isInv){
+    const balance = isPaid ? 0 : r.total;
+    const balColor = balance > 0 ? C.amber : C.paid;
+    totalRow("Balance due", fmtMoney(balance, doc.currency), { figColor: balColor, balance:true, noBorder:true });
+  }
   const totalsEndY = ty;   // thread for Stage 5
 
   // ===== LEGAL BAND (Terms | Bank) — pinned low, above the espresso footer (option a) =====
