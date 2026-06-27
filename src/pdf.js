@@ -294,11 +294,6 @@ export async function renderInvoicePdf(doc){
   if(r.discount > 0) totalRow("Discount", "− "+fmtMoney(r.discount, doc.currency));
   totalRow("Total", fmtMoney(r.total, doc.currency), { grand:true, grandTop:true });
   if(isPaid) totalRow("Balance due", fmtMoney(0, doc.currency), { green:true, balance:true, noBorder:true });
-  if((doc.vat_mode||"exclusive")==="inclusive"){
-    ty += 8;
-    drawRight(page,"VAT inclusive. 5% included in line rates",rightX,ty,f.outfit,9,C.muted,{trackingEm:0.18,upper:true});
-    ty += 9;
-  }
   const totalsEndY = ty;   // thread for Stage 5
 
   // ===== LEGAL BAND (Terms | Bank) — pinned low, above the espresso footer (option a) =====

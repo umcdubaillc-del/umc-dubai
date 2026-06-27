@@ -4029,12 +4029,9 @@ const PAGE_SCRIPT = `<script>
     }).join("");
     const discRow = r.discount > 0 ? '<div class="r"><span>Discount</span><span>− '+fmtMoney(r.discount, state.currency)+'</span></div>' : '';
     const trnRow = isInv ? '<span class="trn">TRN '+COMPANY.trn+'</span>' : '';
-    const vatModeNote = state.vat_mode === "inclusive" ? '<div style="font-size:9px;color:#7A6F5F;letter-spacing:.16em;text-transform:uppercase;margin-top:.4rem">VAT inclusive. 5% included in line rates</div>' : '';
     const notesBlk = state.notes && state.notes.trim() ? '<div class="notes"><h4>Notes</h4><p>'+esc(state.notes)+'</p></div>' : '';
 
-    // discRow / vatNote with new classes
     const discRowFmt = r.discount > 0 ? '<div class="r"><span>Discount</span><span>− '+fmtMoney(r.discount, state.currency)+'</span></div>' : '';
-    const vatNoteFmt = state.vat_mode === "inclusive" ? '<div class="tot-vat-note">VAT inclusive. 5% included in line rates</div>' : '';
     // TRN sits as the tail line of the address stack on invoices; quotes omit it.
     const trnLine = isInv ? '<span class="trn">TRN '+COMPANY.trn+'</span>' : '';
 
@@ -4084,7 +4081,6 @@ const PAGE_SCRIPT = `<script>
       // v96 — when this invoice has been settled, show a zero Balance due
       // row below the grand total so the open-document view reflects truth.
       +   (isInv && state.payment_status === "paid" ? '<div class="r" style="color:#2E7D54;font-weight:600"><span>Balance due</span><span>'+fmtMoney(0, state.currency)+'</span></div>' : '')
-      +   vatNoteFmt
       + '</div></div>'
       // --- (optional) notes flow between totals and the sticky legal band ---
       + notesBlk
