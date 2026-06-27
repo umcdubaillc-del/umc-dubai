@@ -24,6 +24,7 @@ import { renderTestPdf } from "./pdf.js";
 const COOKIE_NAME = "umc_admin";
 const SESSION_SUFFIX = ":umc-billing-v1";
 const SCHEMA_DONE = new WeakSet(); // per-Worker-instance: skip CREATE on subsequent calls
+let _schemaInflight = null;
 
 // ============================================================ utilities
 
@@ -95,141 +96,147 @@ function dbUnavailable() {
   );
 }
 
+// Reads PRAGMA table_info, then only fires ALTER for columns NOT already
+// present. Replaces the legacy "attempt every ALTER, swallow duplicate
+// errors" loop which thrashed D1 with 30+ throwing round trips on every
+// cold isolate. PRAGMA failure falls through to defensive ALTERs so a hosted
+// runtime that ever refuses PRAGMA can't lock us out.
+async function addMissingColumns(env, table, defs) {
+  let have = new Set();
+  try {
+    const { results } = await env.BILLING_DB.prepare(`PRAGMA table_info(${table})`).all();
+    have = new Set((results || []).map((r) => r.name));
+  } catch (e) {
+    have = new Set(); // PRAGMA unavailable — fall through and attempt ALTERs defensively
+  }
+  for (const def of defs) {
+    const name = def.split(/\s+/)[0];
+    if (have.has(name)) continue;
+    try {
+      await env.BILLING_DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${def}`).run();
+    } catch (e) {
+      const msg = (e && (e.message || String(e))) || "";
+      if (!/duplicate column|already exists/i.test(msg)) throw e;
+    }
+  }
+}
+
 async function ensureSchema(env) {
   if (!env.BILLING_DB) throw new Error("BILLING_DB binding is missing");
   if (SCHEMA_DONE.has(env)) return;
-  await env.BILLING_DB.prepare(
-    `CREATE TABLE IF NOT EXISTS billing_documents (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      doc_type TEXT NOT NULL,
-      number TEXT NOT NULL UNIQUE,
-      doc_date TEXT NOT NULL,
-      client_name TEXT NOT NULL,
-      client_company TEXT,
-      client_address TEXT,
-      client_email TEXT,
-      currency TEXT NOT NULL DEFAULT 'AED',
-      vat_mode TEXT NOT NULL,
-      line_items TEXT NOT NULL,
-      discount REAL,
-      subtotal REAL NOT NULL,
-      vat REAL NOT NULL,
-      total REAL NOT NULL,
-      notes TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`
-  ).run();
-  await env.BILLING_DB.prepare(
-    `CREATE INDEX IF NOT EXISTS idx_billing_type_id ON billing_documents (doc_type, id DESC)`
-  ).run();
-  // v52 — add columns for quote->invoice conversion (source_quote_number) and
-  // Nomod payment link integration (nomod_link_*). SQLite ALTER TABLE has no
-  // IF NOT EXISTS for ADD COLUMN, so each column is attempted and a duplicate
-  // error is swallowed. Schema is idempotent across deploys.
-  // v60 — payment-status reconciliation columns (Payments tab).
-  // v84 — Sales section: payment_method records HOW an invoice was settled
-  // ('nomod' set automatically by webhook; 'bank' / 'cash' set manually via
-  // mark-paid). refunded_at + refunded_amount capture Nomod refund events
-  // (webhook) or manual mark-refunded actions, so the Sales ledger can
-  // subtract refunds from the period they occurred in.
-  for (const col of [
-    "source_quote_number TEXT",
-    "nomod_link_id TEXT",
-    "nomod_link_url TEXT",
-    "nomod_link_created_at TEXT",
-    "payment_status TEXT DEFAULT 'unpaid'",
-    "paid_at TEXT",
-    "last_checked_at TEXT",
-    "nomod_charge_id TEXT",
-    "payment_method TEXT",
-    "refunded_at TEXT",
-    "refunded_amount REAL",
-    "client_phone TEXT",
-    "internal_notes TEXT",
-  ]) {
-    try {
-      await env.BILLING_DB.prepare(`ALTER TABLE billing_documents ADD COLUMN ${col}`).run();
-    } catch (e) {
-      // duplicate column or other ALTER error — only swallow the duplicate case
-      const msg = (e && (e.message || String(e))) || "";
-      if (!/duplicate column|already exists/i.test(msg)) throw e;
-    }
-  }
-  // v53 — standalone Nomod payment links (Links tab). A separate table keeps
-  // the billing_documents schema clean (a link has no client, items or VAT
-  // surface — it's a one-line collect-this-amount artefact).
-  await env.BILLING_DB.prepare(
-    `CREATE TABLE IF NOT EXISTS payment_links (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      amount REAL NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'AED',
-      note TEXT,
-      nomod_link_id TEXT,
-      nomod_link_url TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`
-  ).run();
-  // v60 — payment-status reconciliation columns on payment_links too.
-  // v84 — payment_method/refund columns mirror billing_documents.
-  for (const col of [
-    "payment_status TEXT DEFAULT 'unpaid'",
-    "paid_at TEXT",
-    "last_checked_at TEXT",
-    "nomod_charge_id TEXT",
-    "payment_method TEXT",
-    "refunded_at TEXT",
-    "refunded_amount REAL",
-    "client_email TEXT",
-    "client_name TEXT",
-    "excluded INTEGER DEFAULT 0",
-    // v86 — back-reference to the invoice this link is attached to (if any).
-    // Forward reference (billing_documents.nomod_link_id) already exists.
-    "invoice_number TEXT",
-  ]) {
-    try {
-      await env.BILLING_DB.prepare(`ALTER TABLE payment_links ADD COLUMN ${col}`).run();
-    } catch (e) {
-      const msg = (e && (e.message || String(e))) || "";
-      if (!/duplicate column|already exists/i.test(msg)) throw e;
-    }
-  }
-  // Phase 1 — leads table is created by the public /api/lead handler in
-  // index.js. Mirror the CREATE here so the admin can read/write leads even on
-  // a fresh DB where no lead has been submitted yet, and ALTER in the Phase 1
-  // lifecycle columns (status / linked_doc_number / converted_at).
-  await env.BILLING_DB.prepare(
-    `CREATE TABLE IF NOT EXISTS leads (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
-       created_at TEXT NOT NULL,
-       source TEXT, name TEXT, phone TEXT, email TEXT, service TEXT,
-       pickup TEXT, destination TEXT, date TEXT, time TEXT, vehicle TEXT,
-       days TEXT, flight TEXT, sign TEXT, notes TEXT, page TEXT,
-       client_ts TEXT, payload_json TEXT,
-       marketing_consent INTEGER DEFAULT 1,
-       consent_text TEXT,
-       consent_at TEXT,
-       status TEXT DEFAULT 'new',
-       linked_doc_number TEXT,
-       converted_at TEXT
-     )`
-  ).run();
-  for (const col of [
-    "marketing_consent INTEGER DEFAULT 1",
-    "consent_text TEXT",
-    "consent_at TEXT",
-    "status TEXT DEFAULT 'new'",
-    "linked_doc_number TEXT",
-    "converted_at TEXT",
-  ]) {
-    try {
-      await env.BILLING_DB.prepare(`ALTER TABLE leads ADD COLUMN ${col}`).run();
-    } catch (e) {
-      const msg = (e && (e.message || String(e))) || "";
-      if (!/duplicate column|already exists/i.test(msg)) throw e;
-    }
-  }
-  SCHEMA_DONE.add(env);
+  if (_schemaInflight) return _schemaInflight;
+  _schemaInflight = (async () => {
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS billing_documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        doc_type TEXT NOT NULL,
+        number TEXT NOT NULL UNIQUE,
+        doc_date TEXT NOT NULL,
+        client_name TEXT NOT NULL,
+        client_company TEXT,
+        client_address TEXT,
+        client_email TEXT,
+        currency TEXT NOT NULL DEFAULT 'AED',
+        vat_mode TEXT NOT NULL,
+        line_items TEXT NOT NULL,
+        discount REAL,
+        subtotal REAL NOT NULL,
+        vat REAL NOT NULL,
+        total REAL NOT NULL,
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`
+    ).run();
+    await env.BILLING_DB.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_billing_type_id ON billing_documents (doc_type, id DESC)`
+    ).run();
+    // v52 — add columns for quote->invoice conversion (source_quote_number) and
+    // Nomod payment link integration (nomod_link_*). SQLite ALTER TABLE has no
+    // IF NOT EXISTS for ADD COLUMN, so addMissingColumns PRAGMA-diffs first.
+    // v60 — payment-status reconciliation columns (Payments tab).
+    // v84 — Sales section: payment_method records HOW an invoice was settled
+    // ('nomod' set automatically by webhook; 'bank' / 'cash' set manually via
+    // mark-paid). refunded_at + refunded_amount capture Nomod refund events
+    // (webhook) or manual mark-refunded actions, so the Sales ledger can
+    // subtract refunds from the period they occurred in.
+    await addMissingColumns(env, "billing_documents", [
+      "source_quote_number TEXT",
+      "nomod_link_id TEXT",
+      "nomod_link_url TEXT",
+      "nomod_link_created_at TEXT",
+      "payment_status TEXT DEFAULT 'unpaid'",
+      "paid_at TEXT",
+      "last_checked_at TEXT",
+      "nomod_charge_id TEXT",
+      "payment_method TEXT",
+      "refunded_at TEXT",
+      "refunded_amount REAL",
+      "client_phone TEXT",
+      "internal_notes TEXT",
+    ]);
+    // v53 — standalone Nomod payment links (Links tab). A separate table keeps
+    // the billing_documents schema clean (a link has no client, items or VAT
+    // surface — it's a one-line collect-this-amount artefact).
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS payment_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        amount REAL NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'AED',
+        note TEXT,
+        nomod_link_id TEXT,
+        nomod_link_url TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`
+    ).run();
+    // v60 — payment-status reconciliation columns on payment_links too.
+    // v84 — payment_method/refund columns mirror billing_documents.
+    await addMissingColumns(env, "payment_links", [
+      "payment_status TEXT DEFAULT 'unpaid'",
+      "paid_at TEXT",
+      "last_checked_at TEXT",
+      "nomod_charge_id TEXT",
+      "payment_method TEXT",
+      "refunded_at TEXT",
+      "refunded_amount REAL",
+      "client_email TEXT",
+      "client_name TEXT",
+      "excluded INTEGER DEFAULT 0",
+      // v86 — back-reference to the invoice this link is attached to (if any).
+      // Forward reference (billing_documents.nomod_link_id) already exists.
+      "invoice_number TEXT",
+    ]);
+    // Phase 1 — leads table is created by the public /api/lead handler in
+    // index.js. Mirror the CREATE here so the admin can read/write leads even on
+    // a fresh DB where no lead has been submitted yet, and ALTER in the Phase 1
+    // lifecycle columns (status / linked_doc_number / converted_at).
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS leads (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         created_at TEXT NOT NULL,
+         source TEXT, name TEXT, phone TEXT, email TEXT, service TEXT,
+         pickup TEXT, destination TEXT, date TEXT, time TEXT, vehicle TEXT,
+         days TEXT, flight TEXT, sign TEXT, notes TEXT, page TEXT,
+         client_ts TEXT, payload_json TEXT,
+         marketing_consent INTEGER DEFAULT 1,
+         consent_text TEXT,
+         consent_at TEXT,
+         status TEXT DEFAULT 'new',
+         linked_doc_number TEXT,
+         converted_at TEXT
+       )`
+    ).run();
+    await addMissingColumns(env, "leads", [
+      "marketing_consent INTEGER DEFAULT 1",
+      "consent_text TEXT",
+      "consent_at TEXT",
+      "status TEXT DEFAULT 'new'",
+      "linked_doc_number TEXT",
+      "converted_at TEXT",
+    ]);
+    SCHEMA_DONE.add(env);
+  })().finally(() => { _schemaInflight = null; });
+  return _schemaInflight;
 }
 
 // v54 — description hygiene shared by the Nomod payload (server-side) and
