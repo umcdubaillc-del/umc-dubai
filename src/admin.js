@@ -2752,7 +2752,7 @@ function PAGE_HTML(authed, env) {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
 <title>UMC Dubai · Billing</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -3114,32 +3114,14 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 /* v55 — Documents + Links mobile card-stack. At narrow widths the tables
    reflow to vertical record cards (label : value), so nothing overflows
    horizontally at 360-430px. data-lbl on each <td> drives the label. */
-@media (max-width: 619px){
-  .history-wrap{padding:1rem}
-  .history{padding:1rem}
-  .history .hist-scroll{margin:0;padding:0}
-  .history table{display:block;min-width:0;border-collapse:separate}
-  .history thead{display:none}
-  .history tbody{display:block}
-  .history tr{display:block;background:var(--card);border:1px solid var(--hair);border-radius:4px;padding:.85rem 1rem;margin-bottom:.7rem}
-  .history td{display:flex;justify-content:space-between;align-items:flex-start;padding:.25rem 0;border-bottom:0;text-align:left!important;white-space:normal!important;gap:.85rem}
-  .history td::before{content:attr(data-lbl);flex:0 0 88px;font-family:Outfit;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:500;padding-top:.18rem}
-  .history td[data-lbl="Actions"]{flex-direction:column;align-items:stretch;padding-top:.65rem;margin-top:.4rem;border-top:1px dashed var(--hair);gap:.45rem}
-  .history td[data-lbl="Actions"]::before{padding-top:0;margin-bottom:.2rem}
-  .history .hist-actions .btn{margin:0}
-  .history td[data-lbl="Actions"] > *:not(::before){display:flex;flex-wrap:wrap;gap:.4rem}
-  .history .hist-actions{padding-top:0!important}
-  .history .hist-head{flex-direction:column;align-items:flex-start;gap:.5rem}
-  .history .hist-filterbar{flex-direction:column;align-items:stretch}
-  .history .hist-search{width:100%;flex:1 1 auto}
-  .history .hist-typefilter{align-self:flex-start}
-  .links-page{padding:1rem}
-  .lk-item-row{grid-template-columns:1fr 110px 28px;gap:.4rem}
-  /* Keep the App tab content from forcing a scroll: Create still grids on
-     wider screens; on mobile its preview already drops below the form. */
-  nav.tabbar{padding:0 .6rem}
-  nav.tabbar .tab{padding:.85rem .85rem}
-}
+/* Stage-1 iOS pass: the prior `@media (max-width: 619px)` block A was
+   consolidated into the single `@media (max-width:620px)` block at the end
+   of this stylesheet. Rules kept from Block A: .hist-head / .hist-filterbar /
+   .hist-search / .hist-typefilter / .links-page padding / .lk-item-row grid.
+   Rules dropped (superseded by the v100 baseline): bordered-card .history tr,
+   .history td flex spec, the data-lbl ::before scheme, the .history tr td
+   Actions stacking. The old tabbar padding rules are obsolete now that the
+   tabbar moves to a fixed bottom bar on phones. */
 .empty{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
 
 /* Email body box */
@@ -3216,18 +3198,93 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
    hierarchy (identity + amount on line 1, muted meta on line 2), noise hidden,
    editor line-items reflowed, PDF preview gated behind a fullscreen button.
    Desktop (>619px) untouched. */
-@media (max-width:619px){
-  /* App chrome */
-  header.top{position:sticky;top:0;z-index:31;padding:.7rem 1rem}
-  nav.tabbar{position:sticky;top:0;z-index:30;box-shadow:0 1px 0 var(--hair)}
+/* === Defaults for the new tab-label / tab-fulllabel / tab-ico spans ===
+   The bottom-tab-bar markup carries every variant for both desktop and
+   mobile; these defaults keep desktop unchanged (icon hidden, short label
+   hidden, full label inline). The ≤620px block below flips the visibility. */
+nav.tabbar .tab .tab-ico{display:none}
+nav.tabbar .tab .tab-label{display:none}
+nav.tabbar .tab .tab-fulllabel{display:inline}
+#btnCreateAction .bca-plus,#btnCreateAction .bca-text{display:inline}
+
+/* ============================================================
+   iOS chrome (Stage 1): single consolidated mobile pass.
+   Bottom tab bar with icons, large-title sticky header, safe-area
+   insets, floated "+" Create button. Carries forward the v100
+   admin-app baseline (hairline rows, identity+amount line 1, muted
+   meta line 2, stacked editor #ltTable). Last block in the
+   stylesheet so it wins on source order.
+============================================================ */
+@media (max-width:620px){
+  /* ---- App chrome ---- */
+  header.top{
+    position:sticky; top:0; z-index:40;
+    padding:calc(env(safe-area-inset-top) + .6rem) 1rem .6rem;
+    background:color-mix(in srgb, var(--card) 92%, transparent);
+    -webkit-backdrop-filter:saturate(1.4) blur(18px);
+    backdrop-filter:saturate(1.4) blur(18px);
+  }
   .lockup .uni{font-size:1.05rem;letter-spacing:.3em}
 
-  /* List goes edge-to-edge like an app list */
+  /* Bottom tab bar */
+  nav.tabbar{
+    position:fixed; left:0; right:0; bottom:0; top:auto; z-index:50;
+    display:flex; gap:0; padding:0; overflow:visible;
+    background:color-mix(in srgb, var(--card) 92%, transparent);
+    -webkit-backdrop-filter:saturate(1.4) blur(18px); backdrop-filter:saturate(1.4) blur(18px);
+    border-top:1px solid var(--hair); border-bottom:0;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  nav.tabbar .tab{
+    flex:1 1 0; min-width:0; flex-direction:column; align-items:center; justify-content:center;
+    gap:3px; padding:7px 2px 5px; margin:0; border:0; border-bottom:0; min-height:50px;
+    font-size:0; letter-spacing:0;
+  }
+  nav.tabbar .tab .tab-ico{display:block; width:22px; height:22px; flex:0 0 auto}
+  nav.tabbar .tab .tab-label{
+    display:block;
+    font-family:Outfit,sans-serif; font-size:10px; letter-spacing:.02em; text-transform:none;
+    line-height:1; font-weight:500;
+  }
+  nav.tabbar .tab .tab-fulllabel{display:none}
+  nav.tabbar .tab.on{color:var(--amber); border:0}
+  nav.tabbar .tab:not(.on){color:var(--muted)}
+  nav.tabbar .tab .tab-soon{display:none}
+
+  /* Float the Create button out of the tabbar flow into the header's
+     top-right corner (handler unchanged). */
+  nav.tabbar #btnCreateAction{
+    position:fixed;
+    top:calc(env(safe-area-inset-top) + .55rem);
+    right:.9rem;
+    margin:0;
+    width:36px; height:36px;
+    min-width:0; min-height:0;
+    padding:0;
+    border-radius:50%;
+    display:inline-flex; align-items:center; justify-content:center;
+    font-size:22px; line-height:1;
+    z-index:41;
+  }
+  nav.tabbar #btnCreateAction .bca-text{display:none}
+  nav.tabbar #btnCreateAction .bca-plus{font-size:22px; line-height:1}
+
+  /* Page content clears the fixed bottom bar */
+  body, .app{padding-bottom:calc(56px + env(safe-area-inset-bottom))}
+
+  /* ---- Carried from Block A (filters, links page, items grid) ---- */
+  .history .hist-head{flex-direction:column;align-items:flex-start;gap:.5rem}
+  .history .hist-filterbar{flex-direction:column;align-items:stretch}
+  .history .hist-search{width:100%;flex:1 1 auto}
+  .history .hist-typefilter{align-self:flex-start}
+  .links-page{padding:1rem}
+  .lk-item-row{grid-template-columns:1fr 110px 28px;gap:.4rem}
+
+  /* ---- v100 baseline: edge-to-edge hairline list rows ---- */
   .history-wrap{padding:1.1rem 1rem 2rem}
   .links-page,.sales-page{padding-left:1rem;padding-right:1rem}
   .history{padding:0;border:0;border-radius:0;background:transparent}
 
-  /* Dense hairline rows (admin-app, not consumer cards) */
   .history table,.history tbody{display:block}
   .history thead{display:none}
   .history tbody tr:not(.hist-actions-row){
@@ -3254,34 +3311,23 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
   .history td[data-lbl="Date paid"],.history td[data-lbl="Created"],.history td[data-lbl="Method"],
   .history td[data-lbl="Invoice"],.history td[data-lbl="Status"],.history td[data-lbl="Contact"],
   .history td[data-lbl="Service"]{order:2;font-size:12px;color:var(--muted);line-height:1.5;margin-right:.55rem}
-  /* First meta cell breaks onto its own line */
   .history td[data-lbl="Number"],.history td[data-lbl="Date"],.history td[data-lbl="Created"],.history td[data-lbl="Method"]{flex-basis:100%;margin-right:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-  /* Hide noise on the collapsed row (still in the drawer / desktop) */
   .history td[data-lbl="Link"],.history td[data-lbl="Route"],.history td[data-lbl="Consent"]{display:none}
 
-  /* Chevron pinned top-right */
   .history .hist-chev-cell{position:static;order:1;flex:0 0 auto;align-self:baseline;margin-left:.45rem;padding:0;width:auto;color:var(--muted)}
   #tab-leads .hist-chev-cell{display:none}
   #btnRefresh,#lkRefresh{display:none}
 
-  /* Leads inline Actions -> full width below meta */
   .history td[data-lbl="Actions"]{order:4;flex-basis:100%;margin-top:.5rem;text-align:center}
   .history td[data-lbl="Actions"] .btn{margin:.25rem .25rem 0 0}
 
-  /* Denser status pills */
   .hist-status{padding:2px 8px;font-size:10.5px;letter-spacing:.06em;line-height:1.3}
 
-  /* Drawer keeps function, loses card chrome */
   .history tr.hist-actions-row > td{padding:0;background:var(--bone2);margin-left:-1rem;margin-right:-1rem}
   .history .hist-actions-panel{padding:.7rem 1rem 1rem;justify-content:center}
 
-  /* v102: inline PDF preview restored on mobile. The v100 gating hid #doc
-     (inside .preview-wrap); since per-row Print uses window.print(), the
-     hidden invoice made Print export the admin page instead of the invoice.
-     Inline preview is back; the Preview-PDF button returns to hidden default. */
-
-  /* Editor line items -> stacked, hairline (not bone card) */
+  /* ---- Editor line items: stacked hairline (not bone card) ---- */
   #ltTable,#ltTable tbody{display:block}
   #ltTable thead{display:none}
   #ltTable tr{display:block;background:transparent;border:0;border-top:1px solid var(--hair);border-radius:0;padding:.55rem 0;margin:0}
@@ -3346,17 +3392,17 @@ function loginHTML(adminMissing) {
 function appShellHTML() {
   return `
 <nav class="tabbar" role="tablist" aria-label="Billing sections">
-  <button type="button" class="tab on" role="tab" aria-selected="true"  data-tab="leads"     id="tabBtnLeads">Leads</button>
-  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="documents" id="tabBtnDocuments">Quotes &amp; Invoices</button>
-  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="links"     id="tabBtnLinks">Payment Links</button>
-  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="payments"  id="tabBtnPayments">Payments</button>
-  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="sales"     id="tabBtnSales">Sales</button>
+  <button type="button" class="tab on" role="tab" aria-selected="true"  data-tab="leads"     id="tabBtnLeads"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c1.5-3.6 5-5.4 7.5-5.4s6 1.8 7.5 5.4"/></svg><span class="tab-label">Leads</span><span class="tab-fulllabel">Leads</span></button>
+  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="documents" id="tabBtnDocuments"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V7.5z"/><path d="M14 3v4.5h4.5"/><path d="M9 13h6M9 16h4"/></svg><span class="tab-label">Docs</span><span class="tab-fulllabel">Quotes &amp; Invoices</span></button>
+  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="links"     id="tabBtnLinks"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 13.5a4 4 0 0 0 5.6 0l2.4-2.4a4 4 0 0 0-5.7-5.7L11.4 6.8"/><path d="M13.5 10.5a4 4 0 0 0-5.6 0L5.5 12.9a4 4 0 0 0 5.7 5.7l1.4-1.4"/></svg><span class="tab-label">Links</span><span class="tab-fulllabel">Payment Links</span></button>
+  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="payments"  id="tabBtnPayments"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10.5h18"/><path d="M7 16h3"/></svg><span class="tab-label">Payments</span><span class="tab-fulllabel">Payments</span></button>
+  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="sales"     id="tabBtnSales"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16h16"/><path d="M7 16l3.5-4 3 3 5-6"/></svg><span class="tab-label">Sales</span><span class="tab-fulllabel">Sales</span></button>
   <!-- v101: right-aligned Create action button. Not a tab (no data-tab, no
        role=tab). Opens a 3-option popup: Create quote / Create invoice /
-       Create payment link. The Create tab and tabBtnCreate are gone; the
-       editor host (#editorHome / #editorHost) still lives in #tab-create
-       but is reached only via openEditorModal(). -->
-  <button type="button" class="btn btn-small btn-ink" id="btnCreateAction" style="margin-left:auto" title="Start a new quote, invoice or payment link">+ Create</button>
+       Create payment link. On mobile the desktop "Create" text is hidden and
+       the button is position:fixed to the top-right of the screen (acting as
+       the iOS-style nav-bar "+" without changing this markup). -->
+  <button type="button" class="btn btn-small btn-ink" id="btnCreateAction" style="margin-left:auto" title="Start a new quote, invoice or payment link"><span class="bca-plus">+</span><span class="bca-text">&nbsp;Create</span></button>
 </nav>
 
 <!-- Phase 1 — Leads tab: bookings from the public form, with one-click
