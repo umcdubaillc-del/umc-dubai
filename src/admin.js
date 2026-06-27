@@ -3506,6 +3506,7 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   .doc-sheet-action{ width:100%; text-align:center; padding:.95rem 1rem; border-radius:12px; border:1px solid var(--hair); background:var(--bone); color:var(--ink); font-family:inherit; font-size:1rem; cursor:pointer; }
   .doc-sheet-action:disabled{ opacity:.4; }
   .doc-sheet-danger{ color:var(--amber-deep); border-color:rgba(168,75,12,.32); }
+  .doc-sheet-action.doc-sheet-ok{ color:var(--paid); border-color:rgba(46,125,84,.4); }
   body.doc-sheet-lock{ overflow:hidden; }
   #tab-documents tr.expandable.open + tr.hist-actions-row{ display:none !important; }
   #tab-documents tr.expandable.open + tr.hist-actions-row > td{ padding:0 !important; border:0 !important; }
@@ -6874,18 +6875,32 @@ const PAGE_SCRIPT = `<script>
     var dis = orig.disabled === true || orig.getAttribute('aria-disabled') === 'true' || orig.classList.contains('is-disabled') || orig.classList.contains('disabled');
     if (dis) b.disabled = true;
     if (orig.classList.contains('btn-danger') || /delete/i.test(label)) b.className += ' doc-sheet-danger';
-    b.addEventListener('click', function(){ if (b.disabled) return; orig.click(); });
+    var isCopy = /copy/i.test(label);
+    b.addEventListener('click', function(){
+      if (b.disabled) return;
+      orig.click();
+      if (isCopy){
+        var prev = b.textContent;
+        b.textContent = 'Copied';
+        b.classList.add('doc-sheet-ok');
+        setTimeout(function(){ b.textContent = prev; b.classList.remove('doc-sheet-ok'); }, 1400);
+      } else {
+        hide();
+      }
+    });
     sheetEl.appendChild(b);
   }
   function buildSheet(row){
     var drawer = row.nextElementSibling;
     var panel = drawer ? drawer.querySelector('.hist-actions-panel') : null;
     if (!panel) return false;
-    var html = '<div class="doc-sheet-grab"></div>';
+    var html = '<div class="doc-sheet-grab" id="docSheetGrab"></div>';
     html += '<div class="doc-sheet-row1"><div><div class="doc-sheet-num">' + docNumber(row) + '</div><div class="doc-sheet-client">' + cellText(row,'Client') + '</div></div><div class="doc-sheet-total">' + cellText(row,'Total') + '</div></div>';
     html += '<div class="doc-sheet-meta"><span>' + cellText(row,'Type') + ' · ' + cellText(row,'Date') + '</span><span>' + cellText(row,'Status') + '</span></div>';
     html += '<div class="doc-sheet-hr"></div>';
     sheetEl.innerHTML = html;
+    var grab = document.getElementById('docSheetGrab');
+    if (grab){ grab.addEventListener('click', dismiss); }
     var btns = panel.querySelectorAll('button, a.hist-btn, .hist-btn');
     for (var i = 0; i < btns.length; i++){ bindAction(btns[i]); }
     return true;
