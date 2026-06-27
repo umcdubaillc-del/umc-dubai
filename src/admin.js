@@ -3501,6 +3501,7 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   /* Stage 3 — Document detail bottom sheet (mobile only) */
   #docSheetBackdrop{ position:fixed; inset:0; background:rgba(20,15,10,.45); opacity:0; pointer-events:none; transition:opacity .25s; z-index:55; }
   #docSheetBackdrop.on{ opacity:1; pointer-events:auto; }
+  #tab-documents tr.expandable.open + tr.hist-actions-row{ display:block !important; }
   #tab-documents tr.expandable.open + tr.hist-actions-row > td{ padding:0 !important; border:0 !important; }
   #tab-documents tr.expandable.open + tr.hist-actions-row .hist-actions-panel{ position:fixed !important; left:0; right:0; bottom:0; z-index:60; margin:0 !important; width:100%; border-radius:20px 20px 0 0; background:var(--card) !important; border:0 !important; box-shadow:0 -12px 44px rgba(0,0,0,.28); padding:.5rem 1.1rem 1.4rem !important; max-height:82vh; overflow:auto; display:flex !important; flex-direction:column; gap:.55rem; animation:docSheetUp .28s cubic-bezier(.32,.72,0,1); }
   @keyframes docSheetUp{ from{ transform:translateY(100%); } to{ transform:translateY(0); } }
@@ -6850,12 +6851,16 @@ const PAGE_SCRIPT = `<script>
     var c = row.querySelector('td[data-lbl="' + lbl + '"]');
     return c ? c.textContent.trim() : '';
   }
+  function docNumber(row){
+    var a = row.querySelector('td[data-lbl="Number"] a[data-load]');
+    return a ? a.textContent.trim() : cellText(row, 'Number');
+  }
   function buildHeader(row, panel){
     if (panel.querySelector('.doc-sheet-head')) return;
     var head = document.createElement('div');
     head.className = 'doc-sheet-head';
     var html = '<div class="doc-sheet-grab"></div>';
-    html += '<div class="doc-sheet-row1"><div><div class="doc-sheet-num">' + cellText(row,'Number') + '</div><div class="doc-sheet-client">' + cellText(row,'Client') + '</div></div><div class="doc-sheet-total">' + cellText(row,'Total') + '</div></div>';
+    html += '<div class="doc-sheet-row1"><div><div class="doc-sheet-num">' + docNumber(row) + '</div><div class="doc-sheet-client">' + cellText(row,'Client') + '</div></div><div class="doc-sheet-total">' + cellText(row,'Total') + '</div></div>';
     html += '<div class="doc-sheet-meta"><span>' + cellText(row,'Type') + ' · ' + cellText(row,'Date') + '</span><span>' + cellText(row,'Status') + '</span></div>';
     html += '<div class="doc-sheet-hr"></div>';
     head.innerHTML = html;
