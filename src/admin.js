@@ -3508,7 +3508,7 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   .doc-sheet-danger{ color:var(--amber-deep); border-color:rgba(168,75,12,.32); }
   .doc-sheet-action.doc-sheet-ok{ color:var(--paid); border-color:rgba(46,125,84,.4); }
   body.doc-sheet-lock{ overflow:hidden; }
-  #tab-documents tr.expandable.open + tr.hist-actions-row{ display:none !important; }
+  #tab-documents tr.expandable.open + tr.hist-actions-row, #tab-leads tr.expandable.open + tr.hist-actions-row, #tab-links tr.expandable.open + tr.hist-actions-row{ display:none !important; }
   #tab-documents tr.expandable.open + tr.hist-actions-row > td{ padding:0 !important; border:0 !important; }
   #tab-documents tr.expandable.open + tr.hist-actions-row .hist-actions-panel{ position:fixed !important; left:0; right:0; bottom:0; z-index:60; margin:0 !important; width:100%; border-radius:20px 20px 0 0; background:var(--card) !important; border:0 !important; box-shadow:0 -12px 44px rgba(0,0,0,.28); padding:.5rem 1.1rem 1.4rem !important; max-height:82vh; overflow:auto; display:flex !important; flex-direction:column; gap:.55rem; animation:docSheetUp .28s cubic-bezier(.32,.72,0,1); }
   @keyframes docSheetUp{ from{ transform:translateY(100%); } to{ transform:translateY(0); } }
@@ -6838,32 +6838,27 @@ const PAGE_SCRIPT = `<script>
   })();
 })();
 (function(){
-  if (window.__docSheetBound) return;
-  window.__docSheetBound = true;
+  if (window.__sheetBound) return;
+  window.__sheetBound = true;
+  var CFG = {
+    'tab-documents': { title:{lbl:'Number',link:true},  sub:{lbl:'Client'},  right:{lbl:'Total'},  metaL:['Type','Date'],     metaR:'Status', inline:false },
+    'tab-leads':     { title:{lbl:'Name',link:false},   sub:{lbl:'Contact'}, right:null,           metaL:['Service','Route'], metaR:'Status', inline:true  },
+    'tab-links':     { title:{lbl:'Client',link:false}, sub:null,            right:{lbl:'Amount'}, metaL:['Created'],         metaR:'Status', inline:false }
+  };
+  var TABS = ['tab-documents','tab-leads','tab-links'];
   function mq(){ return window.matchMedia('(max-width: 620px)').matches; }
   var sheetEl = null, backdropEl = null, currentRow = null;
-  function cellText(row, lbl){
-    var c = row.querySelector('td[data-lbl="' + lbl + '"]');
-    return c ? c.textContent.trim() : '';
-  }
-  function docNumber(row){
-    var a = row.querySelector('td[data-lbl="Number"] a[data-load]');
-    return a ? a.textContent.trim() : cellText(row, 'Number');
+  function cellText(row, lbl){ var c = row.querySelector('td[data-lbl="' + lbl + '"]'); return c ? c.textContent.trim() : ''; }
+  function titleText(row, cfg){
+    if (cfg.title.link){ var a = row.querySelector('td[data-lbl="' + cfg.title.lbl + '"] a[data-load]'); if (a) return a.textContent.trim(); }
+    return cellText(row, cfg.title.lbl);
   }
   function ensureEls(){
     backdropEl = document.getElementById('docSheetBackdrop');
-    if (!backdropEl){
-      backdropEl = document.createElement('div');
-      backdropEl.id = 'docSheetBackdrop';
-      document.body.appendChild(backdropEl);
-    }
+    if (!backdropEl){ backdropEl = document.createElement('div'); backdropEl.id = 'docSheetBackdrop'; document.body.appendChild(backdropEl); }
     if (!backdropEl.__wired){ backdropEl.addEventListener('click', dismiss); backdropEl.__wired = true; }
     sheetEl = document.getElementById('docSheet');
-    if (!sheetEl){
-      sheetEl = document.createElement('div');
-      sheetEl.id = 'docSheet';
-      document.body.appendChild(sheetEl);
-    }
+    if (!sheetEl){ sheetEl = document.createElement('div'); sheetEl.id = 'docSheet'; document.body.appendChild(sheetEl); }
   }
   function bindAction(orig){
     var label = orig.textContent.trim();
@@ -6874,7 +6869,7 @@ const PAGE_SCRIPT = `<script>
     b.textContent = label;
     var dis = orig.disabled === true || orig.getAttribute('aria-disabled') === 'true' || orig.classList.contains('is-disabled') || orig.classList.contains('disabled');
     if (dis) b.disabled = true;
-    if (orig.classList.contains('btn-danger') || /delete/i.test(label)) b.className += ' doc-sheet-danger';
+    if (orig.classList.contains('btn-danger') || /delete|exclude/i.test(label)) b.className += ' doc-sheet-danger';
     var isCopy = /copy/i.test(label);
     b.addEventListener('click', function(){
       if (b.disabled) return;
@@ -6890,23 +6885,29 @@ const PAGE_SCRIPT = `<script>
     });
     sheetEl.appendChild(b);
   }
-  function buildSheet(row){
+  function buildSheet(row, cfg){
     var drawer = row.nextElementSibling;
-    var panel = drawer ? drawer.querySelector('.hist-actions-panel') : null;
-    if (!panel) return false;
+    var panel = (drawer && drawer.classList && drawer.classList.contains('hist-actions-row')) ? drawer.querySelector('.hist-actions-panel') : null;
+    var subTxt = cfg.sub ? cellText(row, cfg.sub.lbl) : '';
+    var rightHtml = cfg.right ? '<div class="doc-sheet-total">' + cellText(row, cfg.right.lbl) + '</div>' : '';
+    var subHtml = subTxt ? '<div class="doc-sheet-client">' + subTxt + '</div>' : '';
     var html = '<div class="doc-sheet-grab" id="docSheetGrab"></div>';
-    html += '<div class="doc-sheet-row1"><div><div class="doc-sheet-num">' + docNumber(row) + '</div><div class="doc-sheet-client">' + cellText(row,'Client') + '</div></div><div class="doc-sheet-total">' + cellText(row,'Total') + '</div></div>';
-    html += '<div class="doc-sheet-meta"><span>' + cellText(row,'Type') + ' · ' + cellText(row,'Date') + '</span><span>' + cellText(row,'Status') + '</span></div>';
+    html += '<div class="doc-sheet-row1"><div><div class="doc-sheet-num">' + titleText(row, cfg) + '</div>' + subHtml + '</div>' + rightHtml + '</div>';
+    var metaLeft = cfg.metaL.map(function(l){ return cellText(row, l); }).filter(Boolean).join(' · ');
+    var metaRight = cfg.metaR ? cellText(row, cfg.metaR) : '';
+    if (metaLeft || metaRight){ html += '<div class="doc-sheet-meta"><span>' + metaLeft + '</span><span>' + metaRight + '</span></div>'; }
     html += '<div class="doc-sheet-hr"></div>';
     sheetEl.innerHTML = html;
-    var grab = document.getElementById('docSheetGrab');
-    if (grab){ grab.addEventListener('click', dismiss); }
-    var btns = panel.querySelectorAll('button, a.hist-btn, .hist-btn');
-    for (var i = 0; i < btns.length; i++){ bindAction(btns[i]); }
+    var grab = document.getElementById('docSheetGrab'); if (grab) grab.addEventListener('click', dismiss);
+    var src = [];
+    if (panel){ Array.prototype.forEach.call(panel.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ src.push(b); }); }
+    if (cfg.inline){ Array.prototype.forEach.call(row.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ src.push(b); }); }
+    var seen = {};
+    for (var i = 0; i < src.length; i++){ var k = src[i].textContent.trim(); if (k && !seen[k]){ seen[k] = 1; bindAction(src[i]); } }
     return true;
   }
-  function present(row){
-    if (!buildSheet(row)) return;
+  function present(row, cfg){
+    if (!buildSheet(row, cfg)) return;
     currentRow = row;
     document.body.classList.add('doc-sheet-lock');
     backdropEl.classList.add('on');
@@ -6923,20 +6924,24 @@ const PAGE_SCRIPT = `<script>
     hide();
     if (row){ var c = row.querySelector('td'); if (c) c.click(); }
   }
+  function findOpen(){
+    for (var i = 0; i < TABS.length; i++){
+      var open = document.querySelector('#' + TABS[i] + ' tr.expandable.open');
+      if (open) return { row: open, cfg: CFG[TABS[i]] };
+    }
+    return null;
+  }
   function sync(){
     ensureEls();
-    var open = document.querySelector('#tab-documents tr.expandable.open');
-    if (open && mq()){
-      if (currentRow !== open) present(open);
-    } else if (sheetEl && sheetEl.classList.contains('on')){
-      hide();
-    }
+    var hit = findOpen();
+    if (hit && mq()){ if (currentRow !== hit.row) present(hit.row, hit.cfg); }
+    else if (sheetEl && sheetEl.classList.contains('on')){ hide(); }
   }
   function start(){
-    var tab = document.getElementById('tab-documents');
-    if (!tab){ return setTimeout(start, 400); }
+    var secs = [];
+    for (var i = 0; i < TABS.length; i++){ var s = document.getElementById(TABS[i]); if (!s) return setTimeout(start, 400); secs.push(s); }
     ensureEls();
-    new MutationObserver(sync).observe(tab, { attributes:true, subtree:true, attributeFilter:['class'] });
+    for (var j = 0; j < secs.length; j++){ new MutationObserver(sync).observe(secs[j], { attributes:true, subtree:true, attributeFilter:['class'] }); }
     sync();
   }
   if (document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', start); } else { start(); }
