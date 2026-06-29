@@ -6610,7 +6610,7 @@ const PAGE_SCRIPT = `<script>
         const _docPaidSoFar = Number(x.paid_amount) || 0;
         const _docBalance = Math.max(0, _docTotal - _docPaidSoFar);
         const actions = [];
-        actions.push('<button type="button" class="btn btn-small btn-ghost" data-load="'+x.id+'">Open</button>');
+        actions.push('<button type="button" class="btn btn-small btn-ghost" data-load="'+x.id+'">Open/Edit</button>');
         // Server PDF route renders both invoices and quotes; surface the
         // Download PDF button on every saved row, not just invoices.
         actions.push('<button type="button" class="btn btn-small btn-ghost" data-pdf="'+x.id+'" title="Download the institutional PDF">Download PDF</button>');
