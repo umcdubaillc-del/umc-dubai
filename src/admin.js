@@ -1997,8 +1997,9 @@ async function handleSales(url, env) {
       if (!ym) continue;
       yearsSet.add(ym.year);
       const b = bucket(ym.year, ym.month);
-      const subtotal = (r.subtotal != null) ? Number(r.subtotal) : (gross / 1.05);
-      const vat      = (r.vat      != null) ? Number(r.vat)      : (gross - subtotal);
+      const isPartial = (r.payment_status === "partial");
+      const subtotal = (!isPartial && r.subtotal != null) ? Number(r.subtotal) : (gross / 1.05);
+      const vat      = (!isPartial && r.vat      != null) ? Number(r.vat)      : (gross - subtotal);
       b.net   += subtotal;
       b.gross += gross;
       b.vat   += vat;
