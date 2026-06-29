@@ -173,6 +173,7 @@ async function ensureSchema(env) {
       "refunded_amount REAL",
       "client_phone TEXT",
       "internal_notes TEXT",
+      "paid_amount REAL",
     ]);
     // v53 — standalone Nomod payment links (Links tab). A separate table keeps
     // the billing_documents schema clean (a link has no client, items or VAT
@@ -542,7 +543,7 @@ async function handleList(env) {
             b.client_phone, b.client_email,
             b.currency, b.total, b.source_quote_number, b.nomod_link_id,
             b.nomod_link_url, b.nomod_link_created_at, b.created_at,
-            b.nomod_charge_id, b.paid_at,
+            b.nomod_charge_id, b.paid_at, b.paid_amount,
             COALESCE(b.payment_status, 'unpaid') AS payment_status,
             (SELECT i.number FROM billing_documents i
               WHERE i.doc_type = 'invoice' AND i.source_quote_number = b.number
@@ -1809,24 +1810,57 @@ async function handleMarkPaid(id, request, env) {
   } else {
     paidAt = new Date().toISOString();
   }
+  // Optional partial amount. Absent / null / "" → full settlement (existing
+  // behaviour). A positive amount below the outstanding balance flips the
+  // invoice to 'partial' and accumulates paid_amount; reaching the total
+  // auto-flips to 'paid'. Negative / non-finite is rejected.
+  const rawAmount = (body && body.amount);
   // Only allow on invoices (quotes never settle). Reject if already refunded.
-  const row = await env.BILLING_DB.prepare(
-    `SELECT id, doc_type, payment_status, nomod_link_id FROM billing_documents WHERE id = ?`
+  const cur = await env.BILLING_DB.prepare(
+    `SELECT id, doc_type, total, paid_amount, payment_status, nomod_link_id FROM billing_documents WHERE id = ?`
   ).bind(id).first();
-  if (!row) return json({ ok: false, error: "not found" }, 404);
-  if (row.doc_type !== "invoice") return json({ ok: false, error: "only invoices can be marked paid" }, 400);
-  await env.BILLING_DB.prepare(
-    `UPDATE billing_documents
-       SET payment_status='paid',
-           paid_at=?,
-           payment_method=?,
-           last_checked_at=?
-     WHERE id = ?`
-  ).bind(paidAt, method, new Date().toISOString(), id).run();
+  if (!cur) return json({ ok: false, error: "not found" }, 404);
+  if (cur.doc_type !== "invoice") return json({ ok: false, error: "only invoices can be marked paid" }, 400);
+  const total = Number(cur.total) || 0;
+  const prevPaid = Number(cur.paid_amount) || 0;
+  let newStatus, newPaid;
+  if (rawAmount === undefined || rawAmount === null || rawAmount === "") {
+    newStatus = "paid";
+    newPaid = total;
+  } else {
+    const amt = Number(rawAmount);
+    if (!isFinite(amt) || amt <= 0) return json({ ok: false, error: "bad amount" }, 400);
+    newPaid = prevPaid + amt;
+    if (newPaid >= total - 0.005) { newStatus = "paid"; newPaid = total; }
+    else { newStatus = "partial"; }
+  }
+  if (newStatus === "paid") {
+    await env.BILLING_DB.prepare(
+      `UPDATE billing_documents
+         SET payment_status='paid',
+             paid_amount=?,
+             paid_at=?,
+             payment_method=?,
+             last_checked_at=?
+       WHERE id = ?`
+    ).bind(newPaid, paidAt, method, new Date().toISOString(), id).run();
+  } else {
+    await env.BILLING_DB.prepare(
+      `UPDATE billing_documents
+         SET payment_status='partial',
+             paid_amount=?,
+             paid_at=?,
+             payment_method=?,
+             last_checked_at=?
+       WHERE id = ?`
+    ).bind(newPaid, paidAt, method, new Date().toISOString(), id).run();
+  }
   // v103: reciprocal stamp on the attached payment_links row so the two
   // tables stay in sync (the Payments dedup keys on nomod_link_id and would
   // otherwise show the link as still unpaid). Idempotent via COALESCE.
-  if (row.nomod_link_id) {
+  // Partial settlements do NOT stamp the linked Nomod row — only a full
+  // settlement should flip the link to paid.
+  if (newStatus === "paid" && cur.nomod_link_id) {
     try {
       await env.BILLING_DB.prepare(
         `UPDATE payment_links
@@ -1835,12 +1869,12 @@ async function handleMarkPaid(id, request, env) {
                last_checked_at = ?,
                payment_method = COALESCE(payment_method, ?)
          WHERE nomod_link_id = ?`
-      ).bind(paidAt, new Date().toISOString(), method, row.nomod_link_id).run();
+      ).bind(paidAt, new Date().toISOString(), method, cur.nomod_link_id).run();
     } catch (e) {
       console.error("reciprocal link stamp on mark-paid failed", e && (e.message || String(e)));
     }
   }
-  return json({ ok: true, id, paid_at: paidAt, payment_method: method });
+  return json({ ok: true, id, payment_status: newStatus, paid_amount: newPaid, balance: Math.max(0, total - newPaid), paid_at: paidAt, payment_method: method });
 }
 
 // Manual "mark refunded" — used when a Nomod refund event was missed (rare)
@@ -1918,10 +1952,10 @@ async function handleSales(url, env) {
   const invRows = (await env.BILLING_DB.prepare(
     `SELECT id, doc_type, number, client_name, subtotal, vat, total, currency,
             nomod_link_id, nomod_charge_id, payment_status, payment_method,
-            paid_at, refunded_at, refunded_amount
+            paid_at, paid_amount, refunded_at, refunded_amount
        FROM billing_documents
       WHERE doc_type='invoice'
-        AND (payment_status='paid' OR payment_status='refunded')
+        AND payment_status IN ('paid','refunded','partial')
         AND payment_method IN ('bank','cash')`
   ).all()).results || [];
   const linkRows = (await env.BILLING_DB.prepare(
@@ -1955,10 +1989,10 @@ async function handleSales(url, env) {
   }
   // (a) invoices in billing_documents
   for (const r of invRows) {
-    const gross = Number(r.total) || 0;
-    if (isTestRow(r.client_name, gross)) continue;
-    // Sale row from paid_at
-    if (r.payment_status === "paid" && r.paid_at) {
+    if (isTestRow(r.client_name, Number(r.total) || 0)) continue;
+    // Sale row from paid_at — partials surface just what was received so far.
+    if ((r.payment_status === "paid" || r.payment_status === "partial") && r.paid_at) {
+      const gross = (r.payment_status === "partial") ? (Number(r.paid_amount) || 0) : (Number(r.total) || 0);
       const ym = dubaiYM(r.paid_at);
       if (!ym) continue;
       yearsSet.add(ym.year);
@@ -3511,6 +3545,7 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #tab-leads tr.expandable td[data-lbl="Actions"]{ display:none !important; }
   /* Sheet Cancel button — secondary/muted */
   .doc-sheet-cancel{ background:transparent !important; border-color:transparent !important; color:var(--muted) !important; }
+  .mark-paid-modal .ed-shell{ position:fixed !important; left:0 !important; right:0 !important; bottom:0 !important; top:auto !important; transform:none !important; width:100% !important; max-width:none !important; border-radius:20px 20px 0 0 !important; max-height:86vh !important; overflow-y:auto !important; }
   body.doc-sheet-lock{ overflow:hidden; }
   #tab-documents tr.expandable.open + tr.hist-actions-row, #tab-leads tr.expandable.open + tr.hist-actions-row, #tab-links tr.expandable.open + tr.hist-actions-row{ display:none !important; }
   #tab-documents tr.expandable.open + tr.hist-actions-row > td{ padding:0 !important; border:0 !important; }
@@ -4285,7 +4320,7 @@ const PAGE_SCRIPT = `<script>
       +     (isInv && state.source_quote_number ? '<div class="d" style="font-size:10px;letter-spacing:.16em;color:var(--muted);text-transform:uppercase;margin-top:.15rem">Converted from quote '+esc(state.source_quote_number)+'</div>' : '')
       // v96 — PAID stamp on settled invoices. Reads state.payment_status set
       // by loadDoc; renders nothing for unpaid invoices, quotes, or new docs.
-      +     (isInv && state.payment_status === "paid" ? '<div class="d" style="font-size:10px;letter-spacing:.22em;color:#2E7D54;text-transform:uppercase;font-weight:600;margin-top:.25rem">Paid</div>' : '')
+      +     (isInv && state.payment_status === "paid" ? '<div class="d" style="font-size:10px;letter-spacing:.22em;color:#2E7D54;text-transform:uppercase;font-weight:600;margin-top:.25rem">Paid</div>' : (isInv && state.payment_status === "partial" ? '<div class="d" style="font-size:10px;letter-spacing:.22em;color:#A84B0C;text-transform:uppercase;font-weight:600;margin-top:.25rem">Partial</div>' : ''))
       +     '<div class="client">'
       +       '<h4>'+esc(clientLbl)+'</h4>'
       +       clientName
@@ -4308,7 +4343,11 @@ const PAGE_SCRIPT = `<script>
       // when anything is still owed (> 0). Label stays ink; only the figure
       // colour reflects state.
       +   (isInv ? (function(){
-          var _bal = state.payment_status === "paid" ? 0 : r.total;
+          var _paid = Number(state.paid_amount) || 0;
+          var _bal;
+          if (state.payment_status === "paid") _bal = 0;
+          else if (state.payment_status === "partial") _bal = Math.max(0, r.total - _paid);
+          else _bal = r.total;
           var _col = _bal > 0 ? "#C75B12" : "#2E7D54";
           return '<div class="r" style="font-weight:600"><span style="color:var(--ink)">Balance due</span><span style="color:'+_col+';font-variant-numeric:tabular-nums">'+fmtMoney(_bal, state.currency)+'</span></div>';
         })() : '')
@@ -5876,8 +5915,9 @@ const PAGE_SCRIPT = `<script>
   // paid_at (now) on the invoice AND reciprocally on its payment_links row
   // when nomod_link_id is present, so the new row appears in Payments
   // under the chosen method.
-  function openMarkPaidChoice(id, num){
+  function openMarkPaidChoice(id, num, balance){
     if(!id) return;
+    const balPrefill = (Number(balance) > 0) ? Number(balance) : 0;
     const modal = document.createElement("div");
     modal.className = "ed-modal mark-paid-modal";
     modal.setAttribute("role", "dialog");
@@ -5896,6 +5936,14 @@ const PAGE_SCRIPT = `<script>
       + '<div class="ed-body" style="padding:1.2rem 1.4rem 1.4rem">'
       + '  <p class="hist-sub" style="margin:0 0 1rem">How was this invoice settled? It will appear in Payments under the chosen method.</p>'
       + '  <div class="status-line" id="mpStatus" style="min-height:1.1em;margin:0 0 .8rem"></div>'
+      + '  <div class="hist-typefilter" role="tablist" aria-label="Settlement amount" style="margin-bottom:.9rem">'
+      + '    <button type="button" class="seg on" data-mpfull="1">Paid in full</button>'
+      + '    <button type="button" class="seg"    data-mpfull="0">Paid in part</button>'
+      + '  </div>'
+      + '  <div id="mpAmtWrap" hidden style="margin:0 0 1rem">'
+      + '    <label class="lbl" for="mpAmount" style="display:block;margin-bottom:.3rem">Amount received (AED)</label>'
+      + '    <input id="mpAmount" type="number" inputmode="decimal" step="0.01" min="0.01" value="'+(balPrefill?balPrefill.toFixed(2):"")+'" max="'+(balPrefill?balPrefill.toFixed(2):"")+'" style="width:100%;padding:.6rem .7rem;font-size:16px;border:1px solid var(--hair);border-radius:6px">'
+      + '  </div>'
       + '  <div style="display:flex;flex-direction:column;gap:.7rem">'
       + '    <button type="button" class="btn" data-mppick="cash" style="text-align:left;padding:.8rem 1rem">Cash</button>'
       + '    <button type="button" class="btn btn-ghost" data-mppick="bank" style="text-align:left;padding:.8rem 1rem">Bank transfer</button>'
@@ -5909,7 +5957,16 @@ const PAGE_SCRIPT = `<script>
     document.body.appendChild(modal);
     function close(){ try { document.body.removeChild(modal); } catch(_){} }
     function setMpStatus(s){ const el = modal.querySelector("#mpStatus"); if(el) el.textContent = s || ""; }
+    function isFullMode(){ var on = modal.querySelector('[data-mpfull].on'); return !on || on.getAttribute('data-mpfull') === '1'; }
     modal.querySelectorAll("[data-mpcancel]").forEach(function(b){ b.addEventListener("click", function(e){ e.preventDefault(); close(); }); });
+    modal.querySelectorAll("[data-mpfull]").forEach(function(b){
+      b.addEventListener("click", function(e){
+        e.preventDefault();
+        modal.querySelectorAll("[data-mpfull]").forEach(function(s){ s.classList.toggle("on", s === b); });
+        const wrap = modal.querySelector("#mpAmtWrap");
+        if (wrap) wrap.hidden = (b.getAttribute("data-mpfull") === "1");
+      });
+    });
     backdrop.addEventListener("click", close);
     document.addEventListener("keydown", function escListener(e){
       if(e.key === "Escape"){ e.preventDefault(); close(); document.removeEventListener("keydown", escListener); }
@@ -5919,13 +5976,24 @@ const PAGE_SCRIPT = `<script>
       if(!pick) return;
       e.preventDefault();
       const method = pick.getAttribute("data-mppick");
-      if(!confirm("Mark " + (num || "this invoice") + " paid by " + (method === "cash" ? "cash" : "bank transfer") + "?")) return;
-      modal.querySelectorAll("[data-mppick],[data-mpcancel]").forEach(function(b){ b.disabled = true; });
+      const full = isFullMode();
+      const payload = { method: method };
+      if (!full){
+        const amtEl = modal.querySelector("#mpAmount");
+        const amt = Number(amtEl && amtEl.value);
+        if (!(amt > 0)){
+          if (amtEl){ amtEl.style.borderColor = "var(--amber-deep)"; try { amtEl.focus(); } catch(_){} }
+          setMpStatus("Enter an amount greater than 0.");
+          return;
+        }
+        payload.amount = amt;
+      }
+      modal.querySelectorAll("[data-mppick],[data-mpcancel],[data-mpfull]").forEach(function(b){ b.disabled = true; });
       setMpStatus("Marking paid …");
       fetch("/admin/api/billing/" + encodeURIComponent(id) + "/mark-paid", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ method: method })
+        body: JSON.stringify(payload)
       })
         .then(function(r){ return r.json(); })
         .then(function(j){
@@ -5937,12 +6005,12 @@ const PAGE_SCRIPT = `<script>
             if(typeof loadLinks === "function") loadLinks();
           } else {
             setMpStatus("Mark paid failed: " + ((j && j.error) || ""));
-            modal.querySelectorAll("[data-mppick],[data-mpcancel]").forEach(function(b){ b.disabled = false; });
+            modal.querySelectorAll("[data-mppick],[data-mpcancel],[data-mpfull]").forEach(function(b){ b.disabled = false; });
           }
         })
         .catch(function(err){
           setMpStatus("Mark paid failed: " + (err && (err.message || err)));
-          modal.querySelectorAll("[data-mppick],[data-mpcancel]").forEach(function(b){ b.disabled = false; });
+          modal.querySelectorAll("[data-mppick],[data-mpcancel],[data-mpfull]").forEach(function(b){ b.disabled = false; });
         });
     });
   }
@@ -6423,7 +6491,8 @@ const PAGE_SCRIPT = `<script>
         e.preventDefault(); e.stopPropagation();
         const id = mpB.getAttribute("data-markpaid");
         const num = mpB.getAttribute("data-num") || "";
-        openMarkPaidChoice(id, num);
+        const bal = Number(mpB.getAttribute("data-balance")) || 0;
+        openMarkPaidChoice(id, num, bal);
         return;
       }
       // v100: send the branded invoice/quote to the document's client_email
@@ -6523,6 +6592,11 @@ const PAGE_SCRIPT = `<script>
         const srcTag = x.source_quote_number
           ? ' <span class="hist-src" title="Converted from '+esc(x.source_quote_number)+'">&larr; '+esc(x.source_quote_number)+'</span>'
           : '';
+        const isPaidDoc = String(x.payment_status || "").toLowerCase() === "paid";
+        const isPartialDoc = String(x.payment_status || "").toLowerCase() === "partial";
+        const _docTotal = Number(x.total) || 0;
+        const _docPaidSoFar = Number(x.paid_amount) || 0;
+        const _docBalance = Math.max(0, _docTotal - _docPaidSoFar);
         const actions = [];
         actions.push('<button type="button" class="btn btn-small btn-ghost" data-load="'+x.id+'">Open</button>');
         // Server PDF route renders both invoices and quotes; surface the
@@ -6548,7 +6622,7 @@ const PAGE_SCRIPT = `<script>
           // v103: cash/bank Mark paid lives on the invoice now (not Payments).
           // Only offered on unpaid invoices; opens a small choice popup.
           if(String(x.payment_status || "").toLowerCase() !== "paid"){
-            actions.push('<button type="button" class="btn btn-small btn-ghost" data-markpaid="'+x.id+'" data-num="'+esc(x.number)+'" title="Mark this invoice paid by cash or bank transfer">Mark paid</button>');
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-markpaid="'+x.id+'" data-num="'+esc(x.number)+'" data-balance="'+(_docBalance>0?_docBalance.toFixed(2):_docTotal.toFixed(2))+'" title="Mark this invoice paid by cash or bank transfer">Mark paid</button>');
           }
         }
         // v100: per-row "Email client" sends the branded invoice/quote to
@@ -6559,7 +6633,6 @@ const PAGE_SCRIPT = `<script>
         } else {
           actions.push('<button type="button" class="btn btn-small btn-ghost" disabled style="opacity:.55;cursor:not-allowed" title="Add a client email to this document first">Email client</button>');
         }
-        const isPaidDoc = String(x.payment_status || "").toLowerCase() === "paid";
         actions.push('<button type="button" class="btn btn-small btn-danger" data-del="'+x.id+'" data-num="'+esc(x.number)+'" data-type="'+esc(x.doc_type)+'" data-paid="'+(isPaidDoc?"1":"0")+'" title="Delete">×</button>');
         // v96 — read payment_status first so settled invoices show "Paid"
         // (reusing the isPaidDoc boolean already computed above). Falls back
@@ -6569,7 +6642,9 @@ const PAGE_SCRIPT = `<script>
         const statusTxt = isInvoice
           ? (isPaidDoc
               ? '<span class="hist-status paid">Paid</span>'
-              : (hasLink ? '<span class="hist-status linked">Link generated</span>' : '<span class="hist-status">&middot;</span>'))
+              : (isPartialDoc
+                  ? '<span class="hist-status" style="color:var(--amber-deep)">Partial</span><span style="color:var(--muted);font-size:11px;margin-left:.4rem;font-variant-numeric:tabular-nums">AED '+_docBalance.toFixed(2)+' due</span>'
+                  : (hasLink ? '<span class="hist-status linked">Link generated</span>' : '<span class="hist-status">&middot;</span>')))
           : (x.source_quote_number ? '<span class="hist-status">Converted</span>' : '<span class="hist-status">&middot;</span>');
         const searchText = [x.number, x.client_name || "", x.client_company || "", x.source_quote_number || ""].join(" ");
         const sortDate = String(x.doc_date || "");
@@ -6710,6 +6785,7 @@ const PAGE_SCRIPT = `<script>
       // v96 — surface paid state in the printed/preview document so a re-open
       // of a settled invoice shows PAID and a zero balance.
       state.payment_status = String(x.payment_status || "").toLowerCase() || null;
+      state.paid_amount = Number(x.paid_amount) || 0;
       // reflect into UI
       $("tQuote").classList.toggle("on", state.doc_type === "quote");
       $("tInvoice").classList.toggle("on", state.doc_type === "invoice");
