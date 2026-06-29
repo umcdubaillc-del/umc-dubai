@@ -3577,6 +3577,16 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
 .mp-opt__label{ font-weight:500; }
 .mp-opt.on{ border-color:var(--ink); background:var(--bone2); }
 .mp-opt.on .mp-opt__box{ background:var(--ink); border-color:var(--ink); color:var(--bone); }
+/* Leads follow-up: quote-price field (AED prefix) + action buttons */
+.leadq-field{ display:inline-flex; align-items:center; gap:.35rem; border:1px solid var(--hair); border-radius:6px; background:var(--card); padding:.1rem .5rem; }
+.leadq-field .leadq-prefix{ color:var(--muted); font-size:11px; font-weight:600; letter-spacing:.06em; }
+.leadq-field input.leadq{ border:0; outline:0; background:transparent; width:96px; font-size:14px; color:var(--ink); padding:.32rem 0; font-family:inherit; }
+.leadq-field input.leadq::-webkit-outer-spin-button, .leadq-field input.leadq::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+/* Mobile bottom-sheet mirror of the quote-price field */
+.doc-sheet-quote{ display:flex; align-items:center; gap:.6rem; width:100%; border:1px solid var(--hair); border-radius:12px; background:var(--bone); padding:.7rem .95rem; margin-bottom:.1rem; }
+.doc-sheet-quote .leadq-prefix{ color:var(--muted); font-weight:600; font-size:.85rem; letter-spacing:.06em; }
+.doc-sheet-quote input{ border:0; outline:0; background:transparent; flex:1; font-size:1rem; color:var(--ink); font-family:inherit; }
+.doc-sheet-quote input::-webkit-outer-spin-button, .doc-sheet-quote input::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
 </style>
 </head>
 <body>
@@ -5529,6 +5539,21 @@ const PAGE_SCRIPT = `<script>
         } else {
           openBtn = '<button type="button" class="btn btn-small btn-ghost" disabled title="Convert this lead to a quote or invoice first" style="opacity:.55;cursor:not-allowed">Not yet invoiced</button>';
         }
+        // v103 — follow-up block: optional AED quote-price input + WhatsApp /
+        // Copy / Email actions. The message is built from the lead's own fields
+        // at click time (see buildLeadMessage). WhatsApp disabled without a
+        // phone; Email disabled without an email. The mobile sheet mirrors the
+        // quote input and forwards the buttons via the existing mechanism.
+        const hasPhone = !!(x.phone && String(x.phone).trim());
+        const hasEmail = !!(x.email && String(x.email).trim());
+        const followupBlock = ''
+          + '<div class="leadq-field" title="Optional quote price (AED)">'
+          +   '<span class="leadq-prefix">AED</span>'
+          +   '<input type="number" inputmode="decimal" step="0.01" min="0" class="leadq" id="leadq-'+x.id+'" data-leadq="'+x.id+'" placeholder="Quote price">'
+          + '</div>'
+          + '<button type="button" class="btn btn-small btn-ink" data-leadwa="'+x.id+'"'+(hasPhone?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Send this follow-up to the client on WhatsApp">WhatsApp client</button>'
+          + '<button type="button" class="btn btn-small btn-ghost" data-leadcopy="'+x.id+'" title="Copy this follow-up message">Copy quote</button>'
+          + '<button type="button" class="btn btn-small btn-ghost" data-leademail="'+x.id+'"'+(hasEmail?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Email this follow-up to the client">Email client</button>';
         return '<tr class="expandable" data-expandable="1" data-leadstat="'+status+'" data-sortdate="'+esc(x.created_at||"")+'" data-sortamount="'+sortAmount+'">'
           + '<td data-lbl="Date">'+esc(created)+'</td>'
           + '<td data-lbl="Name">'+esc(x.name || "")+'</td>'
@@ -5540,7 +5565,7 @@ const PAGE_SCRIPT = `<script>
           + '<td data-lbl="Actions" style="text-align:right;white-space:nowrap" class="hist-actions">'+actions+'</td>'
           + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
           + '</tr>'
-          + '<tr class="hist-actions-row" hidden><td colspan="9"><div class="hist-actions-panel">'+openBtn+'</div></td></tr>';
+          + '<tr class="hist-actions-row" hidden><td colspan="9"><div class="hist-actions-panel">'+openBtn+followupBlock+'</div></td></tr>';
       }).join("");
       applyLeadsFilter();
     } catch(e){ setStatus("Leads load failed."); console.log("loadLeads error:", e); }
@@ -6403,6 +6428,57 @@ const PAGE_SCRIPT = `<script>
     }
   }
 
+  // v103 — Leads follow-up helpers. The message is assembled purely from the
+  // lead's own fields; a line is emitted only when its field is non-empty.
+  function leadNz(v){ return v == null ? "" : String(v).trim(); }
+  function leadServiceLabel(x){
+    if(leadNz(x.flight) || leadNz(x.sign)) return "Airport Transfer";
+    if(leadNz(x.days)) return "Chauffeur by the Hour";
+    return "Point to Point Transfer";
+  }
+  function buildLeadMessage(x, quoteStr){
+    const L = [];
+    L.push("Dear " + (leadNz(x.name) || "Guest") + ",");
+    L.push("");
+    L.push("Thank you for your reservation request with UMC Dubai. Here are the details we have on file:");
+    L.push("");
+    L.push("Service: " + leadServiceLabel(x));
+    if(leadNz(x.date))        L.push("Pickup date: " + leadNz(x.date));
+    if(leadNz(x.time))        L.push("Pickup time: " + leadNz(x.time));
+    if(leadNz(x.pickup))      L.push("Pickup location: " + leadNz(x.pickup));
+    if(leadNz(x.destination)) L.push("Destination: " + leadNz(x.destination));
+    if(leadNz(x.days))        L.push("At your disposal: " + leadNz(x.days));
+    if(leadNz(x.flight))      L.push("Flight number: " + leadNz(x.flight));
+    if(leadNz(x.sign))        L.push("Welcome sign name: " + leadNz(x.sign));
+    if(leadNz(x.vehicle))     L.push("Vehicle: " + leadNz(x.vehicle));
+    if(leadNz(x.notes))       L.push("Notes: " + leadNz(x.notes));
+    const price = leadNz(quoteStr);
+    L.push("Price: " + (price ? ("AED " + price) : "to be confirmed"));
+    L.push("");
+    L.push("Please confirm these details are correct and we will arrange everything for you. We are happy to adjust anything if needed.");
+    L.push("");
+    L.push("Warm regards,");
+    L.push("UMC Dubai");
+    L.push("+971 58 649 7861");
+    return L.join("\\n");
+  }
+  // Normalize a lead phone to a wa.me number: digits only; drop a leading "00";
+  // a single leading "0" on a 9/10-digit local number becomes 971; otherwise
+  // assume the country code is already present.
+  function normalizeWaNumber(phone){
+    let d = String(phone == null ? "" : phone).replace(/\\D/g, "");
+    if(!d) return "";
+    if(d.indexOf("00") === 0) return d.slice(2);
+    if(d.charAt(0) === "0" && (d.length === 9 || d.length === 10)) return "971" + d.slice(1);
+    return d;
+  }
+  // Read the current quote-price value for a lead (desktop drawer input; the
+  // mobile sheet mirrors its value into the same input, so this stays live).
+  function readLeadQuote(id){
+    const el = document.getElementById("leadq-" + id);
+    return el ? String(el.value || "").trim() : "";
+  }
+
   // Phase 1 — Leads tab delegation. Status filter, sort dropdown, refresh,
   // and the two action buttons per row (Create quote / Create invoice).
   function bindLeadsClickOnce(){
@@ -6435,6 +6511,53 @@ const PAGE_SCRIPT = `<script>
         const id = Number(iBtn.getAttribute("data-leadinvoice"));
         const lead = leadsCache.find(function(x){ return Number(x.id) === id; });
         if(lead) prefillFromLead(lead, "invoice");
+        return;
+      }
+      // v103 — follow-up: WhatsApp / Copy / Email. Each reads the quote-price
+      // input live at click time and builds the message from the lead's fields.
+      const waBtn = e.target.closest("[data-leadwa]");
+      if(waBtn){
+        e.preventDefault();
+        if(waBtn.disabled) return;
+        const id = Number(waBtn.getAttribute("data-leadwa"));
+        const lead = leadsCache.find(function(z){ return Number(z.id) === id; });
+        if(!lead) return;
+        const num = normalizeWaNumber(lead.phone);
+        if(!num){ setStatus("This lead has no phone number."); return; }
+        const msg = buildLeadMessage(lead, readLeadQuote(id));
+        window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(msg), "_blank", "noopener");
+        return;
+      }
+      const cpBtn = e.target.closest("[data-leadcopy]");
+      if(cpBtn){
+        e.preventDefault();
+        const id = Number(cpBtn.getAttribute("data-leadcopy"));
+        const lead = leadsCache.find(function(z){ return Number(z.id) === id; });
+        if(!lead) return;
+        const msg = buildLeadMessage(lead, readLeadQuote(id));
+        const done = function(){
+          const prev = cpBtn.textContent;
+          cpBtn.textContent = "Copied";
+          setTimeout(function(){ cpBtn.textContent = prev; }, 1400);
+        };
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(msg).then(done).catch(function(){ setStatus("Copy failed — please copy manually."); });
+        } else {
+          setStatus("Copy is not supported in this browser.");
+        }
+        return;
+      }
+      const emBtn = e.target.closest("[data-leademail]");
+      if(emBtn){
+        e.preventDefault();
+        if(emBtn.disabled) return;
+        const id = Number(emBtn.getAttribute("data-leademail"));
+        const lead = leadsCache.find(function(z){ return Number(z.id) === id; });
+        if(!lead) return;
+        const email = String(lead.email || "").trim();
+        if(!email){ setStatus("This lead has no email."); return; }
+        const msg = buildLeadMessage(lead, readLeadQuote(id));
+        window.location.href = "mailto:" + email + "?subject=Your%20UMC%20Dubai%20reservation%20request&body=" + encodeURIComponent(msg);
         return;
       }
       const dBtn = e.target.closest("[data-leaddel]");
@@ -7029,6 +7152,25 @@ const PAGE_SCRIPT = `<script>
     html += '<div class="doc-sheet-hr"></div>';
     sheetEl.innerHTML = html;
     var grab = document.getElementById('docSheetGrab'); if (grab) grab.addEventListener('click', dismiss);
+    // v103 — leads quote-price: mirror the drawer's AED input into the sheet so
+    // the agent can type a price here; writes back to the drawer input live, so
+    // the forwarded WhatsApp/Copy/Email buttons read the current value.
+    var qSrc = panel ? panel.querySelector('input.leadq') : null;
+    if (qSrc){
+      var qf = document.createElement('div');
+      qf.className = 'doc-sheet-quote';
+      var qpre = document.createElement('span');
+      qpre.className = 'leadq-prefix';
+      qpre.textContent = 'AED';
+      var qin = document.createElement('input');
+      qin.type = 'number'; qin.step = '0.01'; qin.min = '0';
+      qin.setAttribute('inputmode', 'decimal');
+      qin.placeholder = 'Quote price';
+      qin.value = qSrc.value || '';
+      qin.addEventListener('input', function(){ qSrc.value = qin.value; });
+      qf.appendChild(qpre); qf.appendChild(qin);
+      sheetEl.appendChild(qf);
+    }
     var src = [];
     if (panel){ Array.prototype.forEach.call(panel.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ src.push(b); }); }
     if (cfg.inline){ Array.prototype.forEach.call(row.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ src.push(b); }); }
