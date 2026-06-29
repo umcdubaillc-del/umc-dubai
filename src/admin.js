@@ -3568,6 +3568,15 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   .doc-sheet-meta{ display:flex; justify-content:space-between; align-items:center; margin-top:.5rem; color:var(--muted); font-size:.8rem; text-transform:uppercase; letter-spacing:.06em; }
   .doc-sheet-hr{ height:1px; background:var(--hair); margin:.9rem 0 .2rem; }
 }
+/* Mark-paid settlement-amount options (Paid in full / Paid in part) */
+.mp-optgroup{ display:flex; flex-direction:column; gap:.55rem; margin-bottom:.9rem; }
+.mp-opt{ display:flex; align-items:center; gap:.7rem; width:100%; text-align:left; padding:.75rem .85rem; background:var(--card); border:1px solid var(--hair); border-radius:8px; cursor:pointer; font-family:Outfit; font-size:.95rem; color:var(--ink); transition:border-color .15s, background .15s; }
+.mp-opt:hover{ border-color:var(--muted); }
+.mp-opt .mp-opt__box{ flex:0 0 auto; width:20px; height:20px; border:1.5px solid var(--hair); border-radius:6px; background:#fff; display:flex; align-items:center; justify-content:center; font-size:13px; line-height:1; color:transparent; transition:background .15s, border-color .15s, color .15s; }
+.mp-opt .mp-opt__box::after{ content:"✓"; }
+.mp-opt__label{ font-weight:500; }
+.mp-opt.on{ border-color:var(--ink); background:var(--bone2); }
+.mp-opt.on .mp-opt__box{ background:var(--ink); border-color:var(--ink); color:var(--bone); }
 </style>
 </head>
 <body>
@@ -5948,9 +5957,9 @@ const PAGE_SCRIPT = `<script>
       + '<div class="ed-body" style="padding:1.2rem 1.4rem 1.4rem">'
       + '  <p class="hist-sub" style="margin:0 0 1rem">How was this invoice settled? It will appear in Payments under the chosen method.</p>'
       + '  <div class="status-line" id="mpStatus" style="min-height:1.1em;margin:0 0 .8rem"></div>'
-      + '  <div class="hist-typefilter" role="tablist" aria-label="Settlement amount" style="margin-bottom:.9rem">'
-      + '    <button type="button" class="seg on" data-mpfull="1">Paid in full</button>'
-      + '    <button type="button" class="seg"    data-mpfull="0">Paid in part</button>'
+      + '  <div class="mp-optgroup" role="radiogroup" aria-label="Settlement amount">'
+      + '    <button type="button" class="mp-opt on" data-mpfull="1" role="radio" aria-checked="true"><span class="mp-opt__box" aria-hidden="true"></span><span class="mp-opt__label">Paid in full</span></button>'
+      + '    <button type="button" class="mp-opt" data-mpfull="0" role="radio" aria-checked="false"><span class="mp-opt__box" aria-hidden="true"></span><span class="mp-opt__label">Paid in part</span></button>'
       + '  </div>'
       + '  <div id="mpAmtWrap" hidden style="margin:0 0 1rem">'
       + '    <label class="lbl" for="mpAmount" style="display:block;margin-bottom:.3rem">Amount received (AED)</label>'
@@ -5974,9 +5983,10 @@ const PAGE_SCRIPT = `<script>
     modal.querySelectorAll("[data-mpfull]").forEach(function(b){
       b.addEventListener("click", function(e){
         e.preventDefault();
-        modal.querySelectorAll("[data-mpfull]").forEach(function(s){ s.classList.toggle("on", s === b); });
+        modal.querySelectorAll("[data-mpfull]").forEach(function(s){ s.classList.toggle("on", s === b); s.setAttribute("aria-checked", s === b ? "true" : "false"); });
         const wrap = modal.querySelector("#mpAmtWrap");
         if (wrap) wrap.hidden = (b.getAttribute("data-mpfull") === "1");
+        if (b.getAttribute("data-mpfull") === "0"){ const amtEl = modal.querySelector("#mpAmount"); if (amtEl){ try { amtEl.focus(); } catch(_){} } }
       });
     });
     backdrop.addEventListener("click", close);
