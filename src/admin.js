@@ -3554,7 +3554,7 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   .doc-sheet-cancel{ background:transparent !important; border-color:transparent !important; color:var(--muted) !important; }
   .mark-paid-modal .ed-shell{ position:fixed !important; left:0 !important; right:0 !important; bottom:0 !important; top:auto !important; transform:none !important; width:100% !important; max-width:none !important; border-radius:20px 20px 0 0 !important; max-height:86vh !important; overflow-y:auto !important; }
   body.doc-sheet-lock{ overflow:hidden; }
-  #tab-documents tr.expandable.open + tr.hist-actions-row, #tab-leads tr.expandable.open + tr.hist-actions-row, #tab-links tr.expandable.open + tr.hist-actions-row{ display:none !important; }
+  #tab-documents tr.expandable.open + tr.hist-actions-row, #tab-leads tr.expandable.open + tr.hist-actions-row, #tab-links tr.expandable.open + tr.hist-actions-row, #tab-payments tr.expandable.open + tr.hist-actions-row{ display:none !important; }
   #tab-documents tr.expandable.open + tr.hist-actions-row > td{ padding:0 !important; border:0 !important; }
   #tab-documents tr.expandable.open + tr.hist-actions-row .hist-actions-panel{ position:fixed !important; left:0; right:0; bottom:0; z-index:60; margin:0 !important; width:100%; border-radius:20px 20px 0 0; background:var(--card) !important; border:0 !important; box-shadow:0 -12px 44px rgba(0,0,0,.28); padding:.5rem 1.1rem 1.4rem !important; max-height:82vh; overflow:auto; display:flex !important; flex-direction:column; gap:.55rem; animation:docSheetUp .28s cubic-bezier(.32,.72,0,1); }
   @keyframes docSheetUp{ from{ transform:translateY(100%); } to{ transform:translateY(0); } }
@@ -3587,6 +3587,8 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
 .doc-sheet-quote .leadq-prefix{ color:var(--muted); font-weight:600; font-size:.85rem; letter-spacing:.06em; }
 .doc-sheet-quote input{ border:0; outline:0; background:transparent; flex:1; font-size:1rem; color:var(--ink); font-family:inherit; }
 .doc-sheet-quote input::-webkit-outer-spin-button, .doc-sheet-quote input::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+/* Bottom-sheet read-only notice (e.g. Payments) */
+.doc-sheet-note{ color:var(--muted); font-size:.85rem; line-height:1.45; padding:.1rem .2rem .3rem; }
 </style>
 </head>
 <body>
@@ -7078,9 +7080,10 @@ const PAGE_SCRIPT = `<script>
   var CFG = {
     'tab-documents': { title:{lbl:'Number',link:true},  sub:{lbl:'Client'},  right:{lbl:'Total'},  metaL:['Type','Date'], metaR:'Status', inline:false },
     'tab-leads':     { title:{lbl:'Name'},               sub:{lbl:'Contact'}, right:null,           metaL:['Service'],    metaR:'Status', inline:true  },
-    'tab-links':     { title:{lbl:'Client',first:true},  sub:null,            right:{lbl:'Amount'}, metaL:['Created'],    metaR:'Status', inline:false }
+    'tab-links':     { title:{lbl:'Client',first:true},  sub:null,            right:{lbl:'Amount'}, metaL:['Created'],    metaR:'Status', inline:false },
+    'tab-payments':  { title:{lbl:'Client'},              sub:null,            right:{lbl:'Amount'}, metaL:['Date paid','Method'], metaR:function(row){ return row.classList.contains('excluded') ? 'Excluded' : 'Paid'; }, note:'Payments is read-only. Mark paid (cash or bank) on the invoice; copy a payment link from Payment Links.', inline:false }
   };
-  var TABS = ['tab-documents','tab-leads','tab-links'];
+  var TABS = ['tab-documents','tab-leads','tab-links','tab-payments'];
   function mq(){ return window.matchMedia('(max-width: 620px)').matches; }
   var sheetEl = null, backdropEl = null, currentRow = null;
   function cell(row, lbl){ return row.querySelector('td[data-lbl="' + lbl + '"]'); }
@@ -7146,10 +7149,13 @@ const PAGE_SCRIPT = `<script>
     var html = '<div class="doc-sheet-grab" id="docSheetGrab"></div>';
     html += '<div class="doc-sheet-row1"><div><div class="doc-sheet-num">' + titleText(row, cfg) + '</div>' + subHtml + '</div>' + rightHtml + '</div>';
     var metaLeft = cfg.metaL.map(function(l){ return cellText(row, l); }).filter(Boolean).join(' · ');
-    var metaRight = cfg.metaR ? cellText(row, cfg.metaR) : '';
+    var metaRight = '';
+    if (typeof cfg.metaR === 'function') metaRight = cfg.metaR(row) || '';
+    else if (cfg.metaR) metaRight = cellText(row, cfg.metaR);
     if (/^[·.\s]*$/.test(metaRight)) metaRight = '';
     if (metaLeft || metaRight){ html += '<div class="doc-sheet-meta"><span>' + metaLeft + '</span><span>' + metaRight + '</span></div>'; }
     html += '<div class="doc-sheet-hr"></div>';
+    if (cfg.note){ html += '<div class="doc-sheet-note">' + cfg.note + '</div>'; }
     sheetEl.innerHTML = html;
     var grab = document.getElementById('docSheetGrab'); if (grab) grab.addEventListener('click', dismiss);
     // v103 — leads quote-price: mirror the drawer's AED input into the sheet so
