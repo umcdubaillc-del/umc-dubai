@@ -133,10 +133,19 @@ function compute(doc){
 
 /* ---------- the invoice document ---------- */
 const COMPANY = { legal:"UMC In Bound Tour Operator LLC", trn:"104201356300003", addr:"Ras Al Khor, Dubai, UAE", phone:"+971 58 649 7861", email:"contact@umcdubai.ae" };
-const TERMS = [
+const TERMS_QUOTE = [
+  "This quotation is valid for 7 days from the date of issue and is subject to availability and confirmation at the time of booking.",
+  "The services quoted are as per the booking details stated, including date, time, route, and duration.",
+  "Any additional requests or changes to the itinerary may incur additional charges and are subject to availability.",
+  "Cancellations or amendments must be communicated in advance. Late cancellations may be subject to a fee.",
+  "The company is not liable for delays arising from circumstances beyond its control, including traffic, weather, or road closures.",
+  "Passengers are responsible for any loss or damage to the vehicle caused by their own actions or negligence during the service period.",
+  "Smoking and the consumption of alcohol are not permitted inside the vehicle."
+];
+const TERMS_INVOICE = [
   "The services provided are as per the agreed booking details, including date, time, route, and duration.",
   "Any additional requests or changes to the itinerary may incur additional charges and are subject to availability.",
-  "Payment is due in accordance with the terms stated on this document.",
+  "Payment is due by the date stated on this invoice, to the account specified.",
   "Cancellations or amendments must be communicated in advance. Late cancellations may be subject to a fee.",
   "The company is not liable for delays arising from circumstances beyond its control, including traffic, weather, or road closures.",
   "Passengers are responsible for any loss or damage to the vehicle caused by their own actions or negligence during the service period.",
@@ -310,6 +319,7 @@ export async function renderInvoicePdf(doc){
   const termsIndentPx = 17.6;                               // ol padding-left 1.1rem
   const termsTextWpx = colLW - termsIndentPx;
 
+  const TERMS = isInv ? TERMS_INVOICE : TERMS_QUOTE;
   const termWrapped = TERMS.map(t => wrapLine(t, f.outfit, 10.5, termsTextWpx));
   let leftHpx = 9 + 9.6;                                    // h4 + margin-bottom .6rem
   for(const lines of termWrapped){ leftHpx += lines.length*(10.5*1.6) + 4.8; }

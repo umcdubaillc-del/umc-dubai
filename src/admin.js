@@ -4078,10 +4078,19 @@ const PAGE_SCRIPT = `<script>
     iban: "AE210860000009022046225",
     bic:  "WIOBAEADXXX"
   };
-  const TERMS = [
+  const TERMS_QUOTE = [
+    "This quotation is valid for 7 days from the date of issue and is subject to availability and confirmation at the time of booking.",
+    "The services quoted are as per the booking details stated, including date, time, route, and duration.",
+    "Any additional requests or changes to the itinerary may incur additional charges and are subject to availability.",
+    "Cancellations or amendments must be communicated in advance. Late cancellations may be subject to a fee.",
+    "The company is not liable for delays arising from circumstances beyond its control, including traffic, weather, or road closures.",
+    "Passengers are responsible for any loss or damage to the vehicle caused by their own actions or negligence during the service period.",
+    "Smoking and the consumption of alcohol are not permitted inside the vehicle."
+  ];
+  const TERMS_INVOICE = [
     "The services provided are as per the agreed booking details, including date, time, route, and duration.",
     "Any additional requests or changes to the itinerary may incur additional charges and are subject to availability.",
-    "Payment is due in accordance with the terms stated on this document.",
+    "Payment is due by the date stated on this invoice, to the account specified.",
     "Cancellations or amendments must be communicated in advance. Late cancellations may be subject to a fee.",
     "The company is not liable for delays arising from circumstances beyond its control, including traffic, weather, or road closures.",
     "Passengers are responsible for any loss or damage to the vehicle caused by their own actions or negligence during the service period.",
@@ -4380,7 +4389,7 @@ const PAGE_SCRIPT = `<script>
       //     to the bottom of .dbody via margin-top:auto in CSS. ---
       + '<div class="legal">'
       +   '<div class="terms"><h4>Terms &amp; Conditions</h4><ol>'
-      +     TERMS.map(function(t){ return '<li>'+esc(t)+'</li>'; }).join("")
+      +     (state.doc_type === "invoice" ? TERMS_INVOICE : TERMS_QUOTE).map(function(t){ return '<li>'+esc(t)+'</li>'; }).join("")
       +   '</ol></div>'
       +   '<div class="bank"><h4>Payment · bank transfer</h4>'
       +     '<table>'
