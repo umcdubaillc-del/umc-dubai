@@ -4090,7 +4090,7 @@ const PAGE_SCRIPT = `<script>
   const TERMS_INVOICE = [
     "The services provided are as per the agreed booking details, including date, time, route, and duration.",
     "Any additional requests or changes to the itinerary may incur additional charges and are subject to availability.",
-    "Payment is due by the date stated on this invoice, to the account specified.",
+    "Payment is due upon receipt of this invoice, to the account specified.",
     "Cancellations or amendments must be communicated in advance. Late cancellations may be subject to a fee.",
     "The company is not liable for delays arising from circumstances beyond its control, including traffic, weather, or road closures.",
     "Passengers are responsible for any loss or damage to the vehicle caused by their own actions or negligence during the service period.",
