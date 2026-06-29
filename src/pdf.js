@@ -134,12 +134,13 @@ function compute(doc){
 /* ---------- the invoice document ---------- */
 const COMPANY = { legal:"UMC In Bound Tour Operator LLC", trn:"104201356300003", addr:"Ras Al Khor, Dubai, UAE", phone:"+971 58 649 7861", email:"contact@umcdubai.ae" };
 const TERMS = [
-  "The services provided are as per the agreed booking details, including date, time, destination(s), and duration.",
-  "Any additional requests or changes to the itinerary may incur extra charges and are subject to availability.",
-  "Payment is due as per the agreed terms.",
-  "Cancellations or modifications must be communicated in advance; otherwise, cancellation fees may apply.",
-  "The company is not liable for delays caused by unforeseen circumstances such as traffic, weather conditions, or road closures.",
-  "Clients are responsible for any damages caused to the vehicle during the service period."
+  "The services provided are as per the agreed booking details, including date, time, route, and duration.",
+  "Any additional requests or changes to the itinerary may incur additional charges and are subject to availability.",
+  "Payment is due in accordance with the terms stated on this document.",
+  "Cancellations or amendments must be communicated in advance. Late cancellations may be subject to a fee.",
+  "The company is not liable for delays arising from circumstances beyond its control, including traffic, weather, or road closures.",
+  "Passengers are responsible for any loss or damage to the vehicle caused by their own actions or negligence during the service period.",
+  "Smoking and the consumption of alcohol are not permitted inside the vehicle."
 ];
 const BANK = { name:"WIO Bank", title:"UMC In Bound Tour Operator LLC", iban:"AE210860000009022046225", bic:"WIOBAEADXXX" };
 
