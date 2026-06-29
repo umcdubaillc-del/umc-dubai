@@ -87,6 +87,12 @@ function esc(s) {
   );
 }
 
+// Today's date as "YYYY-MM-DD" in Asia/Dubai local time. A document's own date
+// must follow the operator's wall clock, not UTC — otherwise a doc created
+// between 00:00 and 03:59 GST is stamped with the previous UTC day. Derived via
+// timezone (UAE is a fixed UTC+4, but never hardcode the offset).
+function umcTodayDubai(){ return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dubai'}).format(new Date()); }
+
 // ============================================================ D1
 
 function dbUnavailable() {
@@ -610,7 +616,7 @@ async function handleConvertToInvoice(id, env) {
   const m = String(src.number).match(/(\d+)\s*$/);
   if (!m) return json({ ok: false, error: "Cannot extract numeric from source quote number." }, 500);
   const newNumber = PREFIX.invoice + m[1];
-  const today = new Date().toISOString().slice(0, 10);
+  const today = umcTodayDubai();
   try {
     const res = await env.BILLING_DB.prepare(
       `INSERT INTO billing_documents
@@ -4044,6 +4050,11 @@ const LOGIN_SCRIPT = `<script>
 
 const PAGE_SCRIPT = `<script>
 (function(){
+  // Today's date as "YYYY-MM-DD" in Asia/Dubai local time, so a document's own
+  // date follows the operator's wall clock rather than UTC (a doc created
+  // 00:00-03:59 GST would otherwise be stamped the previous UTC day). Derived
+  // via timezone, never a hardcoded offset.
+  function umcTodayDubai(){ return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dubai'}).format(new Date()); }
   // ---------- constants
   const COMPANY = {
     legal: "UMC In Bound Tour Operator LLC",
@@ -4075,7 +4086,7 @@ const PAGE_SCRIPT = `<script>
     id: null,
     doc_type: "quote",
     number: "",
-    doc_date: new Date().toISOString().slice(0,10),
+    doc_date: umcTodayDubai(),
     currency: "AED",
     vat_mode: "exclusive",
     client: { name:"", company:"", address:"", email:"", phone:"" },
@@ -4927,7 +4938,7 @@ const PAGE_SCRIPT = `<script>
     state.attach_link_id = null;
     // v96 — New starts in default (unpaid) state, so the PAID stamp is hidden.
     state.payment_status = null;
-    state.doc_date = new Date().toISOString().slice(0,10);
+    state.doc_date = umcTodayDubai();
     ["cName","cCompany","cAddress","cEmail","cPhone","fDiscount","fNotes","fInternalNotes"].forEach(function(id){ const el = $(id); if(el) el.value = ""; });
     $("fDate").value = state.doc_date;
     renderLineRows(); renderTotals(); fetchNext(); renderDoc();
@@ -5566,7 +5577,7 @@ const PAGE_SCRIPT = `<script>
     if($("fInternalNotes")) $("fInternalNotes").value = state.internal_notes;
     $("fDiscount").value = "";
     state.source_quote_number = null;
-    state.doc_date = new Date().toISOString().slice(0,10);
+    state.doc_date = umcTodayDubai();
     $("fDate").value = state.doc_date;
     renderLineRows(); renderTotals(); renderDoc();
     // Issue a fresh number for the chosen doc type.
@@ -6076,7 +6087,7 @@ const PAGE_SCRIPT = `<script>
     state.notes = link.note || "";
     state.internal_notes = "From standalone link #" + link.id + " (reusing Nomod URL " + (link.nomod_link_url || "") + ")";
     state.source_quote_number = null;
-    state.doc_date = new Date().toISOString().slice(0,10);
+    state.doc_date = umcTodayDubai();
     $("fNotes").value = state.notes;
     if($("fInternalNotes")) $("fInternalNotes").value = state.internal_notes;
     $("fDiscount").value = "";
