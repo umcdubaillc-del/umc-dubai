@@ -3507,6 +3507,10 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   .doc-sheet-action:disabled{ opacity:.4; }
   .doc-sheet-danger{ color:var(--amber-deep); border-color:rgba(168,75,12,.32); }
   .doc-sheet-action.doc-sheet-ok{ color:var(--paid); border-color:rgba(46,125,84,.4); }
+  /* Leads: inline Actions cell (Converted label + delete x) is redundant on mobile; the sheet carries these actions. Buttons stay in the DOM so the sheet's forwarding still works. */
+  #tab-leads tr.expandable td[data-lbl="Actions"]{ display:none !important; }
+  /* Sheet Cancel button — secondary/muted */
+  .doc-sheet-cancel{ background:transparent !important; border-color:transparent !important; color:var(--muted) !important; }
   body.doc-sheet-lock{ overflow:hidden; }
   #tab-documents tr.expandable.open + tr.hist-actions-row, #tab-leads tr.expandable.open + tr.hist-actions-row, #tab-links tr.expandable.open + tr.hist-actions-row{ display:none !important; }
   #tab-documents tr.expandable.open + tr.hist-actions-row > td{ padding:0 !important; border:0 !important; }
@@ -6922,6 +6926,12 @@ const PAGE_SCRIPT = `<script>
     if (cfg.inline){ Array.prototype.forEach.call(row.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ src.push(b); }); }
     var seen = {};
     for (var i = 0; i < src.length; i++){ var k = src[i].textContent.trim(); if (k && !seen[k]){ seen[k] = 1; bindAction(src[i]); } }
+    var cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'doc-sheet-action doc-sheet-cancel';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', dismiss);
+    sheetEl.appendChild(cancelBtn);
     return true;
   }
   function present(row, cfg){
