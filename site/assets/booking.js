@@ -257,17 +257,26 @@
       flight: g("kFlight"), sign: g("kSign"), notes: g("kNotes"),
       page: location.pathname, ts: new Date().toISOString()
     };
-    try { fetch("/api/lead", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)}); } catch(_){}
-
-    // swap form view for the done panel, then open WhatsApp ~600ms later
-    const form = $("bkForm"), done = $("bkDone");
-    if(form) form.classList.add("hide");
-    if(done){
-      done.classList.remove("hide");
-      done.scrollIntoView({behavior:"smooth", block:"start"});
-    }
     const waUrl = "https://api.whatsapp.com/send?phone=" + PHONE + "&text=" + encodeURIComponent(m);
-    setTimeout(()=>{ window.open(waUrl, "_blank", "noopener"); }, 600);
+    const form = $("bkForm"), done = $("bkDone");
+    (async () => {
+      let ok = false;
+      try {
+        const r = await fetch("/api/lead", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload) });
+        ok = r.ok;
+      } catch(_) { ok = false; }
+      if (form) form.classList.add("hide");
+      if (done) {
+        if (!ok) {
+          // Backend did not confirm — be honest, do not claim receipt.
+          const lede = done.querySelector(".lede");
+          if (lede) lede.textContent = "Please tap Send in WhatsApp to reach our concierge directly — we'll confirm your reservation from there.";
+        }
+        done.classList.remove("hide");
+        done.scrollIntoView({ behavior:"smooth", block:"start" });
+      }
+      setTimeout(() => { window.open(waUrl, "_blank", "noopener"); }, 600);
+    })();
   });
 
   // terms dialog

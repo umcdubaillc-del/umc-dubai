@@ -159,6 +159,7 @@ async function ensureLeadsSchema(env) {
     "marketing_consent INTEGER DEFAULT 1",
     "consent_text TEXT",
     "consent_at TEXT",
+    "verified INTEGER DEFAULT 1",
   ]) {
     try {
       await env.BILLING_DB.prepare(`ALTER TABLE leads ADD COLUMN ${col}`).run();
@@ -190,31 +191,35 @@ async function handleLead(request, env, ctx) {
   const phone = clip((body && body.phone) || "", 60).trim();
   if (!name || !phone) return json({ ok: false, error: "missing fields" }, 400);
 
-  // Turnstile verification — active only once TURNSTILE_SECRET_KEY is set. Fails CLOSED on a
-  // bad/absent token (bot); fails OPEN only if siteverify itself is unreachable (CF outage),
-  // so a Cloudflare-side problem can never block real leads.
+  // Turnstile: verify for a spam SIGNAL only. A missing/invalid token (widget failed to
+  // render, ad-blocker, privacy browser) must NOT cost us a real lead. Capture every lead;
+  // flag unverified ones for review. Only fail-open silently on a CF-side outage.
+  let turnstileVerified = 1; // default: cannot check -> treat as verified
   if (env.TURNSTILE_SECRET_KEY) {
     const token = (body && typeof body.turnstileToken === "string") ? body.turnstileToken : "";
-    let pass = false;
-    try {
-      const ip = request.headers.get("CF-Connecting-IP") || "";
-      const form = new URLSearchParams();
-      form.set("secret", env.TURNSTILE_SECRET_KEY);
-      form.set("response", token);
-      if (ip) form.set("remoteip", ip);
-      const vr = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString()
-      });
-      const vj = await vr.json();
-      pass = !!(vj && vj.success);
-    } catch (e) {
-      console.error("TURNSTILE verify threw, failing open", e && (e.message || String(e)));
-      pass = true;
+    if (!token) {
+      turnstileVerified = 0;
+    } else {
+      try {
+        const ip = request.headers.get("CF-Connecting-IP") || "";
+        const form = new URLSearchParams();
+        form.set("secret", env.TURNSTILE_SECRET_KEY);
+        form.set("response", token);
+        if (ip) form.set("remoteip", ip);
+        const vr = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: form.toString()
+        });
+        const vj = await vr.json();
+        turnstileVerified = (vj && vj.success) ? 1 : 0;
+      } catch (e) {
+        console.error("TURNSTILE verify threw, treating as verified", e && (e.message || String(e)));
+        turnstileVerified = 1;
+      }
     }
-    if (!pass) return json({ ok: false, error: "verification failed" }, 403);
   }
+  if (!turnstileVerified) console.log("LEAD captured UNVERIFIED (turnstile)");
 
   // Normalise inputs for downstream tasks
   const payload = {
@@ -233,7 +238,8 @@ async function handleLead(request, env, ctx) {
     sign: clip(body.sign || "", 100),
     notes: clip(body.notes || "", 800),
     page: clip(body.page || "", 120),
-    ts: clip(body.ts || new Date().toISOString(), 40)
+    ts: clip(body.ts || new Date().toISOString(), 40),
+    verified: turnstileVerified
   };
 
   // v89 — durable local write FIRST (fail-open: a D1 error is logged, never
@@ -247,14 +253,14 @@ async function handleLead(request, env, ctx) {
         `INSERT INTO leads
           (created_at, source, name, phone, email, service, pickup, destination,
            date, time, vehicle, days, flight, sign, notes, page, client_ts, payload_json,
-           marketing_consent, consent_text, consent_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+           marketing_consent, consent_text, consent_at, verified)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
         consentAt, payload.source, payload.name, payload.phone,
         payload.email, payload.service, payload.pickup, payload.destination,
         payload.date, payload.time, payload.vehicle, payload.days, payload.flight,
         payload.sign, payload.notes, payload.page, payload.ts, JSON.stringify(payload),
-        1, MARKETING_CONSENT_TEXT, consentAt
+        1, MARKETING_CONSENT_TEXT, consentAt, payload.verified
       ).run();
     } catch (e) {
       console.error("LEADS_DB insert failed", e && (e.message || String(e)));
@@ -267,7 +273,7 @@ async function handleLead(request, env, ctx) {
   if (payload.email && env.MC_API_KEY && env.MC_LIST_ID && env.MC_DC) {
     tasks.push(addToMailchimp(env, payload));
   }
-  if (env.RESEND_API_KEY && payload.email) tasks.push(sendClientReceipt(env, payload));
+  if (env.RESEND_API_KEY && payload.email && turnstileVerified) tasks.push(sendClientReceipt(env, payload));
 
   // Fire and forget — do not block the response
   ctx.waitUntil(Promise.allSettled(tasks));
@@ -319,7 +325,7 @@ function emailWordmark() {
 async function sendEmail(env, b) {
   const label = "RESEND";
   const to = env.LEAD_EMAIL_TO || "contact@umcdubai.ae";
-  const subject = `New reservation request — ${b.name} — ${b.service || "general"}`;
+  const subject = (b.verified === 0 ? "[UNVERIFIED] " : "") + `New reservation request — ${b.name} — ${b.service || "general"}`;
   // v22: split into "Guest details" + "Request details" sections; labels renamed to match
   // the website form's wording (Vehicle → Vehicle or service, Notes → Request).
   const guestRowsHtml = emailRows([
