@@ -5778,9 +5778,12 @@ const PAGE_SCRIPT = `<script>
     setStatus("Prefilled from lead #" + state.lead_id + ". Enter a price to issue.");
   }
 
-  // v105 — paid-invoice locking. Disables the financial inputs (line items,
-  // qty, rate, discount, currency); client + notes stay editable. Re-applied
-  // after every renderLineRows (which rebuilds #ltBody enabled).
+  // v105.1 — paid-invoice locking. Disables the financial inputs (line-item
+  // description/qty/rate, add-line, delete-line, discount, currency AND VAT
+  // mode — VAT mode changes the total so it locks too); client + notes stay
+  // editable. Re-applied after every renderLineRows (which rebuilds #ltBody
+  // enabled). Every lookup is null-guarded so a missing element is skipped, not
+  // fatal.
   function setFinancialDisabled(disabled){
     const body = document.getElementById("ltBody");
     if(body){
@@ -5793,31 +5796,73 @@ const PAGE_SCRIPT = `<script>
     const add = document.getElementById("ltAdd"); if(add) add.disabled = disabled;
     const disc = document.getElementById("fDiscount"); if(disc) disc.disabled = disabled;
     const cur = document.getElementById("fCurrency"); if(cur) cur.disabled = disabled;
+    const vat = document.getElementById("fVatMode"); if(vat) vat.disabled = disabled;
   }
-  // Reconcile the lock banner / warning / input-disabled state with the current
-  // payment_status and whether the operator has chosen "Edit anyway".
+  // The amount to display in the lock banner/warning. Legacy paid docs (e.g.
+  // UMC-INV-1002/1003) have paid_amount = null, so fall back to the live doc
+  // total — it must never read "AED 0.00 recorded".
+  function paidLockAmount(){
+    const a = Number(state.paid_amount) || 0;
+    if(a > 0) return a;
+    try { if(typeof compute === "function"){ const c = compute(); if(c && Number(c.total) > 0) return Number(c.total); } } catch(_){}
+    return 0;
+  }
+  // Self-heal: ensure the lock banner + warning exist inside the live editor
+  // panel (the same container as #fCurrency / the line-items table, which is
+  // what gets moved into #editorModal). If the static markup is missing from
+  // the rendered editor for any reason, build it here so the banner always
+  // renders where the form does.
+  function ensurePaidLockEls(){
+    let banner = document.getElementById("paidLockBanner");
+    let warn = document.getElementById("paidEditWarn");
+    if(banner && warn) return;
+    const anchor = document.getElementById("fCurrency");
+    let panel = anchor ? anchor.closest("section.panel") : null;
+    if(!panel) panel = document.querySelector("#editorHost section.panel") || document.querySelector("#editorSlot section.panel") || document.querySelector("section.panel");
+    if(!panel) return;
+    if(!banner){
+      banner = document.createElement("div");
+      banner.id = "paidLockBanner"; banner.className = "paid-lock"; banner.hidden = true;
+      const msg = document.createElement("span"); msg.className = "paid-lock__msg"; msg.id = "paidLockMsg";
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "btn btn-small btn-ghost"; b.id = "btnEditAnyway"; b.textContent = "Edit anyway";
+      b.addEventListener("click", function(){ state.adjustAfterPaid = true; applyPaidLock(); updateLeadRevertButton(); });
+      banner.appendChild(msg); banner.appendChild(b);
+      panel.insertBefore(banner, panel.firstChild);
+    }
+    if(!warn){
+      warn = document.createElement("div");
+      warn.id = "paidEditWarn"; warn.className = "paid-warn"; warn.hidden = true;
+      panel.insertBefore(warn, banner ? banner.nextSibling : panel.firstChild);
+    }
+  }
+  // Reconcile the lock with payment_status + the "Edit anyway" flag. The input
+  // disabling is computed from state and run FIRST, unconditionally — never
+  // gated on finding a banner element. A paid, not-yet-unlocked invoice always
+  // has its financial inputs disabled, even if the banner markup is absent.
   function applyPaidLock(){
+    const isPaid = state.payment_status === "paid";
+    const locked = isPaid && !state.adjustAfterPaid;
+    setFinancialDisabled(locked);
+    if(!isPaid) state.adjustAfterPaid = false;
+    // Banner/warning are best-effort UI on top of the guaranteed lock above.
+    ensurePaidLockEls();
     const banner = document.getElementById("paidLockBanner");
     const warn = document.getElementById("paidEditWarn");
     const msg = document.getElementById("paidLockMsg");
-    const isPaid = state.payment_status === "paid";
-    const amt = (Number(state.paid_amount) || 0).toFixed(2);
+    const amt = paidLockAmount().toFixed(2);
     if(!isPaid){
-      state.adjustAfterPaid = false;
       if(banner) banner.hidden = true;
       if(warn) warn.hidden = true;
-      setFinancialDisabled(false);
       return;
     }
     if(state.adjustAfterPaid){
       if(banner) banner.hidden = true;
       if(warn){ warn.hidden = false; warn.textContent = "Editing a paid invoice. Figures will no longer match the recorded payment of AED " + amt + "."; }
-      setFinancialDisabled(false);
     } else {
       if(banner) banner.hidden = false;
       if(msg) msg.textContent = "This invoice is paid. AED " + amt + " recorded. Amounts are locked so the invoice stays reconciled with the payment.";
       if(warn) warn.hidden = true;
-      setFinancialDisabled(true);
     }
   }
   // Restore the figures captured at payment (paid_snapshot). Returns to the
