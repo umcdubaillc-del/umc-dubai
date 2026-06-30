@@ -2410,6 +2410,7 @@ async function handleListLeads(env) {
             pickup, destination, date, time, days, flight, sign, notes,
             COALESCE(marketing_consent, 0) AS marketing_consent,
             COALESCE(status, 'new') AS status,
+            COALESCE(verified, 1) AS verified,
             linked_doc_number, converted_at
        FROM leads
       ORDER BY id DESC LIMIT 500`
@@ -2928,6 +2929,9 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 .pay-status.unpaid{color:var(--muted)}
 .pay-status.expired{color:var(--muted);text-decoration:line-through}
 .pay-status.unknown{color:var(--muted);opacity:.7}
+/* v106 — Turnstile spam-signal marker on unverified leads. Amber warning tone,
+   distinct from the green/neutral status badges but not alarming. */
+.lead-unverified{display:inline-block;margin-left:.4rem;padding:.1rem .4rem;border-radius:4px;font-family:Outfit,sans-serif;font-size:9px;letter-spacing:.16em;text-transform:uppercase;font-weight:600;color:var(--amber-deep);background:rgba(168,75,12,.12);vertical-align:middle}
 .pay-type{font-family:Outfit,sans-serif;font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
 /* v59: editor modal overlay. The Documents tab's Open action moves the
    shared #editorHost into #editorSlot and reveals this overlay. Same
@@ -5583,6 +5587,11 @@ const PAGE_SCRIPT = `<script>
         const statusCell = x.linked_doc_number
           ? '<span class="pay-status '+status+'">'+esc(statusLabel)+' · '+esc(x.linked_doc_number)+'</span>'
           : '<span class="pay-status '+status+'">'+esc(statusLabel)+'</span>';
+        // v106 — Turnstile spam signal. Show only when verified is strictly 0
+        // (never for 1, null or undefined, which render exactly as before).
+        const unverifiedPill = (x.verified === 0 || x.verified === "0")
+          ? ' <span class="lead-unverified" title="Turnstile did not verify this submission">UNVERIFIED</span>'
+          : '';
         const route = [x.pickup, x.destination].filter(Boolean).join(" → ");
         const contactBits = [];
         if(x.email) contactBits.push(esc(x.email));
@@ -5639,7 +5648,7 @@ const PAGE_SCRIPT = `<script>
           + '<td data-lbl="Service">'+esc(serviceBits || "·")+'</td>'
           + '<td data-lbl="Route">'+esc(route || "·")+'</td>'
           + '<td data-lbl="Consent">'+consent+'</td>'
-          + '<td data-lbl="Status">'+statusCell+'</td>'
+          + '<td data-lbl="Status">'+statusCell+unverifiedPill+'</td>'
           + '<td data-lbl="Actions" style="text-align:right;white-space:nowrap" class="hist-actions">'+actions+'</td>'
           + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
           + '</tr>'
@@ -7333,7 +7342,7 @@ const PAGE_SCRIPT = `<script>
   window.__sheetBound = true;
   var CFG = {
     'tab-documents': { title:{lbl:'Number',link:true},  sub:{lbl:'Client'},  right:{lbl:'Total'},  metaL:['Type','Date'], metaR:'Status', inline:false },
-    'tab-leads':     { title:{lbl:'Name'},               sub:{lbl:'Contact'}, right:null,           metaL:['Service'],    metaR:'Status', inline:true  },
+    'tab-leads':     { title:{lbl:'Name'},               sub:{lbl:'Contact'}, right:null,           metaL:['Service'],    metaR:function(row){ var c = row.querySelector('td[data-lbl="Status"]'); var s = c && c.querySelector('.pay-status'); var base = s ? s.textContent.trim() : (c ? c.textContent.trim() : ''); return base + (row.querySelector('.lead-unverified') ? ' \u00b7 UNVERIFIED' : ''); }, inline:true  },
     'tab-links':     { title:{lbl:'Client',first:true},  sub:null,            right:{lbl:'Amount'}, metaL:['Created'],    metaR:'Status', inline:false },
     'tab-payments':  { title:{lbl:'Client'},              sub:null,            right:{lbl:'Amount'}, metaL:['Date paid','Method'], metaR:function(row){ return row.classList.contains('excluded') ? 'Excluded' : 'Paid'; }, note:'Payments is read-only. Mark paid (cash or bank) on the invoice; copy a payment link from Payment Links.', inline:false }
   };
