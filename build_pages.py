@@ -718,7 +718,7 @@ booking_body = header("booking.html") + f"""
           </div>
           <div class="f"><label class="req" for="kEmail">Email</label><input id="kEmail" type="email" autocomplete="email" required><span class="fhint">Enter a valid email address, e.g. name@domain.com</span></div>
                     <p class="bk-note" style="margin-top:1rem">By sending this request you agree to the <a href="/terms" id="openTerms" style="border-bottom:1px solid var(--amber);color:var(--ink)">Terms of Service</a>.</p>
-          <div class="cf-turnstile" data-sitekey="0x4AAAAAADpUlIS_5IkgJa-H" id="bkTs" style="margin:.2rem 0 .4rem"></div>
+          <div data-sitekey="0x4AAAAAADpUlIS_5IkgJa-H" id="bkTs" style="margin:.2rem 0 .4rem"></div>
           <button class="btn btn-ink" type="submit" id="btnConfirm" style="width:100%;margin-top:.7rem" disabled>Confirm reservation request</button>
           <p class="bk-note">Sending opens WhatsApp with your request pre-filled, and our concierge confirms availability and shares a secure payment link. By submitting this form you agree to receive booking and marketing emails from UMC Dubai, and you may unsubscribe at any time.</p>
         </div>

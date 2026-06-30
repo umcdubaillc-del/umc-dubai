@@ -1,5 +1,29 @@
 /* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 /* UMC Dubai,reservation flow */
+
+// Turnstile: render explicitly. The async api.js in <head> runs its one-time
+// auto-scan before #bkTs is parsed, so implicit auto-render is unreliable. The
+// cf-turnstile class was removed from #bkTs so only this explicit render runs.
+(function(){
+  function renderTs(){
+    var el = document.getElementById('bkTs');
+    if(!window.turnstile || !el) return false;
+    if(el.getAttribute('data-rendered') === '1') return true;
+    try {
+      window.turnstile.render(el, {
+        sitekey: el.getAttribute('data-sitekey'),
+        callback: function(){},
+        'error-callback': function(){ return true; }
+      });
+      el.setAttribute('data-rendered','1');
+      return true;
+    } catch(e){ return false; }
+  }
+  if(!renderTs()){
+    var n=0, iv=setInterval(function(){ if(renderTs() || ++n>50) clearInterval(iv); }, 200);
+  }
+})();
+
 (function(){
   const $ = id => document.getElementById(id);
   const params = new URLSearchParams(location.search);
