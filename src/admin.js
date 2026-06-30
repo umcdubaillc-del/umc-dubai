@@ -217,7 +217,17 @@ async function ensureSchema(env) {
       // v86 — back-reference to the invoice this link is attached to (if any).
       // Forward reference (billing_documents.nomod_link_id) already exists.
       "invoice_number TEXT",
+      // v107 — AED gross per row. For AED charges == amount; for DCC/foreign
+      // charges this is the AED gross (Nomod original_total), so Sales sums a
+      // single currency. Nullable: a foreign row stays null until a sync fills it.
+      "amount_aed REAL",
     ]);
+    // v107 — backfill amount_aed for AED rows (idempotent: only touches NULLs).
+    // Foreign rows are filled by a normal Nomod sync, which updates existing rows.
+    await env.BILLING_DB.prepare(
+      `UPDATE payment_links SET amount_aed = amount
+        WHERE amount_aed IS NULL AND UPPER(COALESCE(currency,'AED'))='AED'`
+    ).run();
     // Phase 1 — leads table is created by the public /api/lead handler in
     // index.js. Mirror the CREATE here so the admin can read/write leads even on
     // a fresh DB where no lead has been submitted yet, and ALTER in the Phase 1
@@ -1276,6 +1286,23 @@ const PAID_CHARGE_STATUSES = new Set([
   "captured","succeeded","paid","complete","completed","authorised","authorized","success"
 ]);
 
+// v107 — AED gross for a Nomod charge (or webhook data object). Returns a
+// rounded Number, or null when no AED gross can be derived. For DCC charges
+// c.total is the CARD-currency amount; the AED gross is c.original_total
+// (original_currency='AED'), or c.total × c.dcc_exchange_rate when settlement
+// is AED. GROSS, never net. Any NaN collapses to null (caller leaves it unset).
+function computeAmountAed(c) {
+  if (!c) return null;
+  const round2 = (x) => Math.round(x * 100) / 100;
+  const cur = String(c.currency || "AED").toUpperCase();
+  if (cur === "AED") { const v = round2(Number(c.total)); return isNaN(v) ? null : v; }
+  const oc = String(c.original_currency || "").toUpperCase();
+  if (oc === "AED" && c.original_total != null) { const v = round2(Number(c.original_total)); return isNaN(v) ? null : v; }
+  const sc = String(c.settlement_currency || "").toUpperCase();
+  if (sc === "AED" && c.dcc_exchange_rate && c.total != null) { const v = round2(Number(c.total) * Number(c.dcc_exchange_rate)); return isNaN(v) ? null : v; }
+  return null;
+}
+
 function mapChargesToPaid(chargesBody) {
   // Accepts either a paginated body { results: [...] } or a bare array.
   const results = (chargesBody && Array.isArray(chargesBody.results))
@@ -1695,15 +1722,21 @@ async function handleNomodWebhook(request, env) {
              payment_method=COALESCE(payment_method, 'nomod')
        WHERE nomod_link_id = ?`
     ).bind(now, now, chargeId, linkId).run();
+    // v107 — also fill amount_aed. DCC fields are usually absent at webhook
+    // time, so for an AED row use the stored amount; for a foreign row use
+    // computeAmountAed(data) (null if unavailable -> the periodic sync fills it).
+    // COALESCE keeps any value a prior sync already wrote.
+    const webhookAmountAed = computeAmountAed(data);
     const upLnk = await env.BILLING_DB.prepare(
       `UPDATE payment_links
          SET payment_status='paid',
              paid_at=COALESCE(paid_at, ?),
              last_checked_at=?,
              nomod_charge_id=COALESCE(?, nomod_charge_id),
-             payment_method=COALESCE(payment_method, 'nomod')
+             payment_method=COALESCE(payment_method, 'nomod'),
+             amount_aed=COALESCE(amount_aed, CASE WHEN UPPER(COALESCE(currency,'AED'))='AED' THEN amount ELSE ? END)
        WHERE nomod_link_id = ?`
-    ).bind(now, now, chargeId, linkId).run();
+    ).bind(now, now, chargeId, webhookAmountAed, linkId).run();
     const invChanges = (upInv && upInv.meta && Number(upInv.meta.changes)) || 0;
     const lnkChanges = (upLnk && upLnk.meta && Number(upLnk.meta.changes)) || 0;
     // v87 — orphan capture: if the webhook fires for a Nomod link we have no
@@ -1737,16 +1770,19 @@ async function handleNomodWebhook(request, env) {
           ? `External Nomod payment, ${customerName}`
           : "External Nomod payment";
         const url = String(data.link_url || (data.link && data.link.url) || "").trim();
+        // v107 — AED gross: AED -> the amount itself; foreign -> computeAmountAed
+        // (null if DCC fields absent at webhook time; the periodic sync fills it).
+        const orphanAmountAed = (currency === "AED") ? amount : computeAmountAed(data);
         await env.BILLING_DB.prepare(
           `INSERT INTO payment_links
             (title, amount, currency, note, nomod_link_id, nomod_link_url,
              created_at, payment_status, paid_at, last_checked_at,
-             nomod_charge_id, payment_method)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, 'nomod')`
+             nomod_charge_id, payment_method, amount_aed)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, 'nomod', ?)`
         ).bind(
           title, amount, currency,
           "Auto-captured from Nomod webhook (no matching local link).",
-          linkId, url, now, now, now, chargeId
+          linkId, url, now, now, now, chargeId, orphanAmountAed
         ).run();
         inserted = true;
       }
@@ -1995,7 +2031,7 @@ async function handleSales(url, env) {
         AND payment_method IN ('bank','cash')`
   ).all()).results || [];
   const linkRows = (await env.BILLING_DB.prepare(
-    `SELECT id, title AS client_name, amount, currency,
+    `SELECT id, title AS client_name, amount, amount_aed, currency,
             nomod_link_id, nomod_charge_id, payment_status, payment_method,
             paid_at, refunded_at, refunded_amount
        FROM payment_links
@@ -2003,6 +2039,8 @@ async function handleSales(url, env) {
         AND nomod_charge_id IS NOT NULL
         AND COALESCE(excluded, 0) = 0`
   ).all()).results || [];
+  // v107 — foreign rows with no AED gross yet are surfaced (never summed).
+  const fxUnreconciled = [];
 
   // Helper: monthly bucket lookup. Index 1..12.
   function emptyMonths() {
@@ -2066,7 +2104,18 @@ async function handleSales(url, env) {
   }
   // (a) standalone payment_links
   for (const r of linkRows) {
-    const gross = Number(r.amount) || 0;
+    // v107 — sum the AED gross. Foreign card-currency amounts must never be
+    // summed at face value: prefer amount_aed; for AED rows fall back to the
+    // stored amount (AED); otherwise skip the row and surface it for review.
+    let gross = Number(r.amount_aed);
+    if (!(isFinite(gross) && gross > 0)) {
+      if (String(r.currency || "AED").toUpperCase() === "AED") {
+        gross = Number(r.amount) || 0;
+      } else {
+        fxUnreconciled.push({ id: r.id, title: r.client_name, currency: r.currency, amount: r.amount });
+        continue;
+      }
+    }
     if (isTestRow(r.client_name, gross)) continue;
     if (r.payment_status === "paid" && r.paid_at) {
       const ym = dubaiYM(r.paid_at);
@@ -2168,6 +2217,8 @@ async function handleSales(url, env) {
     totals: totals(ledger.get(year) || emptyMonths()),
     lifetime,
     possibleDuplicates,
+    // v107 — foreign payments with no AED gross yet (excluded from all totals).
+    fx_unreconciled: { count: fxUnreconciled.length, rows: fxUnreconciled },
     methodology: "Dubai time (GST, UTC+4) month boundaries. Cash basis: counted in the month paid. Net of VAT (5%). Sources combined: paid Nomod payments (invoices and standalone links) + bank/cash invoices marked paid manually. Refunds subtracted from their refund month. Test/demo rows excluded (name matches /test|demo/i AND amount < AED 5).",
   });
 }
@@ -2367,6 +2418,8 @@ async function handleSyncNomod(request, env) {
           `SELECT id FROM payment_links WHERE nomod_charge_id = ?`
         ).bind(chargeId).first();
       }
+      // v107 — AED gross for this charge (null when no AED gross derivable).
+      const amountAed = computeAmountAed(c);
       if (existing && existing.id) {
         await env.BILLING_DB.prepare(
           `UPDATE payment_links
@@ -2374,21 +2427,21 @@ async function handleSyncNomod(request, env) {
                   client_email=COALESCE(NULLIF(?, ''), client_email),
                   client_name =COALESCE(NULLIF(?, ''), client_name),
                   payment_status='paid', paid_at=?, last_checked_at=?,
-                  payment_method=?
+                  payment_method=?, amount_aed=?
             WHERE id=?`
-        ).bind(title, amount, currency, note, paidAt, clientEmail, clientName, paidAt, now, paymentMethod, existing.id).run();
+        ).bind(title, amount, currency, note, paidAt, clientEmail, clientName, paidAt, now, paymentMethod, amountAed, existing.id).run();
         updated++;
       } else {
         await env.BILLING_DB.prepare(
           `INSERT INTO payment_links
             (title, amount, currency, note, nomod_link_id, nomod_link_url,
              created_at, payment_status, paid_at, last_checked_at,
-             nomod_charge_id, payment_method, client_email, client_name)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?)`
+             nomod_charge_id, payment_method, client_email, client_name, amount_aed)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           title, amount, currency, note,
           linkId, urlField, paidAt, paidAt, now, chargeId, paymentMethod,
-          clientEmail, clientName
+          clientEmail, clientName, amountAed
         ).run();
         imported++;
         flagged.push({ chargeId, linkId, amount, currency, paidAt, customer: clientName || clientEmail || null });
@@ -2768,55 +2821,6 @@ export async function handleAdmin(request, env) {
     if (!env.BILLING_DB) return dbUnavailable();
     if (method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
     return handleSyncNomod(request, env);
-  }
-
-  // TEMPORARY — foreign-currency diagnostic. Returns FULL RAW Nomod charge
-  // objects (unmodified) so we can see the exact keys Nomod returns for non-AED
-  // charges (settled / base / aed / fx / exchange_rate fields). Admin-auth only.
-  // Remove this route as part of the actual FX fix commit.
-  if (path === "/admin/api/_fx_diag" && method === "GET") {
-    const authed = await isAuthed(request, env);
-    if (!authed) return json({ ok: false, error: "auth required" }, 401);
-    try {
-      const isAed = function (c) { return String((c && c.currency) || "").toUpperCase() === "AED"; };
-      const foreign = [];
-      const aed = [];
-      let countTotal = 0;
-      let countForeign = 0;
-      let nextUrl = null;
-      // Walk pages (same fetch the sync uses) so older foreign charges are not
-      // missed. Bounded page cap; stop early once both sample quotas are full.
-      for (let p = 0; p < 25; p++) {
-        const r = nextUrl
-          ? await nomodListAllCharges(env, { nextUrl })
-          : await nomodListAllCharges(env, { pageSize: 100 });
-        if (!r.ok) {
-          if (countTotal > 0) break; // already have data; surface what we got
-          return json({ error: r.error || "nomod charges fetch failed", status: r.status, detail: r.body || null });
-        }
-        const data = r.data || {};
-        const list = Array.isArray(data.results) ? data.results
-                   : Array.isArray(data.data) ? data.data
-                   : Array.isArray(data) ? data : [];
-        for (const c of list) {
-          countTotal++;
-          if (isAed(c)) {
-            if (aed.length < 3) aed.push(c);
-          } else {
-            countForeign++;
-            if (foreign.length < 8) foreign.push(c);
-          }
-        }
-        if (foreign.length >= 8 && aed.length >= 3) break;
-        nextUrl = data.next || null;
-        if (!nextUrl) break;
-      }
-      // sample = FULL RAW charge objects, unmodified (no rename/strip/round/reshape).
-      const sample = foreign.concat(aed);
-      return json({ count_total: countTotal, count_foreign: countForeign, sample });
-    } catch (e) {
-      return json({ error: (e && (e.message || String(e))) || "unknown error" });
-    }
   }
 
   // v53 — standalone Nomod links (Links tab in /admin/billing)
@@ -4108,6 +4112,7 @@ function appShellHTML() {
         <span id="syncNomodStatus" class="muted" style="font-size:.78rem;margin-top:.3rem"></span>
       </div>
     </header>
+    <div id="salesFxNote" hidden style="margin:.4rem 0 .8rem;padding:.6rem .85rem;border:1px solid rgba(168,75,12,.4);background:rgba(168,75,12,.10);color:var(--amber-deep);border-radius:8px;font-size:.85rem;line-height:1.45"></div>
     <div class="sales-kpis">
       <div class="kpi"><span class="lbl">Net (turnover) <span id="kpiYearTag" class="muted" style="font-size:.7em">·</span></span><span class="val" id="kpiNet">·</span></div>
       <div class="kpi"><span class="lbl">VAT collected <span class="muted" style="font-size:.7em">selected year</span></span><span class="val" id="kpiVat">·</span></div>
@@ -5474,6 +5479,19 @@ const PAGE_SCRIPT = `<script>
       const r = await fetch(url);
       const j = await r.json();
       if(!j.ok){ setStatus("Sales load failed: " + (j.error || r.status)); return; }
+      // v107 — surface foreign payments excluded from totals (not silent).
+      var fxNote = document.getElementById("salesFxNote");
+      if(fxNote){
+        var fxObj = j.fx_unreconciled || {};
+        var fxN = Number(fxObj.count) || 0;
+        if(fxN > 0){
+          fxNote.textContent = fxN + " foreign payment" + (fxN === 1 ? "" : "s") + " awaiting AED reconciliation — excluded from totals. Run Sync Nomod.";
+          fxNote.hidden = false;
+        } else {
+          fxNote.textContent = "";
+          fxNote.hidden = true;
+        }
+      }
       const fmt = function(n){
         const v = Number(n) || 0;
         return "AED " + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });

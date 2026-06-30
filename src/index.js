@@ -104,7 +104,6 @@ export default {
         url.pathname.startsWith("/admin/api/payments") ||
         url.pathname === "/admin/api/sales" ||
         url.pathname === "/admin/api/sync-nomod" ||
-        url.pathname === "/admin/api/_fx_diag" ||
         url.pathname === "/admin/api/customers.csv" ||
         url.pathname === "/admin/api/leads" ||
         url.pathname.startsWith("/admin/api/leads/") ||
