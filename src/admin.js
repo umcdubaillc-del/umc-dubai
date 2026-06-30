@@ -3740,13 +3740,11 @@ function appShellHTML() {
 <main class="app" id="editorHost">
 
   <section class="panel" aria-label="Editor">
-    <!-- v105 — paid-invoice lock: banner + Edit-anyway control + persistent
-         warning shown once the operator unlocks. Toggled by applyPaidLock(). -->
-    <div id="paidLockBanner" class="paid-lock" hidden>
-      <span class="paid-lock__msg" id="paidLockMsg"></span>
-      <button type="button" class="btn btn-small btn-ghost" id="btnEditAnyway">Edit anyway</button>
-    </div>
-    <div id="paidEditWarn" class="paid-warn" hidden></div>
+    <!-- v105.2 — paid-invoice lock banner/warning are NOT static here. They are
+         injected by JS (ensurePaidLockEls) at the top of this live panel,
+         anchored to the real #fCurrency, so they always render into whatever
+         container the editor actually opens in (#editorModal or the Create-tab
+         home) — independent of any template/move quirk. -->
     <div class="field">
       <label class="lbl">Document type</label>
       <div class="toggle" role="tablist">
@@ -4470,6 +4468,10 @@ const PAGE_SCRIPT = `<script>
       // company name; the footer stays a single line, centred, same font-size
       // as the masthead). Sticks to the bottom of the A4 page via flex column.
       + '<div class="dfoot">umcdubai.ae</div>';
+    // v105.2 — renderDoc runs on every document render, including the
+    // document-open path (loadDoc -> renderDoc), so reconciling the paid-lock
+    // here guarantees it engages even if an open-path call is missed elsewhere.
+    if(typeof applyPaidLock === "function") applyPaidLock();
   }
 
   // v100: the in-editor buildEmail() / copy-paste UI is gone. Sending the
@@ -4534,13 +4536,8 @@ const PAGE_SCRIPT = `<script>
     });
     const btnRevert = document.getElementById("btnRevertLead");
     if(btnRevert) btnRevert.addEventListener("click", onRevertClick);
-    // v105 — unlock a paid invoice for editing (shows the persistent warning).
-    const btnEditAnyway = document.getElementById("btnEditAnyway");
-    if(btnEditAnyway) btnEditAnyway.addEventListener("click", function(){
-      state.adjustAfterPaid = true;
-      applyPaidLock();
-      updateLeadRevertButton();
-    });
+    // v105.2 — the "Edit anyway" button is created by ensurePaidLockEls() with
+    // its own click handler, so no static binding is needed here.
 
     // ---------- v53 Phase 2: tabbed app shell ----------
     // Tabs are buttons in nav.tabbar; their data-tab matches a panel id
@@ -5807,19 +5804,25 @@ const PAGE_SCRIPT = `<script>
     try { if(typeof compute === "function"){ const c = compute(); if(c && Number(c.total) > 0) return Number(c.total); } } catch(_){}
     return 0;
   }
-  // Self-heal: ensure the lock banner + warning exist inside the live editor
-  // panel (the same container as #fCurrency / the line-items table, which is
-  // what gets moved into #editorModal). If the static markup is missing from
-  // the rendered editor for any reason, build it here so the banner always
-  // renders where the form does.
+  // Build the lock banner + warning in JS and insert them at the TOP of the
+  // live editor panel — the one that actually holds the rendered #fCurrency /
+  // line-items table. Anchoring to the live element (not static markup) means
+  // the banner lands in whatever container the editor opened in (#editorModal
+  // when opened from a Documents row), regardless of any template/move quirk.
   function ensurePaidLockEls(){
-    let banner = document.getElementById("paidLockBanner");
-    let warn = document.getElementById("paidEditWarn");
-    if(banner && warn) return;
-    const anchor = document.getElementById("fCurrency");
-    let panel = anchor ? anchor.closest("section.panel") : null;
-    if(!panel) panel = document.querySelector("#editorHost section.panel") || document.querySelector("#editorSlot section.panel") || document.querySelector("section.panel");
+    if(document.getElementById("paidLockBanner") && document.getElementById("paidEditWarn")) return;
+    const cur = document.getElementById("fCurrency");
+    const modal = document.getElementById("editorModal");
+    let panel = null;
+    // Prefer the panel inside the open modal so the banner is a descendant of
+    // #editorModal (the documents-open path).
+    if(modal && !modal.hidden){
+      panel = (cur && modal.contains(cur) && cur.closest("section.panel")) || modal.querySelector("section.panel") || modal.querySelector("#editorSlot");
+    }
+    if(!panel && cur) panel = cur.closest("section.panel") || cur.closest("main.app") || cur.closest(".ed-body") || cur.parentElement;
+    if(!panel) panel = document.querySelector("#editorHost section.panel") || document.querySelector("section.panel");
     if(!panel) return;
+    let banner = document.getElementById("paidLockBanner");
     if(!banner){
       banner = document.createElement("div");
       banner.id = "paidLockBanner"; banner.className = "paid-lock"; banner.hidden = true;
@@ -5830,23 +5833,25 @@ const PAGE_SCRIPT = `<script>
       banner.appendChild(msg); banner.appendChild(b);
       panel.insertBefore(banner, panel.firstChild);
     }
+    let warn = document.getElementById("paidEditWarn");
     if(!warn){
       warn = document.createElement("div");
       warn.id = "paidEditWarn"; warn.className = "paid-warn"; warn.hidden = true;
-      panel.insertBefore(warn, banner ? banner.nextSibling : panel.firstChild);
+      panel.insertBefore(warn, banner.nextSibling);
     }
   }
   // Reconcile the lock with payment_status + the "Edit anyway" flag. The input
   // disabling is computed from state and run FIRST, unconditionally — never
   // gated on finding a banner element. A paid, not-yet-unlocked invoice always
-  // has its financial inputs disabled, even if the banner markup is absent.
+  // has its financial inputs disabled, even if banner injection fails.
   function applyPaidLock(){
     const isPaid = state.payment_status === "paid";
     const locked = isPaid && !state.adjustAfterPaid;
     setFinancialDisabled(locked);
     if(!isPaid) state.adjustAfterPaid = false;
-    // Banner/warning are best-effort UI on top of the guaranteed lock above.
-    ensurePaidLockEls();
+    // Banner/warning are best-effort UI on top of the guaranteed lock above; an
+    // injection error must never undo the disabling.
+    try { ensurePaidLockEls(); } catch(_){}
     const banner = document.getElementById("paidLockBanner");
     const warn = document.getElementById("paidEditWarn");
     const msg = document.getElementById("paidLockMsg");
