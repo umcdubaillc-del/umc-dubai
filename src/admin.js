@@ -180,6 +180,11 @@ async function ensureSchema(env) {
       "client_phone TEXT",
       "internal_notes TEXT",
       "paid_amount REAL",
+      // v105 — JSON snapshot of the financial state captured at the instant a
+      // document first becomes FULLY paid (line_items, discount, currency,
+      // subtotal, vat, total, paid_amount). Written once; the "as paid" memory
+      // that powers the editor's paid-lock and "Restore paid values" revert.
+      "paid_snapshot TEXT",
     ]);
     // v53 — standalone Nomod payment links (Links tab). A separate table keeps
     // the billing_documents schema clean (a link has no client, items or VAT
@@ -567,6 +572,10 @@ async function handleGetOne(id, env) {
   ).bind(id).first();
   if (!row) return json({ ok: false, error: "not found" }, 404);
   try { row.line_items = JSON.parse(row.line_items); } catch { row.line_items = []; }
+  // v105 — surface the as-paid snapshot as a parsed object (null when unset)
+  // so the editor's paid-lock + "Restore paid values" revert can read it.
+  if (row.paid_snapshot) { try { row.paid_snapshot = JSON.parse(row.paid_snapshot); } catch { row.paid_snapshot = null; } }
+  else { row.paid_snapshot = null; }
   return json({ ok: true, item: row });
 }
 
@@ -1823,7 +1832,9 @@ async function handleMarkPaid(id, request, env) {
   const rawAmount = (body && body.amount);
   // Only allow on invoices (quotes never settle). Reject if already refunded.
   const cur = await env.BILLING_DB.prepare(
-    `SELECT id, doc_type, total, paid_amount, payment_status, nomod_link_id FROM billing_documents WHERE id = ?`
+    `SELECT id, doc_type, total, paid_amount, payment_status, nomod_link_id,
+            line_items, discount, currency, subtotal, vat, paid_snapshot
+       FROM billing_documents WHERE id = ?`
   ).bind(id).first();
   if (!cur) return json({ ok: false, error: "not found" }, 404);
   if (cur.doc_type !== "invoice") return json({ ok: false, error: "only invoices can be marked paid" }, 400);
@@ -1841,15 +1852,34 @@ async function handleMarkPaid(id, request, env) {
     else { newStatus = "partial"; }
   }
   if (newStatus === "paid") {
+    // v105 — capture the "as paid" financial snapshot at the instant of first
+    // full settlement. COALESCE means a snapshot, once written, is never
+    // overwritten by a later mark-paid (the first full payment is the memory).
+    let snapshotJson = null;
+    if (!cur.paid_snapshot) {
+      let li;
+      try { li = JSON.parse(cur.line_items || "[]"); } catch { li = cur.line_items; }
+      snapshotJson = JSON.stringify({
+        line_items: li,
+        discount: cur.discount,
+        currency: cur.currency,
+        subtotal: cur.subtotal,
+        vat: cur.vat,
+        total: cur.total,
+        paid_amount: newPaid,
+        captured_at: new Date().toISOString()
+      });
+    }
     await env.BILLING_DB.prepare(
       `UPDATE billing_documents
          SET payment_status='paid',
              paid_amount=?,
              paid_at=?,
              payment_method=?,
-             last_checked_at=?
+             last_checked_at=?,
+             paid_snapshot=COALESCE(paid_snapshot, ?)
        WHERE id = ?`
-    ).bind(newPaid, paidAt, method, new Date().toISOString(), id).run();
+    ).bind(newPaid, paidAt, method, new Date().toISOString(), snapshotJson, id).run();
   } else {
     await env.BILLING_DB.prepare(
       `UPDATE billing_documents
@@ -3589,6 +3619,11 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
 .doc-sheet-quote input::-webkit-outer-spin-button, .doc-sheet-quote input::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
 /* Bottom-sheet read-only notice (e.g. Payments) */
 .doc-sheet-note{ color:var(--muted); font-size:.85rem; line-height:1.45; padding:.1rem .2rem .3rem; }
+/* Paid-invoice lock banner + adjust-after-payment warning (editor) */
+.paid-lock{ display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; background:rgba(46,125,84,.10); border:1px solid rgba(46,125,84,.35); color:var(--ink); border-radius:8px; padding:.7rem .9rem; margin:0 0 1rem; font-size:.9rem; line-height:1.45; }
+.paid-lock__msg{ flex:1 1 220px; }
+.paid-lock #btnEditAnyway{ flex:0 0 auto; }
+.paid-warn{ background:rgba(168,75,12,.10); border:1px solid rgba(168,75,12,.40); color:var(--amber-deep); border-radius:8px; padding:.7rem .9rem; margin:0 0 1rem; font-size:.9rem; line-height:1.45; }
 /* Bottom-sheet quote-price Save button */
 .doc-sheet-qsave{ flex:0 0 auto; border:1px solid var(--ink); background:var(--ink); color:var(--bone); border-radius:8px; padding:.5rem 1rem; font-family:inherit; font-size:.9rem; font-weight:500; cursor:pointer; }
 .doc-sheet-qsave.doc-sheet-ok{ background:var(--paid,#2E7D54); border-color:var(--paid,#2E7D54); color:#fff; }
@@ -3705,6 +3740,13 @@ function appShellHTML() {
 <main class="app" id="editorHost">
 
   <section class="panel" aria-label="Editor">
+    <!-- v105 — paid-invoice lock: banner + Edit-anyway control + persistent
+         warning shown once the operator unlocks. Toggled by applyPaidLock(). -->
+    <div id="paidLockBanner" class="paid-lock" hidden>
+      <span class="paid-lock__msg" id="paidLockMsg"></span>
+      <button type="button" class="btn btn-small btn-ghost" id="btnEditAnyway">Edit anyway</button>
+    </div>
+    <div id="paidEditWarn" class="paid-warn" hidden></div>
     <div class="field">
       <label class="lbl">Document type</label>
       <div class="toggle" role="tablist">
@@ -4138,7 +4180,13 @@ const PAGE_SCRIPT = `<script>
     // v96 — when a previously-issued invoice is re-opened from Documents,
     // this carries its current payment_status so renderDoc can stamp PAID
     // and show a zero Balance Due. New documents leave it null (no stamp).
-    payment_status: null
+    payment_status: null,
+    // v105 — amount recorded at settlement, the as-paid snapshot (parsed
+    // object or null), and whether the operator has explicitly unlocked a paid
+    // invoice for editing this session (drives the audit note on save).
+    paid_amount: 0,
+    paid_snapshot: null,
+    adjustAfterPaid: false
   };
 
   // ---------- helpers
@@ -4485,7 +4533,14 @@ const PAGE_SCRIPT = `<script>
       try { await loadHistory(); } catch(_){}
     });
     const btnRevert = document.getElementById("btnRevertLead");
-    if(btnRevert) btnRevert.addEventListener("click", revertToOriginal);
+    if(btnRevert) btnRevert.addEventListener("click", onRevertClick);
+    // v105 — unlock a paid invoice for editing (shows the persistent warning).
+    const btnEditAnyway = document.getElementById("btnEditAnyway");
+    if(btnEditAnyway) btnEditAnyway.addEventListener("click", function(){
+      state.adjustAfterPaid = true;
+      applyPaidLock();
+      updateLeadRevertButton();
+    });
 
     // ---------- v53 Phase 2: tabbed app shell ----------
     // Tabs are buttons in nav.tabbar; their data-tab matches a panel id
@@ -4884,6 +4939,17 @@ const PAGE_SCRIPT = `<script>
   }
   async function onSave(){
     setStatus("Saving …");
+    // v105 — if the operator unlocked a paid invoice and is now saving changed
+    // figures, record an audit note (internal only). Guarded so repeated saves
+    // do not stack duplicate stamps.
+    if(state.payment_status === "paid" && state.adjustAfterPaid){
+      const auditMarker = "Adjusted after payment";
+      if(String(state.internal_notes || "").indexOf(auditMarker) === -1){
+        const stamp = "[" + auditMarker + " on " + umcTodayDubai() + " — figures changed after AED " + (Number(state.paid_amount) || 0).toFixed(2) + " was recorded]";
+        state.internal_notes = state.internal_notes ? (state.internal_notes + "\\n" + stamp) : stamp;
+        if($("fInternalNotes")) $("fInternalNotes").value = state.internal_notes;
+      }
+    }
     const r = compute();
     const payload = {
       // v99: when state.id is set, the server UPDATEs that row (preserving
@@ -4972,6 +5038,10 @@ const PAGE_SCRIPT = `<script>
     state.attach_link_id = null;
     // v96 — New starts in default (unpaid) state, so the PAID stamp is hidden.
     state.payment_status = null;
+    // v105 — clear any paid-lock carried over from a prior paid invoice.
+    state.paid_amount = 0;
+    state.paid_snapshot = null;
+    state.adjustAfterPaid = false;
     state.doc_date = umcTodayDubai();
     ["cName","cCompany","cAddress","cEmail","cPhone","fDiscount","fNotes","fInternalNotes"].forEach(function(id){ const el = $(id); if(el) el.value = ""; });
     $("fDate").value = state.doc_date;
@@ -4996,6 +5066,10 @@ const PAGE_SCRIPT = `<script>
     if(t) t.textContent = label || "Document";
     modal.hidden = false;
     document.documentElement.style.overflow = "hidden";
+    // v105 — single choke point for every editor-open path: reconcile the
+    // paid-lock UI and the state-aware revert button with the loaded state.
+    if(typeof applyPaidLock === "function") applyPaidLock();
+    if(typeof updateLeadRevertButton === "function") updateLeadRevertButton();
     if(typeof fitDocToViewport === "function") setTimeout(fitDocToViewport, 30);
   }
   function closeEditorModal(){
@@ -5638,6 +5712,12 @@ const PAGE_SCRIPT = `<script>
     if($("fInternalNotes")) $("fInternalNotes").value = state.internal_notes;
     $("fDiscount").value = "";
     state.source_quote_number = null;
+    // v105 — a new lead-seeded doc is unpaid: clear any paid-lock carried over
+    // from a previously-open paid invoice.
+    state.payment_status = null;
+    state.paid_amount = 0;
+    state.paid_snapshot = null;
+    state.adjustAfterPaid = false;
     state.doc_date = umcTodayDubai();
     $("fDate").value = state.doc_date;
     renderLineRows(); renderTotals(); renderDoc();
@@ -5698,10 +5778,78 @@ const PAGE_SCRIPT = `<script>
     setStatus("Prefilled from lead #" + state.lead_id + ". Enter a price to issue.");
   }
 
+  // v105 — paid-invoice locking. Disables the financial inputs (line items,
+  // qty, rate, discount, currency); client + notes stay editable. Re-applied
+  // after every renderLineRows (which rebuilds #ltBody enabled).
+  function setFinancialDisabled(disabled){
+    const body = document.getElementById("ltBody");
+    if(body){
+      body.querySelectorAll("textarea, input").forEach(function(el){
+        if(el.closest("td.tot")) return; // total cell is readonly already
+        el.disabled = disabled;
+      });
+      body.querySelectorAll("button[data-del]").forEach(function(b){ b.disabled = disabled; });
+    }
+    const add = document.getElementById("ltAdd"); if(add) add.disabled = disabled;
+    const disc = document.getElementById("fDiscount"); if(disc) disc.disabled = disabled;
+    const cur = document.getElementById("fCurrency"); if(cur) cur.disabled = disabled;
+  }
+  // Reconcile the lock banner / warning / input-disabled state with the current
+  // payment_status and whether the operator has chosen "Edit anyway".
+  function applyPaidLock(){
+    const banner = document.getElementById("paidLockBanner");
+    const warn = document.getElementById("paidEditWarn");
+    const msg = document.getElementById("paidLockMsg");
+    const isPaid = state.payment_status === "paid";
+    const amt = (Number(state.paid_amount) || 0).toFixed(2);
+    if(!isPaid){
+      state.adjustAfterPaid = false;
+      if(banner) banner.hidden = true;
+      if(warn) warn.hidden = true;
+      setFinancialDisabled(false);
+      return;
+    }
+    if(state.adjustAfterPaid){
+      if(banner) banner.hidden = true;
+      if(warn){ warn.hidden = false; warn.textContent = "Editing a paid invoice. Figures will no longer match the recorded payment of AED " + amt + "."; }
+      setFinancialDisabled(false);
+    } else {
+      if(banner) banner.hidden = false;
+      if(msg) msg.textContent = "This invoice is paid. AED " + amt + " recorded. Amounts are locked so the invoice stays reconciled with the payment.";
+      if(warn) warn.hidden = true;
+      setFinancialDisabled(true);
+    }
+  }
+  // Restore the figures captured at payment (paid_snapshot). Returns to the
+  // locked, reconciled state.
+  function restorePaidSnapshot(){
+    const snap = state.paid_snapshot;
+    if(!snap) return;
+    if(Array.isArray(snap.line_items) && snap.line_items.length){
+      state.line_items = JSON.parse(JSON.stringify(snap.line_items));
+    }
+    state.discount = Number(snap.discount) || 0;
+    if(snap.currency) state.currency = snap.currency;
+    if($("fCurrency")) $("fCurrency").value = state.currency;
+    if($("fDiscount")) $("fDiscount").value = state.discount ? String(state.discount) : "";
+    state.adjustAfterPaid = false;
+    renderLineRows(); renderTotals(); renderDoc();
+    applyPaidLock();
+    setStatus("Restored the figures recorded at payment (AED " + (Number(snap.paid_amount) || 0).toFixed(2) + ").");
+  }
+  // State-aware revert dispatcher wired to #btnRevertLead.
+  function onRevertClick(){
+    if(state.payment_status === "paid" && state.paid_snapshot){ restorePaidSnapshot(); }
+    else { revertToOriginal(); }
+  }
+
   function updateLeadRevertButton(){
     const btn = document.getElementById("btnRevertLead");
     if(!btn) return;
-    btn.hidden = !(state.lead_id && state.leadOriginal);
+    const paidRevert = !!(state.payment_status === "paid" && state.paid_snapshot);
+    const leadRevert = !!(state.lead_id && state.leadOriginal);
+    btn.hidden = !(paidRevert || leadRevert);
+    btn.textContent = paidRevert ? "Restore paid values" : "Restore original values";
   }
   function updatePayLastChecked(){
     const el = $("payLastChecked"); if(!el) return;
@@ -6149,6 +6297,11 @@ const PAGE_SCRIPT = `<script>
     state.notes = link.note || "";
     state.internal_notes = "From standalone link #" + link.id + " (reusing Nomod URL " + (link.nomod_link_url || "") + ")";
     state.source_quote_number = null;
+    // v105 — a freshly-seeded invoice is unpaid: clear any paid-lock carryover.
+    state.payment_status = null;
+    state.paid_amount = 0;
+    state.paid_snapshot = null;
+    state.adjustAfterPaid = false;
     state.doc_date = umcTodayDubai();
     $("fNotes").value = state.notes;
     if($("fInternalNotes")) $("fInternalNotes").value = state.internal_notes;
@@ -6990,6 +7143,10 @@ const PAGE_SCRIPT = `<script>
       // of a settled invoice shows PAID and a zero balance.
       state.payment_status = String(x.payment_status || "").toLowerCase() || null;
       state.paid_amount = Number(x.paid_amount) || 0;
+      // v105 — as-paid snapshot (parsed object or null) drives the lock + the
+      // "Restore paid values" revert. Opening always starts re-locked.
+      state.paid_snapshot = (x.paid_snapshot && typeof x.paid_snapshot === "object") ? x.paid_snapshot : null;
+      state.adjustAfterPaid = false;
       // reflect into UI
       $("tQuote").classList.toggle("on", state.doc_type === "quote");
       $("tInvoice").classList.toggle("on", state.doc_type === "invoice");
