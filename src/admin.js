@@ -5479,19 +5479,29 @@ const PAGE_SCRIPT = `<script>
       const r = await fetch(url);
       const j = await r.json();
       if(!j.ok){ setStatus("Sales load failed: " + (j.error || r.status)); return; }
-      // v107 — surface foreign payments excluded from totals (not silent).
-      var fxNote = document.getElementById("salesFxNote");
-      if(fxNote){
+      // v107.1 — foreign-currency note, rendered DIRECTLY above the four
+      // summary cards. Anchored to the live .sales-kpis (which renders) and
+      // forced visible via inline display, so it does NOT depend on the static
+      // [hidden] div surfacing in the DOM. String concatenation only.
+      (function(){
+        var kpis = document.querySelector("#tab-sales .sales-kpis");
         var fxObj = j.fx_unreconciled || {};
         var fxN = Number(fxObj.count) || 0;
-        if(fxN > 0){
-          fxNote.textContent = fxN + " foreign payment" + (fxN === 1 ? "" : "s") + " awaiting AED reconciliation — excluded from totals. Run Sync Nomod.";
-          fxNote.hidden = false;
-        } else {
-          fxNote.textContent = "";
-          fxNote.hidden = true;
+        var note = document.getElementById("salesFxNote");
+        if(fxN > 0 && kpis){
+          if(!note){
+            note = document.createElement("div");
+            note.id = "salesFxNote";
+            note.setAttribute("style", "margin:.4rem 0 .8rem;padding:.6rem .85rem;border:1px solid rgba(168,75,12,.4);background:rgba(168,75,12,.10);color:var(--amber-deep);border-radius:8px;font-size:.85rem;line-height:1.45");
+          }
+          note.removeAttribute("hidden");
+          note.style.display = "block";
+          note.textContent = fxN + " foreign payment" + (fxN === 1 ? "" : "s") + " awaiting AED reconciliation — excluded from totals. Run Sync Nomod.";
+          if(note.nextElementSibling !== kpis){ kpis.parentNode.insertBefore(note, kpis); }
+        } else if(note){
+          note.style.display = "none";
         }
-      }
+      })();
       const fmt = function(n){
         const v = Number(n) || 0;
         return "AED " + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
