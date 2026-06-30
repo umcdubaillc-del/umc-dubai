@@ -2770,6 +2770,55 @@ export async function handleAdmin(request, env) {
     return handleSyncNomod(request, env);
   }
 
+  // TEMPORARY — foreign-currency diagnostic. Returns FULL RAW Nomod charge
+  // objects (unmodified) so we can see the exact keys Nomod returns for non-AED
+  // charges (settled / base / aed / fx / exchange_rate fields). Admin-auth only.
+  // Remove this route as part of the actual FX fix commit.
+  if (path === "/admin/api/_fx_diag" && method === "GET") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    try {
+      const isAed = function (c) { return String((c && c.currency) || "").toUpperCase() === "AED"; };
+      const foreign = [];
+      const aed = [];
+      let countTotal = 0;
+      let countForeign = 0;
+      let nextUrl = null;
+      // Walk pages (same fetch the sync uses) so older foreign charges are not
+      // missed. Bounded page cap; stop early once both sample quotas are full.
+      for (let p = 0; p < 25; p++) {
+        const r = nextUrl
+          ? await nomodListAllCharges(env, { nextUrl })
+          : await nomodListAllCharges(env, { pageSize: 100 });
+        if (!r.ok) {
+          if (countTotal > 0) break; // already have data; surface what we got
+          return json({ error: r.error || "nomod charges fetch failed", status: r.status, detail: r.body || null });
+        }
+        const data = r.data || {};
+        const list = Array.isArray(data.results) ? data.results
+                   : Array.isArray(data.data) ? data.data
+                   : Array.isArray(data) ? data : [];
+        for (const c of list) {
+          countTotal++;
+          if (isAed(c)) {
+            if (aed.length < 3) aed.push(c);
+          } else {
+            countForeign++;
+            if (foreign.length < 8) foreign.push(c);
+          }
+        }
+        if (foreign.length >= 8 && aed.length >= 3) break;
+        nextUrl = data.next || null;
+        if (!nextUrl) break;
+      }
+      // sample = FULL RAW charge objects, unmodified (no rename/strip/round/reshape).
+      const sample = foreign.concat(aed);
+      return json({ count_total: countTotal, count_foreign: countForeign, sample });
+    } catch (e) {
+      return json({ error: (e && (e.message || String(e))) || "unknown error" });
+    }
+  }
+
   // v53 — standalone Nomod links (Links tab in /admin/billing)
   if (path.startsWith("/admin/api/links")) {
     const authed = await isAuthed(request, env);
