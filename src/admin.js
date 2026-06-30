@@ -3589,6 +3589,9 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
 .doc-sheet-quote input::-webkit-outer-spin-button, .doc-sheet-quote input::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
 /* Bottom-sheet read-only notice (e.g. Payments) */
 .doc-sheet-note{ color:var(--muted); font-size:.85rem; line-height:1.45; padding:.1rem .2rem .3rem; }
+/* Bottom-sheet quote-price Save button */
+.doc-sheet-qsave{ flex:0 0 auto; border:1px solid var(--ink); background:var(--ink); color:var(--bone); border-radius:8px; padding:.5rem 1rem; font-family:inherit; font-size:.9rem; font-weight:500; cursor:pointer; }
+.doc-sheet-qsave.doc-sheet-ok{ background:var(--paid,#2E7D54); border-color:var(--paid,#2E7D54); color:#fff; }
 </style>
 </head>
 <body>
@@ -5548,11 +5551,13 @@ const PAGE_SCRIPT = `<script>
         // quote input and forwards the buttons via the existing mechanism.
         const hasPhone = !!(x.phone && String(x.phone).trim());
         const hasEmail = !!(x.email && String(x.email).trim());
+        const savedQ = (x.quote_price != null && String(x.quote_price) !== "") ? esc(String(x.quote_price)) : "";
         const followupBlock = ''
           + '<div class="leadq-field" title="Optional quote price (AED)">'
           +   '<span class="leadq-prefix">AED</span>'
-          +   '<input type="number" inputmode="decimal" step="0.01" min="0" class="leadq" id="leadq-'+x.id+'" data-leadq="'+x.id+'" placeholder="Quote price">'
+          +   '<input type="number" inputmode="decimal" step="0.01" min="0" class="leadq" id="leadq-'+x.id+'" data-leadq="'+x.id+'" placeholder="Quote price" value="'+savedQ+'">'
           + '</div>'
+          + '<button type="button" class="btn btn-small btn-ghost" data-leadsave="'+x.id+'" title="Save this quote price (used by the messages and when generating a quote/invoice)">Save</button>'
           + '<button type="button" class="btn btn-small btn-ink" data-leadwa="'+x.id+'"'+(hasPhone?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Send this follow-up to the client on WhatsApp">WhatsApp client</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leadcopy="'+x.id+'" title="Copy this follow-up message">Copy quote</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leademail="'+x.id+'"'+(hasEmail?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Email this follow-up to the client">Email client</button>';
@@ -5611,7 +5616,17 @@ const PAGE_SCRIPT = `<script>
     if(lead.flight) descBits.push("Flight: " + lead.flight);
     if(lead.sign)   descBits.push("Welcome sign: " + lead.sign);
     const desc = (title ? title + "\\n" : "") + descBits.join("\\n");
-    state.line_items = [{ description: desc, qty: 1, rate: 0 }];
+    // v104 — if a quote price was Saved on this lead, seed exactly one priced
+    // line item: description = the derived service label (same rule as the
+    // follow-up message), qty 1, unit price = the saved figure. The snapshot
+    // into state.leadOriginal below then captures the quoted figures, so Revert
+    // restores them rather than a blank line. No saved price -> seed as before.
+    const savedQuoteNum = (lead.quote_price != null) ? parseFloat(String(lead.quote_price).replace(/[^0-9.]/g, "")) : NaN;
+    if(isFinite(savedQuoteNum) && savedQuoteNum > 0){
+      state.line_items = [{ description: leadServiceLabel(lead), qty: 1, rate: savedQuoteNum }];
+    } else {
+      state.line_items = [{ description: desc, qty: 1, rate: 0 }];
+    }
     state.discount = 0;
     // Phase 1.2 — lineage + chauffeur notes go into internal_notes, NEVER
     // into the client-facing notes field that prints on the PDF.
@@ -6480,6 +6495,26 @@ const PAGE_SCRIPT = `<script>
     const el = document.getElementById("leadq-" + id);
     return el ? String(el.value || "").trim() : "";
   }
+  // v104 — explicit Save for the quote price. Takes the value being edited
+  // (rawValue when supplied — the sheet mirror; otherwise the canonical drawer
+  // input), parses it, writes the normalized number back into the canonical
+  // drawer input #leadq-<id> AND any open sheet mirror, and records it on the
+  // leadsCache entry so Generate-seeding can read it. Returns the normalized
+  // string. readLeadQuote(id) now only changes here, never per-keystroke.
+  function commitLeadQuote(id, rawValue){
+    const drawerInput = document.getElementById("leadq-" + id);
+    const raw = (rawValue != null) ? rawValue : (drawerInput ? drawerInput.value : "");
+    const n = parseFloat(String(raw).replace(/[^0-9.]/g, ""));
+    const norm = (isFinite(n) && n > 0) ? String(n) : "";
+    if(drawerInput) drawerInput.value = norm;
+    const sheetInput = document.querySelector('.leadq-sheet[data-leadq-sheet="' + id + '"]');
+    if(sheetInput) sheetInput.value = norm;
+    const lead = leadsCache.find(function(z){ return Number(z.id) === id; });
+    if(lead) lead.quote_price = norm;
+    return norm;
+  }
+  // Exposed so the bottom-sheet IIFE (a separate scope) can commit the same way.
+  window.__umcCommitLeadQuote = commitLeadQuote;
 
   // Phase 1 — Leads tab delegation. Status filter, sort dropdown, refresh,
   // and the two action buttons per row (Create quote / Create invoice).
@@ -6513,6 +6548,18 @@ const PAGE_SCRIPT = `<script>
         const id = Number(iBtn.getAttribute("data-leadinvoice"));
         const lead = leadsCache.find(function(x){ return Number(x.id) === id; });
         if(lead) prefillFromLead(lead, "invoice");
+        return;
+      }
+      // v104 — Save the quote price (desktop drawer). Commits the drawer input
+      // into the canonical value + leadsCache, then briefly confirms.
+      const svBtn = e.target.closest("[data-leadsave]");
+      if(svBtn){
+        e.preventDefault();
+        const id = Number(svBtn.getAttribute("data-leadsave"));
+        commitLeadQuote(id);
+        const prev = svBtn.textContent;
+        svBtn.textContent = "Saved";
+        setTimeout(function(){ svBtn.textContent = prev; }, 1400);
         return;
       }
       // v103 — follow-up: WhatsApp / Copy / Email. Each reads the quote-price
@@ -7158,11 +7205,14 @@ const PAGE_SCRIPT = `<script>
     if (cfg.note){ html += '<div class="doc-sheet-note">' + cfg.note + '</div>'; }
     sheetEl.innerHTML = html;
     var grab = document.getElementById('docSheetGrab'); if (grab) grab.addEventListener('click', dismiss);
-    // v103 — leads quote-price: mirror the drawer's AED input into the sheet so
-    // the agent can type a price here; writes back to the drawer input live, so
-    // the forwarded WhatsApp/Copy/Email buttons read the current value.
+    // v104 — leads quote-price: the sheet shows its OWN mirror input, prefilled
+    // from the canonical drawer input. There is NO per-keystroke writeback (that
+    // race was the bug). A dedicated Save button commits via the shared
+    // window.__umcCommitLeadQuote, which writes the parsed value back into the
+    // canonical input + leadsCache; WhatsApp/Copy/Email then read it unchanged.
     var qSrc = panel ? panel.querySelector('input.leadq') : null;
     if (qSrc){
+      var qid = qSrc.getAttribute('data-leadq');
       var qf = document.createElement('div');
       qf.className = 'doc-sheet-quote';
       var qpre = document.createElement('span');
@@ -7171,14 +7221,26 @@ const PAGE_SCRIPT = `<script>
       var qin = document.createElement('input');
       qin.type = 'number'; qin.step = '0.01'; qin.min = '0';
       qin.setAttribute('inputmode', 'decimal');
+      qin.className = 'leadq-sheet';
+      qin.setAttribute('data-leadq-sheet', qid);
       qin.placeholder = 'Quote price';
       qin.value = qSrc.value || '';
-      qin.addEventListener('input', function(){ qSrc.value = qin.value; });
-      qf.appendChild(qpre); qf.appendChild(qin);
+      var qsave = document.createElement('button');
+      qsave.type = 'button';
+      qsave.className = 'doc-sheet-qsave';
+      qsave.textContent = 'Save';
+      qsave.addEventListener('click', function(){
+        var fn = window.__umcCommitLeadQuote;
+        if (typeof fn === 'function'){ qin.value = fn(Number(qid), qin.value); }
+        qsave.textContent = 'Saved';
+        qsave.classList.add('doc-sheet-ok');
+        setTimeout(function(){ qsave.textContent = 'Save'; qsave.classList.remove('doc-sheet-ok'); }, 1400);
+      });
+      qf.appendChild(qpre); qf.appendChild(qin); qf.appendChild(qsave);
       sheetEl.appendChild(qf);
     }
     var src = [];
-    if (panel){ Array.prototype.forEach.call(panel.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ src.push(b); }); }
+    if (panel){ Array.prototype.forEach.call(panel.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ if (b.getAttribute && b.getAttribute('data-leadsave') != null) return; src.push(b); }); }
     if (cfg.inline){ Array.prototype.forEach.call(row.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ src.push(b); }); }
     var seen = {};
     for (var i = 0; i < src.length; i++){ var k = src[i].textContent.trim(); if (k && !seen[k]){ seen[k] = 1; bindAction(src[i]); } }
