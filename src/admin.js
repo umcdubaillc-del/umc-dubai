@@ -637,7 +637,7 @@ async function handleList(env) {
             b.client_phone, b.client_email,
             b.currency, b.total, b.source_quote_number, b.nomod_link_id,
             b.nomod_link_url, b.nomod_link_created_at, b.created_at,
-            b.nomod_charge_id, b.paid_at, b.paid_amount,
+            b.nomod_charge_id, b.paid_at, b.paid_amount, b.payment_method,
             COALESCE(b.payment_status, 'unpaid') AS payment_status,
             (SELECT i.number FROM billing_documents i
               WHERE i.doc_type = 'invoice' AND i.source_quote_number = b.number
@@ -1568,6 +1568,7 @@ function paymentMethodLabel(payment_method, invoice_number, nomod_charge_id) {
   const m = String(payment_method || "").toLowerCase();
   if (m === "bank") return "Bank transfer";
   if (m === "cash") return "Cash";
+  if (m === "nomod_link") return "Nomod payment link";
   if (nomod_charge_id) return invoice_number ? "Nomod link" : "Nomod sale";
   return "Nomod";
 }
@@ -1971,7 +1972,7 @@ async function handleNomodWebhook(request, env) {
 // ============================================================ v84: mark-paid / mark-refunded / sales
 
 // Manual "mark paid" for invoices settled outside Nomod (bank wire, cash).
-// Body: { method: 'bank' | 'cash', paid_at?: 'YYYY-MM-DD' }. payment_status
+// Body: { method: 'bank' | 'cash' | 'nomod_link', paid_at?: 'YYYY-MM-DD' }. payment_status
 // flips to 'paid'; payment_method is stamped so the Sales ledger can split
 // source (a) Nomod vs (b) bank/cash. paid_at is stored as Dubai-local
 // midnight ISO so subsequent month bucketing is unambiguous.
@@ -1980,8 +1981,8 @@ async function handleMarkPaid(id, request, env) {
   let body;
   try { body = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
   const method = String((body && body.method) || "").toLowerCase();
-  if (method !== "bank" && method !== "cash") {
-    return json({ ok: false, error: "method must be 'bank' or 'cash'" }, 400);
+  if (method !== "bank" && method !== "cash" && method !== "nomod_link") {
+    return json({ ok: false, error: "method must be 'bank', 'cash' or 'nomod_link'" }, 400);
   }
   const dateStr = (body && body.paid_at) ? String(body.paid_at) : "";
   // Convert the picked date (YYYY-MM-DD in Dubai time) to a UTC ISO that
@@ -3239,8 +3240,8 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
    under a persistent UMC masthead. Active tab marked with amber underline +
    ink text; inactive tabs muted. A disabled "Payments" tab is kept as a
    visible seam for the reconciliation view that comes next. */
-nav.tabbar{background:var(--card);border-bottom:1px solid var(--hair);padding:0 1rem;display:flex;gap:0;align-items:stretch;overflow-x:auto;-webkit-overflow-scrolling:touch}
-nav.tabbar .tab{position:relative;padding:.9rem .75rem;font-family:Outfit,sans-serif;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);background:transparent;border:0;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .2s ease,border-color .2s ease;min-height:44px;white-space:nowrap;display:inline-flex;align-items:center;gap:.5rem}
+nav.tabbar{background:var(--card);border-bottom:1px solid var(--hair);padding:0 1.5rem;display:flex;gap:0;align-items:stretch;overflow-x:auto;-webkit-overflow-scrolling:touch}
+nav.tabbar .tab{position:relative;padding:.9rem 1.4rem;font-family:Outfit,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);background:transparent;border:0;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .2s ease,border-color .2s ease;min-height:44px;white-space:nowrap;display:inline-flex;align-items:center;gap:.5rem}
 nav.tabbar .tab:hover:not([disabled]){color:var(--ink)}
 nav.tabbar .tab:focus-visible{outline:none;color:var(--ink);border-bottom-color:var(--amber)}
 nav.tabbar .tab.on{color:var(--ink);border-bottom-color:var(--amber)}
@@ -3831,22 +3832,6 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #tab-leads td[data-lbl="Actions"]{order:7; flex:0 0 100%; max-width:100%; margin-top:.5rem; display:flex; flex-wrap:wrap; gap:.4rem; text-align:center; justify-content:center}
   #tab-leads td[data-lbl="Actions"] .btn{margin:0}
 
-  /* 2.2 PAYMENTS rows */
-  #tab-payments .history tbody tr.expandable{
-    align-items:flex-start; gap:.1rem .75rem;
-    background:var(--card); border:1px solid var(--hair); border-radius:14px;
-    margin:0 0 .6rem; padding:.85rem 1rem; border-bottom:1px solid var(--hair);
-  }
-  #tab-payments .history tbody tr.expandable.open{
-    background:var(--card); margin:0 0 .6rem; padding:.85rem 1rem; border-color:var(--amber);
-  }
-  #tab-payments td[data-lbl="Date paid"]{order:1; flex:0 0 58%; max-width:58%; font-size:11.5px; color:var(--muted); padding:0; margin:0}
-  #tab-payments td[data-lbl="Client"]{order:3; flex:0 0 58%; max-width:58%; font-size:14.5px; font-weight:500; color:var(--ink); padding:.1rem 0 0; white-space:normal; margin:0; overflow:hidden; text-overflow:ellipsis}
-  #tab-payments td[data-lbl="Invoice"]{order:5; flex:0 0 58%; max-width:58%; font-size:12px; padding:.05rem 0 0; margin:0}
-  #tab-payments td[data-lbl="Amount"]{order:2; flex:1 1 0; text-align:right; font-size:14.5px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; padding:0; margin-left:auto; max-width:none}
-  #tab-payments td[data-lbl="Method"]{order:4; flex:1 1 0; text-align:right; font-size:12px; color:var(--muted); padding:.1rem 0 0; margin-left:auto}
-  #tab-payments .hist-chev-cell{order:6; flex:0 0 100%; max-width:100%; text-align:right; padding:.15rem 0 0; margin-left:0; position:static}
-
   /* 2.2 LINKS rows */
   #tab-links .history tbody tr.expandable{
     align-items:flex-start; gap:.1rem .75rem;
@@ -3887,7 +3872,6 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   /* Stage 2.1 — two-column row grid + status/spacing fixes */
   #tab-documents .history tbody tr.expandable:first-of-type,
   #tab-leads .history tbody tr.expandable:first-of-type,
-  #tab-payments .history tbody tr.expandable:first-of-type,
   #tab-links .history tbody tr.expandable:first-of-type{ margin-top:.8rem; }
 
   #tab-documents .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.12rem; }
@@ -3908,15 +3892,6 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #tab-leads td[data-lbl="Consent"]{ display:none; }
   #tab-leads td[data-lbl="Status"]{ grid-column:2; grid-row:1 / 5; align-self:center; justify-self:end; text-align:right; white-space:normal; max-width:38vw; line-height:1.3; }
   #tab-leads td[data-lbl="Actions"]{ grid-column:1 / -1; grid-row:5; margin-top:.5rem; display:flex; flex-wrap:wrap; gap:.4rem; justify-content:flex-start; }
-
-  #tab-payments .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.12rem; }
-  #tab-payments td[data-lbl="Date paid"]{ grid-column:1; grid-row:1; }
-  #tab-payments td[data-lbl="Client"]{ grid-column:1; grid-row:2; }
-  #tab-payments td[data-lbl="Invoice"]{ grid-column:1; grid-row:3; }
-  #tab-payments td[data-lbl="Amount"]{ grid-column:2; grid-row:1; justify-self:end; text-align:right; }
-  #tab-payments td[data-lbl="Method"]{ grid-column:2; grid-row:2; justify-self:end; text-align:right; }
-  #tab-payments .hist-chev-cell{ grid-column:1 / -1; grid-row:4; justify-self:end; align-self:end; }
-  #tab-payments tr[data-paystat="paid"] td[data-lbl="Amount"]::after{ content:"Paid"; display:block; color:var(--paid); font-size:11px; letter-spacing:.12em; text-transform:uppercase; font-weight:600; margin-top:.12rem; }
 
   #tab-links .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.1rem; }
   #tab-links td[data-lbl="Created"]{ grid-column:1; grid-row:1; }
@@ -3949,7 +3924,7 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   .doc-sheet-cancel{ background:transparent !important; border-color:transparent !important; color:var(--muted) !important; }
   .mark-paid-modal .ed-shell{ position:fixed !important; left:0 !important; right:0 !important; bottom:0 !important; top:auto !important; transform:none !important; width:100% !important; max-width:none !important; border-radius:20px 20px 0 0 !important; max-height:86vh !important; overflow-y:auto !important; }
   body.doc-sheet-lock{ overflow:hidden; }
-  #tab-documents tr.expandable.open + tr.hist-actions-row, #tab-leads tr.expandable.open + tr.hist-actions-row, #tab-links tr.expandable.open + tr.hist-actions-row, #tab-payments tr.expandable.open + tr.hist-actions-row, #tab-fleet tr.expandable.open + tr.hist-actions-row{ display:none !important; }
+  #tab-documents tr.expandable.open + tr.hist-actions-row, #tab-leads tr.expandable.open + tr.hist-actions-row, #tab-links tr.expandable.open + tr.hist-actions-row, #tab-fleet tr.expandable.open + tr.hist-actions-row{ display:none !important; }
   #tab-documents tr.expandable.open + tr.hist-actions-row > td{ padding:0 !important; border:0 !important; }
   #tab-documents tr.expandable.open + tr.hist-actions-row .hist-actions-panel{ position:fixed !important; left:0; right:0; bottom:0; z-index:60; margin:0 !important; width:100%; border-radius:20px 20px 0 0; background:var(--card) !important; border:0 !important; box-shadow:0 -12px 44px rgba(0,0,0,.28); padding:.5rem 1.1rem 1.4rem !important; max-height:82vh; overflow:auto; display:flex !important; flex-direction:column; gap:.55rem; animation:docSheetUp .28s cubic-bezier(.32,.72,0,1); }
   @keyframes docSheetUp{ from{ transform:translateY(100%); } to{ transform:translateY(0); } }
@@ -4039,9 +4014,8 @@ function appShellHTML() {
   <button type="button" class="tab on" role="tab" aria-selected="true"  data-tab="leads"     id="tabBtnLeads"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c1.5-3.6 5-5.4 7.5-5.4s6 1.8 7.5 5.4"/></svg><span class="tab-label">Leads</span><span class="tab-fulllabel">Leads</span></button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="documents" id="tabBtnDocuments"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V7.5z"/><path d="M14 3v4.5h4.5"/><path d="M9 13h6M9 16h4"/></svg><span class="tab-label">Docs</span><span class="tab-fulllabel">Quotes &amp; Invoices</span></button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="links"     id="tabBtnLinks"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 13.5a4 4 0 0 0 5.6 0l2.4-2.4a4 4 0 0 0-5.7-5.7L11.4 6.8"/><path d="M13.5 10.5a4 4 0 0 0-5.6 0L5.5 12.9a4 4 0 0 0 5.7 5.7l1.4-1.4"/></svg><span class="tab-label">Links</span><span class="tab-fulllabel">Payment Links</span></button>
-  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="payments"  id="tabBtnPayments"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10.5h18"/><path d="M7 16h3"/></svg><span class="tab-label">Payments</span><span class="tab-fulllabel">Payments</span></button>
-  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="sales"     id="tabBtnSales"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16h16"/><path d="M7 16l3.5-4 3 3 5-6"/></svg><span class="tab-label">Sales</span><span class="tab-fulllabel">Sales</span></button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="fleet"     id="tabBtnFleet"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 16.5H3.2a1 1 0 0 1-1-1v-2.6a2 2 0 0 1 .5-1.3L5 8.9a2 2 0 0 1 1.5-.7h8.1a2 2 0 0 1 1.5.7l2.8 3.2a2 2 0 0 1 .5 1.3V15.5a1 1 0 0 1-1 1h-1.5"/><path d="M9.5 16.5h5"/><circle cx="7" cy="16.5" r="2"/><circle cx="17" cy="16.5" r="2"/></svg><span class="tab-label">Fleet</span><span class="tab-fulllabel">Fleet</span></button>
+  <button type="button" class="tab"    id="tabBtnMore" data-more-open="1" aria-haspopup="dialog"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span class="tab-label">More</span><span class="tab-fulllabel">More</span></button>
   <!-- v101: right-aligned Create action button. Not a tab (no data-tab, no
        role=tab). Opens a 3-option popup: Create quote / Create invoice /
        Create payment link. On mobile the desktop "Create" text is hidden and
@@ -4360,50 +4334,6 @@ function appShellHTML() {
 <!-- v60: Payments tab — reconciliation view. Lists every record that has a
      Nomod payment link, with status reconciled via polling. Reuses Documents'
      table styles (.history). -->
-<section id="tab-payments" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnPayments" hidden>
-<section class="history-wrap">
-  <div class="history">
-    <div class="hist-head">
-      <div>
-        <h2>Payments</h2>
-        <p class="hist-sub">Money received. Each settled payment once, by method. Outstanding invoices live in Quotes &amp; Invoices.</p>
-      </div>
-      <div class="hist-tools">
-        <span class="lbl" id="payLastChecked" style="margin-right:.8rem">&nbsp;</span>
-        <button type="button" class="btn btn-small btn-ghost" id="btnPayRefresh">Check now</button>
-      </div>
-    </div>
-    <div class="pay-summary" id="paySummary"></div>
-    <div class="hist-filter" style="display:flex;gap:1rem;flex-wrap:wrap">
-      <div class="hist-ctrl">
-        <span class="lbl">Status</span>
-        <div class="hist-typefilter" role="tablist" aria-label="Status filter">
-          <button type="button" class="seg on" data-paystat="all">All</button>
-          <button type="button" class="seg"    data-paystat="unpaid">Unpaid</button>
-          <button type="button" class="seg"    data-paystat="paid">Paid</button>
-        </div>
-      </div>
-      <div class="hist-sort hist-ctrl">
-        <label class="lbl" for="paySort">Sort</label>
-        <select id="paySort" aria-label="Sort payments">
-          <option value="date-desc" selected>Latest first</option>
-          <option value="date-asc">Oldest first</option>
-          <option value="amount-desc">Amount: high → low</option>
-          <option value="amount-asc">Amount: low → high</option>
-        </select>
-      </div>
-      <a id="btnCustomersCsv" class="btn btn-small btn-ghost" href="/admin/api/customers.csv" download="umc-customers.csv" style="margin-left:auto" title="De-duplicated customers grouped by email: orders, first/last purchase, total spent.">Download customers (CSV)</a>
-    </div>
-    <div class="hist-scroll">
-      <table>
-        <thead><tr><th>Client</th><th>Method</th><th style="text-align:right">Amount</th><th>Invoice</th><th>Date paid</th><th aria-hidden="true"></th></tr></thead>
-        <tbody id="payBody"></tbody>
-      </table>
-    </div>
-    <p class="hist-empty" id="payEmpty" hidden>No payments received yet. Settled payments will appear here, once.</p>
-  </div>
-</section>
-</section><!-- /#tab-payments -->
 
 <section id="tab-fleet" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnFleet" hidden>
 <section class="history-wrap">
@@ -5555,7 +5485,7 @@ const PAGE_SCRIPT = `<script>
     // v61: include "payments" — was missing in v60, which is why activating
     // the tab moved the underline but never un-hid #tab-payments.
     // v84: include "sales".
-    ["leads","create","documents","links","payments","sales","fleet"].forEach(function(n){
+    ["leads","create","documents","links","sales","fleet"].forEach(function(n){
       const el = document.getElementById("tab-" + n);
       if(!el) return;
       const on = n === name;
@@ -5565,7 +5495,6 @@ const PAGE_SCRIPT = `<script>
     if(name === "leads") loadLeads();
     if(name === "documents") loadHistory();
     if(name === "links") loadLinks();
-    if(name === "payments") { loadPayments(); maybeReconcilePayments(); }
     if(name === "sales") loadSales();
     if(name === "fleet") loadFleet();
     if(name === "create" && typeof fitDocToViewport === "function") fitDocToViewport();
@@ -6742,6 +6671,61 @@ const PAGE_SCRIPT = `<script>
   }
 
   // v101 — the right-aligned Create action button popup. Three choices:
+  // "More" overflow sheet — houses tabs that don't fit the primary row. Reuses
+  // the existing ed-modal + ed-backdrop + ed-shell component, styled as a
+  // slide-up bottom sheet (rounded top corners, dim backdrop, brand tokens, the
+  // existing docSheetUp keyframe). Config-driven: add {id,label} to MORE_TABS
+  // and it appears — no structural change. Each entry switches to its existing
+  // panel via switchTab (its data/API/logic are untouched).
+  var MORE_TABS = [
+    { id: "sales", label: "Sales" }
+  ];
+  function openMoreSheet(){
+    const modal = document.createElement("div");
+    modal.className = "ed-modal more-sheet-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("aria-label", "More sections");
+    const backdrop = document.createElement("div");
+    backdrop.className = "ed-backdrop";
+    backdrop.setAttribute("aria-hidden", "true");
+    const shell = document.createElement("div");
+    shell.className = "ed-shell";
+    shell.style.cssText = "width:100%;max-width:none;inset:auto;position:fixed;left:0;right:0;bottom:0;top:auto;transform:none;border-radius:20px 20px 0 0;max-height:80vh;overflow-y:auto;box-shadow:0 -12px 44px rgba(0,0,0,.28);animation:docSheetUp .28s cubic-bezier(.32,.72,0,1)";
+    var itemsHtml = MORE_TABS.map(function(t){
+      return '<button type="button" class="btn btn-ghost" data-more="' + t.id + '" style="text-align:left;padding:.9rem 1rem;width:100%">' + t.label + '</button>';
+    }).join("");
+    shell.innerHTML =
+      '<div class="doc-sheet-grab" aria-hidden="true"></div>'
+      + '<header class="ed-head" style="padding:.2rem 1.6rem .9rem;border:0;background:transparent">'
+      + '  <h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.22rem">More</h2>'
+      + '  <button type="button" class="btn btn-small btn-ghost" data-more-close>Close</button>'
+      + '</header>'
+      + '<div class="ed-body" style="padding:.2rem 1.6rem 1.6rem">'
+      + '  <div style="display:flex;flex-direction:column;align-items:stretch;gap:.7rem">'
+      +      itemsHtml
+      + '  </div>'
+      + '</div>';
+    modal.appendChild(backdrop);
+    modal.appendChild(shell);
+    document.body.appendChild(modal);
+    function close(){ try { document.body.removeChild(modal); } catch(_){} }
+    modal.querySelectorAll("[data-more-close]").forEach(function(b){
+      b.addEventListener("click", function(e){ e.preventDefault(); close(); });
+    });
+    backdrop.addEventListener("click", close);
+    document.addEventListener("keydown", function moreEsc(e){
+      if(e.key === "Escape"){ e.preventDefault(); close(); document.removeEventListener("keydown", moreEsc); }
+    });
+    modal.addEventListener("click", function(e){
+      const pick = e.target.closest("[data-more]");
+      if(!pick) return;
+      e.preventDefault();
+      const id = pick.getAttribute("data-more");
+      close();
+      if(typeof switchTab === "function") switchTab(id);
+    });
+  }
   // Create quote, Create invoice, Create payment link. Built on the same
   // ed-modal shell + inline shell-style override used by
   // openLinkPreviewModal so it reads as part of the same system.
@@ -6846,6 +6830,7 @@ const PAGE_SCRIPT = `<script>
       + '  <div style="display:flex;flex-direction:column;gap:.7rem">'
       + '    <button type="button" class="btn" data-mppick="cash" style="text-align:left;padding:.8rem 1rem">Cash</button>'
       + '    <button type="button" class="btn btn-ghost" data-mppick="bank" style="text-align:left;padding:.8rem 1rem">Bank transfer</button>'
+      + '    <button type="button" class="btn btn-ghost" data-mppick="nomod_link" style="text-align:left;padding:.8rem 1rem">Nomod payment link</button>'
       + '  </div>'
       + '  <div class="actions" style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.2rem">'
       + '    <button type="button" class="btn btn-small btn-ghost" data-mpcancel>Cancel</button>'
@@ -7709,7 +7694,7 @@ const PAGE_SCRIPT = `<script>
         // unchanged (Converted / middot).
         const statusTxt = isInvoice
           ? (isPaidDoc
-              ? '<span class="hist-status paid">Paid</span>'
+              ? '<span class="hist-status paid">Paid</span>' + (function(m){ m = String(m || "").toLowerCase(); var L = m === "cash" ? "cash" : (m === "bank" ? "bank transfer" : (m === "nomod_link" ? "Nomod payment link" : "")); return L ? ' <span style="color:var(--muted);font-size:11px">via ' + L + '</span>' : ""; })(x.payment_method)
               : (isPartialDoc
                   ? '<span class="hist-status" style="color:var(--amber-deep)">Partial</span><span style="color:var(--muted);font-size:11px;margin-left:.4rem;font-variant-numeric:tabular-nums">AED '+_docBalance.toFixed(2)+' due</span>'
                   : (hasLink ? '<span class="hist-status linked">Link generated</span>' : '<span class="hist-status">&middot;</span>')))
@@ -7909,8 +7894,6 @@ const PAGE_SCRIPT = `<script>
   renderLineRows();
   bindLineRows();
   bindForm();
-  // v60: bind Payments-tab delegated click handler once (stable ancestor).
-  bindPayClickOnce();
   // v86: same pattern for Links-tab actions (Copy, Create-invoice-from-link,
   // Attach, Exclude/Restore, Delete, row drawer toggle).
   bindLinksClickOnce();
@@ -7927,7 +7910,7 @@ const PAGE_SCRIPT = `<script>
   // v101: "create" is gone from the tab nav. A stale "#create" hash from a
   // previous session falls back to the leads tab instead of leaving the user
   // on a blank screen.
-  const _BOOT_TABS = ["leads","documents","links","payments","sales","fleet"];
+  const _BOOT_TABS = ["leads","documents","links","sales","fleet"];
   const _hashTab = (location.hash || "").replace(/^#/, "");
   const _bootTab = _BOOT_TABS.indexOf(_hashTab) >= 0 ? _hashTab : "leads";
   switchTab(_bootTab);
@@ -7938,6 +7921,13 @@ const PAGE_SCRIPT = `<script>
   if (_btnCreate && !_btnCreate._bound) {
     _btnCreate._bound = true;
     _btnCreate.addEventListener("click", function(){ openCreatePicker(); });
+  }
+  // "More" tab-like button opens the overflow sheet (Sales, future entries).
+  // Not a real tab (no data-tab), so it's wired here rather than via switchTab.
+  const _btnMore = document.getElementById("tabBtnMore");
+  if (_btnMore && !_btnMore._bound) {
+    _btnMore._bound = true;
+    _btnMore.addEventListener("click", function(){ openMoreSheet(); });
   }
   document.addEventListener("click", function(e){
     var t = e.target.closest && e.target.closest("#btnPreviewPdf");
@@ -7963,7 +7953,6 @@ const PAGE_SCRIPT = `<script>
     document.body.appendChild(ov);
   });
   loadLeads();
-  loadPayments();
   loadLinks();
   loadSales();
   loadHistory();
@@ -8000,10 +7989,9 @@ const PAGE_SCRIPT = `<script>
     'tab-documents': { title:{lbl:'Number',link:true},  sub:{lbl:'Client'},  right:{lbl:'Total'},  metaL:['Type','Date'], metaR:'Status', inline:false },
     'tab-leads':     { title:{lbl:'Name'},               sub:{lbl:'Contact'}, right:null,           metaL:['Service'],    metaR:function(row){ var c = row.querySelector('td[data-lbl="Status"]'); var s = c && c.querySelector('.pay-status'); var base = s ? s.textContent.trim() : (c ? c.textContent.trim() : ''); return base + (row.querySelector('.lead-unverified') ? ' \u00b7 UNVERIFIED' : ''); }, inline:true  },
     'tab-links':     { title:{lbl:'Client',first:true},  sub:null,            right:{lbl:'Amount'}, metaL:['Created'],    metaR:'Status', inline:false },
-    'tab-payments':  { title:{lbl:'Client'},              sub:null,            right:{lbl:'Amount'}, metaL:['Date paid','Method'], metaR:function(row){ return row.classList.contains('excluded') ? 'Excluded' : 'Paid'; }, note:'Payments is read-only. Mark paid (cash or bank) on the invoice; copy a payment link from Payment Links.', inline:false },
     'tab-fleet':     { title:{lbl:'Name'},               sub:{lbl:'Detail'},  right:null,           metaL:[],             metaR:function(row){ var p = row.querySelector('td[data-lbl="Status"] .hist-status'); return p ? p.textContent.trim() : ''; }, inline:false }
   };
-  var TABS = ['tab-documents','tab-leads','tab-links','tab-payments','tab-fleet'];
+  var TABS = ['tab-documents','tab-leads','tab-links','tab-fleet'];
   function mq(){ return window.matchMedia('(max-width: 620px)').matches; }
   var sheetEl = null, backdropEl = null, currentRow = null;
   function cell(row, lbl){ return row.querySelector('td[data-lbl="' + lbl + '"]'); }
