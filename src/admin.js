@@ -6487,7 +6487,7 @@ const PAGE_SCRIPT = `<script>
     backdrop.setAttribute("aria-hidden", "true");
     const shell = document.createElement("div");
     shell.className = "ed-shell";
-    shell.style.cssText = "max-width:520px;max-height:none;inset:auto;position:absolute;top:8vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
+    shell.style.cssText = "width:min(520px, calc(100vw - 48px));max-width:520px;max-height:none;inset:auto;position:absolute;top:8vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
     shell.innerHTML =
       '<header class="ed-head">'
       + '  <h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.18rem">'+esc(opts.headerText || "Confirm payment link")+'</h2>'
