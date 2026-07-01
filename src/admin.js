@@ -295,6 +295,36 @@ async function ensureSchema(env) {
       "active INTEGER DEFAULT 1",
       "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP",
     ]);
+    // Dispatch Phase 1 — one-time idempotent seed of the initial fleet. Keyed on
+    // exact name via INSERT ... WHERE NOT EXISTS, so re-runs (and every isolate
+    // bootstrap) are no-ops once the rows exist. Same style as the amount_aed
+    // backfill above. Edits made in the Fleet UI are never overwritten.
+    const _driverSeed = [
+      ["Muhammad Shahzaib", "+971507526717"],
+      ["Ahsan Ullah",       "+971529895247"],
+      ["Waqas Shah",        "+971562592682"],
+      ["Afraz Dilbar",      "+971562705133"],
+    ];
+    for (const [name, phone] of _driverSeed) {
+      await env.BILLING_DB.prepare(
+        `INSERT INTO drivers (name, phone, active)
+           SELECT ?, ?, 1
+           WHERE NOT EXISTS (SELECT 1 FROM drivers WHERE name = ?)`
+      ).bind(name, phone, name).run();
+    }
+    const _vehicleSeed = [
+      ["Mercedes Benz S Class", "L-29320"],
+      ["Mercedes Benz V Class", "L-39266"],
+      ["BMW 7 Series",          "L-24955"],
+      ["GMC Yukon Elevation",   "L-23572"],
+    ];
+    for (const [name, plate] of _vehicleSeed) {
+      await env.BILLING_DB.prepare(
+        `INSERT INTO vehicles (name, plate, active)
+           SELECT ?, ?, 1
+           WHERE NOT EXISTS (SELECT 1 FROM vehicles WHERE name = ?)`
+      ).bind(name, plate, name).run();
+    }
     SCHEMA_DONE.add(env);
   })().finally(() => { _schemaInflight = null; });
   return _schemaInflight;
