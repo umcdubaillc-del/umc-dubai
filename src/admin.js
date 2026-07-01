@@ -4345,6 +4345,35 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
 .job-form .field label.lbl{ display:block; margin-bottom:.25rem; }
 .job-grid2{ display:grid; grid-template-columns:1fr 1fr; gap:.7rem; }
 @media (max-width:520px){ .job-grid2{ grid-template-columns:1fr; } }
+/* ---- Calendar (agenda) tab: vertical list of day sections, brand tokens only.
+   Reuses .job-lights for the readiness strip; no new colours/fonts. ---- */
+.cal-tools{ display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
+.cal-navdate{ font-family:Outfit,sans-serif; font-size:.9rem; color:var(--ink); padding:.35rem .5rem; border:1px solid var(--hair); border-radius:6px; background:var(--card); min-height:34px; }
+.cal-fromlbl{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin-left:.2rem; }
+.cal-day{ margin:0 0 1.5rem; }
+.cal-dayhead{ display:flex; align-items:baseline; gap:.6rem; padding:.35rem 0 .5rem; border-bottom:1px solid var(--line); margin-bottom:.2rem; }
+.cal-dayname{ font-family:Marcellus,Georgia,serif; font-size:1.08rem; color:var(--ink); line-height:1.1; }
+.cal-daydate{ font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--muted); }
+.cal-daycount{ margin-left:auto; font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); white-space:nowrap; }
+.cal-row{ display:flex; gap:.9rem; align-items:flex-start; padding:.7rem .3rem; border-bottom:1px solid var(--hair); cursor:pointer; }
+.cal-row:hover{ background:color-mix(in srgb, var(--amber) 6%, transparent); }
+.cal-row:focus-visible{ outline:none; background:color-mix(in srgb, var(--amber) 9%, transparent); }
+.cal-row.cal-cancelled{ opacity:.55; }
+.cal-time{ flex:0 0 auto; width:62px; font-variant-numeric:tabular-nums; font-weight:600; color:var(--ink); font-size:.98rem; padding-top:.05rem; }
+.cal-time.cal-notime{ color:var(--muted); font-weight:500; }
+.cal-body2{ flex:1 1 auto; min-width:0; }
+.cal-client{ color:var(--ink); font-weight:600; line-height:1.3; }
+.cal-service{ color:var(--muted); font-weight:400; }
+.cal-cxpill{ font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--amber-deep); border:1px solid var(--amber-deep); border-radius:2px; padding:.05rem .3rem; vertical-align:middle; }
+.cal-meta{ display:flex; flex-wrap:wrap; gap:.25rem 1.1rem; margin-top:.3rem; font-size:.86rem; }
+.cal-assign{ color:var(--ink-soft); }
+.cal-unassigned{ color:var(--amber-deep); }
+.cal-lbl{ color:var(--muted); font-size:10px; letter-spacing:.1em; text-transform:uppercase; margin-right:.35rem; }
+.cal-lights{ flex:0 0 auto; padding-top:.1rem; }
+@media (max-width:620px){
+  .cal-row{ flex-wrap:wrap; }
+  .cal-lights{ width:100%; padding-top:.5rem; }
+}
 /* Bottom-sheet quote-price Save button */
 .doc-sheet-qsave{ flex:0 0 auto; border:1px solid var(--ink); background:var(--ink); color:var(--bone); border-radius:8px; padding:.5rem 1rem; font-family:inherit; font-size:.9rem; font-weight:500; cursor:pointer; }
 .doc-sheet-qsave.doc-sheet-ok{ background:var(--paid,#2E7D54); border-color:var(--paid,#2E7D54); color:#fff; }
@@ -4396,6 +4425,7 @@ function appShellHTML() {
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="documents" id="tabBtnDocuments"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V7.5z"/><path d="M14 3v4.5h4.5"/><path d="M9 13h6M9 16h4"/></svg><span class="tab-label">Docs</span><span class="tab-fulllabel">Quotes &amp; Invoices</span></button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="links"     id="tabBtnLinks"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 13.5a4 4 0 0 0 5.6 0l2.4-2.4a4 4 0 0 0-5.7-5.7L11.4 6.8"/><path d="M13.5 10.5a4 4 0 0 0-5.6 0L5.5 12.9a4 4 0 0 0 5.7 5.7l1.4-1.4"/></svg><span class="tab-label">Links</span><span class="tab-fulllabel">Payment Links</span></button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="jobs"      id="tabBtnJobs"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6.5" r="2.3"/><circle cx="17.5" cy="17.5" r="2.3"/><path d="M8.8 6.5H14a3.5 3.5 0 0 1 0 7h-4a3.5 3.5 0 0 0 0 7h5.2"/></svg><span class="tab-label">Jobs</span><span class="tab-fulllabel">Jobs</span></button>
+  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="calendar"  id="tabBtnCalendar"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="1.6"/><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"/></svg><span class="tab-label">Calendar</span><span class="tab-fulllabel">Calendar</span></button>
   <button type="button" class="tab"    id="tabBtnMore" data-more-open="1" aria-haspopup="dialog"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span class="tab-label">More</span><span class="tab-fulllabel">More</span></button>
   <!-- v101: right-aligned Create action button. Not a tab (no data-tab, no
        role=tab). Opens a 3-option popup: Create quote / Create invoice /
@@ -4783,6 +4813,34 @@ function appShellHTML() {
   </div>
 </section>
 </section><!-- /#tab-jobs -->
+
+<!-- Calendar — agenda view of our OWN jobs data (GET /admin/api/jobs). This page
+     never queries Google; the Google Calendar sync remains one-way sync-out only.
+     Days are listed vertically from the anchor date forward; cancelled jobs hide
+     by default. Clicking a row opens the same job editor used on the Jobs tab. -->
+<section id="tab-calendar" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnCalendar" hidden>
+<section class="history-wrap">
+  <div class="history">
+    <div class="hist-head">
+      <div>
+        <h2>Calendar</h2>
+        <p class="hist-sub">Agenda of dispatched trips, day by day from the selected date. Reads our own jobs data &mdash; assign drivers and vehicles on a job, then it syncs out to the UMC Dispatch calendar. Cancelled jobs are hidden unless shown.</p>
+      </div>
+      <div class="hist-tools cal-tools">
+        <button type="button" class="btn btn-small btn-ghost" data-calnav="prev" aria-label="Previous day" title="Previous day">&#8249; Prev</button>
+        <button type="button" class="btn btn-small btn-ghost" data-calnav="today">Today</button>
+        <button type="button" class="btn btn-small btn-ghost" data-calnav="next" aria-label="Next day" title="Next day">Next &#8250;</button>
+        <input type="date" id="calDate" class="cal-navdate" aria-label="Jump to date">
+        <span class="cal-fromlbl">from <span id="calFromLabel"></span></span>
+        <button type="button" class="btn btn-small btn-ghost" data-calcancel="1" aria-pressed="false">Show cancelled</button>
+        <button type="button" class="btn btn-small btn-ghost" id="calRefresh">Refresh</button>
+      </div>
+    </div>
+    <div id="calBody"></div>
+    <div class="empty" id="calEmpty" hidden>No jobs on or after this date. Use &ldquo;Today&rdquo; or an earlier date, or create jobs from the Jobs tab.</div>
+  </div>
+</section>
+</section><!-- /#tab-calendar -->
 
 <!-- v84 — Sales: de-duplicated settled-revenue ledger (cash basis, Dubai time, net of VAT).
      Combines paid Nomod payments (invoices + standalone links) with bank/cash invoices
@@ -5890,7 +5948,7 @@ const PAGE_SCRIPT = `<script>
     // v61: include "payments" — was missing in v60, which is why activating
     // the tab moved the underline but never un-hid #tab-payments.
     // v84: include "sales".
-    ["leads","create","documents","links","sales","fleet","jobs"].forEach(function(n){
+    ["leads","create","documents","links","sales","fleet","jobs","calendar"].forEach(function(n){
       const el = document.getElementById("tab-" + n);
       if(!el) return;
       const on = n === name;
@@ -5903,6 +5961,7 @@ const PAGE_SCRIPT = `<script>
     if(name === "sales") loadSales();
     if(name === "fleet") loadFleet();
     if(name === "jobs") loadJobs();
+    if(name === "calendar") loadCalendar();
     if(name === "create" && typeof fitDocToViewport === "function") fitDocToViewport();
     // v85: persist active tab in URL hash so refresh stays on the same tab.
     // Use replaceState to avoid pushing every tab click into browser history.
@@ -6125,6 +6184,9 @@ const PAGE_SCRIPT = `<script>
       var j = await r.json();
       if(!j.ok){ setStatus("Jobs load failed: " + (j.error || r.status)); return; }
       jobsCache = j.items || [];
+      // Keep the Calendar agenda consistent whenever jobs change (both tabs share
+      // jobsCache; job saves/deletes route through loadJobs()).
+      if(typeof renderCalendar === "function" && document.getElementById("calBody")) renderCalendar();
       if(!jobsCache.length){ body.innerHTML = ""; empty.hidden = false; return; }
       empty.hidden = true;
       body.innerHTML = jobsCache.map(renderJobRow).join("");
@@ -6453,6 +6515,167 @@ const PAGE_SCRIPT = `<script>
       if(expTr && !e.target.closest("a, button")){ toggleAccordionRow(expTr, root); }
     });
   }
+
+  // ---------- Calendar (agenda) tab ----------
+  // Reads our OWN jobs (jobsCache, sourced from GET /admin/api/jobs) and lays them
+  // out as a vertical agenda of day sections from an anchor date forward. It never
+  // queries Google — Google Calendar stays a one-way sync-out target. Rows reuse
+  // renderJobLights() and openJobEdit() so nothing is duplicated from the Jobs tab.
+  var calState = { date: null, showCancelled: false };
+  function calTodayStr(){
+    var d = new Date();
+    var m = String(d.getMonth() + 1).padStart(2, "0");
+    var day = String(d.getDate()).padStart(2, "0");
+    return d.getFullYear() + "-" + m + "-" + day;
+  }
+  function calShiftDate(str, delta){
+    var d = new Date((str || calTodayStr()) + "T12:00:00");
+    d.setDate(d.getDate() + delta);
+    var m = String(d.getMonth() + 1).padStart(2, "0");
+    var day = String(d.getDate()).padStart(2, "0");
+    return d.getFullYear() + "-" + m + "-" + day;
+  }
+  function calDayLabel(str){
+    var d = new Date(str + "T12:00:00");
+    return { weekday: d.toLocaleDateString("en-GB", { weekday:"long" }), full: fmtDate(str) };
+  }
+  // Chronological within a day: timed jobs first (ascending), untimed last, id ties.
+  function calRowSort(a, b){
+    var ta = jobTimeToMinutes(a.time), tb = jobTimeToMinutes(b.time);
+    if(ta == null && tb == null) return Number(a.id) - Number(b.id);
+    if(ta == null) return 1;
+    if(tb == null) return -1;
+    if(ta !== tb) return ta - tb;
+    return Number(a.id) - Number(b.id);
+  }
+  function calJobById(id){ return jobsCache.filter(function(z){ return Number(z.id) === Number(id); })[0]; }
+  function calRowHtml(job){
+    var t = leadNz(job.time);
+    var timeCls = t ? "cal-time" : "cal-time cal-notime";
+    var timeHtml = t ? esc(t) : "&middot;";
+    var drivers = (job.driver_names || []).filter(function(n){ return leadNz(n); });
+    var vehicles = (job.vehicle_names || []).filter(function(n){ return leadNz(n); });
+    var driverHtml = drivers.length
+      ? '<span class="cal-assign"><span class="cal-lbl">Driver</span>' + esc(drivers.join(", ")) + '</span>'
+      : '<span class="cal-unassigned"><span class="cal-lbl">Driver</span>Unassigned</span>';
+    var vehicleHtml = vehicles.length
+      ? '<span class="cal-assign"><span class="cal-lbl">Vehicle</span>' + esc(vehicles.join(", ")) + '</span>'
+      : '<span class="cal-unassigned"><span class="cal-lbl">Vehicle</span>Unassigned</span>';
+    var svc = jobServiceText(job);
+    var cancelled = job.status === "cancelled";
+    return '<div class="cal-row' + (cancelled ? " cal-cancelled" : "") + '" data-calopen="' + job.id + '" role="button" tabindex="0">'
+      + '<div class="' + timeCls + '">' + timeHtml + '</div>'
+      + '<div class="cal-body2">'
+      +   '<div class="cal-client">' + esc(leadNz(job.client_name) || ("Job #" + job.id))
+      +      (cancelled ? ' <span class="cal-cxpill">Cancelled</span>' : '')
+      +      (svc ? ' <span class="cal-service">&middot; ' + esc(svc) + '</span>' : '')
+      +   '</div>'
+      +   '<div class="cal-meta">' + driverHtml + vehicleHtml + '</div>'
+      + '</div>'
+      + '<div class="cal-lights">' + renderJobLights(job) + '</div>'
+      + '</div>';
+  }
+  function calDaySection(dateStr, jobs, todayStr){
+    var headMain, headSub;
+    if(dateStr){
+      var lab = calDayLabel(dateStr);
+      var special = dateStr === todayStr ? "Today" : (dateStr === calShiftDate(todayStr, 1) ? "Tomorrow" : "");
+      headMain = esc(special || lab.weekday);
+      headSub = esc(special ? (lab.weekday + " · " + lab.full) : lab.full);
+    } else {
+      headMain = "Undated"; headSub = "No scheduled date yet";
+    }
+    var rows = jobs.map(calRowHtml).join("");
+    return '<div class="cal-day">'
+      + '<div class="cal-dayhead">'
+      +   '<span class="cal-dayname">' + headMain + '</span>'
+      +   '<span class="cal-daydate">' + headSub + '</span>'
+      +   '<span class="cal-daycount">' + jobs.length + (jobs.length === 1 ? " job" : " jobs") + '</span>'
+      + '</div>'
+      + rows
+      + '</div>';
+  }
+  function renderCalendar(){
+    var body = document.getElementById("calBody");
+    var empty = document.getElementById("calEmpty");
+    if(!body) return;
+    var anchor = calState.date || (calState.date = calTodayStr());
+    var todayStr = calTodayStr();
+    var di = document.getElementById("calDate");
+    if(di && di.value !== anchor) di.value = anchor;
+    var fl = document.getElementById("calFromLabel");
+    if(fl) fl.textContent = calDayLabel(anchor).full;
+    var vis = jobsCache.filter(function(j){
+      if(!calState.showCancelled && j.status === "cancelled") return false;
+      return true;
+    });
+    var byDate = {}, undated = [];
+    vis.forEach(function(j){
+      var d = leadNz(j.date);
+      if(!d){ undated.push(j); return; }
+      if(d < anchor) return;
+      (byDate[d] = byDate[d] || []).push(j);
+    });
+    var days = Object.keys(byDate).sort();
+    if(!days.length && !undated.length){ body.innerHTML = ""; if(empty) empty.hidden = false; return; }
+    if(empty) empty.hidden = true;
+    var html = "";
+    days.forEach(function(d){ html += calDaySection(d, byDate[d].sort(calRowSort), todayStr); });
+    if(undated.length) html += calDaySection(null, undated.sort(calRowSort), todayStr);
+    body.innerHTML = html;
+  }
+  async function loadCalendar(){
+    var body = document.getElementById("calBody");
+    if(!body) return;
+    if(!calState.date) calState.date = calTodayStr();
+    try {
+      var r = await fetch("/admin/api/jobs");
+      var j = await r.json();
+      if(!j.ok){ setStatus("Calendar load failed: " + (j.error || r.status)); return; }
+      jobsCache = j.items || [];
+      renderCalendar();
+    } catch(e){ setStatus("Calendar load failed."); }
+  }
+  function bindCalendarClickOnce(){
+    var root = document.getElementById("tab-calendar");
+    if(!root || root._calClickBound) return;
+    root._calClickBound = true;
+    root.addEventListener("click", function(e){
+      var nav = e.target.closest("[data-calnav]");
+      if(nav){
+        e.preventDefault();
+        var dir = nav.getAttribute("data-calnav");
+        if(dir === "today") calState.date = calTodayStr();
+        else if(dir === "prev") calState.date = calShiftDate(calState.date, -1);
+        else if(dir === "next") calState.date = calShiftDate(calState.date, 1);
+        renderCalendar();
+        return;
+      }
+      var rf = e.target.closest("#calRefresh");
+      if(rf){ e.preventDefault(); loadCalendar(); return; }
+      var cx = e.target.closest("[data-calcancel]");
+      if(cx){
+        e.preventDefault();
+        calState.showCancelled = !calState.showCancelled;
+        cx.classList.toggle("on", calState.showCancelled);
+        cx.setAttribute("aria-pressed", calState.showCancelled ? "true" : "false");
+        cx.textContent = calState.showCancelled ? "Hide cancelled" : "Show cancelled";
+        renderCalendar();
+        return;
+      }
+      var op = e.target.closest("[data-calopen]");
+      if(op){ e.preventDefault(); var j = calJobById(op.getAttribute("data-calopen")); if(j) openJobEdit(j); return; }
+    });
+    // Enter/Space opens the focused agenda row (rows are role=button, tabbable).
+    root.addEventListener("keydown", function(e){
+      if(e.key !== "Enter" && e.key !== " ") return;
+      var op = e.target.closest && e.target.closest("[data-calopen]");
+      if(op){ e.preventDefault(); var j = calJobById(op.getAttribute("data-calopen")); if(j) openJobEdit(j); }
+    });
+    var di = document.getElementById("calDate");
+    if(di){ di.addEventListener("change", function(){ if(di.value){ calState.date = di.value; renderCalendar(); } }); }
+  }
+
   function openFleetForm(kind, existing){
     var isEdit = !!existing;
     var detailLbl = kind === "drivers" ? "Phone" : "Plate";
@@ -8800,6 +9023,7 @@ const PAGE_SCRIPT = `<script>
   // inactive, Edit, Delete/soft, Reactivate, row drawer toggle).
   bindFleetClickOnce();
   bindJobsClickOnce();
+  bindCalendarClickOnce();
   renderTotals();
   renderDoc();
   fetchNext();
@@ -8810,7 +9034,7 @@ const PAGE_SCRIPT = `<script>
   // v101: "create" is gone from the tab nav. A stale "#create" hash from a
   // previous session falls back to the leads tab instead of leaving the user
   // on a blank screen.
-  const _BOOT_TABS = ["leads","documents","links","sales","fleet","jobs"];
+  const _BOOT_TABS = ["leads","documents","links","sales","fleet","jobs","calendar"];
   const _hashTab = (location.hash || "").replace(/^#/, "");
   const _bootTab = _BOOT_TABS.indexOf(_hashTab) >= 0 ? _hashTab : "leads";
   switchTab(_bootTab);
@@ -8858,6 +9082,7 @@ const PAGE_SCRIPT = `<script>
   loadHistory();
   loadFleet();
   loadJobs();
+  loadCalendar();
   // Stage-1 fix-up: on phones, move the Create button out of the bottom tab
   // bar (whose backdrop-filter clips fixed children) and into the header's
   // top-right corner. Reverses to the desktop home slot above 620px.
