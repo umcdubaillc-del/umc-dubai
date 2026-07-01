@@ -4278,14 +4278,6 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #tab-fleet td[data-lbl="Status"]{ grid-column:2; grid-row:1; justify-self:end; text-align:right; }
   #tab-fleet .hist-chev-cell{ grid-column:2; grid-row:2; justify-self:end; align-self:end; }
 
-  #tab-jobs .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.12rem; }
-  #tab-jobs td[data-lbl="Client"]{ grid-column:1; grid-row:1; font-weight:500; color:var(--ink); }
-  #tab-jobs td[data-lbl="Service"]{ grid-column:1; grid-row:2; color:var(--muted); font-size:12px; }
-  #tab-jobs td[data-lbl="Date"]{ grid-column:2; grid-row:1; justify-self:end; text-align:right; color:var(--muted); font-size:12px; }
-  #tab-jobs td[data-lbl="Status"]{ grid-column:2; grid-row:2; justify-self:end; text-align:right; }
-  #tab-jobs td[data-lbl="Readiness"]{ grid-column:1 / -1; grid-row:3; margin-top:.3rem; }
-  #tab-jobs .hist-chev-cell{ grid-column:2; grid-row:3; justify-self:end; align-self:end; }
-
   /* Stage 3 — Document detail bottom sheet (mobile only) */
   #docSheetBackdrop{ position:fixed; inset:0; background:rgba(20,15,10,.45); opacity:0; pointer-events:none; transition:opacity .25s; z-index:2000; }
   #docSheetBackdrop.on{ opacity:1; pointer-events:auto; }
@@ -4301,7 +4293,7 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   .doc-sheet-cancel{ background:transparent !important; border-color:transparent !important; color:var(--muted) !important; }
   .mark-paid-modal .ed-shell{ position:fixed !important; left:0 !important; right:0 !important; bottom:0 !important; top:auto !important; transform:none !important; width:100% !important; max-width:none !important; border-radius:20px 20px 0 0 !important; max-height:86vh !important; overflow-y:auto !important; }
   body.doc-sheet-lock{ overflow:hidden; }
-  #tab-documents tr.expandable.open + tr.hist-actions-row, #tab-leads tr.expandable.open + tr.hist-actions-row, #tab-links tr.expandable.open + tr.hist-actions-row, #tab-fleet tr.expandable.open + tr.hist-actions-row, #tab-jobs tr.expandable.open + tr.hist-actions-row{ display:none !important; }
+  #tab-documents tr.expandable.open + tr.hist-actions-row, #tab-leads tr.expandable.open + tr.hist-actions-row, #tab-links tr.expandable.open + tr.hist-actions-row, #tab-fleet tr.expandable.open + tr.hist-actions-row{ display:none !important; }
   #tab-documents tr.expandable.open + tr.hist-actions-row > td{ padding:0 !important; border:0 !important; }
   #tab-documents tr.expandable.open + tr.hist-actions-row .hist-actions-panel{ position:fixed !important; left:0; right:0; bottom:0; z-index:60; margin:0 !important; width:100%; border-radius:20px 20px 0 0; background:var(--card) !important; border:0 !important; box-shadow:0 -12px 44px rgba(0,0,0,.28); padding:.5rem 1.1rem 1.4rem !important; max-height:82vh; overflow:auto; display:flex !important; flex-direction:column; gap:.55rem; animation:docSheetUp .28s cubic-bezier(.32,.72,0,1); }
   @keyframes docSheetUp{ from{ transform:translateY(100%); } to{ transform:translateY(0); } }
@@ -4363,7 +4355,6 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
 @media (max-width:520px){ .job-grid2{ grid-template-columns:1fr; } }
 /* ---- Job SHEET (actions surface) + edit-modal requirement lines. Brand tokens
    only; reuses .job-light, .job-check, .btn, .status-line, .paid-warn. ---- */
-#tab-jobs tr[data-jobsheet]{ cursor:pointer; }
 .js-when{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); }
 .js-client{ font-family:Marcellus,Georgia,serif; font-size:1.3rem; color:var(--ink); line-height:1.15; }
 .js-headmeta{ display:flex; align-items:center; gap:.55rem; flex-wrap:wrap; }
@@ -4510,7 +4501,6 @@ function appShellHTML() {
   <button type="button" class="tab on" role="tab" aria-selected="true"  data-tab="leads"     id="tabBtnLeads"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c1.5-3.6 5-5.4 7.5-5.4s6 1.8 7.5 5.4"/></svg><span class="tab-label">Leads</span><span class="tab-fulllabel">Leads</span></button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="documents" id="tabBtnDocuments"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V7.5z"/><path d="M14 3v4.5h4.5"/><path d="M9 13h6M9 16h4"/></svg><span class="tab-label">Docs</span><span class="tab-fulllabel">Quotes &amp; Invoices</span></button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="links"     id="tabBtnLinks"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 13.5a4 4 0 0 0 5.6 0l2.4-2.4a4 4 0 0 0-5.7-5.7L11.4 6.8"/><path d="M13.5 10.5a4 4 0 0 0-5.6 0L5.5 12.9a4 4 0 0 0 5.7 5.7l1.4-1.4"/></svg><span class="tab-label">Links</span><span class="tab-fulllabel">Payment Links</span></button>
-  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="jobs"      id="tabBtnJobs"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6.5" r="2.3"/><circle cx="17.5" cy="17.5" r="2.3"/><path d="M8.8 6.5H14a3.5 3.5 0 0 1 0 7h-4a3.5 3.5 0 0 0 0 7h5.2"/></svg><span class="tab-label">Jobs</span><span class="tab-fulllabel">Jobs</span></button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="calendar"  id="tabBtnCalendar"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="1.6"/><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"/></svg><span class="tab-label">Calendar</span><span class="tab-fulllabel">Calendar</span></button>
   <button type="button" class="tab"    id="tabBtnMore" data-more-open="1" aria-haspopup="dialog"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span class="tab-label">More</span><span class="tab-fulllabel">More</span></button>
   <!-- v101: right-aligned Create action button. Not a tab (no data-tab, no
@@ -4876,30 +4866,6 @@ function appShellHTML() {
 </section>
 </section><!-- /#tab-fleet -->
 
-<section id="tab-jobs" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnJobs" hidden>
-<section class="history-wrap">
-  <div class="history">
-    <div class="hist-head">
-      <div>
-        <h2>Jobs</h2>
-        <p class="hist-sub">Dispatched trips. Assign drivers and vehicles, work the readiness checklist, notify driver and client, then complete or cancel. Assigned jobs sync to the UMC Dispatch calendar.</p>
-      </div>
-      <div class="hist-tools" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-        <button type="button" class="btn btn-small btn-ghost" id="jobsRefresh">Refresh</button>
-        <button type="button" class="btn btn-small btn-ink" data-jobnew="1">+ New Job</button>
-      </div>
-    </div>
-    <div class="hist-scroll">
-      <table>
-        <thead><tr><th>Date</th><th>Client</th><th>Service</th><th>Status</th><th>Readiness</th><th aria-hidden="true"></th></tr></thead>
-        <tbody id="jobsBody"></tbody>
-      </table>
-    </div>
-    <div class="empty" id="jobsEmpty" hidden>No jobs yet. Use &ldquo;+ New Job&rdquo;, or create one from a lead, quote or invoice.</div>
-  </div>
-</section>
-</section><!-- /#tab-jobs -->
-
 <!-- Calendar — agenda view of our OWN jobs data (GET /admin/api/jobs). This page
      never queries Google; the Google Calendar sync remains one-way sync-out only.
      Days are listed vertically from the anchor date forward; cancelled jobs hide
@@ -4936,7 +4902,7 @@ function appShellHTML() {
       <button type="button" class="cal-strip-arrow" data-calstrip="nextweek" aria-label="Next week" title="Next week">&#8250;</button>
     </div>
     <div id="calBody"></div>
-    <div class="empty" id="calEmpty" hidden>No jobs on or after this date. Use &ldquo;Today&rdquo; or an earlier date, or create jobs from the Jobs tab.</div>
+    <div class="empty" id="calEmpty" hidden>No jobs on or after this date. Use &ldquo;Today&rdquo; or an earlier date, or add one with &ldquo;+ Create&rdquo;.</div>
   </div>
 </section>
 </section><!-- /#tab-calendar -->
@@ -6047,7 +6013,7 @@ const PAGE_SCRIPT = `<script>
     // v61: include "payments" — was missing in v60, which is why activating
     // the tab moved the underline but never un-hid #tab-payments.
     // v84: include "sales".
-    ["leads","create","documents","links","sales","fleet","jobs","calendar"].forEach(function(n){
+    ["leads","create","documents","links","sales","fleet","calendar"].forEach(function(n){
       const el = document.getElementById("tab-" + n);
       if(!el) return;
       const on = n === name;
@@ -6059,7 +6025,6 @@ const PAGE_SCRIPT = `<script>
     if(name === "links") loadLinks();
     if(name === "sales") loadSales();
     if(name === "fleet") loadFleet();
-    if(name === "jobs") loadJobs();
     if(name === "calendar") loadCalendar();
     if(name === "create" && typeof fitDocToViewport === "function") fitDocToViewport();
     // v85: persist active tab in URL hash so refresh stays on the same tab.
@@ -6303,20 +6268,6 @@ const PAGE_SCRIPT = `<script>
     var hasVeh = (job.vehicle_ids || []).length >= 1;
     return !(hasDrv && hasVeh);
   }
-  // Jobs list renders the full set (server date+time sort). The tomorrow-needs-
-  // assignment callout + its filter now live on the Calendar tab.
-  function renderJobsList(){
-    var body = document.getElementById("jobsBody");
-    var empty = document.getElementById("jobsEmpty");
-    if(!body) return;
-    if(!jobsCache.length){
-      body.innerHTML = "";
-      if(empty){ empty.hidden = false; empty.textContent = "No jobs yet. Use “+ New Job”, or create one from a lead, quote or invoice."; }
-      return;
-    }
-    if(empty) empty.hidden = true;
-    body.innerHTML = jobsCache.map(renderJobRow).join("");
-  }
   // Calendar-tab callout (relocated from the Jobs tab): amber when tomorrow
   // (Dubai) has jobs still missing a driver or vehicle — tapping filters the
   // agenda to just those; calm green when all assigned; muted when nothing is
@@ -6338,37 +6289,17 @@ const PAGE_SCRIPT = `<script>
       host.innerHTML = '<div class="job-callout none">No jobs scheduled for tomorrow yet.</div>';
     }
   }
-  // GLANCE surface: a single tappable row. Tapping opens the job SHEET (the
-  // actions surface) — no inline accordion. Keeps the expandable class purely
-  // for its cursor/hover + mobile card-grid styling. Dots-only readiness.
-  function renderJobRow(job){
-    var dateTxt = leadNz(job.date)
-      ? (esc(fmtDate(job.date)) + (leadNz(job.time) ? ' <span style="color:var(--muted)">' + esc(job.time) + '</span>' : ''))
-      : '<span style="color:var(--muted)">&middot;</span>';
-    var trClass = "expandable" + (job.status === "cancelled" ? " excluded" : "");
-    return '<tr class="' + trClass + '" data-jobsheet="' + job.id + '" role="button" tabindex="0">'
-      + '<td data-lbl="Date">' + dateTxt + '</td>'
-      + '<td data-lbl="Client">' + esc(leadNz(job.client_name) || "·") + '</td>'
-      + '<td data-lbl="Service">' + esc(jobServiceText(job)) + '</td>'
-      + '<td data-lbl="Status">' + jobStatusPill(job.status) + '</td>'
-      + '<td data-lbl="Readiness">' + renderJobLights(job) + '</td>'
-      + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#8250;</span></td>'
-      + '</tr>';
-  }
+  // Jobs data loader. The Jobs tab is gone; this now purely refreshes jobsCache
+  // (shared with the Calendar agenda + Fleet drawers) and re-renders the
+  // Calendar, which also refreshes the relocated tomorrow callout. Called at
+  // boot and after every job mutation (sheet save/assign/complete/cancel/delete).
   async function loadJobs(){
-    var body = document.getElementById("jobsBody");
-    var empty = document.getElementById("jobsEmpty");
-    if(!body) return;
     try {
       var r = await fetch("/admin/api/jobs");
       var j = await r.json();
       if(!j.ok){ setStatus("Jobs load failed: " + (j.error || r.status)); return; }
       jobsCache = j.items || [];
-      // Keep the Calendar agenda consistent whenever jobs change (both tabs share
-      // jobsCache; job saves/deletes route through loadJobs()).
-      // renderCalendar() also refreshes the (relocated) tomorrow callout.
       if(typeof renderCalendar === "function" && document.getElementById("calBody")) renderCalendar();
-      renderJobsList();
     } catch(e){ setStatus("Jobs load failed."); }
   }
   // WhatsApp message bodies — mirror buildLeadMessage's field ordering/omission.
@@ -6609,7 +6540,18 @@ const PAGE_SCRIPT = `<script>
         var url = isEdit ? ("/admin/api/jobs/" + jobId) : "/admin/api/jobs";
         var r = await fetch(url, { method: isEdit ? "PUT" : "POST", headers: { "Content-Type":"application/json" }, body: JSON.stringify(payload) });
         var j = await r.json().catch(function(){ return {}; });
-        if(r.ok && j && j.ok){ close(); await loadJobs(); setStatus(isEdit ? ("Job #" + jobId + " saved.") : "Job created."); }
+        if(r.ok && j && j.ok){
+          close();
+          await loadJobs();
+          // Jobs tab is gone — land a NEW job on the Calendar, anchored to its
+          // date if it has one (undated jobs surface in the Undated section).
+          if(!isEdit && typeof switchTab === "function"){
+            var _nd = j.job && leadNz(j.job.date);
+            if(_nd) calState.date = _nd;
+            switchTab("calendar");
+          }
+          setStatus(isEdit ? ("Job #" + jobId + " saved.") : "Job created.");
+        }
         else { setStat("Save failed: " + ((j && j.error) || r.status)); btn.disabled = false; btn.textContent = prev; }
       } catch(e){ setStat("Save failed: " + (e.message || e)); btn.disabled = false; btn.textContent = prev; }
     }
@@ -6837,27 +6779,6 @@ const PAGE_SCRIPT = `<script>
     render();
   }
 
-  function jobById(id){ return jobsCache.filter(function(z){ return Number(z.id) === Number(id); })[0]; }
-  function bindJobsClickOnce(){
-    var root = document.getElementById("tab-jobs");
-    if(!root || root._jobsClickBound) return;
-    root._jobsClickBound = true;
-    root.addEventListener("click", function(e){
-      var nw = e.target.closest("[data-jobnew]");
-      if(nw){ e.preventDefault(); openJobForm(null); return; }
-      var rf = e.target.closest("#jobsRefresh");
-      if(rf){ e.preventDefault(); loadJobs(); return; }
-      // Tapping a row opens the actions SHEET (same surface Calendar uses).
-      var sheetTr = e.target.closest("tr[data-jobsheet]");
-      if(sheetTr){ e.preventDefault(); var j = jobById(sheetTr.getAttribute("data-jobsheet")); if(j) openJobSheet(j); return; }
-    });
-    root.addEventListener("keydown", function(e){
-      if(e.key !== "Enter" && e.key !== " ") return;
-      var sheetTr = e.target.closest && e.target.closest("tr[data-jobsheet]");
-      if(sheetTr){ e.preventDefault(); var j = jobById(sheetTr.getAttribute("data-jobsheet")); if(j) openJobSheet(j); }
-    });
-  }
-
   // ---------- Calendar (agenda) tab ----------
   // Reads our OWN jobs (jobsCache, sourced from GET /admin/api/jobs) and lays them
   // out as a vertical agenda of day sections from an anchor date forward. It never
@@ -7004,7 +6925,7 @@ const PAGE_SCRIPT = `<script>
     var days = Object.keys(byDate).sort();
     if(!days.length && !undated.length){
       body.innerHTML = "";
-      if(empty){ empty.hidden = false; empty.textContent = filtered ? "No jobs tomorrow need a driver or vehicle." : "No jobs on or after this date. Use Today or an earlier date, or create jobs from the Jobs tab."; }
+      if(empty){ empty.hidden = false; empty.textContent = filtered ? "No jobs tomorrow need a driver or vehicle." : "No jobs on or after this date. Use Today or an earlier date, or add one with + Create."; }
       return;
     }
     if(empty) empty.hidden = true;
@@ -9423,7 +9344,6 @@ const PAGE_SCRIPT = `<script>
   // Dispatch Phase 1: same delegated pattern for the Fleet tab (Add, Show
   // inactive, Edit, Delete/soft, Reactivate, row drawer toggle).
   bindFleetClickOnce();
-  bindJobsClickOnce();
   bindCalendarClickOnce();
   renderTotals();
   renderDoc();
@@ -9435,7 +9355,7 @@ const PAGE_SCRIPT = `<script>
   // v101: "create" is gone from the tab nav. A stale "#create" hash from a
   // previous session falls back to the leads tab instead of leaving the user
   // on a blank screen.
-  const _BOOT_TABS = ["leads","documents","links","sales","fleet","jobs","calendar"];
+  const _BOOT_TABS = ["leads","documents","links","sales","fleet","calendar"];
   const _hashTab = (location.hash || "").replace(/^#/, "");
   const _bootTab = _BOOT_TABS.indexOf(_hashTab) >= 0 ? _hashTab : "leads";
   switchTab(_bootTab);
@@ -9518,10 +9438,9 @@ const PAGE_SCRIPT = `<script>
     'tab-documents': { title:{lbl:'Number',link:true},  sub:{lbl:'Client'},  right:{lbl:'Total'},  metaL:['Type','Date'], metaR:'Status', inline:false },
     'tab-leads':     { title:{lbl:'Name'},               sub:{lbl:'Contact'}, right:null,           metaL:['Service'],    metaR:function(row){ var c = row.querySelector('td[data-lbl="Status"]'); var s = c && c.querySelector('.pay-status'); var base = s ? s.textContent.trim() : (c ? c.textContent.trim() : ''); return base + (row.querySelector('.lead-unverified') ? ' \u00b7 UNVERIFIED' : ''); }, inline:true  },
     'tab-links':     { title:{lbl:'Client',first:true},  sub:null,            right:{lbl:'Amount'}, metaL:['Created'],    metaR:'Status', inline:false },
-    'tab-fleet':     { title:{lbl:'Name'},               sub:{lbl:'Detail'},  right:null,           metaL:[],             metaR:function(row){ var p = row.querySelector('td[data-lbl="Status"] .hist-status'); return p ? p.textContent.trim() : ''; }, inline:false },
-    'tab-jobs':      { title:{lbl:'Client'},             sub:{lbl:'Service'}, right:null,           metaL:['Date'],       metaR:'Status', inline:false }
+    'tab-fleet':     { title:{lbl:'Name'},               sub:{lbl:'Detail'},  right:null,           metaL:[],             metaR:function(row){ var p = row.querySelector('td[data-lbl="Status"] .hist-status'); return p ? p.textContent.trim() : ''; }, inline:false }
   };
-  var TABS = ['tab-documents','tab-leads','tab-links','tab-fleet','tab-jobs'];
+  var TABS = ['tab-documents','tab-leads','tab-links','tab-fleet'];
   function mq(){ return window.matchMedia('(max-width: 620px)').matches; }
   var sheetEl = null, backdropEl = null, currentRow = null;
   function cell(row, lbl){ return row.querySelector('td[data-lbl="' + lbl + '"]'); }
