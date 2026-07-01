@@ -1436,7 +1436,12 @@ async function finalizeJob(env, jobId) {
 
 async function handleListJobs(env) {
   await ensureSchema(env);
-  const jobs = (await env.BILLING_DB.prepare(`SELECT * FROM jobs ORDER BY id DESC LIMIT 500`).all()).results || [];
+  // Operational sort: soonest trip first (date, then time ascending). Undated
+  // jobs (e.g. seeded from an invoice) sink to the bottom. Mirrors the Links
+  // tab's "sort by what matters operationally" fix.
+  const jobs = (await env.BILLING_DB.prepare(
+    `SELECT * FROM jobs ORDER BY (date IS NULL OR date = '') ASC, date ASC, time ASC, id ASC LIMIT 500`
+  ).all()).results || [];
   const allD = (await env.BILLING_DB.prepare(`SELECT jd.job_id, d.id, d.name, d.phone FROM job_drivers jd JOIN drivers d ON d.id = jd.driver_id`).all()).results || [];
   const allV = (await env.BILLING_DB.prepare(`SELECT jv.job_id, v.id, v.name, v.plate FROM job_vehicles jv JOIN vehicles v ON v.id = jv.vehicle_id`).all()).results || [];
   const dMap = {}, vMap = {};
@@ -6394,13 +6399,38 @@ const PAGE_SCRIPT = `<script>
     return L.join("\\n");
   }
   // Map a lead / document record into a job prefill (create-from entry points).
+  // Leads store date/time as the booking form's flatpickr strings — date
+  // "D, d M Y" (e.g. "Sat, 27 Jun 2026") and time "h:i K" (e.g. "12:00 PM").
+  // The job form uses <input type="date"> / <input type="time">, which silently
+  // blank anything that isn't YYYY-MM-DD / 24h HH:MM. Parse to ISO on prefill so
+  // the date survives — and so the calendar, the date+time sort, and the
+  // tomorrow-callout (all of which assume ISO) keep working. (Chose parsing over
+  // switching the fields to free text precisely to preserve that ISO contract.)
+  function leadDateToIso(s){
+    s = leadNz(s); if(!s) return "";
+    if(/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return s;              // already ISO
+    var cleaned = s.replace(/^[A-Za-z]{3,},?\\s*/, "");         // drop weekday prefix
+    var d = new Date(cleaned + " 12:00:00");                    // noon-pinned local parse
+    if(isNaN(d.getTime())) return "";
+    return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+  }
+  function leadTimeTo24(s){
+    s = leadNz(s); if(!s) return "";
+    if(/^\\d{1,2}:\\d{2}$/.test(s) && !/[AaPp][Mm]/.test(s)) return s.length === 4 ? "0" + s : s;
+    var m = s.match(/^\\s*(\\d{1,2}):(\\d{2})\\s*([AaPp][Mm])?/);
+    if(!m) return "";
+    var h = parseInt(m[1],10), min = m[2], ap = (m[3]||"").toLowerCase();
+    if(ap === "pm" && h < 12) h += 12;
+    if(ap === "am" && h === 12) h = 0;
+    return String(h).padStart(2,"0") + ":" + min;
+  }
   function jobPrefillFromLead(lead){
     return {
       source_type:"lead", source_id:lead.id,
       client_name:lead.name||"", client_phone:lead.phone||"", client_email:lead.email||"",
       service:lead.service||"", vehicle_text:lead.vehicle||"",
       pickup:lead.pickup||"", destination:lead.destination||"",
-      date:lead.date||"", time:lead.time||"", days:lead.days||"",
+      date:leadDateToIso(lead.date), time:leadTimeTo24(lead.time), days:lead.days||"",
       flight:lead.flight||"", sign:lead.sign||"", driver_notes:lead.notes||""
     };
   }
