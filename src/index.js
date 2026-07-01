@@ -110,6 +110,7 @@ export default {
         url.pathname.startsWith("/admin/api/leads/") ||
         url.pathname.startsWith("/admin/api/drivers") ||
         url.pathname.startsWith("/admin/api/vehicles") ||
+        url.pathname.startsWith("/admin/api/jobs") ||
         url.pathname === "/admin/webhooks/nomod") {
       return handleAdmin(request, env);
     }

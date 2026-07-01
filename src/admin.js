@@ -325,6 +325,57 @@ async function ensureSchema(env) {
            WHERE NOT EXISTS (SELECT 1 FROM vehicles WHERE name = ?)`
       ).bind(name, plate, name).run();
     }
+    // Dispatch Phase 2 — Jobs. A job is a dispatched trip: it references drivers
+    // and vehicles (many-to-many via join tables), carries a requirements
+    // checklist (JSON), and can be created standalone or from a lead/quote/
+    // invoice. status is auto-computed (new/assigned) unless terminal
+    // (completed/cancelled). Same CREATE-IF-NOT-EXISTS + PRAGMA-diff pattern.
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT,
+        status TEXT DEFAULT 'new',
+        source_type TEXT,
+        source_id INTEGER,
+        client_name TEXT, client_phone TEXT, client_email TEXT,
+        service TEXT, vehicle_text TEXT, pickup TEXT, destination TEXT,
+        date TEXT, time TEXT, days TEXT, flight TEXT, sign TEXT,
+        driver_notes TEXT,
+        requirements TEXT DEFAULT '[]',
+        client_informed INTEGER DEFAULT 0,
+        calendar_event_id TEXT,
+        cancelled_reason TEXT
+      )`
+    ).run();
+    await addMissingColumns(env, "jobs", [
+      "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP",
+      "updated_at TEXT",
+      "status TEXT DEFAULT 'new'",
+      "source_type TEXT", "source_id INTEGER",
+      "client_name TEXT", "client_phone TEXT", "client_email TEXT",
+      "service TEXT", "vehicle_text TEXT", "pickup TEXT", "destination TEXT",
+      "date TEXT", "time TEXT", "days TEXT", "flight TEXT", "sign TEXT",
+      "driver_notes TEXT",
+      "requirements TEXT DEFAULT '[]'",
+      "client_informed INTEGER DEFAULT 0",
+      "calendar_event_id TEXT",
+      "cancelled_reason TEXT",
+    ]);
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS job_drivers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, job_id INTEGER, driver_id INTEGER )`
+    ).run();
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS job_vehicles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, job_id INTEGER, vehicle_id INTEGER )`
+    ).run();
+    await env.BILLING_DB.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_job_drivers_job ON job_drivers (job_id)`
+    ).run();
+    await env.BILLING_DB.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_job_vehicles_job ON job_vehicles (job_id)`
+    ).run();
     SCHEMA_DONE.add(env);
   })().finally(() => { _schemaInflight = null; });
   return _schemaInflight;
@@ -1169,6 +1220,276 @@ async function handleFleetDelete(cfg, id, env) {
   ).bind(id).run();
   if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
   return json({ ok: true, id });
+}
+
+// ── Dispatch Phase 2 — Jobs ─────────────────────────────────────────────────
+// A job is a dispatched trip referencing drivers + vehicles (join tables), a
+// requirements checklist (JSON), and an optional Google Calendar event. status
+// auto-computes to 'assigned' (>=1 driver, >=1 vehicle, calendar event set) or
+// 'new', unless terminal (completed/cancelled). finalizeJob() is the single
+// recompute-on-save path: re-derive requirements, sync the calendar, recompute
+// status. Calendar calls are best-effort and never block the DB write.
+
+const DISPATCH_CAL_ID = "73fc843d77ca46b6b614803c702ccf999ffa0869b87027fd37c620d681cee5ee@group.calendar.google.com";
+
+function b64urlFromBytes(bytes) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function b64urlFromString(str) { return b64urlFromBytes(new TextEncoder().encode(str)); }
+
+// Mint a short-lived Google access token from the service-account key using a
+// signed JWT (RS256 via WebCrypto). Throws on misconfig/failure — callers wrap.
+async function googleAccessToken(env) {
+  if (!env.GOOGLE_SERVICE_ACCOUNT_KEY) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY not configured");
+  const key = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_KEY);
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT" };
+  const claim = {
+    iss: key.client_email,
+    scope: "https://www.googleapis.com/auth/calendar",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+  };
+  const unsigned = b64urlFromString(JSON.stringify(header)) + "." + b64urlFromString(JSON.stringify(claim));
+  const pem = String(key.private_key || "");
+  const b64 = pem.replace(/-----BEGIN PRIVATE KEY-----/, "").replace(/-----END PRIVATE KEY-----/, "").replace(/\s+/g, "");
+  const der = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const cryptoKey = await crypto.subtle.importKey("pkcs8", der.buffer, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", cryptoKey, new TextEncoder().encode(unsigned)));
+  const jwt = unsigned + "." + b64urlFromBytes(sig);
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: "grant_type=" + encodeURIComponent("urn:ietf:params:oauth:grant-type:jwt-bearer") + "&assertion=" + encodeURIComponent(jwt),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body.access_token) throw new Error("google token exchange failed: " + res.status);
+  return body.access_token;
+}
+
+// Build a Calendar event body from a hydrated job. Default 2h duration when a
+// time is present (ASSUMPTION — trip duration isn't tracked); all-day when only
+// a date is present; null when there's no date (can't place on the calendar).
+function buildJobEvent(job) {
+  const nz = (v) => (v == null ? "" : String(v).trim());
+  const title = (nz(job.client_name) || "Client") + " — " + (nz(job.service) || "Job");
+  const lines = [];
+  if (nz(job.pickup)) lines.push("Pickup: " + nz(job.pickup));
+  if (nz(job.destination)) lines.push("Destination: " + nz(job.destination));
+  if ((job.driver_names || []).length) lines.push("Driver(s): " + job.driver_names.join(", "));
+  if ((job.vehicle_names || []).length) lines.push("Vehicle(s): " + job.vehicle_names.join(", "));
+  if (nz(job.flight)) lines.push("Flight: " + nz(job.flight));
+  if (nz(job.sign)) lines.push("Welcome sign: " + nz(job.sign));
+  if (nz(job.driver_notes)) lines.push("Notes: " + nz(job.driver_notes));
+  const ev = { summary: title, description: lines.join("\n") };
+  const date = nz(job.date), time = nz(job.time);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date) && /^\d{1,2}:\d{2}/.test(time)) {
+    const parts = time.split(":");
+    const hh = String(parts[0]).padStart(2, "0"), mm = String(parts[1]).slice(0, 2);
+    const startMs = Date.parse(date + "T" + hh + ":" + mm + ":00+04:00"); // Dubai UTC+4, no DST
+    if (isFinite(startMs)) {
+      ev.start = { dateTime: new Date(startMs).toISOString(), timeZone: "Asia/Dubai" };
+      ev.end = { dateTime: new Date(startMs + 2 * 3600 * 1000).toISOString(), timeZone: "Asia/Dubai" };
+      return ev;
+    }
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) { ev.start = { date: date }; ev.end = { date: date }; return ev; }
+  return null;
+}
+
+// Create or update the job's calendar event. Returns the event id to persist
+// (new id on insert, existing id on update or on any failure so we don't lose a
+// working event). Never throws.
+async function calendarUpsert(env, job, existingId) {
+  try {
+    const ev = buildJobEvent(job);
+    if (!ev) return existingId || null;
+    const token = await googleAccessToken(env);
+    const base = "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(DISPATCH_CAL_ID) + "/events";
+    if (existingId) {
+      const res = await fetch(base + "/" + encodeURIComponent(existingId), {
+        method: "PATCH", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(ev),
+      });
+      if (res.ok) { const b = await res.json(); return b.id || existingId; }
+      if (res.status === 404 || res.status === 410) {
+        const ins = await fetch(base, { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(ev) });
+        if (ins.ok) { const b = await ins.json(); return b.id || null; }
+      }
+      console.error("calendar PATCH failed", res.status);
+      return existingId;
+    }
+    const res = await fetch(base, { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(ev) });
+    if (res.ok) { const b = await res.json(); return b.id || null; }
+    console.error("calendar POST failed", res.status, (await res.text()).slice(0, 200));
+    return null;
+  } catch (e) {
+    console.error("calendarUpsert threw", e && (e.message || String(e)));
+    return existingId || null;
+  }
+}
+async function calendarDelete(env, eventId) {
+  try {
+    const token = await googleAccessToken(env);
+    const url = "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(DISPATCH_CAL_ID) + "/events/" + encodeURIComponent(eventId);
+    await fetch(url, { method: "DELETE", headers: { Authorization: "Bearer " + token } }); // 204 ok; 404/410 already gone
+    return true;
+  } catch (e) { console.error("calendarDelete threw", e && (e.message || String(e))); return false; }
+}
+
+// Airport transfer iff flight or sign present — same derivation as leadServiceLabel.
+function jobIsAirport(job) {
+  const nz = (v) => (v == null ? "" : String(v).trim());
+  return !!(nz(job.flight) || nz(job.sign));
+}
+// Auto-ensure the "Welcome sign" requirement for airport jobs; its confirmed
+// state is derived from the sign field (non-empty => confirmed). Other
+// requirements (arbitrary, user-added) are preserved as-is.
+function ensureJobRequirements(job) {
+  let arr = [];
+  try { const p = JSON.parse(job.requirements || "[]"); if (Array.isArray(p)) arr = p; } catch { arr = []; }
+  arr = arr.filter((r) => r && typeof r === "object" && typeof r.label === "string");
+  if (jobIsAirport(job)) {
+    const confirmed = !!String(job.sign || "").trim();
+    const found = arr.find((r) => r.id === "welcome_sign");
+    if (found) { found.label = "Welcome sign"; found.confirmed = confirmed; }
+    else { arr.unshift({ id: "welcome_sign", label: "Welcome sign", confirmed: confirmed }); }
+  }
+  return arr;
+}
+
+function jobFieldsFromBody(b) {
+  const s = (v) => (v == null ? null : String(v));
+  let reqs = "[]";
+  try {
+    if (b.requirements != null) {
+      const a = typeof b.requirements === "string" ? JSON.parse(b.requirements) : b.requirements;
+      if (Array.isArray(a)) reqs = JSON.stringify(a);
+    }
+  } catch { reqs = "[]"; }
+  const srcId = (b.source_id != null && /^\d+$/.test(String(b.source_id))) ? Number(b.source_id) : null;
+  return {
+    source_type: s(b.source_type), source_id: srcId,
+    client_name: s(b.client_name), client_phone: s(b.client_phone), client_email: s(b.client_email),
+    service: s(b.service), vehicle_text: s(b.vehicle_text), pickup: s(b.pickup), destination: s(b.destination),
+    date: s(b.date), time: s(b.time), days: s(b.days), flight: s(b.flight), sign: s(b.sign),
+    driver_notes: s(b.driver_notes), requirements: reqs,
+    client_informed: (b.client_informed ? 1 : 0),
+    cancelled_reason: s(b.cancelled_reason),
+  };
+}
+
+async function hydrateJob(env, job) {
+  const dr = (await env.BILLING_DB.prepare(
+    `SELECT d.id, d.name, d.phone FROM job_drivers jd JOIN drivers d ON d.id = jd.driver_id WHERE jd.job_id = ? ORDER BY d.name COLLATE NOCASE`
+  ).bind(job.id).all()).results || [];
+  const ve = (await env.BILLING_DB.prepare(
+    `SELECT v.id, v.name, v.plate FROM job_vehicles jv JOIN vehicles v ON v.id = jv.vehicle_id WHERE jv.job_id = ? ORDER BY v.name COLLATE NOCASE`
+  ).bind(job.id).all()).results || [];
+  return Object.assign({}, job, {
+    driver_ids: dr.map((x) => x.id), driver_names: dr.map((x) => x.name), driver_phones: dr.map((x) => x.phone || ""),
+    vehicle_ids: ve.map((x) => x.id), vehicle_names: ve.map((x) => x.name), vehicle_plates: ve.map((x) => x.plate || ""),
+  });
+}
+async function getJobRow(env, jobId) {
+  const job = await env.BILLING_DB.prepare(`SELECT * FROM jobs WHERE id = ?`).bind(jobId).first();
+  if (!job) return null;
+  return await hydrateJob(env, job);
+}
+async function setJobAssignments(env, jobId, driverIds, vehicleIds) {
+  const clean = (a) => Array.isArray(a) ? a.map(Number).filter((n) => Number.isFinite(n)) : null;
+  const dIds = clean(driverIds), vIds = clean(vehicleIds);
+  if (dIds) {
+    await env.BILLING_DB.prepare(`DELETE FROM job_drivers WHERE job_id = ?`).bind(jobId).run();
+    for (const id of dIds) await env.BILLING_DB.prepare(`INSERT INTO job_drivers (job_id, driver_id) VALUES (?, ?)`).bind(jobId, id).run();
+  }
+  if (vIds) {
+    await env.BILLING_DB.prepare(`DELETE FROM job_vehicles WHERE job_id = ?`).bind(jobId).run();
+    for (const id of vIds) await env.BILLING_DB.prepare(`INSERT INTO job_vehicles (job_id, vehicle_id) VALUES (?, ?)`).bind(jobId, id).run();
+  }
+}
+// The single recompute-on-save path. Re-derives requirements, syncs the
+// calendar (best-effort), recomputes status (unless terminal), persists, and
+// returns the hydrated job.
+async function finalizeJob(env, jobId) {
+  const job = await getJobRow(env, jobId);
+  if (!job) return null;
+  const reqs = ensureJobRequirements(job);
+  const hasCrew = job.driver_ids.length >= 1 && job.vehicle_ids.length >= 1;
+  let calId = job.calendar_event_id || null;
+  if (job.status === "cancelled") {
+    if (calId) { await calendarDelete(env, calId); calId = null; }
+  } else if (hasCrew) {
+    calId = await calendarUpsert(env, job, calId);
+  }
+  let status = job.status;
+  if (status !== "completed" && status !== "cancelled") {
+    status = (hasCrew && calId) ? "assigned" : "new";
+  }
+  await env.BILLING_DB.prepare(
+    `UPDATE jobs SET requirements = ?, calendar_event_id = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+  ).bind(JSON.stringify(reqs), calId, status, jobId).run();
+  return await getJobRow(env, jobId);
+}
+
+async function handleListJobs(env) {
+  await ensureSchema(env);
+  const jobs = (await env.BILLING_DB.prepare(`SELECT * FROM jobs ORDER BY id DESC LIMIT 500`).all()).results || [];
+  const allD = (await env.BILLING_DB.prepare(`SELECT jd.job_id, d.id, d.name, d.phone FROM job_drivers jd JOIN drivers d ON d.id = jd.driver_id`).all()).results || [];
+  const allV = (await env.BILLING_DB.prepare(`SELECT jv.job_id, v.id, v.name, v.plate FROM job_vehicles jv JOIN vehicles v ON v.id = jv.vehicle_id`).all()).results || [];
+  const dMap = {}, vMap = {};
+  for (const r of allD) (dMap[r.job_id] = dMap[r.job_id] || []).push(r);
+  for (const r of allV) (vMap[r.job_id] = vMap[r.job_id] || []).push(r);
+  const items = jobs.map((j) => {
+    const ds = dMap[j.id] || [], vs = vMap[j.id] || [];
+    return Object.assign({}, j, {
+      driver_ids: ds.map((x) => x.id), driver_names: ds.map((x) => x.name), driver_phones: ds.map((x) => x.phone || ""),
+      vehicle_ids: vs.map((x) => x.id), vehicle_names: vs.map((x) => x.name), vehicle_plates: vs.map((x) => x.plate || ""),
+    });
+  });
+  return json({ ok: true, items });
+}
+async function handleCreateJob(request, env) {
+  await ensureSchema(env);
+  let b; try { b = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
+  const f = jobFieldsFromBody(b);
+  const res = await env.BILLING_DB.prepare(
+    `INSERT INTO jobs (status, source_type, source_id, client_name, client_phone, client_email,
+       service, vehicle_text, pickup, destination, date, time, days, flight, sign,
+       driver_notes, requirements, client_informed, cancelled_reason, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`
+  ).bind("new", f.source_type, f.source_id, f.client_name, f.client_phone, f.client_email,
+    f.service, f.vehicle_text, f.pickup, f.destination, f.date, f.time, f.days, f.flight, f.sign,
+    f.driver_notes, f.requirements, f.client_informed, f.cancelled_reason).run();
+  const jobId = res.meta.last_row_id;
+  await setJobAssignments(env, jobId, b.driver_ids, b.vehicle_ids);
+  const job = await finalizeJob(env, jobId);
+  return json({ ok: true, id: jobId, job });
+}
+async function handleUpdateJob(id, request, env) {
+  await ensureSchema(env);
+  let b; try { b = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
+  const existing = await env.BILLING_DB.prepare(`SELECT * FROM jobs WHERE id = ?`).bind(id).first();
+  if (!existing) return json({ ok: false, error: "not found" }, 404);
+  const f = jobFieldsFromBody(Object.assign({}, existing, b));
+  let status = existing.status;
+  if (b.status === "completed") status = "completed";
+  else if (b.status === "cancelled") status = "cancelled";
+  await env.BILLING_DB.prepare(
+    `UPDATE jobs SET status=?, source_type=?, source_id=?, client_name=?, client_phone=?, client_email=?,
+       service=?, vehicle_text=?, pickup=?, destination=?, date=?, time=?, days=?, flight=?, sign=?,
+       driver_notes=?, requirements=?, client_informed=?, cancelled_reason=?, updated_at=CURRENT_TIMESTAMP
+     WHERE id=?`
+  ).bind(status, f.source_type, f.source_id, f.client_name, f.client_phone, f.client_email,
+    f.service, f.vehicle_text, f.pickup, f.destination, f.date, f.time, f.days, f.flight, f.sign,
+    f.driver_notes, f.requirements, f.client_informed, f.cancelled_reason, id).run();
+  if (b.driver_ids !== undefined || b.vehicle_ids !== undefined) {
+    await setJobAssignments(env, id, b.driver_ids, b.vehicle_ids);
+  }
+  const job = await finalizeJob(env, id);
+  return json({ ok: true, id, job });
 }
 
 // v86 — attach a standalone payment_links row to an existing invoice. Writes
@@ -3116,6 +3437,26 @@ export async function handleAdmin(request, env) {
       if (method === "PUT")    return handleFleetUpdate(cfg, id, request, env);
       if (method === "DELETE") return handleFleetDelete(cfg, id, env);
       return new Response("Method Not Allowed", { status: 405, headers: { Allow: "PUT, DELETE" } });
+    }
+  }
+
+  // Dispatch Phase 2 — Jobs: GET/POST on the collection, GET/PUT on /:id.
+  // (No DELETE — jobs are cancelled, not deleted.)
+  {
+    const jm = path.match(/^\/admin\/api\/jobs(?:\/(\d+))?$/);
+    if (jm) {
+      const authed = await isAuthed(request, env);
+      if (!authed) return json({ ok: false, error: "auth required" }, 401);
+      if (!env.BILLING_DB) return dbUnavailable();
+      const id = jm[1] ? parseInt(jm[1], 10) : null;
+      if (id == null) {
+        if (method === "GET")  return handleListJobs(env);
+        if (method === "POST") return handleCreateJob(request, env);
+        return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, POST" } });
+      }
+      if (method === "GET") { const j = await getJobRow(env, id); return j ? json({ ok: true, job: j }) : json({ ok: false, error: "not found" }, 404); }
+      if (method === "PUT") return handleUpdateJob(id, request, env);
+      return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, PUT" } });
     }
   }
 
