@@ -4447,10 +4447,17 @@ button.job-callout.warn:hover{ background:rgba(168,75,12,.16); }
 .cal-cell:hover{ border-color:var(--line); }
 .cal-cell-dow{ font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
 .cal-cell-num{ font-size:1.05rem; font-variant-numeric:tabular-nums; line-height:1.1; }
-.cal-cell-dot{ width:6px; height:6px; border-radius:50%; background:var(--amber); }
-.cal-cell-dot-empty{ visibility:hidden; }
-.cal-cell-today .cal-cell-num{ color:var(--amber); font-weight:600; }
-.cal-cell-today{ border-color:color-mix(in srgb, var(--amber) 45%, var(--hair)); }
+/* Job-count badge (replaces the old presence dot) — reuses the amber token: a
+   small solid-amber pill with the count in the bone token. Empty variant is an
+   invisible spacer so cells keep a uniform height. */
+.cal-cell-badge{ min-width:16px; height:16px; padding:0 4px; border-radius:9px; background:var(--amber); color:var(--bone); font-size:10px; line-height:16px; font-weight:600; font-variant-numeric:tabular-nums; text-align:center; }
+.cal-cell-badge-empty{ visibility:hidden; }
+/* Persistent TODAY marker — amber accent text + a thin inset amber underline (no
+   layout shift). Deliberately lighter than the "selected" full amber-tint fill,
+   and the two compose correctly when a cell is both today and selected. */
+.cal-cell-today .cal-cell-dow, .cal-cell-today .cal-cell-num{ color:var(--amber); }
+.cal-cell-today .cal-cell-num{ font-weight:600; }
+.cal-cell-today{ box-shadow:inset 0 -2px 0 var(--amber); }
 .cal-cell-sel{ border-color:var(--amber); background:color-mix(in srgb, var(--amber) 12%, transparent); }
 .cal-cell-sel .cal-cell-dow, .cal-cell-sel .cal-cell-num{ color:var(--amber-deep); }
 /* Bottom-sheet quote-price Save button */
@@ -6878,9 +6885,12 @@ const PAGE_SCRIPT = `<script>
   }
   // 7-day date strip above the agenda. stripStart is the first cell; week arrows
   // page it. Selecting a cell sets the agenda anchor (calState.date).
-  function calDateHasJobs(dateStr){
-    for(var i=0;i<jobsCache.length;i++){ var jb = jobsCache[i]; if(jb.status === "cancelled") continue; if(leadNz(jb.date) === dateStr) return true; }
-    return false;
+  // Non-cancelled job count for a date — the same figure the agenda day-section
+  // header renders as "N job(s)". Drives the strip cell's count badge.
+  function calDateJobCount(dateStr){
+    var n = 0;
+    for(var i=0;i<jobsCache.length;i++){ var jb = jobsCache[i]; if(jb.status === "cancelled") continue; if(leadNz(jb.date) === dateStr) n++; }
+    return n;
   }
   // Keep the selected date within the visible week (used when day-nav / the date
   // picker moves the anchor; week arrows deliberately bypass this to browse).
@@ -6900,8 +6910,11 @@ const PAGE_SCRIPT = `<script>
       var dd = new Date(d + "T12:00:00");
       var dow = dd.toLocaleDateString("en-GB", { weekday:"short" });
       var cls = "cal-cell"; if(d === today) cls += " cal-cell-today"; if(d === sel) cls += " cal-cell-sel";
-      var dotCls = "cal-cell-dot" + (calDateHasJobs(d) ? "" : " cal-cell-dot-empty");
-      html += '<button type="button" class="' + cls + '" data-calday="' + d + '" aria-label="' + esc(calDayLabel(d).full) + '"><span class="cal-cell-dow">' + esc(dow) + '</span><span class="cal-cell-num">' + dd.getDate() + '</span><span class="' + dotCls + '"></span></button>';
+      var n = calDateJobCount(d);
+      // Count badge when >0; an invisible spacer at 0 keeps cell heights uniform.
+      var badge = n > 0 ? '<span class="cal-cell-badge">' + n + '</span>' : '<span class="cal-cell-badge cal-cell-badge-empty">0</span>';
+      var lbl = calDayLabel(d).full + (n > 0 ? (", " + n + " job" + (n === 1 ? "" : "s")) : "");
+      html += '<button type="button" class="' + cls + '" data-calday="' + d + '" aria-label="' + esc(lbl) + '"><span class="cal-cell-dow">' + esc(dow) + '</span><span class="cal-cell-num">' + dd.getDate() + '</span>' + badge + '</button>';
     }
     host.innerHTML = html;
   }
