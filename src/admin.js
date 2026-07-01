@@ -3239,8 +3239,8 @@ header.top{background:var(--card);border-bottom:1px solid var(--hair);padding:1r
    under a persistent UMC masthead. Active tab marked with amber underline +
    ink text; inactive tabs muted. A disabled "Payments" tab is kept as a
    visible seam for the reconciliation view that comes next. */
-nav.tabbar{background:var(--card);border-bottom:1px solid var(--hair);padding:0 1.5rem;display:flex;gap:0;align-items:stretch;overflow-x:auto;-webkit-overflow-scrolling:touch}
-nav.tabbar .tab{position:relative;padding:.9rem 1.4rem;font-family:Outfit,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);background:transparent;border:0;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .2s ease,border-color .2s ease;min-height:44px;white-space:nowrap;display:inline-flex;align-items:center;gap:.5rem}
+nav.tabbar{background:var(--card);border-bottom:1px solid var(--hair);padding:0 1rem;display:flex;gap:0;align-items:stretch;overflow-x:auto;-webkit-overflow-scrolling:touch}
+nav.tabbar .tab{position:relative;padding:.9rem .75rem;font-family:Outfit,sans-serif;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);background:transparent;border:0;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .2s ease,border-color .2s ease;min-height:44px;white-space:nowrap;display:inline-flex;align-items:center;gap:.5rem}
 nav.tabbar .tab:hover:not([disabled]){color:var(--ink)}
 nav.tabbar .tab:focus-visible{outline:none;color:var(--ink);border-bottom-color:var(--amber)}
 nav.tabbar .tab.on{color:var(--ink);border-bottom-color:var(--amber)}
@@ -3481,6 +3481,8 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 /* v96 — settled invoices in the Documents list use a muted positive tone so
    PAID reads at a glance without competing with the warm amber accent. */
 .history .hist-status.paid{color:#2E7D54;font-weight:600}
+/* Fleet: status pill + one-click activate/deactivate toggle, inline on the row */
+.fleet-status{display:inline-flex;align-items:center;gap:.5rem;flex-wrap:wrap}
 .history .empty{padding:1.5rem .5rem;color:var(--muted);font-size:13px;text-align:center;border-top:1px solid var(--hair)}
 
 /* Phase 1.1 — expandable row actions. The main row carries only the data
@@ -4418,7 +4420,7 @@ function appShellHTML() {
     </div>
     <div class="hist-scroll">
       <table>
-        <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th aria-hidden="true"></th></tr></thead>
+        <thead><tr><th>Name</th><th>Status</th><th>Phone</th><th aria-hidden="true"></th></tr></thead>
         <tbody id="drvBody"></tbody>
       </table>
     </div>
@@ -4438,7 +4440,7 @@ function appShellHTML() {
     </div>
     <div class="hist-scroll">
       <table>
-        <thead><tr><th>Name</th><th>Plate</th><th>Status</th><th aria-hidden="true"></th></tr></thead>
+        <thead><tr><th>Name</th><th>Status</th><th>Plate</th><th aria-hidden="true"></th></tr></thead>
         <tbody id="vehBody"></tbody>
       </table>
     </div>
@@ -5673,21 +5675,22 @@ const PAGE_SCRIPT = `<script>
         var statusPill = isActive
           ? '<span class="hist-status paid">Active</span>'
           : '<span class="hist-status">Inactive</span>';
-        var actions = [];
-        actions.push('<button type="button" class="btn btn-small btn-ghost" data-fleetedit="' + x.id + '" data-kind="' + kind + '">Edit</button>');
-        if(isActive){
-          actions.push('<button type="button" class="btn btn-small btn-danger" data-fleetdel="' + x.id + '" data-kind="' + kind + '" data-name="' + esc(x.name || "") + '">Delete</button>');
-        } else {
-          actions.push('<button type="button" class="btn btn-small btn-ghost" data-fleetreactivate="' + x.id + '" data-kind="' + kind + '">Reactivate</button>');
-        }
+        // One-click activate/deactivate directly on the row (not buried in the
+        // drawer). Reuses the existing soft-delete API: DELETE -> active=0,
+        // PUT {active:1} -> active=1. data-active reflects the CURRENT state.
+        var toggleBtn = isActive
+          ? '<button type="button" class="btn btn-small btn-ghost fleet-toggle" data-fleettoggleactive="' + x.id + '" data-kind="' + kind + '" data-active="1" data-name="' + esc(x.name || "") + '" title="Deactivate — hide from the active list (kept on record)">Deactivate</button>'
+          : '<button type="button" class="btn btn-small btn-ghost fleet-toggle" data-fleettoggleactive="' + x.id + '" data-kind="' + kind + '" data-active="0" data-name="' + esc(x.name || "") + '" title="Reactivate — return to the active list">Reactivate</button>';
         var trClass = "expandable" + (isActive ? "" : " excluded");
         return '<tr class="' + trClass + '" data-expandable="1" data-fleetrow="' + x.id + '" data-kind="' + kind + '">'
           + '<td data-lbl="Name">' + esc(x.name || "·") + '</td>'
+          + '<td data-lbl="Status"><span class="fleet-status">' + statusPill + toggleBtn + '</span></td>'
           + '<td data-lbl="Detail">' + (detail ? esc(detail) : '<span style="color:var(--muted)">&middot;</span>') + '</td>'
-          + '<td data-lbl="Status">' + statusPill + '</td>'
           + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
           + '</tr>'
-          + '<tr class="hist-actions-row" hidden><td colspan="4"><div class="hist-actions-panel">' + actions.join(" ") + '</div></td></tr>';
+          + '<tr class="hist-actions-row" hidden><td colspan="4"><div class="hist-actions-panel">'
+          + '<button type="button" class="btn btn-small btn-ghost" data-fleetedit="' + x.id + '" data-kind="' + kind + '">Edit</button>'
+          + '</div></td></tr>';
       }).join("");
     } catch(e){ setStatus("Fleet load failed."); }
   }
@@ -5795,46 +5798,32 @@ const PAGE_SCRIPT = `<script>
         openFleetForm(ekind, { id: eid, name: nm, detail: dt });
         return;
       }
-      var dl = e.target.closest("[data-fleetdel]");
-      if(dl){
+      // One-click activate/deactivate straight from the row. data-active is the
+      // CURRENT state; active -> DELETE (soft, active=0), inactive -> PUT active=1.
+      // Confirm only on the destructive (deactivate) direction, matching the
+      // lightweight confirm() pattern used elsewhere.
+      var tg = e.target.closest("[data-fleettoggleactive]");
+      if(tg){
         e.preventDefault(); e.stopPropagation();
-        if(dl.disabled) return;
-        var dkind = dl.getAttribute("data-kind");
-        var did = dl.getAttribute("data-fleetdel");
-        var dname = dl.getAttribute("data-name") || ("this " + (dkind === "drivers" ? "driver" : "vehicle"));
-        if(!confirm("Remove " + dname + "?\\n\\nIt will be hidden from the active list but kept on record, so any future job references stay intact. You can reactivate it later via Show inactive.")) return;
-        dl.disabled = true;
-        var dprev = dl.textContent;
-        dl.textContent = "Removing…";
-        fetch("/admin/api/" + dkind + "/" + did, { method: "DELETE" })
+        if(tg.disabled) return;
+        var gkind = tg.getAttribute("data-kind");
+        var gid = tg.getAttribute("data-fleettoggleactive");
+        var curActive = tg.getAttribute("data-active") === "1";
+        var gname = tg.getAttribute("data-name") || ("this " + (gkind === "drivers" ? "driver" : "vehicle"));
+        if(curActive && !confirm("Deactivate " + gname + "?\\n\\nIt will be hidden from the active list but kept on record, so any future job references stay intact. You can reactivate it anytime via Show inactive.")) return;
+        tg.disabled = true;
+        var gprev = tg.textContent;
+        tg.textContent = curActive ? "Deactivating…" : "Reactivating…";
+        var gopts = curActive
+          ? { method: "DELETE" }
+          : { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: 1 }) };
+        fetch("/admin/api/" + gkind + "/" + gid, gopts)
           .then(function(r){ return r.json().catch(function(){ return {}; }); })
           .then(function(j){
-            if(j && j.ok){ loadFleetKind(dkind); }
-            else { setStatus("Delete failed: " + ((j && j.error) || "")); dl.disabled = false; dl.textContent = dprev; }
+            if(j && j.ok){ loadFleetKind(gkind); }
+            else { setStatus((curActive ? "Deactivate" : "Reactivate") + " failed: " + ((j && j.error) || "")); tg.disabled = false; tg.textContent = gprev; }
           })
-          .catch(function(err){ setStatus("Delete failed: " + (err.message || err)); dl.disabled = false; dl.textContent = dprev; });
-        return;
-      }
-      var ra = e.target.closest("[data-fleetreactivate]");
-      if(ra){
-        e.preventDefault(); e.stopPropagation();
-        if(ra.disabled) return;
-        var rkind = ra.getAttribute("data-kind");
-        var rid = ra.getAttribute("data-fleetreactivate");
-        ra.disabled = true;
-        var rprev = ra.textContent;
-        ra.textContent = "…";
-        fetch("/admin/api/" + rkind + "/" + rid, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ active: 1 })
-        })
-          .then(function(r){ return r.json().catch(function(){ return {}; }); })
-          .then(function(j){
-            if(j && j.ok){ loadFleetKind(rkind); }
-            else { setStatus("Reactivate failed: " + ((j && j.error) || "")); ra.disabled = false; ra.textContent = rprev; }
-          })
-          .catch(function(err){ setStatus("Reactivate failed: " + (err.message || err)); ra.disabled = false; ra.textContent = rprev; });
+          .catch(function(err){ setStatus("Update failed: " + (err.message || err)); tg.disabled = false; tg.textContent = gprev; });
         return;
       }
       var expTr = e.target.closest("tr[data-expandable='1']");
@@ -8012,7 +8001,7 @@ const PAGE_SCRIPT = `<script>
     'tab-leads':     { title:{lbl:'Name'},               sub:{lbl:'Contact'}, right:null,           metaL:['Service'],    metaR:function(row){ var c = row.querySelector('td[data-lbl="Status"]'); var s = c && c.querySelector('.pay-status'); var base = s ? s.textContent.trim() : (c ? c.textContent.trim() : ''); return base + (row.querySelector('.lead-unverified') ? ' \u00b7 UNVERIFIED' : ''); }, inline:true  },
     'tab-links':     { title:{lbl:'Client',first:true},  sub:null,            right:{lbl:'Amount'}, metaL:['Created'],    metaR:'Status', inline:false },
     'tab-payments':  { title:{lbl:'Client'},              sub:null,            right:{lbl:'Amount'}, metaL:['Date paid','Method'], metaR:function(row){ return row.classList.contains('excluded') ? 'Excluded' : 'Paid'; }, note:'Payments is read-only. Mark paid (cash or bank) on the invoice; copy a payment link from Payment Links.', inline:false },
-    'tab-fleet':     { title:{lbl:'Name'},               sub:{lbl:'Detail'},  right:null,           metaL:[],             metaR:'Status', inline:false }
+    'tab-fleet':     { title:{lbl:'Name'},               sub:{lbl:'Detail'},  right:null,           metaL:[],             metaR:function(row){ var p = row.querySelector('td[data-lbl="Status"] .hist-status'); return p ? p.textContent.trim() : ''; }, inline:false }
   };
   var TABS = ['tab-documents','tab-leads','tab-links','tab-payments','tab-fleet'];
   function mq(){ return window.matchMedia('(max-width: 620px)').matches; }
