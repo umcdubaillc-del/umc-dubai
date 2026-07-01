@@ -1121,7 +1121,7 @@ async function handleListLinks(env) {
             nomod_charge_id, COALESCE(excluded, 0) AS excluded, created_at,
             client_name, client_email, invoice_number,
             COALESCE(payment_status,'unpaid') AS payment_status, paid_at
-     FROM payment_links ORDER BY id DESC LIMIT 500`
+     FROM payment_links ORDER BY created_at DESC LIMIT 500`
   ).all();
   return json({ ok: true, items: results || [] });
 }
