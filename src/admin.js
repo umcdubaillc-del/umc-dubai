@@ -3482,8 +3482,6 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 /* v96 — settled invoices in the Documents list use a muted positive tone so
    PAID reads at a glance without competing with the warm amber accent. */
 .history .hist-status.paid{color:#2E7D54;font-weight:600}
-/* Fleet: status pill + one-click activate/deactivate toggle, inline on the row */
-.fleet-status{display:inline-flex;align-items:center;gap:.5rem;flex-wrap:wrap}
 .history .empty{padding:1.5rem .5rem;color:var(--muted);font-size:13px;text-align:center;border-top:1px solid var(--hair)}
 
 /* Phase 1.1 — expandable row actions. The main row carries only the data
@@ -3977,7 +3975,7 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
     <span class="duo">Dubai · Billing</span>
   </div>
   <div class="hdr-right">
-    <span class="crumb">${authed ? "Internal &middot; Billing workspace" : "Sign-in required"}</span>
+    <span class="crumb">${authed ? "Internal workspace" : "Sign-in required"}</span>
     ${authed ? `<button type="button" class="btn btn-small btn-ghost" id="btnLogout">Sign out</button>` : ""}
   </div>
 </header>
@@ -5604,22 +5602,25 @@ const PAGE_SCRIPT = `<script>
         var statusPill = isActive
           ? '<span class="hist-status paid">Active</span>'
           : '<span class="hist-status">Inactive</span>';
-        // One-click activate/deactivate directly on the row (not buried in the
-        // drawer). Reuses the existing soft-delete API: DELETE -> active=0,
-        // PUT {active:1} -> active=1. data-active reflects the CURRENT state.
-        var toggleBtn = isActive
-          ? '<button type="button" class="btn btn-small btn-ghost fleet-toggle" data-fleettoggleactive="' + x.id + '" data-kind="' + kind + '" data-active="1" data-name="' + esc(x.name || "") + '" title="Deactivate — hide from the active list (kept on record)">Deactivate</button>'
-          : '<button type="button" class="btn btn-small btn-ghost fleet-toggle" data-fleettoggleactive="' + x.id + '" data-kind="' + kind + '" data-active="0" data-name="' + esc(x.name || "") + '" title="Reactivate — return to the active list">Reactivate</button>';
+        // Deactivate/reactivate live in the row's Edit drawer — deactivating a
+        // driver/vehicle is a considered action (they've left), not a quick
+        // toggle. Delete performs the soft-delete (active=0); inactive rows
+        // offer Reactivate. The status pill stays visible on the row itself.
+        var actions = [];
+        actions.push('<button type="button" class="btn btn-small btn-ghost" data-fleetedit="' + x.id + '" data-kind="' + kind + '">Edit</button>');
+        if(isActive){
+          actions.push('<button type="button" class="btn btn-small btn-danger" data-fleetdel="' + x.id + '" data-kind="' + kind + '" data-name="' + esc(x.name || "") + '">Delete</button>');
+        } else {
+          actions.push('<button type="button" class="btn btn-small btn-ghost" data-fleetreactivate="' + x.id + '" data-kind="' + kind + '">Reactivate</button>');
+        }
         var trClass = "expandable" + (isActive ? "" : " excluded");
         return '<tr class="' + trClass + '" data-expandable="1" data-fleetrow="' + x.id + '" data-kind="' + kind + '">'
           + '<td data-lbl="Name">' + esc(x.name || "·") + '</td>'
-          + '<td data-lbl="Status"><span class="fleet-status">' + statusPill + toggleBtn + '</span></td>'
+          + '<td data-lbl="Status">' + statusPill + '</td>'
           + '<td data-lbl="Detail">' + (detail ? esc(detail) : '<span style="color:var(--muted)">&middot;</span>') + '</td>'
           + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
           + '</tr>'
-          + '<tr class="hist-actions-row" hidden><td colspan="4"><div class="hist-actions-panel">'
-          + '<button type="button" class="btn btn-small btn-ghost" data-fleetedit="' + x.id + '" data-kind="' + kind + '">Edit</button>'
-          + '</div></td></tr>';
+          + '<tr class="hist-actions-row" hidden><td colspan="4"><div class="hist-actions-panel">' + actions.join(" ") + '</div></td></tr>';
       }).join("");
     } catch(e){ setStatus("Fleet load failed."); }
   }
@@ -5727,32 +5728,49 @@ const PAGE_SCRIPT = `<script>
         openFleetForm(ekind, { id: eid, name: nm, detail: dt });
         return;
       }
-      // One-click activate/deactivate straight from the row. data-active is the
-      // CURRENT state; active -> DELETE (soft, active=0), inactive -> PUT active=1.
-      // Confirm only on the destructive (deactivate) direction, matching the
-      // lightweight confirm() pattern used elsewhere.
-      var tg = e.target.closest("[data-fleettoggleactive]");
-      if(tg){
+      // Soft-delete (Deactivate) from the row's Edit drawer. Sets active=0 via
+      // DELETE; the row drops out of the default list but is kept on record.
+      var dl = e.target.closest("[data-fleetdel]");
+      if(dl){
         e.preventDefault(); e.stopPropagation();
-        if(tg.disabled) return;
-        var gkind = tg.getAttribute("data-kind");
-        var gid = tg.getAttribute("data-fleettoggleactive");
-        var curActive = tg.getAttribute("data-active") === "1";
-        var gname = tg.getAttribute("data-name") || ("this " + (gkind === "drivers" ? "driver" : "vehicle"));
-        if(curActive && !confirm("Deactivate " + gname + "?\\n\\nIt will be hidden from the active list but kept on record, so any future job references stay intact. You can reactivate it anytime via Show inactive.")) return;
-        tg.disabled = true;
-        var gprev = tg.textContent;
-        tg.textContent = curActive ? "Deactivating…" : "Reactivating…";
-        var gopts = curActive
-          ? { method: "DELETE" }
-          : { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: 1 }) };
-        fetch("/admin/api/" + gkind + "/" + gid, gopts)
+        if(dl.disabled) return;
+        var dkind = dl.getAttribute("data-kind");
+        var did = dl.getAttribute("data-fleetdel");
+        var dname = dl.getAttribute("data-name") || ("this " + (dkind === "drivers" ? "driver" : "vehicle"));
+        if(!confirm("Remove " + dname + "?\\n\\nIt will be hidden from the active list but kept on record, so any future job references stay intact. You can reactivate it later via Show inactive.")) return;
+        dl.disabled = true;
+        var dprev = dl.textContent;
+        dl.textContent = "Removing…";
+        fetch("/admin/api/" + dkind + "/" + did, { method: "DELETE" })
           .then(function(r){ return r.json().catch(function(){ return {}; }); })
           .then(function(j){
-            if(j && j.ok){ loadFleetKind(gkind); }
-            else { setStatus((curActive ? "Deactivate" : "Reactivate") + " failed: " + ((j && j.error) || "")); tg.disabled = false; tg.textContent = gprev; }
+            if(j && j.ok){ loadFleetKind(dkind); }
+            else { setStatus("Delete failed: " + ((j && j.error) || "")); dl.disabled = false; dl.textContent = dprev; }
           })
-          .catch(function(err){ setStatus("Update failed: " + (err.message || err)); tg.disabled = false; tg.textContent = gprev; });
+          .catch(function(err){ setStatus("Delete failed: " + (err.message || err)); dl.disabled = false; dl.textContent = dprev; });
+        return;
+      }
+      // Reactivate an inactive row (PUT active=1), from its Edit drawer.
+      var ra = e.target.closest("[data-fleetreactivate]");
+      if(ra){
+        e.preventDefault(); e.stopPropagation();
+        if(ra.disabled) return;
+        var rkind = ra.getAttribute("data-kind");
+        var rid = ra.getAttribute("data-fleetreactivate");
+        ra.disabled = true;
+        var rprev = ra.textContent;
+        ra.textContent = "…";
+        fetch("/admin/api/" + rkind + "/" + rid, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ active: 1 })
+        })
+          .then(function(r){ return r.json().catch(function(){ return {}; }); })
+          .then(function(j){
+            if(j && j.ok){ loadFleetKind(rkind); }
+            else { setStatus("Reactivate failed: " + ((j && j.error) || "")); ra.disabled = false; ra.textContent = rprev; }
+          })
+          .catch(function(err){ setStatus("Reactivate failed: " + (err.message || err)); ra.disabled = false; ra.textContent = rprev; });
         return;
       }
       var expTr = e.target.closest("tr[data-expandable='1']");
@@ -6681,6 +6699,11 @@ const PAGE_SCRIPT = `<script>
     { id: "sales", label: "Sales" }
   ];
   function openMoreSheet(){
+    // Desktop (horizontal tab bar, >620px) -> compact popover anchored under the
+    // More button, mirroring the .mp-pop dropdown pattern (getBoundingClientRect,
+    // clamped, ~300px). Mobile (<=620px bottom tab bar) -> full-width slide-up
+    // bottom sheet. Reuses the ed-modal/ed-backdrop/ed-shell component; no new CSS.
+    const isDesktop = window.matchMedia("(min-width: 621px)").matches;
     const modal = document.createElement("div");
     modal.className = "ed-modal more-sheet-modal";
     modal.setAttribute("role", "dialog");
@@ -6689,14 +6712,18 @@ const PAGE_SCRIPT = `<script>
     const backdrop = document.createElement("div");
     backdrop.className = "ed-backdrop";
     backdrop.setAttribute("aria-hidden", "true");
+    // Desktop popover: keep a click-catcher backdrop but no dim (dropdown feel).
+    if(isDesktop) backdrop.style.background = "transparent";
     const shell = document.createElement("div");
     shell.className = "ed-shell";
-    shell.style.cssText = "width:100%;max-width:none;inset:auto;position:fixed;left:0;right:0;bottom:0;top:auto;transform:none;border-radius:20px 20px 0 0;max-height:80vh;overflow-y:auto;box-shadow:0 -12px 44px rgba(0,0,0,.28);animation:docSheetUp .28s cubic-bezier(.32,.72,0,1)";
+    shell.style.cssText = isDesktop
+      ? "inset:auto;position:fixed;width:min(300px, calc(100vw - 32px));max-width:300px;border-radius:6px;box-shadow:0 26px 52px -28px rgba(34,27,20,.45);max-height:70vh;overflow-y:auto;transform:none"
+      : "width:100%;max-width:none;inset:auto;position:fixed;left:0;right:0;bottom:0;top:auto;transform:none;border-radius:20px 20px 0 0;max-height:80vh;overflow-y:auto;box-shadow:0 -12px 44px rgba(0,0,0,.28);animation:docSheetUp .28s cubic-bezier(.32,.72,0,1)";
     var itemsHtml = MORE_TABS.map(function(t){
       return '<button type="button" class="btn btn-ghost" data-more="' + t.id + '" style="text-align:left;padding:.9rem 1rem;width:100%">' + t.label + '</button>';
     }).join("");
     shell.innerHTML =
-      '<div class="doc-sheet-grab" aria-hidden="true"></div>'
+      (isDesktop ? '' : '<div class="doc-sheet-grab" aria-hidden="true"></div>')
       + '<header class="ed-head" style="padding:.2rem 1.6rem .9rem;border:0;background:transparent">'
       + '  <h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.22rem">More</h2>'
       + '  <button type="button" class="btn btn-small btn-ghost" data-more-close>Close</button>'
@@ -6709,6 +6736,21 @@ const PAGE_SCRIPT = `<script>
     modal.appendChild(backdrop);
     modal.appendChild(shell);
     document.body.appendChild(modal);
+    // Anchor the desktop popover under the More button (viewport coords; the
+    // shell is position:fixed). Clamp within the viewport.
+    if(isDesktop){
+      const anchor = document.getElementById("tabBtnMore");
+      const popW = 300;
+      if(anchor){
+        const r = anchor.getBoundingClientRect();
+        const left = Math.max(8, Math.min(window.innerWidth - popW - 8, r.left));
+        shell.style.left = left + "px";
+        shell.style.top = (r.bottom + 6) + "px";
+      } else {
+        shell.style.right = "1.5rem";
+        shell.style.top = "72px";
+      }
+    }
     function close(){ try { document.body.removeChild(modal); } catch(_){} }
     modal.querySelectorAll("[data-more-close]").forEach(function(b){
       b.addEventListener("click", function(e){ e.preventDefault(); close(); });
