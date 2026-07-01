@@ -3496,6 +3496,11 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
    meta line 2, stacked editor #ltTable). Last block in the
    stylesheet so it wins on source order.
 ============================================================ */
+/* Desktop-safe hidden default for the shared bottom sheet. Placed BEFORE the
+   mobile media query so the #docSheet{display:flex} rule inside it wins on
+   source order when the query matches; this wins (keeps the sheet hidden) when
+   it does not, so a populated sheet can never leak onto desktop. */
+#docSheet{ display:none; }
 @media (max-width:620px){
   /* ---- App chrome ---- */
   header.top{
@@ -7737,6 +7742,7 @@ const PAGE_SCRIPT = `<script>
   function hide(){
     if (backdropEl) backdropEl.classList.remove('on');
     if (sheetEl) sheetEl.classList.remove('on');
+    if (sheetEl) sheetEl.innerHTML = '';
     document.body.classList.remove('doc-sheet-lock');
     currentRow = null;
   }
@@ -7763,6 +7769,11 @@ const PAGE_SCRIPT = `<script>
     for (var i = 0; i < TABS.length; i++){ var s = document.getElementById(TABS[i]); if (!s) return setTimeout(start, 400); secs.push(s); }
     ensureEls();
     for (var j = 0; j < secs.length; j++){ new MutationObserver(sync).observe(secs[j], { attributes:true, subtree:true, attributeFilter:['class'] }); }
+    var resizeTimer = null;
+    window.addEventListener('resize', function(){
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(sync, 150);
+    });
     sync();
   }
   if (document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', start); } else { start(); }
