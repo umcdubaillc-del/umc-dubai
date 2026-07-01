@@ -5802,7 +5802,7 @@ const PAGE_SCRIPT = `<script>
         var dkind = dl.getAttribute("data-kind");
         var did = dl.getAttribute("data-fleetdel");
         var dname = dl.getAttribute("data-name") || ("this " + (dkind === "drivers" ? "driver" : "vehicle"));
-        if(!confirm("Remove " + dname + "?\n\nIt will be hidden from the active list but kept on record, so any future job references stay intact. You can reactivate it later via Show inactive.")) return;
+        if(!confirm("Remove " + dname + "?\\n\\nIt will be hidden from the active list but kept on record, so any future job references stay intact. You can reactivate it later via Show inactive.")) return;
         dl.disabled = true;
         var dprev = dl.textContent;
         dl.textContent = "Removing…";
