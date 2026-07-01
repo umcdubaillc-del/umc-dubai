@@ -4889,8 +4889,6 @@ function appShellHTML() {
         <button type="button" class="btn btn-small btn-ink" data-jobnew="1">+ New Job</button>
       </div>
     </div>
-    <!-- Tomorrow-needs-assignment callout (Asia/Dubai). Rendered by loadJobs. -->
-    <div id="jobsTomorrowCallout"></div>
     <div class="hist-scroll">
       <table>
         <thead><tr><th>Date</th><th>Client</th><th>Service</th><th>Status</th><th>Readiness</th><th aria-hidden="true"></th></tr></thead>
@@ -4924,6 +4922,10 @@ function appShellHTML() {
         <button type="button" class="btn btn-small btn-ghost" id="calRefresh">Refresh</button>
       </div>
     </div>
+    <!-- Tomorrow-needs-assignment callout (Asia/Dubai), relocated here from the
+         Jobs tab. Rendered by renderCalTomorrowCallout(); tapping filters the
+         agenda below to just tomorrow's unassigned jobs. -->
+    <div id="calTomorrowCallout"></div>
     <!-- 7-day date strip: quick calendar-feeling navigation above the agenda.
          Cells show DOW + day number + a dot when that date has jobs; today and
          the selected date get the --amber active treatment. Week arrows page it;
@@ -6301,34 +6303,35 @@ const PAGE_SCRIPT = `<script>
     var hasVeh = (job.vehicle_ids || []).length >= 1;
     return !(hasDrv && hasVeh);
   }
-  var jobsFilterTomorrow = false;   // when true, the list shows only that set
-  function jobsVisibleList(){ return jobsFilterTomorrow ? jobsCache.filter(jobNeedsAssignTomorrow) : jobsCache; }
+  // Jobs list renders the full set (server date+time sort). The tomorrow-needs-
+  // assignment callout + its filter now live on the Calendar tab.
   function renderJobsList(){
     var body = document.getElementById("jobsBody");
     var empty = document.getElementById("jobsEmpty");
     if(!body) return;
-    var list = jobsVisibleList();
-    if(!list.length){
+    if(!jobsCache.length){
       body.innerHTML = "";
-      if(empty){ empty.hidden = false; empty.textContent = jobsFilterTomorrow ? "No jobs tomorrow need a driver or vehicle." : "No jobs yet. Use “+ New Job”, or create one from a lead, quote or invoice."; }
+      if(empty){ empty.hidden = false; empty.textContent = "No jobs yet. Use “+ New Job”, or create one from a lead, quote or invoice."; }
       return;
     }
     if(empty) empty.hidden = true;
-    body.innerHTML = list.map(renderJobRow).join("");
+    body.innerHTML = jobsCache.map(renderJobRow).join("");
   }
-  // Amber callout for tomorrow's unassigned jobs; calm green when all assigned,
-  // muted when nothing is scheduled — never an alarming empty state for a good
-  // outcome. Same tinted-card language as the Sales fx_unreconciled note.
-  function renderTomorrowCallout(){
-    var host = document.getElementById("jobsTomorrowCallout");
+  // Calendar-tab callout (relocated from the Jobs tab): amber when tomorrow
+  // (Dubai) has jobs still missing a driver or vehicle — tapping filters the
+  // agenda to just those; calm green when all assigned; muted when nothing is
+  // scheduled. Same tinted-card language as the Sales fx_unreconciled note.
+  var calFilterTomorrow = false;
+  function renderCalTomorrowCallout(){
+    var host = document.getElementById("calTomorrowCallout");
     if(!host) return;
     var n = jobsCache.filter(jobNeedsAssignTomorrow).length;
     var tmr = dubaiTomorrowStr();
     var anyTomorrow = jobsCache.some(function(jb){ return leadNz(jb.date) === tmr && jb.status !== "cancelled" && jb.status !== "completed"; });
-    if(jobsFilterTomorrow){
-      host.innerHTML = '<div class="job-callout warn"><span class="jc-strong">Showing ' + n + ' job' + (n === 1 ? '' : 's') + ' tomorrow needing a driver or vehicle.</span> <button type="button" class="btn btn-small btn-ghost job-callout-clear" data-jobstomorrowclear>Show all jobs</button></div>';
+    if(calFilterTomorrow){
+      host.innerHTML = '<div class="job-callout warn"><span class="jc-strong">Showing ' + n + ' job' + (n === 1 ? '' : 's') + ' tomorrow needing a driver or vehicle.</span> <button type="button" class="btn btn-small btn-ghost job-callout-clear" data-caltomorrowclear>Show all</button></div>';
     } else if(n > 0){
-      host.innerHTML = '<button type="button" class="job-callout warn" data-jobstomorrow><span class="jc-strong">' + n + ' job' + (n === 1 ? '' : 's') + ' tomorrow still need a driver or vehicle.</span><span class="jc-sub">Tap to see just these.</span></button>';
+      host.innerHTML = '<button type="button" class="job-callout warn" data-caltomorrow><span class="jc-strong">' + n + ' job' + (n === 1 ? '' : 's') + ' tomorrow still need a driver or vehicle.</span><span class="jc-sub">Tap to see just these.</span></button>';
     } else if(anyTomorrow){
       host.innerHTML = '<div class="job-callout ok"><span class="jc-strong">All jobs tomorrow are assigned.</span></div>';
     } else {
@@ -6363,8 +6366,8 @@ const PAGE_SCRIPT = `<script>
       jobsCache = j.items || [];
       // Keep the Calendar agenda consistent whenever jobs change (both tabs share
       // jobsCache; job saves/deletes route through loadJobs()).
+      // renderCalendar() also refreshes the (relocated) tomorrow callout.
       if(typeof renderCalendar === "function" && document.getElementById("calBody")) renderCalendar();
-      renderTomorrowCallout();
       renderJobsList();
     } catch(e){ setStatus("Jobs load failed."); }
   }
@@ -6844,11 +6847,6 @@ const PAGE_SCRIPT = `<script>
       if(nw){ e.preventDefault(); openJobForm(null); return; }
       var rf = e.target.closest("#jobsRefresh");
       if(rf){ e.preventDefault(); loadJobs(); return; }
-      // Tomorrow-needs-assignment callout: filter the list to just that set.
-      var ct = e.target.closest("[data-jobstomorrow]");
-      if(ct){ e.preventDefault(); jobsFilterTomorrow = true; renderTomorrowCallout(); renderJobsList(); var sc = root.querySelector(".hist-scroll"); if(sc) sc.scrollIntoView({ behavior:"smooth", block:"start" }); return; }
-      var cc = e.target.closest("[data-jobstomorrowclear]");
-      if(cc){ e.preventDefault(); jobsFilterTomorrow = false; renderTomorrowCallout(); renderJobsList(); return; }
       // Tapping a row opens the actions SHEET (same surface Calendar uses).
       var sheetTr = e.target.closest("tr[data-jobsheet]");
       if(sheetTr){ e.preventDefault(); var j = jobById(sheetTr.getAttribute("data-jobsheet")); if(j) openJobSheet(j); return; }
@@ -6987,7 +6985,12 @@ const PAGE_SCRIPT = `<script>
     // Keep the strip in sync with the selected date (week arrows bypass this).
     calEnsureStripVisible();
     renderCalStrip();
+    renderCalTomorrowCallout();
+    // When the tomorrow callout is active, the agenda shows ONLY that set
+    // (tomorrow's unassigned jobs), regardless of the anchor date.
+    var filtered = calFilterTomorrow;
     var vis = jobsCache.filter(function(j){
+      if(filtered) return jobNeedsAssignTomorrow(j);
       if(!calState.showCancelled && j.status === "cancelled") return false;
       return true;
     });
@@ -6995,11 +6998,15 @@ const PAGE_SCRIPT = `<script>
     vis.forEach(function(j){
       var d = leadNz(j.date);
       if(!d){ undated.push(j); return; }
-      if(d < anchor) return;
+      if(!filtered && d < anchor) return;
       (byDate[d] = byDate[d] || []).push(j);
     });
     var days = Object.keys(byDate).sort();
-    if(!days.length && !undated.length){ body.innerHTML = ""; if(empty) empty.hidden = false; return; }
+    if(!days.length && !undated.length){
+      body.innerHTML = "";
+      if(empty){ empty.hidden = false; empty.textContent = filtered ? "No jobs tomorrow need a driver or vehicle." : "No jobs on or after this date. Use Today or an earlier date, or create jobs from the Jobs tab."; }
+      return;
+    }
     if(empty) empty.hidden = true;
     var html = "";
     days.forEach(function(d){ html += calDaySection(d, byDate[d].sort(calRowSort), todayStr); });
@@ -7023,6 +7030,11 @@ const PAGE_SCRIPT = `<script>
     if(!root || root._calClickBound) return;
     root._calClickBound = true;
     root.addEventListener("click", function(e){
+      // Tomorrow-needs-assignment callout: filter the agenda to just that set.
+      var ct = e.target.closest("[data-caltomorrow]");
+      if(ct){ e.preventDefault(); calFilterTomorrow = true; renderCalendar(); var cbt = document.getElementById("calBody"); if(cbt) cbt.scrollIntoView({ behavior:"smooth", block:"start" }); return; }
+      var cct = e.target.closest("[data-caltomorrowclear]");
+      if(cct){ e.preventDefault(); calFilterTomorrow = false; renderCalendar(); return; }
       var nav = e.target.closest("[data-calnav]");
       if(nav){
         e.preventDefault();
