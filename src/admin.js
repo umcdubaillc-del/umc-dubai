@@ -261,6 +261,40 @@ async function ensureSchema(env) {
       "linked_doc_number TEXT",
       "converted_at TEXT",
     ]);
+    // Dispatch Phase 1 — Fleet: drivers + vehicles. Foundational records that
+    // Jobs (Phase 2) will reference by id, so DELETE is SOFT (active=0) to avoid
+    // orphaning future Job references. Same CREATE-IF-NOT-EXISTS + PRAGMA-diff
+    // ALTER pattern as the tables above.
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS drivers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        phone TEXT,
+        active INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`
+    ).run();
+    await addMissingColumns(env, "drivers", [
+      "name TEXT",
+      "phone TEXT",
+      "active INTEGER DEFAULT 1",
+      "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    ]);
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS vehicles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        plate TEXT,
+        active INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`
+    ).run();
+    await addMissingColumns(env, "vehicles", [
+      "name TEXT",
+      "plate TEXT",
+      "active INTEGER DEFAULT 1",
+      "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    ]);
     SCHEMA_DONE.add(env);
   })().finally(() => { _schemaInflight = null; });
   return _schemaInflight;
@@ -1038,6 +1072,70 @@ async function handleDeleteLead(id, env) {
   await ensureSchema(env);
   const res = await env.BILLING_DB.prepare(
     "DELETE FROM leads WHERE id = ?"
+  ).bind(id).run();
+  if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
+  return json({ ok: true, id });
+}
+
+// ── Dispatch Phase 1 — Fleet CRUD (drivers + vehicles) ──────────────────────
+// Drivers and vehicles share the same shape (name + one extra text column +
+// active flag), so one generic handler set backs both. The extra column name
+// comes from this fixed whitelist — never from request input — so it is safe to
+// interpolate into SQL. DELETE is SOFT (active=0) so Phase 2 Job references are
+// never orphaned; the "Show inactive" toggle passes ?all=1 to see/reactivate.
+const FLEET_TABLES = {
+  drivers:  { table: "drivers",  extra: "phone" },
+  vehicles: { table: "vehicles", extra: "plate" },
+};
+async function handleFleetList(cfg, url, env) {
+  await ensureSchema(env);
+  const includeInactive = url.searchParams.get("all") === "1";
+  const where = includeInactive ? "" : "WHERE active = 1";
+  const { results } = await env.BILLING_DB.prepare(
+    `SELECT id, name, ${cfg.extra}, COALESCE(active, 1) AS active, created_at
+       FROM ${cfg.table} ${where}
+      ORDER BY active DESC, name COLLATE NOCASE ASC, id DESC`
+  ).all();
+  return json({ ok: true, items: results || [] });
+}
+async function handleFleetCreate(cfg, request, env) {
+  await ensureSchema(env);
+  let b;
+  try { b = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
+  const name = String((b && b.name) || "").trim();
+  const extra = String((b && b[cfg.extra]) || "").trim();
+  if (!name) return json({ ok: false, error: "name is required" }, 400);
+  const res = await env.BILLING_DB.prepare(
+    `INSERT INTO ${cfg.table} (name, ${cfg.extra}, active) VALUES (?, ?, 1)`
+  ).bind(name, extra).run();
+  const id = (res && res.meta) ? res.meta.last_row_id : null;
+  return json({ ok: true, id });
+}
+async function handleFleetUpdate(cfg, id, request, env) {
+  await ensureSchema(env);
+  let b;
+  try { b = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
+  const row = await env.BILLING_DB.prepare(`SELECT id FROM ${cfg.table} WHERE id = ?`).bind(id).first();
+  if (!row) return json({ ok: false, error: "not found" }, 404);
+  const sets = [], vals = [];
+  if (b && b.name != null) {
+    const nm = String(b.name).trim();
+    if (!nm) return json({ ok: false, error: "name is required" }, 400);
+    sets.push("name = ?"); vals.push(nm);
+  }
+  if (b && b[cfg.extra] != null) { sets.push(`${cfg.extra} = ?`); vals.push(String(b[cfg.extra]).trim()); }
+  if (b && b.active != null) { sets.push("active = ?"); vals.push(b.active ? 1 : 0); }
+  if (!sets.length) return json({ ok: false, error: "nothing to update" }, 400);
+  vals.push(id);
+  await env.BILLING_DB.prepare(`UPDATE ${cfg.table} SET ${sets.join(", ")} WHERE id = ?`).bind(...vals).run();
+  return json({ ok: true, id });
+}
+async function handleFleetDelete(cfg, id, env) {
+  await ensureSchema(env);
+  // Soft delete — hides from the default view but preserves the row so future
+  // Job references (Phase 2) are never orphaned. Reactivate via PUT { active:1 }.
+  const res = await env.BILLING_DB.prepare(
+    `UPDATE ${cfg.table} SET active = 0 WHERE id = ?`
   ).bind(id).run();
   if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
   return json({ ok: true, id });
@@ -2969,6 +3067,27 @@ export async function handleAdmin(request, env) {
     return handleSendLeadQuote(request, env);
   }
 
+  // Dispatch Phase 1 — Fleet: drivers + vehicles CRUD. GET/POST on the collection,
+  // PUT/DELETE (soft) on /:id. Same auth + D1 guards as every other API route.
+  {
+    const fm = path.match(/^\/admin\/api\/(drivers|vehicles)(?:\/(\d+))?$/);
+    if (fm) {
+      const authed = await isAuthed(request, env);
+      if (!authed) return json({ ok: false, error: "auth required" }, 401);
+      if (!env.BILLING_DB) return dbUnavailable();
+      const cfg = FLEET_TABLES[fm[1]];
+      const id = fm[2] ? parseInt(fm[2], 10) : null;
+      if (id == null) {
+        if (method === "GET")  return handleFleetList(cfg, url, env);
+        if (method === "POST") return handleFleetCreate(cfg, request, env);
+        return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, POST" } });
+      }
+      if (method === "PUT")    return handleFleetUpdate(cfg, id, request, env);
+      if (method === "DELETE") return handleFleetDelete(cfg, id, env);
+      return new Response("Method Not Allowed", { status: 405, headers: { Allow: "PUT, DELETE" } });
+    }
+  }
+
   // v53 — standalone Nomod links (Links tab in /admin/billing)
   if (path.startsWith("/admin/api/links")) {
     const authed = await isAuthed(request, env);
@@ -3777,6 +3896,12 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #tab-links td[data-lbl="Client"] .hist-status.linked{ display:inline-block; margin-left:0 !important; margin-top:.15rem; }
   #tab-links tr.excluded td[data-lbl="Status"]::after{ content:"Excluded" !important; display:block !important; margin-top:.1rem; text-transform:uppercase; font-size:10px; letter-spacing:.1em; }
 
+  #tab-fleet .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.1rem; }
+  #tab-fleet td[data-lbl="Name"]{ grid-column:1; grid-row:1; }
+  #tab-fleet td[data-lbl="Detail"]{ grid-column:1; grid-row:2; color:var(--muted); }
+  #tab-fleet td[data-lbl="Status"]{ grid-column:2; grid-row:1; justify-self:end; text-align:right; }
+  #tab-fleet .hist-chev-cell{ grid-column:2; grid-row:2; justify-self:end; align-self:end; }
+
   /* Stage 3 — Document detail bottom sheet (mobile only) */
   #docSheetBackdrop{ position:fixed; inset:0; background:rgba(20,15,10,.45); opacity:0; pointer-events:none; transition:opacity .25s; z-index:2000; }
   #docSheetBackdrop.on{ opacity:1; pointer-events:auto; }
@@ -3792,7 +3917,7 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   .doc-sheet-cancel{ background:transparent !important; border-color:transparent !important; color:var(--muted) !important; }
   .mark-paid-modal .ed-shell{ position:fixed !important; left:0 !important; right:0 !important; bottom:0 !important; top:auto !important; transform:none !important; width:100% !important; max-width:none !important; border-radius:20px 20px 0 0 !important; max-height:86vh !important; overflow-y:auto !important; }
   body.doc-sheet-lock{ overflow:hidden; }
-  #tab-documents tr.expandable.open + tr.hist-actions-row, #tab-leads tr.expandable.open + tr.hist-actions-row, #tab-links tr.expandable.open + tr.hist-actions-row, #tab-payments tr.expandable.open + tr.hist-actions-row{ display:none !important; }
+  #tab-documents tr.expandable.open + tr.hist-actions-row, #tab-leads tr.expandable.open + tr.hist-actions-row, #tab-links tr.expandable.open + tr.hist-actions-row, #tab-payments tr.expandable.open + tr.hist-actions-row, #tab-fleet tr.expandable.open + tr.hist-actions-row{ display:none !important; }
   #tab-documents tr.expandable.open + tr.hist-actions-row > td{ padding:0 !important; border:0 !important; }
   #tab-documents tr.expandable.open + tr.hist-actions-row .hist-actions-panel{ position:fixed !important; left:0; right:0; bottom:0; z-index:60; margin:0 !important; width:100%; border-radius:20px 20px 0 0; background:var(--card) !important; border:0 !important; box-shadow:0 -12px 44px rgba(0,0,0,.28); padding:.5rem 1.1rem 1.4rem !important; max-height:82vh; overflow:auto; display:flex !important; flex-direction:column; gap:.55rem; animation:docSheetUp .28s cubic-bezier(.32,.72,0,1); }
   @keyframes docSheetUp{ from{ transform:translateY(100%); } to{ transform:translateY(0); } }
@@ -3884,6 +4009,7 @@ function appShellHTML() {
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="links"     id="tabBtnLinks"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 13.5a4 4 0 0 0 5.6 0l2.4-2.4a4 4 0 0 0-5.7-5.7L11.4 6.8"/><path d="M13.5 10.5a4 4 0 0 0-5.6 0L5.5 12.9a4 4 0 0 0 5.7 5.7l1.4-1.4"/></svg><span class="tab-label">Links</span><span class="tab-fulllabel">Payment Links</span></button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="payments"  id="tabBtnPayments"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10.5h18"/><path d="M7 16h3"/></svg><span class="tab-label">Payments</span><span class="tab-fulllabel">Payments</span></button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="sales"     id="tabBtnSales"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16h16"/><path d="M7 16l3.5-4 3 3 5-6"/></svg><span class="tab-label">Sales</span><span class="tab-fulllabel">Sales</span></button>
+  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="fleet"     id="tabBtnFleet"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.4"/><path d="M12 4v5.6M6.6 17l3.5-3.1M17.4 17l-3.5-3.1"/></svg><span class="tab-label">Fleet</span><span class="tab-fulllabel">Fleet</span></button>
   <!-- v101: right-aligned Create action button. Not a tab (no data-tab, no
        role=tab). Opens a 3-option popup: Create quote / Create invoice /
        Create payment link. On mobile the desktop "Create" text is hidden and
@@ -4246,6 +4372,50 @@ function appShellHTML() {
   </div>
 </section>
 </section><!-- /#tab-payments -->
+
+<section id="tab-fleet" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnFleet" hidden>
+<section class="history-wrap">
+  <div class="history" data-fleet="drivers">
+    <div class="hist-head">
+      <div>
+        <h2>Drivers</h2>
+        <p class="hist-sub">Chauffeurs available for dispatch. Deleting a driver hides them from the active list but keeps the record, so future job history stays intact.</p>
+      </div>
+      <div class="hist-tools" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+        <button type="button" class="btn btn-small btn-ghost" data-fleettoggle="drivers" aria-pressed="false">Show inactive</button>
+        <button type="button" class="btn btn-small btn-ink" data-fleetadd="drivers">+ Add driver</button>
+      </div>
+    </div>
+    <div class="hist-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th aria-hidden="true"></th></tr></thead>
+        <tbody id="drvBody"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="drvEmpty" hidden>No drivers yet. Use &ldquo;+ Add driver&rdquo; to create one.</div>
+  </div>
+
+  <div class="history" data-fleet="vehicles" style="margin-top:1.25rem">
+    <div class="hist-head">
+      <div>
+        <h2>Vehicles</h2>
+        <p class="hist-sub">Cars available for dispatch. Deleting a vehicle hides it from the active list but keeps the record, so future job history stays intact.</p>
+      </div>
+      <div class="hist-tools" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+        <button type="button" class="btn btn-small btn-ghost" data-fleettoggle="vehicles" aria-pressed="false">Show inactive</button>
+        <button type="button" class="btn btn-small btn-ink" data-fleetadd="vehicles">+ Add vehicle</button>
+      </div>
+    </div>
+    <div class="hist-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Plate</th><th>Status</th><th aria-hidden="true"></th></tr></thead>
+        <tbody id="vehBody"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="vehEmpty" hidden>No vehicles yet. Use &ldquo;+ Add vehicle&rdquo; to create one.</div>
+  </div>
+</section>
+</section><!-- /#tab-fleet -->
 
 <!-- v84 — Sales: de-duplicated settled-revenue ledger (cash basis, Dubai time, net of VAT).
      Combines paid Nomod payments (invoices + standalone links) with bank/cash invoices
@@ -5353,7 +5523,7 @@ const PAGE_SCRIPT = `<script>
     // v61: include "payments" — was missing in v60, which is why activating
     // the tab moved the underline but never un-hid #tab-payments.
     // v84: include "sales".
-    ["leads","create","documents","links","payments","sales"].forEach(function(n){
+    ["leads","create","documents","links","payments","sales","fleet"].forEach(function(n){
       const el = document.getElementById("tab-" + n);
       if(!el) return;
       const on = n === name;
@@ -5365,6 +5535,7 @@ const PAGE_SCRIPT = `<script>
     if(name === "links") loadLinks();
     if(name === "payments") { loadPayments(); maybeReconcilePayments(); }
     if(name === "sales") loadSales();
+    if(name === "fleet") loadFleet();
     if(name === "create" && typeof fitDocToViewport === "function") fitDocToViewport();
     // v85: persist active tab in URL hash so refresh stays on the same tab.
     // Use replaceState to avoid pushing every tab click into browser history.
@@ -5449,6 +5620,198 @@ const PAGE_SCRIPT = `<script>
   // route (POST /admin/webhooks/nomod) writes the same fields when wired.
   let payLastFetched = 0;
   let payReconciling = false;
+  // ── Dispatch Phase 1 — Fleet tab (drivers + vehicles) ──────────────────────
+  // Two simple lists on one page, each mirroring the Links/Payments .history +
+  // expandable-row + mobile bottom-sheet pattern. Soft-delete keeps rows so a
+  // Phase 2 Job reference never orphans; "Show inactive" reveals/reactivates.
+  var fleetShowInactive = { drivers:false, vehicles:false };
+  async function loadFleetKind(kind){
+    var body = document.getElementById(kind === "drivers" ? "drvBody" : "vehBody");
+    var empty = document.getElementById(kind === "drivers" ? "drvEmpty" : "vehEmpty");
+    if(!body) return;
+    var showInactive = fleetShowInactive[kind];
+    try {
+      var r = await fetch("/admin/api/" + kind + (showInactive ? "?all=1" : ""));
+      var j = await r.json();
+      if(!j.ok){ setStatus("Fleet load failed: " + (j.error || r.status)); return; }
+      var items = j.items || [];
+      if(!items.length){ body.innerHTML = ""; empty.hidden = false; return; }
+      empty.hidden = true;
+      body.innerHTML = items.map(function(x){
+        var detail = kind === "drivers" ? (x.phone || "") : (x.plate || "");
+        var isActive = Number(x.active) === 1;
+        var statusPill = isActive
+          ? '<span class="hist-status paid">Active</span>'
+          : '<span class="hist-status">Inactive</span>';
+        var actions = [];
+        actions.push('<button type="button" class="btn btn-small btn-ghost" data-fleetedit="' + x.id + '" data-kind="' + kind + '">Edit</button>');
+        if(isActive){
+          actions.push('<button type="button" class="btn btn-small btn-danger" data-fleetdel="' + x.id + '" data-kind="' + kind + '" data-name="' + esc(x.name || "") + '">Delete</button>');
+        } else {
+          actions.push('<button type="button" class="btn btn-small btn-ghost" data-fleetreactivate="' + x.id + '" data-kind="' + kind + '">Reactivate</button>');
+        }
+        var trClass = "expandable" + (isActive ? "" : " excluded");
+        return '<tr class="' + trClass + '" data-expandable="1" data-fleetrow="' + x.id + '" data-kind="' + kind + '">'
+          + '<td data-lbl="Name">' + esc(x.name || "·") + '</td>'
+          + '<td data-lbl="Detail">' + (detail ? esc(detail) : '<span style="color:var(--muted)">&middot;</span>') + '</td>'
+          + '<td data-lbl="Status">' + statusPill + '</td>'
+          + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
+          + '</tr>'
+          + '<tr class="hist-actions-row" hidden><td colspan="4"><div class="hist-actions-panel">' + actions.join(" ") + '</div></td></tr>';
+      }).join("");
+    } catch(e){ setStatus("Fleet load failed."); }
+  }
+  async function loadFleet(){ await loadFleetKind("drivers"); await loadFleetKind("vehicles"); }
+  function openFleetForm(kind, existing){
+    var isEdit = !!existing;
+    var detailLbl = kind === "drivers" ? "Phone" : "Plate";
+    var detailField = kind === "drivers" ? "phone" : "plate";
+    var noun = kind === "drivers" ? "driver" : "vehicle";
+    var modal = document.createElement("div");
+    modal.className = "ed-modal fleet-form-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    var backdrop = document.createElement("div");
+    backdrop.className = "ed-backdrop";
+    backdrop.setAttribute("aria-hidden", "true");
+    var shell = document.createElement("div");
+    shell.className = "ed-shell";
+    shell.style.cssText = "width:min(520px, calc(100vw - 48px));max-width:520px;max-height:none;inset:auto;position:absolute;top:10vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
+    shell.innerHTML =
+      '<header class="ed-head" style="padding:1.1rem 1.6rem">'
+      + '<h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.22rem">' + (isEdit ? "Edit " : "Add ") + noun + '</h2>'
+      + '<button type="button" class="btn btn-small btn-ghost" data-ff-cancel>Close</button>'
+      + '</header>'
+      + '<div class="ed-body" style="padding:1.5rem 1.6rem 1.6rem">'
+      + '<div class="field"><label class="lbl" for="ffName">Name</label><input id="ffName" type="text" maxlength="120" autocomplete="off"></div>'
+      + '<div class="field" style="margin-top:1rem"><label class="lbl" for="ffDetail">' + detailLbl + '</label><input id="ffDetail" type="text" maxlength="60" autocomplete="off"></div>'
+      + '<div class="actions" style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.4rem">'
+      + '<button type="button" class="btn btn-small btn-ghost" data-ff-cancel>Cancel</button>'
+      + '<button type="button" class="btn" id="ffSave">' + (isEdit ? "Save changes" : ("Add " + noun)) + '</button>'
+      + '</div>'
+      + '<div class="status-line" id="ffStatus"></div>'
+      + '</div>';
+    modal.appendChild(backdrop);
+    modal.appendChild(shell);
+    document.body.appendChild(modal);
+    var nameEl = shell.querySelector("#ffName");
+    var detailEl = shell.querySelector("#ffDetail");
+    var statusEl = shell.querySelector("#ffStatus");
+    if(isEdit){ nameEl.value = existing.name || ""; detailEl.value = existing.detail || ""; }
+    function close(){ try { document.body.removeChild(modal); } catch(_){} }
+    modal.querySelectorAll("[data-ff-cancel]").forEach(function(b){
+      b.addEventListener("click", function(e){ e.preventDefault(); close(); });
+    });
+    backdrop.addEventListener("click", close);
+    document.addEventListener("keydown", function ffEsc(e){
+      if(e.key === "Escape"){ e.preventDefault(); close(); document.removeEventListener("keydown", ffEsc); }
+    });
+    setTimeout(function(){ try { nameEl.focus(); } catch(_){} }, 30);
+    shell.querySelector("#ffSave").addEventListener("click", async function(){
+      var btn = this;
+      var name = nameEl.value.trim();
+      if(!name){ statusEl.textContent = "Name is required."; try { nameEl.focus(); } catch(_){} return; }
+      var payload = { name: name };
+      payload[detailField] = detailEl.value.trim();
+      btn.disabled = true;
+      var prev = btn.textContent;
+      btn.textContent = isEdit ? "Saving…" : "Adding…";
+      try {
+        var url = "/admin/api/" + kind + (isEdit ? ("/" + existing.id) : "");
+        var r = await fetch(url, {
+          method: isEdit ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        var j = await r.json().catch(function(){ return {}; });
+        if(r.ok && j && j.ok){ close(); loadFleetKind(kind); }
+        else { statusEl.textContent = "Failed: " + ((j && j.error) || r.status); btn.disabled = false; btn.textContent = prev; }
+      } catch(e){ statusEl.textContent = "Failed: " + (e.message || e); btn.disabled = false; btn.textContent = prev; }
+    });
+  }
+  function bindFleetClickOnce(){
+    var root = document.getElementById("tab-fleet");
+    if(!root || root._fleetClickBound) return;
+    root._fleetClickBound = true;
+    root.addEventListener("click", function(e){
+      var add = e.target.closest("[data-fleetadd]");
+      if(add){ e.preventDefault(); openFleetForm(add.getAttribute("data-fleetadd"), null); return; }
+      var tgl = e.target.closest("[data-fleettoggle]");
+      if(tgl){
+        e.preventDefault();
+        var tkind = tgl.getAttribute("data-fleettoggle");
+        fleetShowInactive[tkind] = !fleetShowInactive[tkind];
+        tgl.classList.toggle("on", fleetShowInactive[tkind]);
+        tgl.setAttribute("aria-pressed", fleetShowInactive[tkind] ? "true" : "false");
+        tgl.textContent = fleetShowInactive[tkind] ? "Hide inactive" : "Show inactive";
+        loadFleetKind(tkind);
+        return;
+      }
+      var ed = e.target.closest("[data-fleetedit]");
+      if(ed){
+        e.preventDefault(); e.stopPropagation();
+        var ekind = ed.getAttribute("data-kind");
+        var eid = ed.getAttribute("data-fleetedit");
+        var erow = root.querySelector('tr[data-fleetrow="' + eid + '"][data-kind="' + ekind + '"]');
+        var nm = "", dt = "";
+        if(erow){
+          var nc = erow.querySelector('td[data-lbl="Name"]');
+          var dc = erow.querySelector('td[data-lbl="Detail"]');
+          nm = nc ? nc.textContent.trim() : "";
+          dt = dc ? dc.textContent.trim() : "";
+          if(nm === "·") nm = "";
+          if(dt === "·") dt = "";
+        }
+        openFleetForm(ekind, { id: eid, name: nm, detail: dt });
+        return;
+      }
+      var dl = e.target.closest("[data-fleetdel]");
+      if(dl){
+        e.preventDefault(); e.stopPropagation();
+        if(dl.disabled) return;
+        var dkind = dl.getAttribute("data-kind");
+        var did = dl.getAttribute("data-fleetdel");
+        var dname = dl.getAttribute("data-name") || ("this " + (dkind === "drivers" ? "driver" : "vehicle"));
+        if(!confirm("Remove " + dname + "?\n\nIt will be hidden from the active list but kept on record, so any future job references stay intact. You can reactivate it later via Show inactive.")) return;
+        dl.disabled = true;
+        var dprev = dl.textContent;
+        dl.textContent = "Removing…";
+        fetch("/admin/api/" + dkind + "/" + did, { method: "DELETE" })
+          .then(function(r){ return r.json().catch(function(){ return {}; }); })
+          .then(function(j){
+            if(j && j.ok){ loadFleetKind(dkind); }
+            else { setStatus("Delete failed: " + ((j && j.error) || "")); dl.disabled = false; dl.textContent = dprev; }
+          })
+          .catch(function(err){ setStatus("Delete failed: " + (err.message || err)); dl.disabled = false; dl.textContent = dprev; });
+        return;
+      }
+      var ra = e.target.closest("[data-fleetreactivate]");
+      if(ra){
+        e.preventDefault(); e.stopPropagation();
+        if(ra.disabled) return;
+        var rkind = ra.getAttribute("data-kind");
+        var rid = ra.getAttribute("data-fleetreactivate");
+        ra.disabled = true;
+        var rprev = ra.textContent;
+        ra.textContent = "…";
+        fetch("/admin/api/" + rkind + "/" + rid, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ active: 1 })
+        })
+          .then(function(r){ return r.json().catch(function(){ return {}; }); })
+          .then(function(j){
+            if(j && j.ok){ loadFleetKind(rkind); }
+            else { setStatus("Reactivate failed: " + ((j && j.error) || "")); ra.disabled = false; ra.textContent = rprev; }
+          })
+          .catch(function(err){ setStatus("Reactivate failed: " + (err.message || err)); ra.disabled = false; ra.textContent = rprev; });
+        return;
+      }
+      var expTr = e.target.closest("tr[data-expandable='1']");
+      if(expTr && !e.target.closest("a, button")){ toggleAccordionRow(expTr, root); }
+    });
+  }
+
   async function loadPayments(){
     const body = $("payBody"); const empty = $("payEmpty"); const sum = $("paySummary");
     if(!body) return;
@@ -7532,6 +7895,9 @@ const PAGE_SCRIPT = `<script>
   // v86: same pattern for Links-tab actions (Copy, Create-invoice-from-link,
   // Attach, Exclude/Restore, Delete, row drawer toggle).
   bindLinksClickOnce();
+  // Dispatch Phase 1: same delegated pattern for the Fleet tab (Add, Show
+  // inactive, Edit, Delete/soft, Reactivate, row drawer toggle).
+  bindFleetClickOnce();
   renderTotals();
   renderDoc();
   fetchNext();
@@ -7542,7 +7908,7 @@ const PAGE_SCRIPT = `<script>
   // v101: "create" is gone from the tab nav. A stale "#create" hash from a
   // previous session falls back to the leads tab instead of leaving the user
   // on a blank screen.
-  const _BOOT_TABS = ["leads","documents","links","payments","sales"];
+  const _BOOT_TABS = ["leads","documents","links","payments","sales","fleet"];
   const _hashTab = (location.hash || "").replace(/^#/, "");
   const _bootTab = _BOOT_TABS.indexOf(_hashTab) >= 0 ? _hashTab : "leads";
   switchTab(_bootTab);
@@ -7582,6 +7948,7 @@ const PAGE_SCRIPT = `<script>
   loadLinks();
   loadSales();
   loadHistory();
+  loadFleet();
   // Stage-1 fix-up: on phones, move the Create button out of the bottom tab
   // bar (whose backdrop-filter clips fixed children) and into the header's
   // top-right corner. Reverses to the desktop home slot above 620px.
@@ -7614,9 +7981,10 @@ const PAGE_SCRIPT = `<script>
     'tab-documents': { title:{lbl:'Number',link:true},  sub:{lbl:'Client'},  right:{lbl:'Total'},  metaL:['Type','Date'], metaR:'Status', inline:false },
     'tab-leads':     { title:{lbl:'Name'},               sub:{lbl:'Contact'}, right:null,           metaL:['Service'],    metaR:function(row){ var c = row.querySelector('td[data-lbl="Status"]'); var s = c && c.querySelector('.pay-status'); var base = s ? s.textContent.trim() : (c ? c.textContent.trim() : ''); return base + (row.querySelector('.lead-unverified') ? ' \u00b7 UNVERIFIED' : ''); }, inline:true  },
     'tab-links':     { title:{lbl:'Client',first:true},  sub:null,            right:{lbl:'Amount'}, metaL:['Created'],    metaR:'Status', inline:false },
-    'tab-payments':  { title:{lbl:'Client'},              sub:null,            right:{lbl:'Amount'}, metaL:['Date paid','Method'], metaR:function(row){ return row.classList.contains('excluded') ? 'Excluded' : 'Paid'; }, note:'Payments is read-only. Mark paid (cash or bank) on the invoice; copy a payment link from Payment Links.', inline:false }
+    'tab-payments':  { title:{lbl:'Client'},              sub:null,            right:{lbl:'Amount'}, metaL:['Date paid','Method'], metaR:function(row){ return row.classList.contains('excluded') ? 'Excluded' : 'Paid'; }, note:'Payments is read-only. Mark paid (cash or bank) on the invoice; copy a payment link from Payment Links.', inline:false },
+    'tab-fleet':     { title:{lbl:'Name'},               sub:{lbl:'Detail'},  right:null,           metaL:[],             metaR:'Status', inline:false }
   };
-  var TABS = ['tab-documents','tab-leads','tab-links','tab-payments'];
+  var TABS = ['tab-documents','tab-leads','tab-links','tab-payments','tab-fleet'];
   function mq(){ return window.matchMedia('(max-width: 620px)').matches; }
   var sheetEl = null, backdropEl = null, currentRow = null;
   function cell(row, lbl){ return row.querySelector('td[data-lbl="' + lbl + '"]'); }

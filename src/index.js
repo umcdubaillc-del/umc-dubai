@@ -108,6 +108,8 @@ export default {
         url.pathname === "/admin/api/customers.csv" ||
         url.pathname === "/admin/api/leads" ||
         url.pathname.startsWith("/admin/api/leads/") ||
+        url.pathname.startsWith("/admin/api/drivers") ||
+        url.pathname.startsWith("/admin/api/vehicles") ||
         url.pathname === "/admin/webhooks/nomod") {
       return handleAdmin(request, env);
     }
