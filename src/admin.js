@@ -4408,7 +4408,11 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
 .cal-lights{ flex:0 0 auto; padding-top:.1rem; }
 @media (max-width:620px){
   .cal-row{ flex-wrap:wrap; }
-  .cal-lights{ width:100%; padding-top:.5rem; }
+  /* Trail the readiness strip at the END (right) of the row, level with the
+     client line — matching the Jobs table's rightmost Readiness column. Was
+     width:100%, which orphaned it to a bottom-left line that read as leading
+     the next agenda row. */
+  .cal-lights{ margin-left:auto; padding-top:.15rem; }
 }
 /* ---- Jobs "tomorrow needs assignment" callout. Same tinted-card visual
    language as the Sales fx_unreconciled note; green calm variant for the good
@@ -6217,7 +6221,10 @@ const PAGE_SCRIPT = `<script>
     if(s === "assigned")  return '<span class="hist-status linked">Assigned</span>';
     if(s === "completed") return '<span class="hist-status paid">Completed</span>';
     if(s === "cancelled") return '<span class="hist-status" style="color:var(--amber-deep)">Cancelled</span>';
-    return '<span class="hist-status">New</span>';
+    // "new" is the uninformative default state — render nothing (list Status
+    // column, mobile card, and sheet header all stay clean). Assigned/Completed/
+    // Cancelled are unchanged. Underlying status value/logic is untouched.
+    return "";
   }
   function computeJobLights(job){
     return [
