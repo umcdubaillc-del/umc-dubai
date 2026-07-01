@@ -4345,6 +4345,31 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
 .job-form .field label.lbl{ display:block; margin-bottom:.25rem; }
 .job-grid2{ display:grid; grid-template-columns:1fr 1fr; gap:.7rem; }
 @media (max-width:520px){ .job-grid2{ grid-template-columns:1fr; } }
+/* ---- Job SHEET (actions surface) + edit-modal requirement lines. Brand tokens
+   only; reuses .job-light, .job-check, .btn, .status-line, .paid-warn. ---- */
+#tab-jobs tr[data-jobsheet]{ cursor:pointer; }
+.js-when{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); }
+.js-client{ font-family:Marcellus,Georgia,serif; font-size:1.3rem; color:var(--ink); line-height:1.15; }
+.js-headmeta{ display:flex; align-items:center; gap:.55rem; flex-wrap:wrap; }
+.js-svc{ color:var(--muted); font-size:.95rem; }
+.js-h3{ display:flex; align-items:center; gap:.5rem; font-family:Outfit,sans-serif; font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--muted); margin:1.1rem 0 .5rem; }
+.js-row{ display:flex; align-items:center; gap:.6rem; margin:.35rem 0; }
+.js-lights{ display:inline-flex; gap:.4rem; flex:0 0 auto; }
+.js-note{ color:var(--muted); font-size:.83rem; margin:.15rem 0 .3rem; line-height:1.45; }
+.js-informed{ margin:0; flex:0 0 auto; }
+.js-syncline{ display:flex; align-items:center; gap:.5rem; color:var(--ink); font-size:.95rem; margin:.2rem 0; }
+.js-reqs{ display:flex; flex-direction:column; gap:.1rem; }
+.js-sec{ border-top:1px solid var(--hair); margin:1.1rem 0 .2rem; }
+.js-actions{ display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.7rem; }
+.js-muted{ color:var(--muted); font-size:.85rem; }
+.job-reqline{ display:flex; align-items:center; gap:.5rem; padding:.28rem 0; font-size:.92rem; color:var(--ink); border-bottom:1px solid var(--hair); }
+.js-reqdone{ font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--paid,#2E7D54); }
+@media (max-width:620px){
+  .job-sheet-modal .ed-shell, .job-form-modal .ed-shell, .job-assign-modal .ed-shell{
+    top:auto !important; bottom:0 !important; left:0 !important; transform:none !important;
+    width:100% !important; max-width:none !important; border-radius:18px 18px 0 0 !important; max-height:90vh !important;
+  }
+}
 /* ---- Calendar (agenda) tab: vertical list of day sections, brand tokens only.
    Reuses .job-lights for the readiness strip; no new colours/fonts. ---- */
 .cal-tools{ display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
@@ -6114,13 +6139,14 @@ const PAGE_SCRIPT = `<script>
       { abbr:"Req",  label:"Requirements met",  on:jobRequirementsMet(job) }
     ];
   }
-  // Compact strip for the list row: dot + abbreviated label under each, so the
-  // state is readable at a glance without relying on hover tooltips.
+  // Compact strip for the glance surfaces (Jobs list rows + Calendar agenda
+  // rows): dots only, no captions. Each dot carries a title tooltip so the
+  // meaning stays discoverable without cluttering the row.
   function renderJobLights(job){
     var lights = computeJobLights(job);
     var html = '<span class="job-lights">';
     for(var i=0;i<lights.length;i++){
-      html += '<span class="job-lightcell"><span class="job-light ' + (lights[i].on ? 'on' : 'off') + '"></span><span class="job-lightlbl">' + esc(lights[i].abbr) + '</span></span>';
+      html += '<span class="job-light ' + (lights[i].on ? 'on' : 'off') + '" title="' + esc(lights[i].label + (lights[i].on ? ' — done' : ' — to do')) + '"></span>';
     }
     return html + '</span>';
   }
@@ -6151,29 +6177,22 @@ const PAGE_SCRIPT = `<script>
     }
     return out;
   }
+  // GLANCE surface: a single tappable row. Tapping opens the job SHEET (the
+  // actions surface) — no inline accordion. Keeps the expandable class purely
+  // for its cursor/hover + mobile card-grid styling. Dots-only readiness.
   function renderJobRow(job){
     var dateTxt = leadNz(job.date)
       ? (esc(fmtDate(job.date)) + (leadNz(job.time) ? ' <span style="color:var(--muted)">' + esc(job.time) + '</span>' : ''))
       : '<span style="color:var(--muted)">&middot;</span>';
     var trClass = "expandable" + (job.status === "cancelled" ? " excluded" : "");
-    var actions = [];
-    actions.push('<button type="button" class="btn btn-small btn-ink" data-jobopen="' + job.id + '">Open / edit</button>');
-    actions.push('<button type="button" class="btn btn-small btn-ghost" data-jobassign="' + job.id + '" title="Assign or change drivers and vehicles">Assign driver/vehicle</button>');
-    var hasDriverPhone = (job.driver_phones||[]).some(function(p){ return normalizeWaNumber(p); });
-    if((job.driver_ids||[]).length && hasDriverPhone) actions.push('<button type="button" class="btn btn-small btn-ghost" data-jobwadriver="' + job.id + '">WhatsApp driver</button>');
-    if(normalizeWaNumber(job.client_phone)) actions.push('<button type="button" class="btn btn-small btn-ghost" data-jobwaclient="' + job.id + '">WhatsApp client</button>');
-    actions.push('<button type="button" class="btn btn-small btn-ghost" data-jobquote="' + job.id + '">Create Quote</button>');
-    actions.push('<button type="button" class="btn btn-small btn-ghost" data-jobinvoice="' + job.id + '">Create Invoice</button>');
-    actions.push('<button type="button" class="btn btn-small btn-danger" data-jobdelete="' + job.id + '" data-jobname="' + esc(leadNz(job.client_name) || ("Job #" + job.id)) + '" title="Permanently delete this job (removes its calendar event too)">Delete</button>');
-    return '<tr class="' + trClass + '" data-expandable="1" data-jobrow="' + job.id + '">'
+    return '<tr class="' + trClass + '" data-jobsheet="' + job.id + '" role="button" tabindex="0">'
       + '<td data-lbl="Date">' + dateTxt + '</td>'
       + '<td data-lbl="Client">' + esc(leadNz(job.client_name) || "·") + '</td>'
       + '<td data-lbl="Service">' + esc(jobServiceText(job)) + '</td>'
       + '<td data-lbl="Status">' + jobStatusPill(job.status) + '</td>'
       + '<td data-lbl="Readiness">' + renderJobLights(job) + '</td>'
-      + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
-      + '</tr>'
-      + '<tr class="hist-actions-row" hidden><td colspan="6"><div class="hist-actions-panel">' + actions.join(" ") + '</div></td></tr>';
+      + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#8250;</span></td>'
+      + '</tr>';
   }
   async function loadJobs(){
     var body = document.getElementById("jobsBody");
@@ -6272,35 +6291,27 @@ const PAGE_SCRIPT = `<script>
   }
   function openJobForm(seed){ jobFormModal(seed || {}, false); }
   function openJobEdit(job){ jobFormModal(job, true); }
+  // EDIT MODAL — form-only. Definition fields plus add/remove of requirement
+  // entries. Crew assignment, WhatsApp, the light readout, requirement CONFIRM
+  // toggles, the informed toggle, and Complete/Cancel/Delete all live on the
+  // SHEET (openJobSheet) now. driver_ids/vehicle_ids and client_informed are
+  // intentionally NOT sent on save so the server preserves them.
   function jobFormModal(seed, isEdit){
     var jobId = isEdit ? seed.id : null;
     var terminal = isEdit && (seed.status === "completed" || seed.status === "cancelled");
-    var reqState = jobRequirements(seed);   // live requirements array
+    var reqState = jobRequirements(seed);   // definitions only; confirmed flags preserved
     var adjustTerminal = false;             // "Edit anyway" override
     var modal = document.createElement("div");
     modal.className = "ed-modal job-form-modal";
     modal.setAttribute("role","dialog"); modal.setAttribute("aria-modal","true");
     var backdrop = document.createElement("div"); backdrop.className = "ed-backdrop"; backdrop.setAttribute("aria-hidden","true");
     var shell = document.createElement("div"); shell.className = "ed-shell";
-    shell.style.cssText = "width:min(720px, calc(100vw - 32px));max-width:720px;max-height:92vh;overflow-y:auto;inset:auto;position:absolute;top:4vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
+    shell.style.cssText = "width:min(680px, calc(100vw - 32px));max-width:680px;max-height:92vh;overflow-y:auto;inset:auto;position:absolute;top:4vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
     function fld(id, label, val, type, ph){
       type = type || "text";
       return '<div class="field"><label class="lbl" for="' + id + '">' + esc(label) + '</label>'
         + '<input id="' + id + '" type="' + type + '" value="' + esc(val || "") + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : '') + ' autocomplete="off"></div>';
     }
-    var completeCancel = (isEdit && !terminal)
-      ? ('<button type="button" class="btn btn-small btn-ghost" id="jfComplete" style="color:var(--paid,#2E7D54)">Mark completed</button>'
-         + '<button type="button" class="btn btn-small btn-ghost" id="jfCancel" style="color:var(--amber-deep)">Cancel job</button>')
-      : "";
-    // Delete is available for any existing job (even terminal) and stays enabled
-    // under the terminal lock so a cancelled job can still be removed.
-    var deleteBtn = isEdit ? '<button type="button" class="btn btn-small btn-danger" id="jfDelete" title="Permanently delete this job (removes its calendar event)">Delete job</button>' : "";
-    // Driver/vehicle assignment is NOT part of initial creation — the selects
-    // appear only when editing an existing job (assign from the row drawer).
-    var crewSection = isEdit
-      ? ('<h3>Drivers</h3><div id="jfDrivers" class="job-multi"><span style="color:var(--muted);font-size:.85rem">Loading…</span></div><div id="jfDriverWarn"></div>'
-         + '<h3>Vehicles</h3><div id="jfVehicles" class="job-multi"><span style="color:var(--muted);font-size:.85rem">Loading…</span></div><div id="jfVehicleWarn"></div>')
-      : "";
     shell.innerHTML =
       '<header class="ed-head" style="padding:1rem 1.4rem">'
       + '<h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.2rem">' + (isEdit ? ("Job #" + jobId + " — " + esc(jobServiceText(seed))) : "New job") + '</h2>'
@@ -6308,7 +6319,7 @@ const PAGE_SCRIPT = `<script>
       + '</header>'
       + '<div class="ed-body job-form" style="padding:1.1rem 1.4rem 1.6rem">'
       + '<div id="jfLock"></div>'
-      + (isEdit ? ('<div style="margin:0 0 .7rem">' + jobStatusPill(seed.status) + '</div>' + renderJobChecklist(seed)) : '')
+      + (isEdit ? '<p class="js-note" style="margin:0 0 .7rem">Details only. Assign crew, notify, tick off requirements, and complete/cancel from the job sheet.</p>' : '')
       + '<h3>Client</h3>'
       + '<div class="job-grid2">' + fld("jfClientName","Name",seed.client_name) + fld("jfClientPhone","Phone",seed.client_phone) + '</div>'
       + fld("jfClientEmail","Email",seed.client_email,"email")
@@ -6319,17 +6330,15 @@ const PAGE_SCRIPT = `<script>
       + '<div class="job-grid2">' + fld("jfPickup","Pickup",seed.pickup,"text",((seed.source_type === "invoice" || seed.source_type === "quote") ? ("Not available from " + seed.source_type + " — see notes below") : "")) + fld("jfDestination","Destination",seed.destination,"text",((seed.source_type === "invoice" || seed.source_type === "quote") ? ("Not available from " + seed.source_type + " — see notes below") : "")) + '</div>'
       + '<div class="job-grid2">' + fld("jfDays","At disposal (days)",seed.days) + fld("jfVehicleText","Vehicle (free text)",seed.vehicle_text) + '</div>'
       + '<div class="job-grid2">' + fld("jfFlight","Flight number",seed.flight) + fld("jfSign","Welcome sign name",seed.sign) + '</div>'
-      + crewSection
-      + '<h3>Requirements</h3><div id="jfReqs"></div>'
+      + '<h3>Requirements</h3>'
+      + '<p class="js-note" style="margin:-.2rem 0 .5rem">Define what the trip needs. Tick them off as done from the job sheet.</p>'
+      + '<div id="jfReqs"></div>'
       + '<div style="display:flex;gap:.5rem;margin-top:.5rem"><input id="jfReqInput" type="text" placeholder="Add a requirement (e.g. Child seat)" autocomplete="off" style="flex:1"><button type="button" class="btn btn-small btn-ghost" id="jfReqAdd">Add</button></div>'
       + '<h3>Notes for driver</h3><div class="field"><textarea id="jfNotes" rows="3" style="width:100%">' + esc(seed.driver_notes || "") + '</textarea></div>'
-      + '<label class="job-check" style="margin-top:.4rem"><input type="checkbox" id="jfInformed"' + (Number(seed.client_informed) === 1 ? " checked" : "") + '><span>Client has been informed</span></label>'
       + '<div class="status-line" id="jfStatus" style="min-height:1.1em;margin-top:.6rem"></div>'
       + '<div class="actions" style="display:flex;gap:.6rem;justify-content:flex-end;flex-wrap:wrap;margin-top:1rem">'
-      +   completeCancel
-      +   deleteBtn
       +   '<button type="button" class="btn btn-small btn-ghost" data-jf-close>Close</button>'
-      +   '<button type="button" class="btn" id="jfSave">' + (isEdit ? "Save job" : "Create job") + '</button>'
+      +   '<button type="button" class="btn" id="jfSave">' + (isEdit ? "Save details" : "Create job") + '</button>'
       + '</div>'
       + '</div>';
     modal.appendChild(backdrop); modal.appendChild(shell);
@@ -6340,15 +6349,18 @@ const PAGE_SCRIPT = `<script>
     backdrop.addEventListener("click", close);
     document.addEventListener("keydown", function jfEsc(e){ if(e.key === "Escape" && document.body.contains(modal)){ e.preventDefault(); close(); document.removeEventListener("keydown", jfEsc); } });
 
-    // Requirements checklist (live, re-rendered from reqState on change/add).
+    // Requirement DEFINITIONS (add / remove labels). Confirmed flags are carried
+    // through untouched on save; ticking off as done happens on the sheet.
     function renderReqs(){
       var host = shell.querySelector("#jfReqs");
-      if(!reqState.length){ host.innerHTML = '<span style="color:var(--muted);font-size:.85rem">No requirements yet.</span>'; return; }
+      if(!reqState.length){ host.innerHTML = '<span class="js-muted">No requirements defined yet.</span>'; return; }
       host.innerHTML = reqState.map(function(rq, i){
-        return '<label class="job-check" data-req-i="' + i + '"><input type="checkbox"' + (rq.confirmed ? " checked" : "") + '><span>' + esc(rq.label) + '</span></label>';
+        return '<div class="job-reqline" data-req-i="' + i + '"><span>' + esc(rq.label) + '</span>'
+          + (rq.confirmed ? ' <span class="js-reqdone">done</span>' : '')
+          + '<button type="button" class="btn btn-small btn-ghost" data-req-del="' + i + '" title="Remove this requirement" style="margin-left:auto">Remove</button></div>';
       }).join("");
-      host.querySelectorAll("[data-req-i]").forEach(function(row){
-        row.querySelector("input").addEventListener("change", function(){ reqState[Number(row.getAttribute("data-req-i"))].confirmed = this.checked; });
+      host.querySelectorAll("[data-req-del]").forEach(function(b){
+        b.addEventListener("click", function(){ reqState.splice(Number(b.getAttribute("data-req-del")), 1); renderReqs(); });
       });
     }
     renderReqs();
@@ -6358,50 +6370,12 @@ const PAGE_SCRIPT = `<script>
       reqState.push({ label: v, confirmed: false }); inp.value = ""; renderReqs();
     });
 
-    // Live double-booking recompute for the currently-checked driver/vehicle sets.
-    function recomputeWarnings(){
-      var date = shell.querySelector("#jfDate").value.trim();
-      var time = shell.querySelector("#jfTime").value.trim();
-      ["driver","vehicle"].forEach(function(kind){
-        var warnEl = shell.querySelector(kind === "driver" ? "#jfDriverWarn" : "#jfVehicleWarn");
-        if(!warnEl) return;
-        var msgs = [];
-        shell.querySelectorAll((kind === "driver" ? "#jfDrivers" : "#jfVehicles") + " input:checked").forEach(function(cb){
-          var conflicts = jobConflicts(kind, Number(cb.value), date, time, jobId);
-          conflicts.forEach(function(c){ msgs.push(esc(cb.getAttribute("data-name") || "") + " also assigned to " + esc(c.client) + (c.time ? " at " + esc(c.time) : "") + " on " + esc(c.date)); });
-        });
-        warnEl.innerHTML = msgs.length ? ('<div class="job-warn">⚠ ' + msgs.join("<br>") + '</div>') : "";
-      });
-    }
-    // Populate driver/vehicle multi-selects from ACTIVE fleet only.
-    async function loadMulti(kind){
-      var host = shell.querySelector(kind === "drivers" ? "#jfDrivers" : "#jfVehicles");
-      if(!host) return;
-      var assigned = (kind === "drivers" ? (seed.driver_ids || []) : (seed.vehicle_ids || [])).map(Number);
-      try {
-        var r = await fetch("/admin/api/" + kind);
-        var j = await r.json();
-        var items = (j && j.items) || [];
-        if(!items.length){ host.innerHTML = '<span style="color:var(--muted);font-size:.85rem">No active ' + kind + '. Add them under Fleet.</span>'; return; }
-        host.innerHTML = items.map(function(it){
-          var checked = assigned.indexOf(Number(it.id)) >= 0 ? " checked" : "";
-          var extra = kind === "drivers" ? (it.phone || "") : (it.plate || "");
-          return '<label><input type="checkbox" value="' + it.id + '" data-name="' + esc(it.name || "") + '"' + checked + '><span>' + esc(it.name || "") + (extra ? ' <span style="color:var(--muted)">· ' + esc(extra) + '</span>' : '') + '</span></label>';
-        }).join("");
-        host.querySelectorAll("input[type=checkbox]").forEach(function(cb){ cb.addEventListener("change", recomputeWarnings); });
-      } catch(e){ host.innerHTML = '<span style="color:var(--amber-deep);font-size:.85rem">Failed to load ' + kind + '.</span>'; }
-    }
-    if(isEdit){ Promise.all([loadMulti("drivers"), loadMulti("vehicles")]).then(recomputeWarnings); }
-    shell.querySelector("#jfDate").addEventListener("change", recomputeWarnings);
-    shell.querySelector("#jfTime").addEventListener("change", recomputeWarnings);
-
-    // Terminal lock — mirrors the paid-invoice lock: disable everything, offer
-    // "Edit anyway" which re-enables (the job stays completed/cancelled).
+    // Terminal lock — same shape as before: disable the definition fields with an
+    // "Edit anyway" override. (Delete/complete/cancel live on the sheet now.)
     function setFormDisabled(dis){
       shell.querySelectorAll("input, textarea, button").forEach(function(el){
         if(el.hasAttribute("data-jf-close")) return;
         if(el.id === "btnJobEditAnyway") return;
-        if(el.id === "jfDelete") return;
         el.disabled = dis;
       });
     }
@@ -6419,6 +6393,9 @@ const PAGE_SCRIPT = `<script>
     applyLock();
 
     function collect(){
+      // driver_ids / vehicle_ids / client_informed are OMITTED on purpose — the
+      // server preserves absent fields, so definition saves never clobber crew
+      // assignment or the informed flag (both are sheet-owned).
       var body = {
         client_name: shell.querySelector("#jfClientName").value.trim(),
         client_phone: shell.querySelector("#jfClientPhone").value.trim(),
@@ -6433,18 +6410,14 @@ const PAGE_SCRIPT = `<script>
         flight: shell.querySelector("#jfFlight").value.trim(),
         sign: shell.querySelector("#jfSign").value.trim(),
         driver_notes: shell.querySelector("#jfNotes").value.trim(),
-        client_informed: shell.querySelector("#jfInformed").checked ? 1 : 0,
-        requirements: reqState,
-        driver_ids: Array.prototype.map.call(shell.querySelectorAll("#jfDrivers input:checked"), function(c){ return Number(c.value); }),
-        vehicle_ids: Array.prototype.map.call(shell.querySelectorAll("#jfVehicles input:checked"), function(c){ return Number(c.value); })
+        requirements: reqState
       };
       if(isEdit){ body.source_type = seed.source_type; body.source_id = seed.source_id; }
       else if(seed.source_type){ body.source_type = seed.source_type; body.source_id = seed.source_id; }
       return body;
     }
-    async function submit(extra){
+    async function submit(){
       var payload = collect();
-      if(extra) for(var k in extra){ payload[k] = extra[k]; }
       var btn = shell.querySelector("#jfSave"); var prev = btn.textContent; btn.disabled = true; btn.textContent = "Saving…";
       setStat("Saving…");
       try {
@@ -6455,26 +6428,231 @@ const PAGE_SCRIPT = `<script>
         else { setStat("Save failed: " + ((j && j.error) || r.status)); btn.disabled = false; btn.textContent = prev; }
       } catch(e){ setStat("Save failed: " + (e.message || e)); btn.disabled = false; btn.textContent = prev; }
     }
-    shell.querySelector("#jfSave").addEventListener("click", function(){ submit(null); });
-    if(shell.querySelector("#jfComplete")) shell.querySelector("#jfComplete").addEventListener("click", function(){ if(confirm("Mark this job completed? It becomes read-only (Edit anyway still available).")) submit({ status:"completed" }); });
-    if(shell.querySelector("#jfCancel")) shell.querySelector("#jfCancel").addEventListener("click", function(){
-      var reason = prompt("Cancel this job — short reason (e.g. client cancelled):", "");
-      if(reason === null) return;
-      submit({ status:"cancelled", cancelled_reason: String(reason || "").trim() });
-    });
-    if(shell.querySelector("#jfDelete")) shell.querySelector("#jfDelete").addEventListener("click", async function(){
-      if(!confirm("Permanently delete this job? This removes it entirely, and its calendar event.\\n\\nUse Cancel instead if the job simply didn't happen but you want to keep the record.")) return;
-      var b = this; b.disabled = true; var pv = b.textContent; b.textContent = "Deleting…";
-      try {
-        var r = await fetch("/admin/api/jobs/" + jobId, { method:"DELETE" });
-        var j = await r.json().catch(function(){ return {}; });
-        if(r.ok && j && j.ok){ close(); await loadJobs(); setStatus("Job #" + jobId + " deleted."); }
-        else { setStat("Delete failed: " + ((j && j.error) || r.status)); b.disabled = false; b.textContent = pv; }
-      } catch(e){ setStat("Delete failed: " + (e.message || e)); b.disabled = false; b.textContent = pv; }
-    });
+    shell.querySelector("#jfSave").addEventListener("click", function(){ submit(); });
     setTimeout(function(){ try { shell.querySelector("#jfClientName").focus(); } catch(_){} }, 40);
   }
 
+  // The driver/vehicle multi-select, extracted so the SHEET opens it directly —
+  // same active-fleet-only picker + double-booking warnings as before. Saves a
+  // partial PUT (driver_ids/vehicle_ids only); onSaved receives the fresh job.
+  function openJobAssignModal(job, onSaved){
+    var jobId = job.id;
+    var modal = document.createElement("div");
+    modal.className = "ed-modal job-assign-modal";
+    modal.setAttribute("role","dialog"); modal.setAttribute("aria-modal","true");
+    var backdrop = document.createElement("div"); backdrop.className = "ed-backdrop"; backdrop.setAttribute("aria-hidden","true");
+    var shell = document.createElement("div"); shell.className = "ed-shell";
+    shell.style.cssText = "width:min(560px, calc(100vw - 32px));max-width:560px;max-height:90vh;overflow-y:auto;inset:auto;position:absolute;top:6vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
+    shell.innerHTML =
+      '<header class="ed-head" style="padding:1rem 1.4rem">'
+      + '<h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.2rem">Assign — Job #' + jobId + '</h2>'
+      + '<button type="button" class="btn btn-small btn-ghost" data-am-close>Close</button>'
+      + '</header>'
+      + '<div class="ed-body job-form" style="padding:1.1rem 1.4rem 1.6rem">'
+      + '<h3>Drivers</h3><div id="amDrivers" class="job-multi"><span class="js-muted">Loading…</span></div><div id="amDriverWarn"></div>'
+      + '<h3>Vehicles</h3><div id="amVehicles" class="job-multi"><span class="js-muted">Loading…</span></div><div id="amVehicleWarn"></div>'
+      + '<div class="status-line" id="amStatus" style="min-height:1.1em;margin-top:.6rem"></div>'
+      + '<div class="actions" style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1rem">'
+      +   '<button type="button" class="btn btn-small btn-ghost" data-am-close>Close</button>'
+      +   '<button type="button" class="btn" id="amSave">Save assignment</button>'
+      + '</div>'
+      + '</div>';
+    modal.appendChild(backdrop); modal.appendChild(shell);
+    document.body.appendChild(modal);
+    function close(){ try { document.body.removeChild(modal); } catch(_){} }
+    function setStat(s){ var el = shell.querySelector("#amStatus"); if(el) el.textContent = s || ""; }
+    modal.querySelectorAll("[data-am-close]").forEach(function(b){ b.addEventListener("click", function(e){ e.preventDefault(); close(); }); });
+    backdrop.addEventListener("click", close);
+    document.addEventListener("keydown", function amEsc(e){ if(e.key === "Escape" && document.body.contains(modal)){ e.preventDefault(); close(); document.removeEventListener("keydown", amEsc); } });
+    function recomputeWarnings(){
+      ["driver","vehicle"].forEach(function(kind){
+        var warnEl = shell.querySelector(kind === "driver" ? "#amDriverWarn" : "#amVehicleWarn");
+        if(!warnEl) return;
+        var msgs = [];
+        shell.querySelectorAll((kind === "driver" ? "#amDrivers" : "#amVehicles") + " input:checked").forEach(function(cb){
+          var conflicts = jobConflicts(kind, Number(cb.value), leadNz(job.date), leadNz(job.time), jobId);
+          conflicts.forEach(function(c){ msgs.push(esc(cb.getAttribute("data-name") || "") + " also assigned to " + esc(c.client) + (c.time ? " at " + esc(c.time) : "") + " on " + esc(c.date)); });
+        });
+        warnEl.innerHTML = msgs.length ? ('<div class="job-warn">⚠ ' + msgs.join("<br>") + '</div>') : "";
+      });
+    }
+    async function loadMulti(kind){
+      var host = shell.querySelector(kind === "drivers" ? "#amDrivers" : "#amVehicles");
+      if(!host) return;
+      var assigned = (kind === "drivers" ? (job.driver_ids || []) : (job.vehicle_ids || [])).map(Number);
+      try {
+        var r = await fetch("/admin/api/" + kind);
+        var j = await r.json();
+        var items = (j && j.items) || [];
+        if(!items.length){ host.innerHTML = '<span class="js-muted">No active ' + kind + '. Add them under Fleet.</span>'; return; }
+        host.innerHTML = items.map(function(it){
+          var checked = assigned.indexOf(Number(it.id)) >= 0 ? " checked" : "";
+          var extra = kind === "drivers" ? (it.phone || "") : (it.plate || "");
+          return '<label><input type="checkbox" value="' + it.id + '" data-name="' + esc(it.name || "") + '"' + checked + '><span>' + esc(it.name || "") + (extra ? ' <span style="color:var(--muted)">· ' + esc(extra) + '</span>' : '') + '</span></label>';
+        }).join("");
+        host.querySelectorAll("input[type=checkbox]").forEach(function(cb){ cb.addEventListener("change", recomputeWarnings); });
+      } catch(e){ host.innerHTML = '<span style="color:var(--amber-deep);font-size:.85rem">Failed to load ' + kind + '.</span>'; }
+    }
+    Promise.all([loadMulti("drivers"), loadMulti("vehicles")]).then(recomputeWarnings);
+    shell.querySelector("#amSave").addEventListener("click", async function(){
+      var btn = this; var prev = btn.textContent; btn.disabled = true; btn.textContent = "Saving…"; setStat("Saving…");
+      var payload = {
+        driver_ids: Array.prototype.map.call(shell.querySelectorAll("#amDrivers input:checked"), function(c){ return Number(c.value); }),
+        vehicle_ids: Array.prototype.map.call(shell.querySelectorAll("#amVehicles input:checked"), function(c){ return Number(c.value); })
+      };
+      try {
+        var r = await fetch("/admin/api/jobs/" + jobId, { method:"PUT", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+        var j = await r.json().catch(function(){ return {}; });
+        if(r.ok && j && j.ok){ close(); if(typeof loadJobs === "function") loadJobs(); if(onSaved) onSaved(j.job || null); setStatus("Assignment saved."); }
+        else { setStat("Save failed: " + ((j && j.error) || r.status)); btn.disabled = false; btn.textContent = prev; }
+      } catch(e){ setStat("Save failed: " + (e.message || e)); btn.disabled = false; btn.textContent = prev; }
+    });
+  }
+
+  // THE SHEET — primary actions surface. Read-only header (time / client /
+  // service), action buttons with inline status lights, the requirements
+  // checklist, and a read-only calendar-sync line. Opened by tapping a Jobs list
+  // row or a Calendar agenda row. Field-level changes save via partial PUTs.
+  function openJobSheet(job){
+    var cur = job;
+    var modal = document.createElement("div");
+    modal.className = "ed-modal job-sheet-modal";
+    modal.setAttribute("role","dialog"); modal.setAttribute("aria-modal","true");
+    var backdrop = document.createElement("div"); backdrop.className = "ed-backdrop"; backdrop.setAttribute("aria-hidden","true");
+    var shell = document.createElement("div"); shell.className = "ed-shell job-sheet";
+    shell.style.cssText = "width:min(560px, calc(100vw - 32px));max-width:560px;max-height:92vh;overflow-y:auto;inset:auto;position:absolute;top:5vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
+    modal.appendChild(backdrop); modal.appendChild(shell);
+    document.body.appendChild(modal);
+    function close(){ try { document.body.removeChild(modal); } catch(_){} }
+    function setStat(s){ var el = shell.querySelector("#jsStatus"); if(el) el.textContent = s || ""; }
+    backdrop.addEventListener("click", close);
+    document.addEventListener("keydown", function jsEsc(e){ if(e.key === "Escape" && document.body.contains(modal)){ e.preventDefault(); close(); document.removeEventListener("keydown", jsEsc); } });
+    function dot(on, label){ return '<span class="job-light ' + (on ? 'on' : 'off') + '" title="' + esc(label) + '"></span>'; }
+
+    async function patchJob(partial){
+      setStat("Saving…");
+      try {
+        var r = await fetch("/admin/api/jobs/" + cur.id, { method:"PUT", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(partial) });
+        var j = await r.json().catch(function(){ return {}; });
+        if(r.ok && j && j.ok && j.job){ cur = j.job; setStat(""); if(typeof loadJobs === "function") loadJobs(); return true; }
+        setStat("Save failed: " + ((j && j.error) || r.status)); return false;
+      } catch(e){ setStat("Save failed: " + (e.message || e)); return false; }
+    }
+
+    function render(){
+      var terminal = (cur.status === "completed" || cur.status === "cancelled");
+      var hasDrv = (cur.driver_ids||[]).length >= 1;
+      var hasVeh = (cur.vehicle_ids||[]).length >= 1;
+      var onCal  = !!leadNz(cur.calendar_event_id);
+      var informed = Number(cur.client_informed) === 1;
+      var reqMet = jobRequirementsMet(cur);
+      var reqState = jobRequirements(cur);
+      var driverPhone = (cur.driver_phones||[]).map(normalizeWaNumber).filter(Boolean)[0];
+      var clientPhone = normalizeWaNumber(cur.client_phone);
+      var whenBits = [];
+      if(leadNz(cur.time)) whenBits.push(esc(cur.time));
+      whenBits.push(leadNz(cur.date) ? esc(fmtDate(cur.date)) : 'No date set');
+      var driverTxt = hasDrv ? esc((cur.driver_names||[]).join(", ")) : '<span style="color:var(--amber-deep)">Unassigned</span>';
+      var vehicleTxt = hasVeh ? esc((cur.vehicle_names||[]).join(", ")) : '<span style="color:var(--amber-deep)">Unassigned</span>';
+
+      var reqRows = reqState.length
+        ? reqState.map(function(rq, i){ return '<label class="job-check" data-req-i="' + i + '"><input type="checkbox"' + (rq.confirmed ? " checked" : "") + '><span>' + esc(rq.label) + '</span></label>'; }).join("")
+        : '<span class="js-muted">No requirements defined. Add them here or in Open / edit.</span>';
+
+      shell.innerHTML =
+        '<header class="ed-head" style="padding:1rem 1.4rem">'
+        + '<div><div class="js-when">' + whenBits.join(" · ") + '</div>'
+        +   '<h2 class="js-client" style="margin:.1rem 0 0">' + esc(leadNz(cur.client_name) || ("Job #" + cur.id)) + '</h2></div>'
+        + '<button type="button" class="btn btn-small btn-ghost" id="jsClose">Close</button>'
+        + '</header>'
+        + '<div class="ed-body" style="padding:.6rem 1.4rem 1.6rem">'
+        + '<div class="js-headmeta"><span class="js-svc">' + esc(jobServiceText(cur)) + '</span>' + jobStatusPill(cur.status) + '</div>'
+        + (terminal ? '<div class="paid-warn" style="margin:.6rem 0 0">This job is ' + esc(cur.status) + (cur.status === "cancelled" && leadNz(cur.cancelled_reason) ? ' (' + esc(cur.cancelled_reason) + ')' : '') + '.</div>' : '')
+
+        + '<h3 class="js-h3">Crew</h3>'
+        + '<div class="js-row"><button type="button" class="btn btn-small btn-ghost" id="jsAssign" style="flex:1;justify-content:flex-start">Assign driver / vehicle</button>'
+        +   '<span class="js-lights">' + dot(hasDrv, hasDrv ? "Driver assigned" : "No driver yet") + dot(hasVeh, hasVeh ? "Vehicle assigned" : "No vehicle yet") + '</span></div>'
+        + '<div class="js-note">Driver: ' + driverTxt + ' &nbsp;·&nbsp; Vehicle: ' + vehicleTxt + '</div>'
+
+        + '<h3 class="js-h3">Notify</h3>'
+        + (hasDrv && driverPhone
+            ? '<div class="js-row"><button type="button" class="btn btn-small btn-ghost" id="jsWaDriver" style="flex:1;justify-content:flex-start">Notify driver (WhatsApp)</button></div>'
+            : '<div class="js-note">Assign a driver with a phone number to notify them.</div>')
+        + '<div class="js-row">'
+        +   (clientPhone
+              ? '<button type="button" class="btn btn-small btn-ghost" id="jsWaClient" style="flex:1;justify-content:flex-start">Notify client (WhatsApp)</button>'
+              : '<span class="js-note" style="flex:1;margin:0">No client phone on file.</span>')
+        +   dot(informed, informed ? "Client informed" : "Client not yet informed")
+        +   '<label class="job-check js-informed"><input type="checkbox" id="jsInformed"' + (informed ? " checked" : "") + '><span>Informed</span></label>'
+        + '</div>'
+
+        + '<h3 class="js-h3">Requirements ' + dot(reqMet, reqMet ? "All requirements met" : "Requirements outstanding") + '</h3>'
+        + '<div id="jsReqs" class="js-reqs">' + reqRows + '</div>'
+        + '<div class="js-row" style="margin-top:.4rem"><input id="jsReqInput" type="text" placeholder="Add a requirement (e.g. Child seat)" autocomplete="off" style="flex:1"><button type="button" class="btn btn-small btn-ghost" id="jsReqAdd">Add</button></div>'
+
+        + '<h3 class="js-h3">Calendar</h3>'
+        + '<div class="js-syncline">' + dot(onCal, onCal ? "On the calendar" : "Not on the calendar") + '<span>' + (onCal ? "Synced to calendar" : "Not yet synced") + '</span></div>'
+        + '<div class="js-note">Syncs automatically once a driver and vehicle are both assigned.</div>'
+
+        + '<div class="js-sec"></div>'
+        + '<div class="js-actions">'
+        +   '<button type="button" class="btn btn-small btn-ink" id="jsOpen">Open / edit</button>'
+        +   '<button type="button" class="btn btn-small btn-ghost" id="jsQuote">Create quote</button>'
+        +   '<button type="button" class="btn btn-small btn-ghost" id="jsInvoice">Create invoice</button>'
+        + '</div>'
+        + '<div class="js-actions">'
+        +   (terminal ? '' : '<button type="button" class="btn btn-small btn-ghost" id="jsComplete" style="color:var(--paid,#2E7D54)">Mark completed</button>')
+        +   (terminal ? '' : '<button type="button" class="btn btn-small btn-ghost" id="jsCancel" style="color:var(--amber-deep)">Cancel job</button>')
+        +   '<button type="button" class="btn btn-small btn-danger" id="jsDelete">Delete job</button>'
+        + '</div>'
+        + '<div class="status-line" id="jsStatus" style="min-height:1.1em;margin-top:.6rem"></div>'
+        + '</div>';
+
+      bind(reqState);
+    }
+
+    function bind(reqState){
+      shell.querySelector("#jsClose").addEventListener("click", function(e){ e.preventDefault(); close(); });
+      shell.querySelector("#jsAssign").addEventListener("click", function(){ openJobAssignModal(cur, function(updated){ if(updated) cur = updated; render(); }); });
+      var wd = shell.querySelector("#jsWaDriver");
+      if(wd) wd.addEventListener("click", function(){ var num = (cur.driver_phones||[]).map(normalizeWaNumber).filter(Boolean)[0]; if(!num){ setStat("No driver phone on file."); return; } window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(buildJobDriverMessage(cur)), "_blank", "noopener"); });
+      var wc = shell.querySelector("#jsWaClient");
+      if(wc) wc.addEventListener("click", function(){ var num = normalizeWaNumber(cur.client_phone); if(!num){ setStat("No client phone on file."); return; } window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(buildJobClientMessage(cur)), "_blank", "noopener"); });
+      shell.querySelector("#jsInformed").addEventListener("change", async function(){ var v = this.checked ? 1 : 0; var ok = await patchJob({ client_informed: v }); if(ok) render(); });
+      shell.querySelectorAll("#jsReqs [data-req-i]").forEach(function(row){
+        row.querySelector("input").addEventListener("change", async function(){
+          reqState[Number(row.getAttribute("data-req-i"))].confirmed = this.checked;
+          var ok = await patchJob({ requirements: reqState }); if(ok) render();
+        });
+      });
+      shell.querySelector("#jsReqAdd").addEventListener("click", async function(){
+        var inp = shell.querySelector("#jsReqInput"); var v = inp.value.trim(); if(!v) return;
+        reqState.push({ label: v, confirmed: false });
+        var ok = await patchJob({ requirements: reqState }); if(ok) render();
+      });
+      shell.querySelector("#jsOpen").addEventListener("click", function(){ close(); openJobEdit(cur); });
+      shell.querySelector("#jsQuote").addEventListener("click", function(){ close(); if(typeof prefillFromLead === "function") prefillFromLead(jobToLeadShape(cur), "quote"); });
+      shell.querySelector("#jsInvoice").addEventListener("click", function(){ close(); if(typeof prefillFromLead === "function") prefillFromLead(jobToLeadShape(cur), "invoice"); });
+      var cp = shell.querySelector("#jsComplete");
+      if(cp) cp.addEventListener("click", async function(){ if(!confirm("Mark this job completed?")) return; var ok = await patchJob({ status:"completed" }); if(ok) render(); });
+      var cc = shell.querySelector("#jsCancel");
+      if(cc) cc.addEventListener("click", async function(){ var reason = prompt("Cancel this job — short reason (e.g. client cancelled):", ""); if(reason === null) return; var ok = await patchJob({ status:"cancelled", cancelled_reason: String(reason || "").trim() }); if(ok) render(); });
+      shell.querySelector("#jsDelete").addEventListener("click", async function(){
+        if(!confirm("Permanently delete this job? This removes it entirely, and its calendar event.\\n\\nUse Cancel instead if the job simply didn't happen but you want to keep the record.")) return;
+        var b = this; b.disabled = true; var pv = b.textContent; b.textContent = "Deleting…";
+        try {
+          var r = await fetch("/admin/api/jobs/" + cur.id, { method:"DELETE" });
+          var j = await r.json().catch(function(){ return {}; });
+          if(r.ok && j && j.ok){ close(); if(typeof loadJobs === "function") loadJobs(); setStatus("Job #" + cur.id + " deleted."); }
+          else { setStat("Delete failed: " + ((j && j.error) || r.status)); b.disabled = false; b.textContent = pv; }
+        } catch(e){ setStat("Delete failed: " + (e.message || e)); b.disabled = false; b.textContent = pv; }
+      });
+    }
+
+    render();
+  }
+
+  function jobById(id){ return jobsCache.filter(function(z){ return Number(z.id) === Number(id); })[0]; }
   function bindJobsClickOnce(){
     var root = document.getElementById("tab-jobs");
     if(!root || root._jobsClickBound) return;
@@ -6484,35 +6662,14 @@ const PAGE_SCRIPT = `<script>
       if(nw){ e.preventDefault(); openJobForm(null); return; }
       var rf = e.target.closest("#jobsRefresh");
       if(rf){ e.preventDefault(); loadJobs(); return; }
-      function jobById(id){ return jobsCache.filter(function(z){ return Number(z.id) === Number(id); })[0]; }
-      var op = e.target.closest("[data-jobopen]");
-      if(op){ e.preventDefault(); e.stopPropagation(); var j = jobById(op.getAttribute("data-jobopen")); if(j) openJobEdit(j); return; }
-      var asg = e.target.closest("[data-jobassign]");
-      if(asg){ e.preventDefault(); e.stopPropagation(); var ja = jobById(asg.getAttribute("data-jobassign")); if(ja) openJobEdit(ja); return; }
-      var del = e.target.closest("[data-jobdelete]");
-      if(del){
-        e.preventDefault(); e.stopPropagation();
-        if(del.disabled) return;
-        var did = del.getAttribute("data-jobdelete");
-        var dname = del.getAttribute("data-jobname") || ("job #" + did);
-        if(!confirm("Permanently delete " + dname + "? This removes it entirely, and its calendar event.\\n\\nUse Cancel instead if the job simply didn't happen but you want to keep the record.")) return;
-        del.disabled = true; var dprev = del.textContent; del.textContent = "Deleting…";
-        fetch("/admin/api/jobs/" + did, { method:"DELETE" })
-          .then(function(r){ return r.json().catch(function(){ return {}; }); })
-          .then(function(jr){ if(jr && jr.ok){ loadJobs(); setStatus("Job deleted."); } else { setStatus("Delete failed: " + ((jr && jr.error) || "")); del.disabled = false; del.textContent = dprev; } })
-          .catch(function(err){ setStatus("Delete failed: " + (err.message || err)); del.disabled = false; del.textContent = dprev; });
-        return;
-      }
-      var wad = e.target.closest("[data-jobwadriver]");
-      if(wad){ e.preventDefault(); e.stopPropagation(); var jd = jobById(wad.getAttribute("data-jobwadriver")); if(!jd) return; var num = (jd.driver_phones||[]).map(normalizeWaNumber).filter(Boolean)[0]; if(!num){ setStatus("No driver phone on file."); return; } window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(buildJobDriverMessage(jd)), "_blank", "noopener"); return; }
-      var wac = e.target.closest("[data-jobwaclient]");
-      if(wac){ e.preventDefault(); e.stopPropagation(); var jc = jobById(wac.getAttribute("data-jobwaclient")); if(!jc) return; var cnum = normalizeWaNumber(jc.client_phone); if(!cnum){ setStatus("No client phone on file."); return; } window.open("https://wa.me/" + cnum + "?text=" + encodeURIComponent(buildJobClientMessage(jc)), "_blank", "noopener"); return; }
-      var qb = e.target.closest("[data-jobquote]");
-      if(qb){ e.preventDefault(); e.stopPropagation(); var jq = jobById(qb.getAttribute("data-jobquote")); if(jq && typeof prefillFromLead === "function") prefillFromLead(jobToLeadShape(jq), "quote"); return; }
-      var ib = e.target.closest("[data-jobinvoice]");
-      if(ib){ e.preventDefault(); e.stopPropagation(); var ji = jobById(ib.getAttribute("data-jobinvoice")); if(ji && typeof prefillFromLead === "function") prefillFromLead(jobToLeadShape(ji), "invoice"); return; }
-      var expTr = e.target.closest("tr[data-expandable='1']");
-      if(expTr && !e.target.closest("a, button")){ toggleAccordionRow(expTr, root); }
+      // Tapping a row opens the actions SHEET (same surface Calendar uses).
+      var sheetTr = e.target.closest("tr[data-jobsheet]");
+      if(sheetTr){ e.preventDefault(); var j = jobById(sheetTr.getAttribute("data-jobsheet")); if(j) openJobSheet(j); return; }
+    });
+    root.addEventListener("keydown", function(e){
+      if(e.key !== "Enter" && e.key !== " ") return;
+      var sheetTr = e.target.closest && e.target.closest("tr[data-jobsheet]");
+      if(sheetTr){ e.preventDefault(); var j = jobById(sheetTr.getAttribute("data-jobsheet")); if(j) openJobSheet(j); }
     });
   }
 
@@ -6664,13 +6821,14 @@ const PAGE_SCRIPT = `<script>
         return;
       }
       var op = e.target.closest("[data-calopen]");
-      if(op){ e.preventDefault(); var j = calJobById(op.getAttribute("data-calopen")); if(j) openJobEdit(j); return; }
+      if(op){ e.preventDefault(); var j = calJobById(op.getAttribute("data-calopen")); if(j) openJobSheet(j); return; }
     });
     // Enter/Space opens the focused agenda row (rows are role=button, tabbable).
+    // Opens the SAME actions sheet as the Jobs list — identical tap behaviour.
     root.addEventListener("keydown", function(e){
       if(e.key !== "Enter" && e.key !== " ") return;
       var op = e.target.closest && e.target.closest("[data-calopen]");
-      if(op){ e.preventDefault(); var j = calJobById(op.getAttribute("data-calopen")); if(j) openJobEdit(j); }
+      if(op){ e.preventDefault(); var j = calJobById(op.getAttribute("data-calopen")); if(j) openJobSheet(j); }
     });
     var di = document.getElementById("calDate");
     if(di){ di.addEventListener("change", function(){ if(di.value){ calState.date = di.value; renderCalendar(); } }); }
