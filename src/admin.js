@@ -4410,6 +4410,40 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   .cal-row{ flex-wrap:wrap; }
   .cal-lights{ width:100%; padding-top:.5rem; }
 }
+/* ---- Jobs "tomorrow needs assignment" callout. Same tinted-card visual
+   language as the Sales fx_unreconciled note; green calm variant for the good
+   outcome, muted for nothing-scheduled. ---- */
+.job-callout{ display:block; width:100%; text-align:left; margin:.2rem 0 1rem; padding:.75rem 1rem; border-radius:8px; font-size:.9rem; line-height:1.45; border:1px solid; font-family:inherit; }
+.job-callout.warn{ border-color:rgba(168,75,12,.4); background:rgba(168,75,12,.10); color:var(--amber-deep); cursor:pointer; }
+button.job-callout.warn:hover{ background:rgba(168,75,12,.16); }
+.job-callout.ok{ border-color:rgba(46,125,84,.35); background:rgba(46,125,84,.10); color:var(--paid,#2E7D54); }
+.job-callout.none{ border-color:var(--hair); background:var(--bone2); color:var(--muted); }
+.job-callout .jc-strong{ font-weight:600; }
+.job-callout .jc-sub{ display:block; font-size:.8rem; opacity:.85; margin-top:.15rem; }
+.job-callout-clear{ margin-left:.5rem; vertical-align:middle; }
+/* ---- Fleet ↔ Jobs: upcoming assignments shown in a driver/vehicle drawer. ---- */
+.fleet-upcoming{ flex:1 0 100%; border-top:1px solid var(--hair); margin-top:.2rem; padding-top:.5rem; }
+.fleet-up-h{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin-bottom:.35rem; }
+.fleet-up-row{ display:flex; gap:.7rem; align-items:baseline; padding:.2rem 0; font-size:.9rem; color:var(--ink); }
+.fleet-up-when{ flex:0 0 auto; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+.fleet-up-client{ color:var(--ink); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fleet-up-empty{ font-size:.85rem; color:var(--muted); }
+/* ---- Calendar 7-day date strip above the agenda. Reuses --amber active tokens
+   (matching how the current tab is highlighted) for today/selected states. ---- */
+.cal-strip-wrap{ display:flex; align-items:stretch; gap:.4rem; margin:.2rem 0 1rem; }
+.cal-strip-arrow{ flex:0 0 auto; width:32px; border:1px solid var(--hair); background:var(--card); color:var(--muted); border-radius:8px; cursor:pointer; font-size:1.1rem; line-height:1; }
+.cal-strip-arrow:hover{ color:var(--ink); border-color:var(--line); }
+.cal-strip{ display:flex; gap:.4rem; overflow-x:auto; -webkit-overflow-scrolling:touch; flex:1 1 auto; }
+.cal-cell{ flex:1 0 auto; min-width:46px; display:flex; flex-direction:column; align-items:center; gap:.15rem; padding:.5rem .35rem; border:1px solid var(--hair); border-radius:8px; background:var(--card); color:var(--ink); cursor:pointer; font-family:inherit; }
+.cal-cell:hover{ border-color:var(--line); }
+.cal-cell-dow{ font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+.cal-cell-num{ font-size:1.05rem; font-variant-numeric:tabular-nums; line-height:1.1; }
+.cal-cell-dot{ width:6px; height:6px; border-radius:50%; background:var(--amber); }
+.cal-cell-dot-empty{ visibility:hidden; }
+.cal-cell-today .cal-cell-num{ color:var(--amber); font-weight:600; }
+.cal-cell-today{ border-color:color-mix(in srgb, var(--amber) 45%, var(--hair)); }
+.cal-cell-sel{ border-color:var(--amber); background:color-mix(in srgb, var(--amber) 12%, transparent); }
+.cal-cell-sel .cal-cell-dow, .cal-cell-sel .cal-cell-num{ color:var(--amber-deep); }
 /* Bottom-sheet quote-price Save button */
 .doc-sheet-qsave{ flex:0 0 auto; border:1px solid var(--ink); background:var(--ink); color:var(--bone); border-radius:8px; padding:.5rem 1rem; font-family:inherit; font-size:.9rem; font-weight:500; cursor:pointer; }
 .doc-sheet-qsave.doc-sheet-ok{ background:var(--paid,#2E7D54); border-color:var(--paid,#2E7D54); color:#fff; }
@@ -4839,6 +4873,8 @@ function appShellHTML() {
         <button type="button" class="btn btn-small btn-ink" data-jobnew="1">+ New Job</button>
       </div>
     </div>
+    <!-- Tomorrow-needs-assignment callout (Asia/Dubai). Rendered by loadJobs. -->
+    <div id="jobsTomorrowCallout"></div>
     <div class="hist-scroll">
       <table>
         <thead><tr><th>Date</th><th>Client</th><th>Service</th><th>Status</th><th>Readiness</th><th aria-hidden="true"></th></tr></thead>
@@ -4871,6 +4907,15 @@ function appShellHTML() {
         <button type="button" class="btn btn-small btn-ghost" data-calcancel="1" aria-pressed="false">Show cancelled</button>
         <button type="button" class="btn btn-small btn-ghost" id="calRefresh">Refresh</button>
       </div>
+    </div>
+    <!-- 7-day date strip: quick calendar-feeling navigation above the agenda.
+         Cells show DOW + day number + a dot when that date has jobs; today and
+         the selected date get the --amber active treatment. Week arrows page it;
+         the Today button and date picker above remain as fallback navigation. -->
+    <div class="cal-strip-wrap">
+      <button type="button" class="cal-strip-arrow" data-calstrip="prevweek" aria-label="Previous week" title="Previous week">&#8249;</button>
+      <div class="cal-strip" id="calStrip"></div>
+      <button type="button" class="cal-strip-arrow" data-calstrip="nextweek" aria-label="Next week" title="Next week">&#8250;</button>
     </div>
     <div id="calBody"></div>
     <div class="empty" id="calEmpty" hidden>No jobs on or after this date. Use &ldquo;Today&rdquo; or an earlier date, or create jobs from the Jobs tab.</div>
@@ -6087,10 +6132,43 @@ const PAGE_SCRIPT = `<script>
   // expandable-row + mobile bottom-sheet pattern. Soft-delete keeps rows so a
   // Phase 2 Job reference never orphans; "Show inactive" reveals/reactivates.
   var fleetShowInactive = { drivers:false, vehicles:false };
+  // Fleet ↔ Jobs: what is this driver/vehicle committed to in the next 7 days?
+  // Reads the shared jobsCache (driver_ids/vehicle_ids), non-cancelled only.
+  function fleetUpcoming(kind, entityId){
+    var today = dubaiTodayStr(), horizon = calShiftDate(today, 7);
+    var list = jobsCache.filter(function(jb){
+      if(jb.status === "cancelled") return false;
+      var d = leadNz(jb.date); if(!d) return false;
+      if(d < today || d > horizon) return false;
+      var ids = (kind === "drivers" ? (jb.driver_ids || []) : (jb.vehicle_ids || [])).map(Number);
+      return ids.indexOf(Number(entityId)) >= 0;
+    });
+    list.sort(function(a, b){
+      var da = leadNz(a.date), db = leadNz(b.date);
+      if(da !== db) return da < db ? -1 : 1;
+      var ta = jobTimeToMinutes(a.time), tb = jobTimeToMinutes(b.time);
+      if(ta == null && tb == null) return 0;
+      if(ta == null) return 1; if(tb == null) return -1;
+      return ta - tb;
+    });
+    return list;
+  }
+  function fleetUpcomingHtml(kind, entityId){
+    var list = fleetUpcoming(kind, entityId);
+    var head = '<div class="fleet-up-h">Next 7 days' + (list.length ? (' — ' + list.length + ' job' + (list.length === 1 ? '' : 's')) : '') + '</div>';
+    if(!list.length) return '<div class="fleet-upcoming">' + head + '<div class="fleet-up-empty">No upcoming jobs.</div></div>';
+    var rows = list.map(function(jb){
+      return '<div class="fleet-up-row"><span class="fleet-up-when">' + esc(fmtDate(jb.date)) + (leadNz(jb.time) ? ' · ' + esc(jb.time) : '') + '</span><span class="fleet-up-client">' + esc(leadNz(jb.client_name) || ("Job #" + jb.id)) + '</span></div>';
+    }).join("");
+    return '<div class="fleet-upcoming">' + head + rows + '</div>';
+  }
   async function loadFleetKind(kind){
     var body = document.getElementById(kind === "drivers" ? "drvBody" : "vehBody");
     var empty = document.getElementById(kind === "drivers" ? "drvEmpty" : "vehEmpty");
     if(!body) return;
+    // Ensure jobsCache is populated so the drawer can show upcoming assignments
+    // even on a cold load where Fleet renders before loadJobs has resolved.
+    if(!jobsCache.length){ try { var jr = await fetch("/admin/api/jobs"); var jj = await jr.json(); if(jj && jj.ok) jobsCache = jj.items || []; } catch(_){} }
     var showInactive = fleetShowInactive[kind];
     try {
       var r = await fetch("/admin/api/" + kind + (showInactive ? "?all=1" : ""));
@@ -6123,7 +6201,7 @@ const PAGE_SCRIPT = `<script>
           + '<td data-lbl="Detail">' + (detail ? esc(detail) : '<span style="color:var(--muted)">&middot;</span>') + '</td>'
           + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
           + '</tr>'
-          + '<tr class="hist-actions-row" hidden><td colspan="4"><div class="hist-actions-panel">' + actions.join(" ") + '</div></td></tr>';
+          + '<tr class="hist-actions-row" hidden><td colspan="4"><div class="hist-actions-panel">' + fleetUpcomingHtml(kind, x.id) + actions.join(" ") + '</div></td></tr>';
       }).join("");
     } catch(e){ setStatus("Fleet load failed."); }
   }
@@ -6188,6 +6266,56 @@ const PAGE_SCRIPT = `<script>
     }
     return out;
   }
+  // Dubai-anchored "today"/"tomorrow" regardless of the operator's device tz.
+  // en-CA yields a YYYY-MM-DD string; calShiftDate does the date arithmetic.
+  function dubaiTodayStr(){
+    try { return new Date().toLocaleDateString("en-CA", { timeZone:"Asia/Dubai" }); }
+    catch(e){ return calTodayStr(); }
+  }
+  function dubaiTomorrowStr(){ return calShiftDate(dubaiTodayStr(), 1); }
+  // Tomorrow (Dubai), still live (not cancelled/completed), and missing a driver
+  // OR a vehicle — the set the top-of-Jobs callout surfaces.
+  function jobNeedsAssignTomorrow(job){
+    if(leadNz(job.date) !== dubaiTomorrowStr()) return false;
+    if(job.status === "cancelled" || job.status === "completed") return false;
+    var hasDrv = (job.driver_ids || []).length >= 1;
+    var hasVeh = (job.vehicle_ids || []).length >= 1;
+    return !(hasDrv && hasVeh);
+  }
+  var jobsFilterTomorrow = false;   // when true, the list shows only that set
+  function jobsVisibleList(){ return jobsFilterTomorrow ? jobsCache.filter(jobNeedsAssignTomorrow) : jobsCache; }
+  function renderJobsList(){
+    var body = document.getElementById("jobsBody");
+    var empty = document.getElementById("jobsEmpty");
+    if(!body) return;
+    var list = jobsVisibleList();
+    if(!list.length){
+      body.innerHTML = "";
+      if(empty){ empty.hidden = false; empty.textContent = jobsFilterTomorrow ? "No jobs tomorrow need a driver or vehicle." : "No jobs yet. Use “+ New Job”, or create one from a lead, quote or invoice."; }
+      return;
+    }
+    if(empty) empty.hidden = true;
+    body.innerHTML = list.map(renderJobRow).join("");
+  }
+  // Amber callout for tomorrow's unassigned jobs; calm green when all assigned,
+  // muted when nothing is scheduled — never an alarming empty state for a good
+  // outcome. Same tinted-card language as the Sales fx_unreconciled note.
+  function renderTomorrowCallout(){
+    var host = document.getElementById("jobsTomorrowCallout");
+    if(!host) return;
+    var n = jobsCache.filter(jobNeedsAssignTomorrow).length;
+    var tmr = dubaiTomorrowStr();
+    var anyTomorrow = jobsCache.some(function(jb){ return leadNz(jb.date) === tmr && jb.status !== "cancelled" && jb.status !== "completed"; });
+    if(jobsFilterTomorrow){
+      host.innerHTML = '<div class="job-callout warn"><span class="jc-strong">Showing ' + n + ' job' + (n === 1 ? '' : 's') + ' tomorrow needing a driver or vehicle.</span> <button type="button" class="btn btn-small btn-ghost job-callout-clear" data-jobstomorrowclear>Show all jobs</button></div>';
+    } else if(n > 0){
+      host.innerHTML = '<button type="button" class="job-callout warn" data-jobstomorrow><span class="jc-strong">' + n + ' job' + (n === 1 ? '' : 's') + ' tomorrow still need a driver or vehicle.</span><span class="jc-sub">Tap to see just these.</span></button>';
+    } else if(anyTomorrow){
+      host.innerHTML = '<div class="job-callout ok"><span class="jc-strong">All jobs tomorrow are assigned.</span></div>';
+    } else {
+      host.innerHTML = '<div class="job-callout none">No jobs scheduled for tomorrow yet.</div>';
+    }
+  }
   // GLANCE surface: a single tappable row. Tapping opens the job SHEET (the
   // actions surface) — no inline accordion. Keeps the expandable class purely
   // for its cursor/hover + mobile card-grid styling. Dots-only readiness.
@@ -6217,9 +6345,8 @@ const PAGE_SCRIPT = `<script>
       // Keep the Calendar agenda consistent whenever jobs change (both tabs share
       // jobsCache; job saves/deletes route through loadJobs()).
       if(typeof renderCalendar === "function" && document.getElementById("calBody")) renderCalendar();
-      if(!jobsCache.length){ body.innerHTML = ""; empty.hidden = false; return; }
-      empty.hidden = true;
-      body.innerHTML = jobsCache.map(renderJobRow).join("");
+      renderTomorrowCallout();
+      renderJobsList();
     } catch(e){ setStatus("Jobs load failed."); }
   }
   // WhatsApp message bodies — mirror buildLeadMessage's field ordering/omission.
@@ -6673,6 +6800,11 @@ const PAGE_SCRIPT = `<script>
       if(nw){ e.preventDefault(); openJobForm(null); return; }
       var rf = e.target.closest("#jobsRefresh");
       if(rf){ e.preventDefault(); loadJobs(); return; }
+      // Tomorrow-needs-assignment callout: filter the list to just that set.
+      var ct = e.target.closest("[data-jobstomorrow]");
+      if(ct){ e.preventDefault(); jobsFilterTomorrow = true; renderTomorrowCallout(); renderJobsList(); var sc = root.querySelector(".hist-scroll"); if(sc) sc.scrollIntoView({ behavior:"smooth", block:"start" }); return; }
+      var cc = e.target.closest("[data-jobstomorrowclear]");
+      if(cc){ e.preventDefault(); jobsFilterTomorrow = false; renderTomorrowCallout(); renderJobsList(); return; }
       // Tapping a row opens the actions SHEET (same surface Calendar uses).
       var sheetTr = e.target.closest("tr[data-jobsheet]");
       if(sheetTr){ e.preventDefault(); var j = jobById(sheetTr.getAttribute("data-jobsheet")); if(j) openJobSheet(j); return; }
@@ -6706,6 +6838,35 @@ const PAGE_SCRIPT = `<script>
   function calDayLabel(str){
     var d = new Date(str + "T12:00:00");
     return { weekday: d.toLocaleDateString("en-GB", { weekday:"long" }), full: fmtDate(str) };
+  }
+  // 7-day date strip above the agenda. stripStart is the first cell; week arrows
+  // page it. Selecting a cell sets the agenda anchor (calState.date).
+  function calDateHasJobs(dateStr){
+    for(var i=0;i<jobsCache.length;i++){ var jb = jobsCache[i]; if(jb.status === "cancelled") continue; if(leadNz(jb.date) === dateStr) return true; }
+    return false;
+  }
+  // Keep the selected date within the visible week (used when day-nav / the date
+  // picker moves the anchor; week arrows deliberately bypass this to browse).
+  function calEnsureStripVisible(){
+    var s = calState.stripStart || (calState.stripStart = calTodayStr());
+    var end = calShiftDate(s, 6);
+    if(calState.date < s || calState.date > end) calState.stripStart = calState.date;
+  }
+  function renderCalStrip(){
+    var host = document.getElementById("calStrip");
+    if(!host) return;
+    var start = calState.stripStart || (calState.stripStart = calTodayStr());
+    var today = calTodayStr(), sel = calState.date || today;
+    var html = "";
+    for(var i=0;i<7;i++){
+      var d = calShiftDate(start, i);
+      var dd = new Date(d + "T12:00:00");
+      var dow = dd.toLocaleDateString("en-GB", { weekday:"short" });
+      var cls = "cal-cell"; if(d === today) cls += " cal-cell-today"; if(d === sel) cls += " cal-cell-sel";
+      var dotCls = "cal-cell-dot" + (calDateHasJobs(d) ? "" : " cal-cell-dot-empty");
+      html += '<button type="button" class="' + cls + '" data-calday="' + d + '" aria-label="' + esc(calDayLabel(d).full) + '"><span class="cal-cell-dow">' + esc(dow) + '</span><span class="cal-cell-num">' + dd.getDate() + '</span><span class="' + dotCls + '"></span></button>';
+    }
+    host.innerHTML = html;
   }
   // Chronological within a day: timed jobs first (ascending), untimed last, id ties.
   function calRowSort(a, b){
@@ -6773,6 +6934,9 @@ const PAGE_SCRIPT = `<script>
     if(di && di.value !== anchor) di.value = anchor;
     var fl = document.getElementById("calFromLabel");
     if(fl) fl.textContent = calDayLabel(anchor).full;
+    // Keep the strip in sync with the selected date (week arrows bypass this).
+    calEnsureStripVisible();
+    renderCalStrip();
     var vis = jobsCache.filter(function(j){
       if(!calState.showCancelled && j.status === "cancelled") return false;
       return true;
@@ -6813,12 +6977,18 @@ const PAGE_SCRIPT = `<script>
       if(nav){
         e.preventDefault();
         var dir = nav.getAttribute("data-calnav");
-        if(dir === "today") calState.date = calTodayStr();
+        if(dir === "today"){ calState.date = calTodayStr(); calState.stripStart = calTodayStr(); }
         else if(dir === "prev") calState.date = calShiftDate(calState.date, -1);
         else if(dir === "next") calState.date = calShiftDate(calState.date, 1);
         renderCalendar();
         return;
       }
+      // 7-day strip: week arrows page the strip window (do NOT move the anchor).
+      var sw = e.target.closest("[data-calstrip]");
+      if(sw){ e.preventDefault(); var wd = sw.getAttribute("data-calstrip"); calState.stripStart = calShiftDate(calState.stripStart || calTodayStr(), wd === "prevweek" ? -7 : 7); renderCalStrip(); return; }
+      // Tapping a day cell jumps the agenda to that date.
+      var cell = e.target.closest("[data-calday]");
+      if(cell){ e.preventDefault(); calState.date = cell.getAttribute("data-calday"); renderCalendar(); var cb = document.getElementById("calBody"); if(cb) cb.scrollIntoView({ behavior:"smooth", block:"start" }); return; }
       var rf = e.target.closest("#calRefresh");
       if(rf){ e.preventDefault(); loadCalendar(); return; }
       var cx = e.target.closest("[data-calcancel]");
@@ -9249,8 +9419,10 @@ const PAGE_SCRIPT = `<script>
   loadLinks();
   loadSales();
   loadHistory();
-  loadFleet();
-  loadJobs();
+  // loadJobs first: it populates jobsCache, which loadFleet reads to show each
+  // driver/vehicle's upcoming assignments in its drawer. Chain so the fleet
+  // drawer renders with job data even on a cold load.
+  loadJobs().then(function(){ loadFleet(); });
   loadCalendar();
   // Stage-1 fix-up: on phones, move the Create button out of the bottom tab
   // bar (whose backdrop-filter clips fixed children) and into the header's
