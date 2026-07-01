@@ -391,6 +391,10 @@ async function handleLogin(request, env) {
   let body;
   try { body = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
   const pwd = String((body && body.password) || "");
+  // Fixed identifier for the username+password credential pair — NOT a secret;
+  // it only exists so iOS/Safari can save the login as a proper pair. The
+  // password check below is unchanged; the username is an extra exact match.
+  const uname = String((body && body.username) || "");
   if (!env.ADMIN_PASSWORD) return json({ ok: false, error: "admin password not configured on this worker" }, 503);
 
   // v88 — brute-force gate (before any password hashing). Fails open.
@@ -407,7 +411,7 @@ async function handleLogin(request, env) {
 
   const supplied = await sha256Hex(pwd + SESSION_SUFFIX);
   const expected = await expectedSession(env);
-  if (supplied !== expected) {
+  if (supplied !== expected || uname !== "umcdubaiadmin") {
     if (env.BILLING_DB) { try { await recordLoginFailure(env, ip); } catch (e) {} }
     return json({ ok: false, error: "invalid password" }, 401);
   }
@@ -3860,7 +3864,8 @@ function loginHTML(adminMissing) {
     <p class="lede">Enter the admin password to access the billing tool.</p>
     ${adminMissing ? `<div class="notice"><b>ADMIN_PASSWORD is not configured</b> on this Worker. Add it as a secret in the Cloudflare dashboard and retry.</div>` : ""}
     <form id="loginForm" autocomplete="off">
-      <div class="field"><label class="lbl">Password</label><input id="pwd" type="password" required autofocus></div>
+      <div class="field"><label class="lbl">Username</label><input id="username" name="username" type="text" autocomplete="username" value="umcdubaiadmin"></div>
+      <div class="field"><label class="lbl">Password</label><input id="pwd" type="password" autocomplete="current-password" required autofocus></div>
       <label class="stay-row" for="stayLogged">
         <input type="checkbox" id="stayLogged">
         <span>Stay logged in</span>
@@ -4298,6 +4303,7 @@ const LOGIN_SCRIPT = `<script>
   const form = document.getElementById("loginForm");
   if(!form) return;
   const pwd = document.getElementById("pwd");
+  const uname = document.getElementById("username");
   const stay = document.getElementById("stayLogged");
   const err = document.getElementById("err");
   form.addEventListener("submit", async function(e){
@@ -4307,7 +4313,7 @@ const LOGIN_SCRIPT = `<script>
       const r = await fetch("/admin/billing/login", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ password: pwd.value, stayLoggedIn: !!(stay && stay.checked) })
+        body: JSON.stringify({ username: uname ? uname.value : "", password: pwd.value, stayLoggedIn: !!(stay && stay.checked) })
       });
       const j = await r.json();
       if(j.ok){ location.reload(); }
