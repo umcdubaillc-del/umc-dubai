@@ -3538,6 +3538,17 @@ function PAGE_HTML(authed, env) {
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
 <title>UMC Dubai · Billing</title>
+<!-- PWA: installable standalone workspace. Icons + manifest are static assets
+     under /assets/admin/ (served statically, worker falls through). start_url
+     is /admin/billing. -->
+<link rel="manifest" href="/assets/admin/manifest.webmanifest">
+<link rel="apple-touch-icon" sizes="180x180" href="/assets/admin/apple-touch-icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/assets/admin/icon-192.png">
+<meta name="theme-color" content="#221B14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="UMC Dubai">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Outfit:wght@300;400;500;600&family=Fraunces:opsz,wght@9..144,300;9..144,400&display=swap" rel="stylesheet">

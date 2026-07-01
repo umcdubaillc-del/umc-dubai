@@ -1,0 +1,15 @@
+{
+  "id": "/admin/billing",
+  "name": "UMC Dubai — Internal Workspace",
+  "short_name": "UMC Dubai",
+  "description": "UMC Dubai internal workspace — leads, quotes, invoices, payment links, jobs and dispatch.",
+  "start_url": "/admin/billing",
+  "scope": "/admin/",
+  "display": "standalone",
+  "theme_color": "#221B14",
+  "background_color": "#F6F1E7",
+  "icons": [
+    { "src": "/assets/admin/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/admin/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
