@@ -31,7 +31,8 @@
   const AIRPORT_RX = new RegExp("\\b(airport|dxb|dwc|auh|shj|rkt|al maktoum|maktoum international|zayed international|abu dhabi international|sharjah international|ras al khaimah international|al ain international)\\b","i");
 
   const state = { service: params.get("mode")==="hourly" ? "hourly5" : "p2p", days:2,
-                  from:"", to:"", km:null, mins:null, vehicle:null, fromIsAirport:false, toIsAirport:false };
+                  from:"", to:"", km:null, mins:null, vehicle:null, fromIsAirport:false, toIsAirport:false,
+                  pickupEmirate:"", earliestMin:null };
 
   // prefill from homepage
   if(params.get("from")) $("kFrom").value = params.get("from");
@@ -163,11 +164,108 @@
   let fpD = null, fpT = null;
   if(window.flatpickr){
     fpD = flatpickr($("kDate"), {dateFormat:"D, d M Y", minDate:"today", disableMobile:true,
-      onChange:()=>summary()});
+      onChange:()=>{ applyTimeRestriction(); summary(); }});
     fpT = flatpickr($("kTime"), {enableTime:true, noCalendar:true, dateFormat:"h:i K", minuteIncrement:5, disableMobile:true,
-      onChange:()=>summary()});
+      onChange:()=>{ enforceTimeFloor(); summary(); }});
     if(params.get("date")){ try{ fpD.setDate(params.get("date"), true); }catch(e){} }
     if(params.get("time")){ try{ fpT.setDate(params.get("time"), true, "H:i"); }catch(e){} }
+  }
+
+  // ----- Minimum lead-time by pickup emirate -----
+  // Detect the pickup's emirate (primary: Places address_components
+  // administrative_area_level_1; fallback: emirate-name substring in the
+  // formatted address), map it to a minimum-notice buffer, and — only when the
+  // chosen date is TODAY in Asia/Dubai — forbid any time slot earlier than
+  // (Dubai now + buffer), rounded up to the next 15 minutes. Future dates are
+  // already more than the buffer away, so they carry no restriction.
+  function pad2(n){ return (n<10?"0":"") + n; }
+  function emirateFromPlace(p){
+    const comps = (p && p.address_components) || [];
+    for(let i=0;i<comps.length;i++){
+      const c = comps[i];
+      if((c.types||[]).indexOf("administrative_area_level_1") >= 0) return c.long_name || c.short_name || "";
+    }
+    // Fallback when address_components is absent/unpopulated: substring-match.
+    return emirateFromString(((p && p.formatted_address)||"") + " " + ((p && p.name)||""));
+  }
+  function emirateFromString(s){
+    s = (s||"").toLowerCase();
+    const names = ["Dubai","Sharjah","Ajman","Abu Dhabi","Fujairah","Ras Al Khaimah","Umm Al Quwain"];
+    for(let i=0;i<names.length;i++){ if(s.indexOf(names[i].toLowerCase()) >= 0) return names[i]; }
+    return "";
+  }
+  function emirateInfo(raw){
+    const e = (raw||"").toLowerCase();
+    if(e.indexOf("dubai") >= 0) return {name:"Dubai", hours:1};
+    if(e.indexOf("sharjah") >= 0) return {name:"Sharjah", hours:2};
+    if(e.indexOf("ajman") >= 0) return {name:"Ajman", hours:2};                 // ASSUMPTION: matched to Sharjah — confirm
+    if(e.indexOf("abu dhabi") >= 0) return {name:"Abu Dhabi", hours:3};
+    if(e.indexOf("fujairah") >= 0) return {name:"Fujairah", hours:3};
+    if(e.indexOf("ras al khaimah") >= 0 || e.indexOf("ras al-khaimah") >= 0) return {name:"Ras Al Khaimah", hours:3};
+    if(e.indexOf("umm al quwain") >= 0 || e.indexOf("umm al-quwain") >= 0 || e.indexOf("umm al qaiwain") >= 0) return {name:"Umm Al Quwain", hours:3};
+    return {name:"", hours:0};   // unknown emirate -> no restriction (don't block the flow)
+  }
+  function dubaiTodayYMD(){
+    try { return new Date().toLocaleDateString("en-CA", {timeZone:"Asia/Dubai"}); }   // YYYY-MM-DD
+    catch(e){ const d=new Date(); return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate()); }
+  }
+  function dubaiNowMinutes(){
+    let s;
+    try { s = new Date().toLocaleString("en-GB", {timeZone:"Asia/Dubai", hour12:false, hour:"2-digit", minute:"2-digit"}); }
+    catch(e){ const d=new Date(); s = pad2(d.getHours())+":"+pad2(d.getMinutes()); }
+    const m = s.match(/(\d{1,2}):(\d{2})/);
+    return m ? (parseInt(m[1],10)*60 + parseInt(m[2],10)) : null;
+  }
+  function selectedYMD(){
+    if(!fpD || !fpD.selectedDates || !fpD.selectedDates.length) return "";
+    const d = fpD.selectedDates[0];
+    return d.getFullYear() + "-" + pad2(d.getMonth()+1) + "-" + pad2(d.getDate());
+  }
+  function fmt12(hhmm){
+    const p = hhmm.split(":"); let h = parseInt(p[0],10); const mm = p[1];
+    const ap = h >= 12 ? "PM" : "AM"; h = h % 12; if(h === 0) h = 12;
+    return h + ":" + mm + " " + ap;
+  }
+  // Clear an already-picked time that's now below the floor (step 5).
+  function enforceTimeFloor(){
+    if(state.earliestMin == null) return;
+    if(fpT && fpT.selectedDates && fpT.selectedDates.length){
+      const t = fpT.selectedDates[0];
+      if(t.getHours()*60 + t.getMinutes() < state.earliestMin){
+        fpT.clear();
+        if($("kTime")) $("kTime").value = "";
+      }
+    }
+  }
+  function applyTimeRestriction(){
+    const note = $("timeNote");
+    const info = emirateInfo(state.pickupEmirate);
+    const isToday = selectedYMD() && selectedYMD() === dubaiTodayYMD();
+    // No restriction: pickup emirate unknown/undetected, no date, or a future date.
+    if(!info.hours || !isToday){
+      state.earliestMin = null;
+      if(fpT) fpT.set("minTime", "00:00");
+      if(note){ note.textContent = ""; note.classList.add("hide"); }
+      return;
+    }
+    const nowMin = dubaiNowMinutes();
+    if(nowMin == null){ state.earliestMin = null; if(fpT) fpT.set("minTime","00:00"); if(note) note.classList.add("hide"); return; }
+    let earliest = Math.ceil((nowMin + info.hours*60) / 15) * 15;   // round up to next 15 min (>= the 5-min picker step)
+    state.earliestMin = earliest;
+    if(earliest >= 24*60){
+      // Buffer pushes the earliest slot past midnight — nothing bookable today.
+      if(fpT) fpT.set("minTime", "23:59");
+      enforceTimeFloor();
+      if(note){ note.textContent = "Pickups from " + info.name + " need at least " + info.hours + " hours' notice — no times remain today, please choose another date."; note.classList.remove("hide"); }
+      return;
+    }
+    const minTimeStr = pad2(Math.floor(earliest/60)) + ":" + pad2(earliest%60);
+    if(fpT) fpT.set("minTime", minTimeStr);
+    enforceTimeFloor();
+    if(note){
+      note.textContent = "Pickups from " + info.name + " require at least " + info.hours + " hour" + (info.hours===1?"":"s") + " notice today — earliest " + fmt12(minTimeStr) + ".";
+      note.classList.remove("hide");
+    }
   }
 
   // ----- Google Maps (graceful if blocked) -----
@@ -190,7 +288,10 @@
       map = new google.maps.Map($("map"), {center:{lat:25.2048,lng:55.2708}, zoom:10, disableDefaultUI:true, zoomControl:true, styles:BRAND_MAP});
       dirSvc = new google.maps.DirectionsService();
       dirRen = new google.maps.DirectionsRenderer({map, suppressMarkers:false, polylineOptions:{strokeColor:"#C75B12",strokeWeight:3}});
-      const opts = {componentRestrictions:{country:"ae"}, fields:["formatted_address","name","types","geometry"]};
+      // address_components added so the pickup's emirate (administrative_area_level_1)
+      // is available for the minimum lead-time rule. It's Basic-tier data (same SKU
+      // as formatted_address), so no extra Places billing.
+      const opts = {componentRestrictions:{country:"ae"}, fields:["formatted_address","name","types","geometry","address_components"]};
       acFrom = new google.maps.places.Autocomplete($("kFrom"), opts);
       acTo   = new google.maps.places.Autocomplete($("kTo"), opts);
       acFrom.addListener("place_changed", ()=>onPlace(acFrom, "from"));
@@ -208,7 +309,7 @@
     const p = ac.getPlace(); if(!p || !p.geometry) return;
     const label = (p.name && p.formatted_address && !p.formatted_address.startsWith(p.name)) ? p.name + ", " + p.formatted_address : (p.formatted_address || p.name);
     const isAirport = (p.types||[]).includes("airport") || AIRPORT_RX.test(p.name||"");
-    if(which==="from"){ state.from = label; state.fromIsAirport = isAirport; if(state.service==="p2p" || state.service==="airport"){ state.service = isAirport ? "airport" : "p2p"; } }
+    if(which==="from"){ state.from = label; state.fromIsAirport = isAirport; if(state.service==="p2p" || state.service==="airport"){ state.service = isAirport ? "airport" : "p2p"; } state.pickupEmirate = emirateFromPlace(p); applyTimeRestriction(); }
     else { state.to = label; state.toIsAirport = isAirport; }
     syncConditional(); route();
   }

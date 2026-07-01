@@ -685,6 +685,7 @@ booking_body = header("booking.html") + f"""
             <div class="f"><label for="kDate">Date</label><input id="kDate" type="text" placeholder="Select date" required></div>
             <div class="f"><label for="kTime">Time</label><input id="kTime" type="text" placeholder="Select time" required></div>
           </div>
+          <p class="bk-note hide" id="timeNote" role="status" aria-live="polite"></p>
           <div class="two">
             <div class="f hide" id="rowFlight"><label for="kFlight">Flight number</label><input id="kFlight" placeholder="EK 202"></div>
             <div class="f hide" id="rowSign"><label for="kSign">Welcome sign name</label><input id="kSign" placeholder="Name on the board"></div>
