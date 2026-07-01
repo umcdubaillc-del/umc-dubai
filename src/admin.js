@@ -688,7 +688,7 @@ async function handleList(env) {
             b.client_phone, b.client_email,
             b.currency, b.total, b.source_quote_number, b.nomod_link_id,
             b.nomod_link_url, b.nomod_link_created_at, b.created_at,
-            b.nomod_charge_id, b.paid_at, b.paid_amount, b.payment_method,
+            b.nomod_charge_id, b.paid_at, b.paid_amount, b.payment_method, b.line_items,
             COALESCE(b.payment_status, 'unpaid') AS payment_status,
             (SELECT i.number FROM billing_documents i
               WHERE i.doc_type = 'invoice' AND i.source_quote_number = b.number
@@ -6179,11 +6179,21 @@ const PAGE_SCRIPT = `<script>
     };
   }
   function jobPrefillFromDoc(doc){
+    // Invoices/quotes have NO structured pickup/destination/service/date — that
+    // info lives (unreliably) only inside line_items free text. So we do NOT
+    // guess those fields; we leave them blank and hand the operator the raw line
+    // descriptions in driver_notes to transcribe from, with full context.
+    var lineDesc = leadNz(doc.line_desc);
+    var notes = "";
+    if(lineDesc){
+      notes = "From " + (doc.doc_type === "invoice" ? "invoice" : "quote") + " " + (doc.number || ("#" + doc.id))
+        + " — please fill in pickup/destination below:\\n\\n" + lineDesc;
+    }
     return {
       source_type:(doc.doc_type==="invoice"?"invoice":"quote"), source_id:doc.id,
       client_name:doc.client_name||"", client_phone:doc.client_phone||"", client_email:doc.client_email||"",
       service:"", vehicle_text:"", pickup:"", destination:"",
-      date:"", time:"", days:"", flight:"", sign:"", driver_notes:""
+      date:"", time:"", days:"", flight:"", sign:"", driver_notes:notes
     };
   }
   // Map a job into the lead-shaped object prefillFromLead() consumes, so the
@@ -6243,7 +6253,8 @@ const PAGE_SCRIPT = `<script>
       + '<h3>Trip</h3>'
       + fld("jfService","Service",seed.service,"text","e.g. Airport Transfer")
       + '<div class="job-grid2">' + fld("jfDate","Date",seed.date,"date") + fld("jfTime","Time",seed.time,"time") + '</div>'
-      + '<div class="job-grid2">' + fld("jfPickup","Pickup",seed.pickup) + fld("jfDestination","Destination",seed.destination) + '</div>'
+      + ((seed.source_type === "invoice" || seed.source_type === "quote") ? '<div class="job-warn" style="margin:.2rem 0 .5rem;color:var(--amber-deep)">Pickup/destination are not stored on a ' + esc(seed.source_type) + ' — check the notes field below and fill them in.</div>' : '')
+      + '<div class="job-grid2">' + fld("jfPickup","Pickup",seed.pickup,"text",((seed.source_type === "invoice" || seed.source_type === "quote") ? ("Not available from " + seed.source_type + " — see notes below") : "")) + fld("jfDestination","Destination",seed.destination,"text",((seed.source_type === "invoice" || seed.source_type === "quote") ? ("Not available from " + seed.source_type + " — see notes below") : "")) + '</div>'
       + '<div class="job-grid2">' + fld("jfDays","At disposal (days)",seed.days) + fld("jfVehicleText","Vehicle (free text)",seed.vehicle_text) + '</div>'
       + '<div class="job-grid2">' + fld("jfFlight","Flight number",seed.flight) + fld("jfSign","Welcome sign name",seed.sign) + '</div>'
       + crewSection
@@ -8426,9 +8437,11 @@ const PAGE_SCRIPT = `<script>
         if(typeof openJobForm === "function") openJobForm(jobPrefillFromDoc({
           id: Number(djB.getAttribute("data-docjob")),
           doc_type: djB.getAttribute("data-doctype") || "quote",
+          number: djB.getAttribute("data-cnum") || "",
           client_name: djB.getAttribute("data-cname") || "",
           client_phone: djB.getAttribute("data-cphone") || "",
-          client_email: djB.getAttribute("data-cemail") || ""
+          client_email: djB.getAttribute("data-cemail") || "",
+          line_desc: djB.getAttribute("data-cnotes") || ""
         }));
         return;
       }
@@ -8562,7 +8575,8 @@ const PAGE_SCRIPT = `<script>
             actions.push('<button type="button" class="btn btn-small btn-ghost" data-markpaid="'+x.id+'" data-num="'+esc(x.number)+'" data-balance="'+(_docBalance>0?_docBalance.toFixed(2):_docTotal.toFixed(2))+'" title="Mark this invoice paid by cash or bank transfer">Mark paid</button>');
           }
         }
-        actions.push('<button type="button" class="btn btn-small btn-ghost" data-docjob="'+x.id+'" data-doctype="'+esc(x.doc_type)+'" data-cname="'+esc(x.client_name||"")+'" data-cphone="'+esc(x.client_phone||"")+'" data-cemail="'+esc(x.client_email||"")+'" title="Create a dispatch job from this document">Create Job</button>');
+        var _docLineDesc = (function(){ try { return (JSON.parse(x.line_items||"[]")||[]).map(function(li){ return String((li && li.description) || ""); }).filter(Boolean).join("\\n\\n"); } catch(_e){ return ""; } })();
+        actions.push('<button type="button" class="btn btn-small btn-ghost" data-docjob="'+x.id+'" data-doctype="'+esc(x.doc_type)+'" data-cnum="'+esc(x.number||"")+'" data-cname="'+esc(x.client_name||"")+'" data-cphone="'+esc(x.client_phone||"")+'" data-cemail="'+esc(x.client_email||"")+'" data-cnotes="'+esc(_docLineDesc)+'" title="Create a dispatch job from this document">Create Job</button>');
         // v100: per-row "Email client" sends the branded invoice/quote to
         // the document's client_email. Disabled with a hint when missing.
         const clientEmail = String(x.client_email || "").trim();
