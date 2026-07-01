@@ -1,6 +1,11 @@
 /* (c) UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 
 import { renderTestPdf } from "./pdf.js";
+// v108 — branded quote email reuses the exact transactional-email helpers from
+// index.js (no shared shell module exists; these are the canonical builders).
+// Used only inside handleSendLeadQuote at request time, so the index.js⇄admin.js
+// import cycle resolves fine (bindings are live by the time the handler runs).
+import { emailEsc, emailRows, emailWordmark, CLIENT_EMAIL_RX } from "./index.js";
 
 // /admin/billing — internal quote & invoice generator.
 //
@@ -2708,6 +2713,123 @@ async function handleEmailClient(id, env) {
   }
 }
 
+// v108 — Send a branded quote email to a lead's client via Resend. The quote
+// PRICE is NOT persisted server-side (the admin drawer keeps it in the DOM +
+// in-memory leadsCache only, via commitLeadQuote), so it must arrive in the
+// request body. Field order + the "only show if non-empty" behaviour mirror
+// PAGE_SCRIPT's buildLeadMessage, and the Service line is DERIVED exactly like
+// PAGE_SCRIPT's leadServiceLabel (from flight/sign/days — NOT the raw service
+// column) so the email matches what the admin sees in the drawer.
+async function handleSendLeadQuote(request, env) {
+  await ensureSchema(env);
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const leadId = parseInt(body.leadId, 10);
+  if (!Number.isFinite(leadId)) return json({ ok: false, error: "Invalid lead id" }, 400);
+  const quote = body.quote == null ? "" : String(body.quote);
+
+  const lead = await env.BILLING_DB.prepare(
+    `SELECT name, email, service, vehicle, pickup, destination,
+            date, time, days, flight, sign, notes
+       FROM leads WHERE id = ?`
+  ).bind(leadId).first();
+  if (!lead) return json({ ok: false, error: "Lead not found" }, 404);
+
+  // Same guard sendClientReceipt uses — refuse to send without a valid address.
+  if (!lead.email || !CLIENT_EMAIL_RX.test(String(lead.email).trim())) {
+    return json({ ok: false, error: "This lead has no valid email address" }, 400);
+  }
+  if (!env.RESEND_API_KEY) {
+    return json({ ok: false, error: "Email is not configured (RESEND_API_KEY unset)" }, 500);
+  }
+
+  // Exact replica of PAGE_SCRIPT leadServiceLabel(x): derived, not the raw col.
+  const nz = (v) => (v == null ? "" : String(v).trim());
+  const serviceLabel = (nz(lead.flight) || nz(lead.sign))
+    ? "Airport Transfer"
+    : (nz(lead.days) ? "Chauffeur by the Hour" : "Point to Point Transfer");
+
+  const firstName = (lead.name || "").trim().split(/\s+/)[0] || "there";
+
+  // Details table — same field order + labels as buildLeadMessage; emailRows
+  // drops any empty/"-" rows, matching its leadNz "only if non-empty" logic.
+  const rowsHtml = emailRows([
+    ["Service", serviceLabel],
+    ["Pickup date", lead.date],
+    ["Pickup time", lead.time],
+    ["Pickup location", lead.pickup],
+    ["Destination", lead.destination],
+    ["At your disposal", lead.days],
+    ["Flight number", lead.flight],
+    ["Welcome sign name", lead.sign],
+    ["Vehicle", lead.vehicle],
+    ["Notes", lead.notes]
+  ]);
+
+  // Quote price — parsed the same way commitLeadQuote normalises it.
+  const qn = parseFloat(quote.replace(/[^0-9.]/g, ""));
+  const hasQuote = isFinite(qn) && qn > 0;
+  const fmtAed = (n) => {
+    const p = n.toFixed(2).split(".");
+    p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return p.join(".");
+  };
+  const quoteBlock = hasQuote
+    ? `<p style="font-family:Georgia,'Times New Roman',serif;font-size:30px;color:#221B14;margin:0;letter-spacing:.01em">AED ${emailEsc(fmtAed(qn))}</p>`
+    : `<p style="font-family:Georgia,'Times New Roman',serif;font-size:18px;color:#7A6F5F;font-style:italic;margin:0">To be confirmed</p>`;
+
+  // Same visual shell as sendClientReceipt (there is no shared shell helper).
+  const html =
+    `<!doctype html><html><body style="margin:0;padding:24px 16px;background:#F6F1E7;font-family:-apple-system,Segoe UI,Roboto,sans-serif">` +
+    `<table align="center" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:580px;width:100%;margin:0 auto;background:#FBF8F1;border-radius:6px;overflow:hidden;border:1px solid rgba(34,27,20,.10)">` +
+    emailWordmark() +
+    `<tr><td style="padding:24px 28px 8px 28px;text-align:center">` +
+      `<h1 style="font-family:Georgia,'Times New Roman',serif;font-weight:400;font-size:24px;color:#221B14;margin:0 0 10px;letter-spacing:-.01em">Your quote, ${emailEsc(firstName)}.</h1>` +
+      `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px;color:#4A4136;line-height:1.65;margin:0;max-width:44ch;margin-left:auto;margin-right:auto">Thank you for your patience. Here are the confirmed details for your reservation — please let us know if you'd like to confirm or adjust anything.</p>` +
+    `</td></tr>` +
+    `<tr><td style="padding:24px 28px 4px 28px">` +
+      `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#A84B0C;margin:0 0 10px;font-weight:500">Your request</p>` +
+      `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:14px;border-collapse:collapse">${rowsHtml}</table>` +
+    `</td></tr>` +
+    `<tr><td style="padding:20px 28px 8px 28px">` +
+      `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#A84B0C;margin:0 0 12px;font-weight:500">Quote</p>` +
+      quoteBlock +
+    `</td></tr>` +
+    `<tr><td style="padding:22px 28px 22px 28px;background:#231B12;text-align:center;font-family:-apple-system,Segoe UI,Roboto,sans-serif">` +
+      `<p style="margin:0;color:#D9D0C0;font-size:13px;letter-spacing:.06em">The UMC Dubai concierge desk</p>` +
+      `<p style="margin:8px 0 0;color:#C9BFAE;font-size:11px;letter-spacing:.16em;text-transform:uppercase">UMC Dubai &middot; <a href="mailto:contact@umcdubai.ae" style="color:#C9BFAE;text-decoration:none">contact@umcdubai.ae</a> &middot; <a href="tel:+971586497861" style="color:#C9BFAE;text-decoration:none">+971 58 649 7861</a></p>` +
+    `</td></tr>` +
+    `</table></body></html>`;
+
+  const message = {
+    from: "UMC Dubai <bookings@umcdubai.ae>",
+    to: [String(lead.email).trim()],
+    reply_to: "bookings@umcdubai.ae",
+    subject: "Your quote from UMC Dubai",
+    html
+  };
+
+  const label = "LEAD_QUOTE";
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + env.RESEND_API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(message)
+    });
+    const bodyText = (await res.text()).slice(0, 200);
+    if (!res.ok) console.error(label + " failed", res.status, bodyText);
+    else console.log(label + " ok", res.status);
+    return json({ ok: res.ok, status: res.status, body: bodyText, sentTo: lead.email }, res.ok ? 200 : 502);
+  } catch (e) {
+    const msg = e && (e.message || String(e));
+    console.error(label + " threw", msg);
+    return json({ ok: false, status: 0, body: "exception: " + msg }, 502);
+  }
+}
+
 export async function handleAdmin(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -2831,6 +2953,16 @@ export async function handleAdmin(request, env) {
     if (!env.BILLING_DB) return dbUnavailable();
     if (method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
     return handleSyncNomod(request, env);
+  }
+
+  // v108 — Send a branded quote email to a lead's client. The quote PRICE is
+  // not persisted server-side, so it arrives in the request body.
+  if (path === "/admin/api/send-quote") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    if (method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+    return handleSendLeadQuote(request, env);
   }
 
   // v53 — standalone Nomod links (Links tab in /admin/billing)
@@ -6911,8 +7043,41 @@ const PAGE_SCRIPT = `<script>
         if(!lead) return;
         const email = String(lead.email || "").trim();
         if(!email){ setStatus("This lead has no email."); return; }
-        const msg = buildLeadMessage(lead, readLeadQuote(id));
-        window.location.href = "mailto:" + email + "?subject=Your%20UMC%20Dubai%20reservation%20request&body=" + encodeURIComponent(msg);
+        // v108 — this now actually SENDS a branded quote email via Resend
+        // (server-side), replacing the old mailto: draft. Read the quote live,
+        // confirm, then POST. The price is not persisted server-side, so it
+        // must go in the request body.
+        const quote = readLeadQuote(id);
+        const confirmMsg = quote
+          ? ("Send quote to " + email + " for AED " + quote + "?")
+          : ("No quote price is set — the email will show 'To be confirmed'. Send to " + email + " anyway?");
+        if(!confirm(confirmMsg)) return;
+        const prev = emBtn.textContent;
+        emBtn.disabled = true;
+        emBtn.textContent = "Sending…";
+        fetch("/admin/api/send-quote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ leadId: id, quote: readLeadQuote(id) })
+        })
+          .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, j: j }; }); })
+          .then(function(res){
+            if(res.ok && res.j && res.j.ok){
+              setStatus("Quote sent to " + (res.j.sentTo || email));
+              emBtn.textContent = "Sent";
+              setTimeout(function(){ emBtn.textContent = prev; emBtn.disabled = false; }, 1400);
+            } else {
+              setStatus((res.j && res.j.error) ? res.j.error : "Could not send the quote email.");
+              emBtn.textContent = prev;
+              emBtn.disabled = false;
+            }
+          })
+          .catch(function(){
+            setStatus("Could not send the quote email — please try again.");
+            emBtn.textContent = prev;
+            emBtn.disabled = false;
+          });
         return;
       }
       const dBtn = e.target.closest("[data-leaddel]");

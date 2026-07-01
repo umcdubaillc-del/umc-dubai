@@ -104,6 +104,7 @@ export default {
         url.pathname.startsWith("/admin/api/payments") ||
         url.pathname === "/admin/api/sales" ||
         url.pathname === "/admin/api/sync-nomod" ||
+        url.pathname === "/admin/api/send-quote" ||
         url.pathname === "/admin/api/customers.csv" ||
         url.pathname === "/admin/api/leads" ||
         url.pathname.startsWith("/admin/api/leads/") ||
@@ -293,14 +294,14 @@ function clip(s, n) {
 }
 
 // Shared escape for inlined email HTML.
-function emailEsc(s) {
+export function emailEsc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
   );
 }
 
 // Build the label/value rows, omitting empty fields (T4/T5: no blank rows).
-function emailRows(pairs) {
+export function emailRows(pairs) {
   return pairs
     .filter(([, v]) => v != null && String(v).trim() !== "" && String(v).trim() !== "-")
     .map(
@@ -313,7 +314,7 @@ function emailRows(pairs) {
 }
 
 // UMC wordmark + amber rule, used at the top of every transactional email.
-function emailWordmark() {
+export function emailWordmark() {
   return `<tr><td style="padding:28px 28px 6px 28px;text-align:center">
       <span style="font-family:Georgia,'Times New Roman',serif;font-size:24px;letter-spacing:.36em;color:#221B14">UMC</span>
       <div style="height:1px;background:#C75B12;width:28px;margin:10px auto"></div>
@@ -462,7 +463,7 @@ async function addToMailchimp(env, b) {
 
 // Client confirmation email (T6) — only fired when payload.email is present and shaped like
 // an email. Warm institutional tone, framed as a receipt, NOT a guarantee.
-const CLIENT_EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+export const CLIENT_EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 async function sendClientReceipt(env, b) {
   const label = "CLIENT_RECEIPT";
   if (!b.email || !CLIENT_EMAIL_RX.test(b.email)) {
