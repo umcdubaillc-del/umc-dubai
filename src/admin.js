@@ -1491,6 +1491,19 @@ async function handleUpdateJob(id, request, env) {
   const job = await finalizeJob(env, id);
   return json({ ok: true, id, job });
 }
+// Hard delete (distinct from Cancel). Removes the calendar event first (same
+// best-effort path as Cancel), then the assignments and the job row itself.
+async function handleDeleteJob(id, env) {
+  await ensureSchema(env);
+  const existing = await env.BILLING_DB.prepare(`SELECT calendar_event_id FROM jobs WHERE id = ?`).bind(id).first();
+  if (!existing) return json({ ok: false, error: "not found" }, 404);
+  if (existing.calendar_event_id) { await calendarDelete(env, existing.calendar_event_id); }
+  await env.BILLING_DB.prepare(`DELETE FROM job_drivers WHERE job_id = ?`).bind(id).run();
+  await env.BILLING_DB.prepare(`DELETE FROM job_vehicles WHERE job_id = ?`).bind(id).run();
+  const res = await env.BILLING_DB.prepare(`DELETE FROM jobs WHERE id = ?`).bind(id).run();
+  if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
+  return json({ ok: true, id });
+}
 
 // v86 — attach a standalone payment_links row to an existing invoice. Writes
 // the link's nomod_link_* fields onto the invoice (REUSE — never mint a new
@@ -3440,8 +3453,8 @@ export async function handleAdmin(request, env) {
     }
   }
 
-  // Dispatch Phase 2 — Jobs: GET/POST on the collection, GET/PUT on /:id.
-  // (No DELETE — jobs are cancelled, not deleted.)
+  // Dispatch Phase 2 — Jobs: GET/POST on the collection, GET/PUT/DELETE on /:id.
+  // Cancel is a status transition (keeps the record); DELETE removes it entirely.
   {
     const jm = path.match(/^\/admin\/api\/jobs(?:\/(\d+))?$/);
     if (jm) {
@@ -3456,7 +3469,8 @@ export async function handleAdmin(request, env) {
       }
       if (method === "GET") { const j = await getJobRow(env, id); return j ? json({ ok: true, job: j }) : json({ ok: false, error: "not found" }, 404); }
       if (method === "PUT") return handleUpdateJob(id, request, env);
-      return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, PUT" } });
+      if (method === "DELETE") return handleDeleteJob(id, env);
+      return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, PUT, DELETE" } });
     }
   }
 
@@ -4312,9 +4326,14 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
 .paid-lock #btnEditAnyway{ flex:0 0 auto; }
 .paid-warn{ background:rgba(168,75,12,.10); border:1px solid rgba(168,75,12,.40); color:var(--amber-deep); border-radius:8px; padding:.7rem .9rem; margin:0 0 1rem; font-size:.9rem; line-height:1.45; }
 /* Jobs — readiness lights, multi-select, requirements checklist, drawer form */
-.job-lights{ display:inline-flex; align-items:center; gap:.28rem; }
+.job-lights{ display:inline-flex; align-items:flex-start; gap:.5rem; }
 .job-light{ width:12px; height:12px; border-radius:50%; border:1.5px solid var(--hair); background:transparent; display:inline-block; flex:0 0 auto; }
 .job-light.on{ background:#2E7D54; border-color:#2E7D54; }
+.job-light.off{ background:var(--amber-deep); border-color:var(--amber-deep); }
+.job-lightcell{ display:inline-flex; flex-direction:column; align-items:center; gap:3px; }
+.job-lightlbl{ font-size:9px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); line-height:1; }
+.job-checklist{ display:flex; flex-direction:column; gap:.45rem; margin:0 0 1rem; padding:.75rem .9rem; background:var(--bone2); border:1px solid var(--hair); border-radius:8px; }
+.job-checkrow{ display:flex; align-items:center; gap:.6rem; font-size:.92rem; color:var(--ink); }
 .job-multi{ display:flex; flex-wrap:wrap; gap:.45rem .9rem; }
 .job-multi label{ display:inline-flex; align-items:center; gap:.4rem; font-size:.92rem; color:var(--ink); }
 .job-multi input{ width:16px; height:16px; accent-color:var(--amber-deep); flex:0 0 auto; }
@@ -4376,7 +4395,6 @@ function appShellHTML() {
   <button type="button" class="tab on" role="tab" aria-selected="true"  data-tab="leads"     id="tabBtnLeads"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c1.5-3.6 5-5.4 7.5-5.4s6 1.8 7.5 5.4"/></svg><span class="tab-label">Leads</span><span class="tab-fulllabel">Leads</span></button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="documents" id="tabBtnDocuments"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V7.5z"/><path d="M14 3v4.5h4.5"/><path d="M9 13h6M9 16h4"/></svg><span class="tab-label">Docs</span><span class="tab-fulllabel">Quotes &amp; Invoices</span></button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="links"     id="tabBtnLinks"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 13.5a4 4 0 0 0 5.6 0l2.4-2.4a4 4 0 0 0-5.7-5.7L11.4 6.8"/><path d="M13.5 10.5a4 4 0 0 0-5.6 0L5.5 12.9a4 4 0 0 0 5.7 5.7l1.4-1.4"/></svg><span class="tab-label">Links</span><span class="tab-fulllabel">Payment Links</span></button>
-  <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="fleet"     id="tabBtnFleet"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 16.5H3.2a1 1 0 0 1-1-1v-2.6a2 2 0 0 1 .5-1.3L5 8.9a2 2 0 0 1 1.5-.7h8.1a2 2 0 0 1 1.5.7l2.8 3.2a2 2 0 0 1 .5 1.3V15.5a1 1 0 0 1-1 1h-1.5"/><path d="M9.5 16.5h5"/><circle cx="7" cy="16.5" r="2"/><circle cx="17" cy="16.5" r="2"/></svg><span class="tab-label">Fleet</span><span class="tab-fulllabel">Fleet</span></button>
   <button type="button" class="tab"    role="tab" aria-selected="false" data-tab="jobs"      id="tabBtnJobs"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6.5" r="2.3"/><circle cx="17.5" cy="17.5" r="2.3"/><path d="M8.8 6.5H14a3.5 3.5 0 0 1 0 7h-4a3.5 3.5 0 0 0 0 7h5.2"/></svg><span class="tab-label">Jobs</span><span class="tab-fulllabel">Jobs</span></button>
   <button type="button" class="tab"    id="tabBtnMore" data-more-open="1" aria-haspopup="dialog"><svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span class="tab-label">More</span><span class="tab-fulllabel">More</span></button>
   <!-- v101: right-aligned Create action button. Not a tab (no data-tab, no
@@ -6030,18 +6048,31 @@ const PAGE_SCRIPT = `<script>
   }
   function computeJobLights(job){
     return [
-      { label:"Driver assigned", on:(job.driver_ids||[]).length >= 1 },
-      { label:"Vehicle assigned", on:(job.vehicle_ids||[]).length >= 1 },
-      { label:"On the calendar", on:!!leadNz(job.calendar_event_id) },
-      { label:"Client informed", on:Number(job.client_informed) === 1 },
-      { label:"Requirements met", on:jobRequirementsMet(job) }
+      { abbr:"Drv",  label:"Driver assigned",   on:(job.driver_ids||[]).length >= 1 },
+      { abbr:"Veh",  label:"Vehicle assigned",  on:(job.vehicle_ids||[]).length >= 1 },
+      { abbr:"Cal",  label:"On the calendar",   on:!!leadNz(job.calendar_event_id) },
+      { abbr:"Info", label:"Client informed",   on:Number(job.client_informed) === 1 },
+      { abbr:"Req",  label:"Requirements met",  on:jobRequirementsMet(job) }
     ];
   }
+  // Compact strip for the list row: dot + abbreviated label under each, so the
+  // state is readable at a glance without relying on hover tooltips.
   function renderJobLights(job){
     var lights = computeJobLights(job);
     var html = '<span class="job-lights">';
-    for(var i=0;i<lights.length;i++){ html += '<span class="job-light' + (lights[i].on ? ' on' : '') + '" title="' + esc(lights[i].label) + ': ' + (lights[i].on ? 'yes' : 'no') + '"></span>'; }
+    for(var i=0;i<lights.length;i++){
+      html += '<span class="job-lightcell"><span class="job-light ' + (lights[i].on ? 'on' : 'off') + '"></span><span class="job-lightlbl">' + esc(lights[i].abbr) + '</span></span>';
+    }
     return html + '</span>';
+  }
+  // Full readout for the editor: one line per light, dot + full label + state.
+  function renderJobChecklist(job){
+    var lights = computeJobLights(job);
+    var html = '<div class="job-checklist">';
+    for(var i=0;i<lights.length;i++){
+      html += '<div class="job-checkrow"><span class="job-light ' + (lights[i].on ? 'on' : 'off') + '"></span><span>' + esc(lights[i].label) + '</span><span style="margin-left:auto;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:' + (lights[i].on ? 'var(--paid,#2E7D54)' : 'var(--amber-deep)') + '">' + (lights[i].on ? 'Done' : 'To do') + '</span></div>';
+    }
+    return html + '</div>';
   }
   function jobTimeToMinutes(t){ t = leadNz(t); var m = t.match(/^(\\d{1,2}):(\\d{2})/); if(!m) return null; return parseInt(m[1],10)*60 + parseInt(m[2],10); }
   // Approximate double-booking: same date + assigned to a non-cancelled job whose
@@ -6068,11 +6099,13 @@ const PAGE_SCRIPT = `<script>
     var trClass = "expandable" + (job.status === "cancelled" ? " excluded" : "");
     var actions = [];
     actions.push('<button type="button" class="btn btn-small btn-ink" data-jobopen="' + job.id + '">Open / edit</button>');
+    actions.push('<button type="button" class="btn btn-small btn-ghost" data-jobassign="' + job.id + '" title="Assign or change drivers and vehicles">Assign driver/vehicle</button>');
     var hasDriverPhone = (job.driver_phones||[]).some(function(p){ return normalizeWaNumber(p); });
     if((job.driver_ids||[]).length && hasDriverPhone) actions.push('<button type="button" class="btn btn-small btn-ghost" data-jobwadriver="' + job.id + '">WhatsApp driver</button>');
     if(normalizeWaNumber(job.client_phone)) actions.push('<button type="button" class="btn btn-small btn-ghost" data-jobwaclient="' + job.id + '">WhatsApp client</button>');
     actions.push('<button type="button" class="btn btn-small btn-ghost" data-jobquote="' + job.id + '">Create Quote</button>');
     actions.push('<button type="button" class="btn btn-small btn-ghost" data-jobinvoice="' + job.id + '">Create Invoice</button>');
+    actions.push('<button type="button" class="btn btn-small btn-danger" data-jobdelete="' + job.id + '" data-jobname="' + esc(leadNz(job.client_name) || ("Job #" + job.id)) + '" title="Permanently delete this job (removes its calendar event too)">Delete</button>');
     return '<tr class="' + trClass + '" data-expandable="1" data-jobrow="' + job.id + '">'
       + '<td data-lbl="Date">' + dateTxt + '</td>'
       + '<td data-lbl="Client">' + esc(leadNz(job.client_name) || "·") + '</td>'
@@ -6118,21 +6151,20 @@ const PAGE_SCRIPT = `<script>
     return L.join("\\n");
   }
   function buildJobClientMessage(job){
+    var first = (String(job.client_name || "").trim().split(/\\s+/)[0]) || "there";
+    var names = job.driver_names || [], phones = job.driver_phones || [];
+    var vnames = job.vehicle_names || [], vplates = job.vehicle_plates || [];
     var L = [];
-    L.push("Dear " + (leadNz(job.client_name) || "Guest") + ",");
+    L.push("Dear " + first + ", your chauffeur has been assigned. Here are the details:");
     L.push("");
-    L.push("Your UMC Dubai chauffeur is confirmed. Here are the details:");
-    L.push("");
-    if((job.driver_names||[]).length) L.push("Driver: " + job.driver_names.join(", "));
-    var dphone = (job.driver_phones||[]).filter(function(p){ return leadNz(p); })[0];
-    if(dphone) L.push("Driver phone: " + dphone);
-    if((job.vehicle_names||[]).length) L.push("Vehicle: " + job.vehicle_names.join(", "));
-    if(leadNz(job.date)) L.push("Date: " + leadNz(job.date));
-    if(leadNz(job.time)) L.push("Time: " + leadNz(job.time));
-    L.push("");
-    L.push("Warm regards,");
-    L.push("UMC Dubai");
-    L.push("+971 58 649 7861");
+    for(var i=0;i<names.length;i++){
+      L.push("Driver Name: " + (names[i] || ""));
+      L.push("Driver Number: " + (phones[i] || ""));
+    }
+    for(var k=0;k<vnames.length;k++){
+      L.push("Vehicle: " + (vnames[k] || ""));
+      L.push("Vehicle Number: " + (vplates[k] || ""));
+    }
     return L.join("\\n");
   }
   // Map a lead / document record into a job prefill (create-from entry points).
@@ -6188,6 +6220,15 @@ const PAGE_SCRIPT = `<script>
       ? ('<button type="button" class="btn btn-small btn-ghost" id="jfComplete" style="color:var(--paid,#2E7D54)">Mark completed</button>'
          + '<button type="button" class="btn btn-small btn-ghost" id="jfCancel" style="color:var(--amber-deep)">Cancel job</button>')
       : "";
+    // Delete is available for any existing job (even terminal) and stays enabled
+    // under the terminal lock so a cancelled job can still be removed.
+    var deleteBtn = isEdit ? '<button type="button" class="btn btn-small btn-danger" id="jfDelete" title="Permanently delete this job (removes its calendar event)">Delete job</button>' : "";
+    // Driver/vehicle assignment is NOT part of initial creation — the selects
+    // appear only when editing an existing job (assign from the row drawer).
+    var crewSection = isEdit
+      ? ('<h3>Drivers</h3><div id="jfDrivers" class="job-multi"><span style="color:var(--muted);font-size:.85rem">Loading…</span></div><div id="jfDriverWarn"></div>'
+         + '<h3>Vehicles</h3><div id="jfVehicles" class="job-multi"><span style="color:var(--muted);font-size:.85rem">Loading…</span></div><div id="jfVehicleWarn"></div>')
+      : "";
     shell.innerHTML =
       '<header class="ed-head" style="padding:1rem 1.4rem">'
       + '<h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.2rem">' + (isEdit ? ("Job #" + jobId + " — " + esc(jobServiceText(seed))) : "New job") + '</h2>'
@@ -6195,7 +6236,7 @@ const PAGE_SCRIPT = `<script>
       + '</header>'
       + '<div class="ed-body job-form" style="padding:1.1rem 1.4rem 1.6rem">'
       + '<div id="jfLock"></div>'
-      + '<div style="margin:0 0 .6rem">' + (isEdit ? (jobStatusPill(seed.status) + ' <span class="job-lights" id="jfLights" style="margin-left:.5rem;vertical-align:middle">' + '</span>') : '') + '</div>'
+      + (isEdit ? ('<div style="margin:0 0 .7rem">' + jobStatusPill(seed.status) + '</div>' + renderJobChecklist(seed)) : '')
       + '<h3>Client</h3>'
       + '<div class="job-grid2">' + fld("jfClientName","Name",seed.client_name) + fld("jfClientPhone","Phone",seed.client_phone) + '</div>'
       + fld("jfClientEmail","Email",seed.client_email,"email")
@@ -6205,8 +6246,7 @@ const PAGE_SCRIPT = `<script>
       + '<div class="job-grid2">' + fld("jfPickup","Pickup",seed.pickup) + fld("jfDestination","Destination",seed.destination) + '</div>'
       + '<div class="job-grid2">' + fld("jfDays","At disposal (days)",seed.days) + fld("jfVehicleText","Vehicle (free text)",seed.vehicle_text) + '</div>'
       + '<div class="job-grid2">' + fld("jfFlight","Flight number",seed.flight) + fld("jfSign","Welcome sign name",seed.sign) + '</div>'
-      + '<h3>Drivers</h3><div id="jfDrivers" class="job-multi"><span style="color:var(--muted);font-size:.85rem">Loading…</span></div><div id="jfDriverWarn"></div>'
-      + '<h3>Vehicles</h3><div id="jfVehicles" class="job-multi"><span style="color:var(--muted);font-size:.85rem">Loading…</span></div><div id="jfVehicleWarn"></div>'
+      + crewSection
       + '<h3>Requirements</h3><div id="jfReqs"></div>'
       + '<div style="display:flex;gap:.5rem;margin-top:.5rem"><input id="jfReqInput" type="text" placeholder="Add a requirement (e.g. Child seat)" autocomplete="off" style="flex:1"><button type="button" class="btn btn-small btn-ghost" id="jfReqAdd">Add</button></div>'
       + '<h3>Notes for driver</h3><div class="field"><textarea id="jfNotes" rows="3" style="width:100%">' + esc(seed.driver_notes || "") + '</textarea></div>'
@@ -6214,6 +6254,7 @@ const PAGE_SCRIPT = `<script>
       + '<div class="status-line" id="jfStatus" style="min-height:1.1em;margin-top:.6rem"></div>'
       + '<div class="actions" style="display:flex;gap:.6rem;justify-content:flex-end;flex-wrap:wrap;margin-top:1rem">'
       +   completeCancel
+      +   deleteBtn
       +   '<button type="button" class="btn btn-small btn-ghost" data-jf-close>Close</button>'
       +   '<button type="button" class="btn" id="jfSave">' + (isEdit ? "Save job" : "Create job") + '</button>'
       + '</div>'
@@ -6250,6 +6291,7 @@ const PAGE_SCRIPT = `<script>
       var time = shell.querySelector("#jfTime").value.trim();
       ["driver","vehicle"].forEach(function(kind){
         var warnEl = shell.querySelector(kind === "driver" ? "#jfDriverWarn" : "#jfVehicleWarn");
+        if(!warnEl) return;
         var msgs = [];
         shell.querySelectorAll((kind === "driver" ? "#jfDrivers" : "#jfVehicles") + " input:checked").forEach(function(cb){
           var conflicts = jobConflicts(kind, Number(cb.value), date, time, jobId);
@@ -6261,6 +6303,7 @@ const PAGE_SCRIPT = `<script>
     // Populate driver/vehicle multi-selects from ACTIVE fleet only.
     async function loadMulti(kind){
       var host = shell.querySelector(kind === "drivers" ? "#jfDrivers" : "#jfVehicles");
+      if(!host) return;
       var assigned = (kind === "drivers" ? (seed.driver_ids || []) : (seed.vehicle_ids || [])).map(Number);
       try {
         var r = await fetch("/admin/api/" + kind);
@@ -6275,7 +6318,7 @@ const PAGE_SCRIPT = `<script>
         host.querySelectorAll("input[type=checkbox]").forEach(function(cb){ cb.addEventListener("change", recomputeWarnings); });
       } catch(e){ host.innerHTML = '<span style="color:var(--amber-deep);font-size:.85rem">Failed to load ' + kind + '.</span>'; }
     }
-    Promise.all([loadMulti("drivers"), loadMulti("vehicles")]).then(recomputeWarnings);
+    if(isEdit){ Promise.all([loadMulti("drivers"), loadMulti("vehicles")]).then(recomputeWarnings); }
     shell.querySelector("#jfDate").addEventListener("change", recomputeWarnings);
     shell.querySelector("#jfTime").addEventListener("change", recomputeWarnings);
 
@@ -6285,6 +6328,7 @@ const PAGE_SCRIPT = `<script>
       shell.querySelectorAll("input, textarea, button").forEach(function(el){
         if(el.hasAttribute("data-jf-close")) return;
         if(el.id === "btnJobEditAnyway") return;
+        if(el.id === "jfDelete") return;
         el.disabled = dis;
       });
     }
@@ -6345,6 +6389,16 @@ const PAGE_SCRIPT = `<script>
       if(reason === null) return;
       submit({ status:"cancelled", cancelled_reason: String(reason || "").trim() });
     });
+    if(shell.querySelector("#jfDelete")) shell.querySelector("#jfDelete").addEventListener("click", async function(){
+      if(!confirm("Permanently delete this job? This removes it entirely, and its calendar event.\\n\\nUse Cancel instead if the job simply didn't happen but you want to keep the record.")) return;
+      var b = this; b.disabled = true; var pv = b.textContent; b.textContent = "Deleting…";
+      try {
+        var r = await fetch("/admin/api/jobs/" + jobId, { method:"DELETE" });
+        var j = await r.json().catch(function(){ return {}; });
+        if(r.ok && j && j.ok){ close(); await loadJobs(); setStatus("Job #" + jobId + " deleted."); }
+        else { setStat("Delete failed: " + ((j && j.error) || r.status)); b.disabled = false; b.textContent = pv; }
+      } catch(e){ setStat("Delete failed: " + (e.message || e)); b.disabled = false; b.textContent = pv; }
+    });
     setTimeout(function(){ try { shell.querySelector("#jfClientName").focus(); } catch(_){} }, 40);
   }
 
@@ -6360,6 +6414,22 @@ const PAGE_SCRIPT = `<script>
       function jobById(id){ return jobsCache.filter(function(z){ return Number(z.id) === Number(id); })[0]; }
       var op = e.target.closest("[data-jobopen]");
       if(op){ e.preventDefault(); e.stopPropagation(); var j = jobById(op.getAttribute("data-jobopen")); if(j) openJobEdit(j); return; }
+      var asg = e.target.closest("[data-jobassign]");
+      if(asg){ e.preventDefault(); e.stopPropagation(); var ja = jobById(asg.getAttribute("data-jobassign")); if(ja) openJobEdit(ja); return; }
+      var del = e.target.closest("[data-jobdelete]");
+      if(del){
+        e.preventDefault(); e.stopPropagation();
+        if(del.disabled) return;
+        var did = del.getAttribute("data-jobdelete");
+        var dname = del.getAttribute("data-jobname") || ("job #" + did);
+        if(!confirm("Permanently delete " + dname + "? This removes it entirely, and its calendar event.\\n\\nUse Cancel instead if the job simply didn't happen but you want to keep the record.")) return;
+        del.disabled = true; var dprev = del.textContent; del.textContent = "Deleting…";
+        fetch("/admin/api/jobs/" + did, { method:"DELETE" })
+          .then(function(r){ return r.json().catch(function(){ return {}; }); })
+          .then(function(jr){ if(jr && jr.ok){ loadJobs(); setStatus("Job deleted."); } else { setStatus("Delete failed: " + ((jr && jr.error) || "")); del.disabled = false; del.textContent = dprev; } })
+          .catch(function(err){ setStatus("Delete failed: " + (err.message || err)); del.disabled = false; del.textContent = dprev; });
+        return;
+      }
       var wad = e.target.closest("[data-jobwadriver]");
       if(wad){ e.preventDefault(); e.stopPropagation(); var jd = jobById(wad.getAttribute("data-jobwadriver")); if(!jd) return; var num = (jd.driver_phones||[]).map(normalizeWaNumber).filter(Boolean)[0]; if(!num){ setStatus("No driver phone on file."); return; } window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(buildJobDriverMessage(jd)), "_blank", "noopener"); return; }
       var wac = e.target.closest("[data-jobwaclient]");
@@ -7444,7 +7514,8 @@ const PAGE_SCRIPT = `<script>
   // and it appears — no structural change. Each entry switches to its existing
   // panel via switchTab (its data/API/logic are untouched).
   var MORE_TABS = [
-    { id: "sales", label: "Sales" }
+    { id: "sales", label: "Sales" },
+    { id: "fleet", label: "Fleet" }
   ];
   function openMoreSheet(){
     // Desktop (horizontal tab bar, >620px) -> compact popover anchored under the
