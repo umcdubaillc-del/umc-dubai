@@ -2823,6 +2823,89 @@ export async function handleAdmin(request, env) {
     return handleSyncNomod(request, env);
   }
 
+  // TEMPORARY — raw-charge diagnostic for six known charge IDs. Returns each
+  // FULL RAW Nomod charge object (unmodified) so we can inspect original_total /
+  // original_currency / settlement_currency / dcc_exchange_rate on the six
+  // foreign rows whose amount_aed == amount. Admin-auth only. Try GET
+  // /v1/charges/{id} first; fall back to a full list pull filtered client-side.
+  // Remove this route in a follow-up commit once the data is pulled.
+  if (path === "/admin/api/_fx_diag2" && method === "GET") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    try {
+      if (!env.NOMOD_API_KEY) return json({ error: "NOMOD_API_KEY not configured on this Worker" });
+      const ids = [
+        "eec9a7a9-b58c-4b3d-8847-b3a803e80753",
+        "adae62e5-2b8c-4a59-8a43-c67477193fdd",
+        "2308007c-6aae-4ffa-9a16-c4f0ef8ae250",
+        "5e2d492b-0fa6-45a8-a779-3b56584426ad",
+        "f5eaa051-bf79-4eec-9c29-7756a9a79c00",
+        "95ae890b-ed44-4cc4-b1a5-07ed75b2ccc3"
+      ];
+      const chargeIdOf = function (c) { return (c && (c.id || c.charge_id)) || null; };
+
+      // Attempt the by-id endpoint on the FIRST id to see whether it exists.
+      let methodUsed = "by-id";
+      let byIdWorks = true;
+      const firstProbe = await fetch("https://api.nomod.com/v1/charges/" + encodeURIComponent(ids[0]), {
+        method: "GET",
+        headers: { "X-API-KEY": env.NOMOD_API_KEY, "Accept": "application/json" }
+      });
+      if (firstProbe.status === 404) { byIdWorks = false; }
+
+      const results = [];
+      if (byIdWorks) {
+        // by-id path: one GET per id (reuse the probe response for ids[0]).
+        for (let i = 0; i < ids.length; i++) {
+          const id = ids[i];
+          let res;
+          if (i === 0) { res = firstProbe; }
+          else {
+            res = await fetch("https://api.nomod.com/v1/charges/" + encodeURIComponent(id), {
+              method: "GET",
+              headers: { "X-API-KEY": env.NOMOD_API_KEY, "Accept": "application/json" }
+            });
+          }
+          if (res.status === 404) { results.push({ requested_id: id, found: false, raw: null }); continue; }
+          const text = await res.text();
+          let raw = null;
+          try { raw = JSON.parse(text); } catch { raw = { _raw: text.slice(0, 2000) }; }
+          // Some APIs wrap a single object under {data:{...}} or {charge:{...}}.
+          if (raw && !chargeIdOf(raw) && (raw.data || raw.charge)) raw = raw.data || raw.charge;
+          results.push({ requested_id: id, found: !!(res.ok && raw), raw: res.ok ? raw : null });
+        }
+      } else {
+        // Fallback: walk the list endpoint (newest-first) and match client-side.
+        methodUsed = "list-filter";
+        const want = new Set(ids);
+        const foundMap = {};
+        let nextUrl = null;
+        for (let p = 0; p < 25 && Object.keys(foundMap).length < ids.length; p++) {
+          const r = nextUrl
+            ? await nomodListAllCharges(env, { nextUrl })
+            : await nomodListAllCharges(env, { pageSize: 100 });
+          if (!r.ok) { if (Object.keys(foundMap).length > 0) break; return json({ error: r.error || "nomod list fetch failed", status: r.status, detail: r.body || null }); }
+          const data = r.data || {};
+          const list = Array.isArray(data.results) ? data.results
+                     : Array.isArray(data.data) ? data.data
+                     : Array.isArray(data) ? data : [];
+          for (const c of list) {
+            const cid = chargeIdOf(c);
+            if (cid && want.has(cid) && !foundMap[cid]) foundMap[cid] = c;
+          }
+          nextUrl = data.next || null;
+          if (!nextUrl) break;
+        }
+        for (const id of ids) {
+          results.push({ requested_id: id, found: !!foundMap[id], raw: foundMap[id] || null });
+        }
+      }
+      return json({ method_used: methodUsed, results });
+    } catch (e) {
+      return json({ error: (e && (e.message || String(e))) || "unknown error" });
+    }
+  }
+
   // v53 — standalone Nomod links (Links tab in /admin/billing)
   if (path.startsWith("/admin/api/links")) {
     const authed = await isAuthed(request, env);
