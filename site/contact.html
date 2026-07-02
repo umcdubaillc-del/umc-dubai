@@ -225,8 +225,7 @@ document.getElementById("cSend").addEventListener("click", function(){
   if (g("cVehicle")) cLines.push("Service: " + g("cVehicle"));
   if (g("cMsg")) cLines.push("Notes: " + g("cMsg"));
   cLines.push("", "Please confirm availability. Thank you.");
-  const cWaText = encodeURIComponent(cLines.join("
-"));
+  const cWaText = encodeURIComponent(cLines.join("\n"));
   setTimeout(()=>{ window.open("https://api.whatsapp.com/send?phone=971586497861&text=" + cWaText, "_blank", "noopener"); }, 600);
 });
 </script>
