@@ -3609,7 +3609,54 @@ render_blog_index()
 # to the page's <link rel="canonical">. Removing .html-suffixed entries that
 # 301-normalize, and the legacy/trailing-slash variants that 307-normalize.
 import datetime as _dt
+import re as _re, subprocess as _sp
+# _LASTMOD is the LAST-RESORT fallback only (new/untracked pages, or no git):
+# real per-page <lastmod> comes from _page_lastmod() below.
 _LASTMOD = _dt.date.today().isoformat()
+
+# Every page is code-generated from this file, so there is no per-page updated_at
+# to read. The truthful "last modified" signal for this git-tracked static site is
+# the last commit at which a page's CONTENT actually changed — but the built HTML
+# carries ?v=<hash> cache-bust stamps (and a UMC_FLEET_V value) that churn on every
+# asset change, which would otherwise flip every page's git date to the same day
+# (the very "fake freshness" this fix removes). So we diff each page's history with
+# those volatile stamps normalised out, and fall back to the build date only when a
+# page has no committed history yet.
+_VSTAMP_RE = _re.compile(r'\?v=[0-9A-Za-z._-]+')
+def _norm_page(s):
+    s = _VSTAMP_RE.sub('', s)
+    return _re.sub(r'window\.UMC_FLEET_V="[^"]*"', 'window.UMC_FLEET_V=""', s)
+def _git(*args):
+    try:
+        return _sp.run(("git", *args), capture_output=True, text=True, cwd=str(HERE)).stdout
+    except Exception:
+        return ""
+def _url_to_file(p):
+    # p is the exact <loc> path fragment; slash/empty -> <dir>/index.html, else <slug>.html
+    return SITE / (p + "index.html") if (p == "" or p.endswith("/")) else SITE / (p + ".html")
+def _page_lastmod(p):
+    f = _url_to_file(p)
+    if not f.exists():
+        return _LASTMOD
+    log = _git("log", "--format=%H|%cs", "--", f.relative_to(HERE).as_posix()).strip().splitlines()
+    commits = [l.split("|", 1) for l in log if "|" in l]  # newest first
+    if not commits:
+        return _LASTMOD  # untracked/new page, or git unavailable
+    rel = f.relative_to(HERE).as_posix()
+    nblob = lambda h: _norm_page(_git("show", f"{h}:{rel}"))
+    # If the working tree differs from the newest commit (page edited in THIS build,
+    # not yet committed), it changed today.
+    if _norm_page(f.read_text(errors="replace")) != nblob(commits[0][0]):
+        return _LASTMOD
+    # Otherwise walk newest->older; the newest commit whose normalised content
+    # differs from its predecessor is the last real content change.
+    cur = nblob(commits[0][0])
+    for i in range(len(commits) - 1):
+        older = nblob(commits[i + 1][0])
+        if cur != older:
+            return commits[i][1]
+        cur = older
+    return commits[-1][1]  # identical all the way back -> first appearance
 
 # Trailing-slash canonical URLs (served as <dir>/index.html).
 _pages_slash = (
@@ -3640,7 +3687,7 @@ _pages_noslash = [
     "airport-transfers/sharjah", "airport-transfers/rak", "airport-transfers/al-ain",
 ]
 pages = _pages_slash + _pages_noslash
-urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><lastmod>{_LASTMOD}</lastmod></url>" for p in pages)
+urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><lastmod>{_page_lastmod(p)}</lastmod></url>" for p in pages)
 (SITE/"sitemap.xml").write_text(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>')
 (SITE/"robots.txt").write_text("User-agent: *\nAllow: /\nSitemap: https://umcdubai.ae/sitemap.xml\n")
 # ---------- legacy 301 redirects (Cloudflare Workers Static Assets _redirects) ----------
@@ -3778,6 +3825,10 @@ import shutil as _shutil_variants
 for card in (SITE/"assets"/"fleet").glob("*/*"):
     if card.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"): continue
     if card.stem.endswith("-360") or card.stem.endswith("-720"): continue
+    # The card 1080-slot copy (card-1080.<ext>) is referenced directly by cardImg()
+    # as the 1080w candidate; it needs no -360/-720 children. Skip it as a source so
+    # it doesn't spawn unused card-1080-360/-720 files (which also churn FV/?v=).
+    if card.stem == "card-1080": continue
     ensure_image_variants(card)
     for w in (360, 720):
         var = card.with_name(f"{card.stem}-{w}{card.suffix}")
