@@ -193,7 +193,7 @@ function renderFleet(el, opts){
     const opts = UMC_EMIRATES.map(p =>
       `<option value="${p[0]}"${p[0]===defaultEm?" selected":""}>${p[1]}</option>`
     ).join("");
-    return `<article class="vcard rv" data-cat="${esc(v.category)}" data-vid="${esc(v.id)}">
+    return `<article class="vcard rv" data-cat="${esc(v.category)}" data-vid="${esc(v.id)}" data-vehicle="${esc(v.name)}">
       <div class="vimg${v.photo?" photo":""}${v.flipImg?" flip":""}">${cardImg(v)}</div>
       <div class="vbody">
         <div class="vtitle"><h3>${v.page?`<a href="${esc(v.page)}">${esc(v.name)}</a>`:esc(v.name)}</h3>${v.marque?`<img class="marque" src="${esc(v.marque)}" alt="" loading="lazy">`:""}</div>
