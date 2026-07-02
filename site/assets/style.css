@@ -1078,7 +1078,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 
 .ca-approval{
   display:grid;grid-template-columns:1.3fr 1fr;gap:2rem;align-items:end;
-  padding:1.4rem 0 1.6rem;border-top:1px solid var(--line);
+  padding:1.4rem 0 .5rem;border-top:1px solid var(--line);
 }
 .ca-sigline{border-bottom:1px solid var(--ink);height:42px;display:flex;align-items:flex-end;padding-bottom:5px}
 .ca-signame{font-family:var(--serif);font-style:italic;font-size:1.1rem;color:var(--ink);transform:rotate(-1.2deg)}

@@ -1588,7 +1588,7 @@ events_body = header("events.html") + f"""
           <h2 class="ds-title">A fleet in formation, however large.</h2>
           <p class="ds-intro">From a single car to a convoy of more than a hundred, across one day or many. Every vehicle planned, staged and timed as one movement, your coordinator working alongside ours.</p>
         </div>
-        <div class="mo-no" aria-hidden="true">Order № <b>MO-2026-117</b><span>Issued by the concierge desk</span></div>
+        <div class="mo-no" aria-hidden="true">Order No. <b>MO-2026-117</b><span>Issued by the concierge desk</span></div>
       </header>
 
       <div class="mo-strength">
