@@ -1,6 +1,13 @@
 /* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 /* UMC Dubai,reservation flow */
 
+function trackLead(formId, service){
+  try{
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push({ event: 'lead_submit', form_id: formId, service: service || '' });
+  }catch(e){}
+}
+
 // Turnstile: render explicitly. The async api.js in <head> runs its one-time
 // auto-scan before #bkTs is parsed, so implicit auto-render is unreliable. The
 // cf-turnstile class was removed from #bkTs so only this explicit render runs.
@@ -390,6 +397,7 @@
         const r = await fetch("/api/lead", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload) });
         ok = r.ok;
       } catch(_) { ok = false; }
+      if (ok) trackLead('booking', state.service);
       if (form) form.classList.add("hide");
       if (done) {
         if (!ok) {

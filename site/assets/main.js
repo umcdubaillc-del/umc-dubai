@@ -278,6 +278,17 @@ window.umcPhone = {
   }
 })();
 
+// WhatsApp click signal for GTM (A2). This site links via api.whatsapp.com/send,
+// not wa.me, so the selector matches both. Delegated + attached once globally.
+document.addEventListener('click', function(e){
+  var a = e.target && e.target.closest && e.target.closest('a[href*="wa.me"], a[href*="api.whatsapp.com"]');
+  if(!a) return;
+  try{
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push({ event: 'whatsapp_click', link_context: (a.closest('[data-vehicle]')?.dataset.vehicle) || document.title.slice(0,60) });
+  }catch(e2){}
+});
+
 // homepage: Google Places on the hero form
 window.umcHomeMaps = function(){
   try{

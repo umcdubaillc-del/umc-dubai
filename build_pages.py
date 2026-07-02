@@ -1717,6 +1717,12 @@ contact_body = header("contact.html") + f"""
 
 """ + FOOTER + """
 <script>
+function trackLead(formId, service){
+  try{
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push({ event: 'lead_submit', form_id: formId, service: service || '' });
+  }catch(e){}
+}
 var cEmailEl = document.getElementById("cEmail");
 var C_EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 cEmailEl.addEventListener("input", function(){
@@ -1754,7 +1760,7 @@ document.getElementById("cSend").addEventListener("click", function(){
     flight: "", sign: "", notes: g("cMsg"),
     page: location.pathname, ts: new Date().toISOString()
   };
-  try { fetch("/api/lead", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(cPayload)}); } catch(_){}
+  try { fetch("/api/lead", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(cPayload)}).then(function(res){ if(res.ok) trackLead('contact', g("cVehicle")); }).catch(function(){}); } catch(_){}
 
   // Swap the form card for the done panel, then open WhatsApp ~600ms later.
   const formCard = document.getElementById("ctFormCard");
