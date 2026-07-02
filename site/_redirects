@@ -40,6 +40,13 @@
 /airport-transfers/rak-2               /airport-transfers/rak            301
 /airport-transfers/umm-al-quwain/      /rent-a-car-with-driver/umm-al-quwain/   301
 /airport-transfers/umm-al-quwain       /rent-a-car-with-driver/umm-al-quwain/   301
+# Old WP airport emirate pages used trailing slashes; new site serves them at the
+# clean no-slash path. Explicit 301 so it's a single hop (not a CF 308 normalise).
+/airport-transfers/dubai/              /airport-transfers/dubai          301
+/airport-transfers/abu-dhabi/          /airport-transfers/abu-dhabi      301
+/airport-transfers/sharjah/            /airport-transfers/sharjah        301
+/airport-transfers/rak/                /airport-transfers/rak            301
+/airport-transfers/al-ain/             /airport-transfers/al-ain         301
 
 # Removed city-tour SERVICE pages (3). NOTE: this is the SERVICE, NOT the
 # blog posts at /abu-dhabi-city-tour-private-driver/ and /half-day-city-tour-dubai/
@@ -73,6 +80,9 @@
 /our-fleet/rolls-royce                 /fleet/rolls-royce         301
 /our-fleet/luxury-bus-rental/          /fleet/luxury-coach        301
 /our-fleet/luxury-bus-rental           /fleet/luxury-coach        301
+# Catch-all for any other old brand/category page under /our-fleet/ (AFTER the
+# specific rules above so those win first-match).
+/our-fleet/*                           /fleet                     301
 
 # v69,legacy fleet model 301s
 /fleet/cadillac-escalade/2024/         /fleet/cadillac-escalade   301
@@ -100,3 +110,8 @@
 /post-sitemap.xml                      /sitemap.xml               301
 /fleet-sitemap.xml                     /sitemap.xml               301
 /testimonial-sitemap.xml               /sitemap.xml               301
+# Legacy WordPress machinery (uploads, REST API, RSS) -> home, so stray inbound
+# links and crawlers don't hit 404s after the platform migration.
+/wp-content/*                          /                          301
+/wp-json/*                             /                          301
+/feed/                                 /                          301

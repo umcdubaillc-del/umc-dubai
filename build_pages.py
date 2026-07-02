@@ -124,7 +124,7 @@ def _compute_v():
         if p.exists(): h.update(p.read_bytes())
     return h.hexdigest()[:10]
 V = _compute_v()
-OG_BASE = "https://umc-dubai.umcdubaillc.workers.dev"  # flip to https://umcdubai.ae at production cutover (the dead pages.dev was 404ing previews)
+OG_BASE = "https://umcdubai.ae"  # canonical production host (flipped from workers.dev for pre-cutover SEO: og:image + schema image/logo must be umcdubai.ae; resolves once DNS cuts over to this deployment)
 GTM_ID = "GTM-PNM6MRS7"
 GTM_HEAD = ("<!-- Google Tag Manager -->\n<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});"
  "var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;"
@@ -283,7 +283,7 @@ FOOTER = f"""</main>
       <div>
         <h4>Services</h4>
         <ul>
-          <li><a href="/airport-transfers">Airport transfer Dubai</a></li>
+          <li><a href="/airport-transfers/dubai">Airport transfer Dubai</a></li>
           <li><a href="/corporate">Corporate chauffeur</a></li>
           <li><a href="/inter-emirate">Inter-emirate transfers</a></li>
           <li><a href="/events">Wedding &amp; event service</a></li>
@@ -447,15 +447,23 @@ TERMS_DLG = ('<dialog id="termsDlg" class="terms">'
 """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#F6F1E7"/><text x="32" y="40" font-family="Georgia,serif" font-size="30" text-anchor="middle" fill="#221B14">U</text><rect x="22" y="47" width="20" height="2.5" fill="#C75B12"/></svg>""")
 
 # ---------- index ----------
+# v107 — LocalBusiness schema per SEO ticket Task 7a. Self-serving AggregateRating
+# removed (ineligible for star rich results since Google's Sept-2019 policy, and a
+# drift risk vs the live GBP count). Existing block had no address/geo/logo to carry
+# over, so this is the ticket block verbatim (adds @id, PostalAddress, structured
+# opening hours, Ajman + Fujairah to areaServed).
 ld_home = '<script type="application/ld+json">'+json.dumps({
- "@context":"https://schema.org","@type":"LocalBusiness","name":"UMC Dubai",
- "description":"Luxury chauffeur service in Dubai and across the UAE: airport transfers, corporate chauffeur programmes, hourly and full-day private drivers.",
- "url":"https://umcdubai.ae/","telephone":"+971586497861","email":"contact@umcdubai.ae",
- "sameAs":["https://www.facebook.com/umcdubai","https://www.instagram.com/umcdubai"],
- "image":"https://umcdubai.ae/assets/home/s-class-interior-meta.jpg",
- "areaServed":["Dubai","Abu Dhabi","Sharjah","Ras Al Khaimah","Al Ain","Umm Al Quwain"],
- "priceRange":"AED 350 - AED 2400","openingHours":"Mo-Su 00:00-24:00",
- "aggregateRating":{"@type":"AggregateRating","ratingValue":"5.0","reviewCount":"25"}})+'</script>'
+ "@context":"https://schema.org","@type":"LocalBusiness",
+ "@id":"https://umcdubai.ae/#business","name":"UMC Dubai",
+ "description":"Luxury chauffeur service in Dubai and across the UAE. Airport transfers, corporate chauffeur programmes and hourly hire, 24/7.",
+ "url":"https://umcdubai.ae/","telephone":"+971586497861",
+ "email":"contact@umcdubai.ae",
+ "image":"https://umcdubai.ae/assets/og-image.png",
+ "address":{"@type":"PostalAddress","addressLocality":"Dubai","addressCountry":"AE"},
+ "openingHoursSpecification":{"@type":"OpeningHoursSpecification","dayOfWeek":["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"],"opens":"00:00","closes":"23:59"},
+ "priceRange":"AED 350–2400",
+ "areaServed":["Dubai","Abu Dhabi","Sharjah","Ras Al Khaimah","Al Ain","Umm Al Quwain","Ajman","Fujairah"],
+ "sameAs":["https://www.facebook.com/umcdubai","https://www.instagram.com/umcdubai"]})+'</script>'
 
 index_body = header("index.html") + f"""
 <section class="hero2" id="book">
@@ -3675,9 +3683,8 @@ _pages_noslash = [
     "events",
     "about",
     "contact",
-    "booking",
-    "terms",
-    "privacy",
+    # booking / terms / privacy deliberately excluded from the sitemap (transactional
+    # + legal; not search targets). Blog + blog posts stay (migrated ranking content).
     # Fleet model pages (10,v83: king-long consolidated into luxury-coach)
     "fleet/s-class", "fleet/bmw-7-series", "fleet/e-class", "fleet/lexus-es",
     "fleet/cadillac-escalade", "fleet/gmc-yukon-xl", "fleet/v-class",
@@ -3739,6 +3746,13 @@ urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><lastmod>{_page_lastmod(
 /airport-transfers/rak-2               /airport-transfers/rak            301
 /airport-transfers/umm-al-quwain/      /rent-a-car-with-driver/umm-al-quwain/   301
 /airport-transfers/umm-al-quwain       /rent-a-car-with-driver/umm-al-quwain/   301
+# Old WP airport emirate pages used trailing slashes; new site serves them at the
+# clean no-slash path. Explicit 301 so it's a single hop (not a CF 308 normalise).
+/airport-transfers/dubai/              /airport-transfers/dubai          301
+/airport-transfers/abu-dhabi/          /airport-transfers/abu-dhabi      301
+/airport-transfers/sharjah/            /airport-transfers/sharjah        301
+/airport-transfers/rak/                /airport-transfers/rak            301
+/airport-transfers/al-ain/             /airport-transfers/al-ain         301
 
 # Removed city-tour SERVICE pages (3). NOTE: this is the SERVICE, NOT the
 # blog posts at /abu-dhabi-city-tour-private-driver/ and /half-day-city-tour-dubai/
@@ -3772,6 +3786,9 @@ urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><lastmod>{_page_lastmod(
 /our-fleet/rolls-royce                 /fleet/rolls-royce         301
 /our-fleet/luxury-bus-rental/          /fleet/luxury-coach        301
 /our-fleet/luxury-bus-rental           /fleet/luxury-coach        301
+# Catch-all for any other old brand/category page under /our-fleet/ (AFTER the
+# specific rules above so those win first-match).
+/our-fleet/*                           /fleet                     301
 
 # v69,legacy fleet model 301s
 /fleet/cadillac-escalade/2024/         /fleet/cadillac-escalade   301
@@ -3799,6 +3816,11 @@ urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><lastmod>{_page_lastmod(
 /post-sitemap.xml                      /sitemap.xml               301
 /fleet-sitemap.xml                     /sitemap.xml               301
 /testimonial-sitemap.xml               /sitemap.xml               301
+# Legacy WordPress machinery (uploads, REST API, RSS) -> home, so stray inbound
+# links and crawlers don't hit 404s after the platform migration.
+/wp-content/*                          /                          301
+/wp-json/*                             /                          301
+/feed/                                 /                          301
 """)
 (SITE/"_headers").write_text("""/*
   X-Content-Type-Options: nosniff
