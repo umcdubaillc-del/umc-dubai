@@ -4089,7 +4089,13 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   .history .hist-search{width:100%;flex:1 1 auto}
   .history .hist-typefilter{align-self:flex-start}
   .links-page{padding:1rem}
-  .lk-item-row{grid-template-columns:1fr 110px 28px;gap:.4rem}
+  /* Stack instead of shrink: row 1 = item name (full width), row 2 = price +
+     delete side by side. The old 1fr/110px/28px grid crowded the name box so
+     typed text wasn't visible on narrow phones. */
+  .lk-item-row{grid-template-columns:1fr 28px;grid-template-areas:"name name" "price del";gap:.45rem .5rem;align-items:center}
+  .lk-item-row input[data-lkk="name"]{grid-area:name}
+  .lk-item-row input[data-lkk="price"]{grid-area:price}
+  .lk-item-row .del{grid-area:del;align-self:center}
 
   /* ---- v100 baseline: edge-to-edge hairline list rows ---- */
   .history-wrap{padding:1.1rem 1rem 2rem}
@@ -4454,6 +4460,32 @@ button.job-callout.warn:hover{ background:rgba(168,75,12,.16); }
 /* Bottom-sheet quote-price Save button */
 .doc-sheet-qsave{ flex:0 0 auto; border:1px solid var(--ink); background:var(--ink); color:var(--bone); border-radius:8px; padding:.5rem 1rem; font-family:inherit; font-size:.9rem; font-weight:500; cursor:pointer; }
 .doc-sheet-qsave.doc-sheet-ok{ background:var(--paid,#2E7D54); border-color:var(--paid,#2E7D54); color:#fff; }
+
+/* v107 — themed flatpickr for the Create-popup date & time fields (Job/Invoice/
+   Payment Link). Native <input type=date|time> picker chrome is OS-rendered and
+   cannot be styled; binding flatpickr (see bindThemedPicker in PAGE_SCRIPT) and
+   these overrides render the picker in the workspace palette instead. Mirrors the
+   public /booking flatpickr theme, mapped onto the admin design tokens. */
+.flatpickr-calendar{background:var(--bone);border:1px solid var(--line);border-radius:4px;box-shadow:0 24px 48px -24px rgba(34,27,20,.45);font-family:Outfit,system-ui,sans-serif}
+.flatpickr-calendar.arrowTop:before,.flatpickr-calendar.arrowTop:after{border-bottom-color:var(--line)}
+.flatpickr-calendar.arrowBottom:before,.flatpickr-calendar.arrowBottom:after{border-top-color:var(--line)}
+.flatpickr-months .flatpickr-month{color:var(--ink);fill:var(--ink)}
+.flatpickr-current-month{font-family:Marcellus,Georgia,serif;font-size:1.05rem}
+.flatpickr-current-month .numInputWrapper{font-family:Outfit,sans-serif}
+.flatpickr-months .flatpickr-prev-month,.flatpickr-months .flatpickr-next-month{color:var(--muted);fill:var(--muted)}
+.flatpickr-months .flatpickr-prev-month:hover svg,.flatpickr-months .flatpickr-next-month:hover svg{fill:var(--amber-deep)}
+span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;letter-spacing:.14em;text-transform:uppercase}
+.flatpickr-day{color:var(--ink-soft);border-radius:2px;font-weight:400}
+.flatpickr-day:hover{background:var(--bone2);border-color:var(--bone2)}
+.flatpickr-day.today{border-color:var(--amber)}
+.flatpickr-day.today:hover{background:var(--bone2);color:var(--ink)}
+.flatpickr-day.selected,.flatpickr-day.selected:hover{background:var(--ink);border-color:var(--ink);color:var(--bone)}
+.flatpickr-day.flatpickr-disabled,.flatpickr-day.prevMonthDay,.flatpickr-day.nextMonthDay{color:#C9BFAC}
+.flatpickr-time{border-top:1px solid var(--hair)!important}
+.flatpickr-time input,.flatpickr-time .flatpickr-am-pm{color:var(--ink);font-family:Outfit,sans-serif}
+.flatpickr-time input:hover,.flatpickr-time input:focus,.flatpickr-time .flatpickr-am-pm:hover,.flatpickr-time .flatpickr-am-pm:focus{background:var(--bone2)}
+.flatpickr-numInputWrapper span.arrowUp:after{border-bottom-color:var(--muted)}
+.flatpickr-numInputWrapper span.arrowDown:after{border-top-color:var(--muted)}
 </style>
 </head>
 <body>
@@ -4990,6 +5022,52 @@ const PAGE_SCRIPT = `<script>
   // 00:00-03:59 GST would otherwise be stamped the previous UTC day). Derived
   // via timezone, never a hardcoded offset.
   function umcTodayDubai(){ return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dubai'}).format(new Date()); }
+  // v107 — themed date/time picker for the Create popups (New Job, Invoice,
+  // Payment Link). Native <input type=date|time> picker chrome is OS-drawn (can't
+  // match the workspace palette) and only opens from the tiny icon. Binding
+  // flatpickr fixes both: themed picker (styled via the .flatpickr-* CSS above)
+  // and clickOpens on the whole input. Contract-preserving: date stays "Y-m-d",
+  // time stays 24h "H:i" — exactly what the native inputs emitted and what the
+  // calendar / date+time sort / tomorrow-callout downstream all assume.
+  // Defensive: flatpickr is loaded with defer; if it's unavailable we leave the
+  // native input untouched and wire showPicker() on the wrapping .field so a tap
+  // anywhere still opens the native picker. Never worse than today.
+  // disableMobile:true forces the themed picker on phones (flatpickr otherwise
+  // hands off to the native mobile picker, which would defeat the theming — the
+  // whole point of this ticket).
+  function bindThemedPicker(el){
+    if(!el || el.dataset.fpBound === "1") return null;
+    const isTime = el.getAttribute("type") === "time";
+    const field = el.closest(".field") || el.parentNode;
+    if(typeof flatpickr === "function"){
+      try{
+        el.dataset.fpBound = "1";
+        el.type = "text";  // hand full control to flatpickr; suppress native OS chrome
+        const cfg = isTime
+          ? { enableTime:true, noCalendar:true, dateFormat:"H:i", time_24hr:true, allowInput:false, disableMobile:true }
+          : { dateFormat:"Y-m-d", allowInput:false, disableMobile:true };
+        cfg.onChange = function(){ el.dispatchEvent(new Event("input", {bubbles:true})); };
+        // Re-sync to the field's current value each time the picker opens, so a
+        // value set programmatically after bind (e.g. loading a saved invoice
+        // into #fDate) is reflected instead of showing a stale month. setDate's
+        // false flag avoids re-firing onChange (no loop).
+        cfg.onOpen = function(dates, str, inst){ if(el.value){ inst.setDate(el.value, false); } };
+        const inst = flatpickr(el, cfg);
+        // Open from anywhere on the field (label + box), not just the input glyph.
+        if(field){ field.addEventListener("click", function(ev){ if(ev.target !== el && inst && inst.open) inst.open(); }); }
+        return inst;
+      }catch(_){ el.dataset.fpBound = ""; }
+    }
+    // Native fallback: whole-field tap opens the OS picker (Chrome 99+/Safari 16.4+).
+    if(field && field.dataset.pickBound !== "1"){
+      field.dataset.pickBound = "1";
+      field.addEventListener("click", function(ev){
+        if(ev.target === el) return;
+        try{ if(typeof el.showPicker === "function"){ el.showPicker(); } else { el.focus(); } }catch(_){ el.focus(); }
+      });
+    }
+    return null;
+  }
   // ---------- constants
   const COMPANY = {
     legal: "UMC In Bound Tour Operator LLC",
@@ -5364,6 +5442,7 @@ const PAGE_SCRIPT = `<script>
     $("tInvoice").addEventListener("click", function(){ setType("invoice"); });
     $("fNumber").addEventListener("input", function(e){ state.number = e.target.value; renderDoc(); });
     $("fDate").addEventListener("input", function(e){ state.doc_date = e.target.value; renderDoc(); });
+    bindThemedPicker($("fDate"));
     $("fCurrency").addEventListener("change", function(e){ state.currency = e.target.value; renderTotals(); renderDoc(); });
     $("fVatMode").addEventListener("change", function(e){ state.vat_mode = e.target.value; renderTotals(); renderDoc(); });
     ["cName","cCompany","cAddress","cEmail","cPhone"].forEach(function(id){
@@ -5541,6 +5620,7 @@ const PAGE_SCRIPT = `<script>
       });
     }
     bindLkInputs(); renderLkItems();
+    bindThemedPicker($("lkExpiry"));
 
     // v85: lazy ref — loadLinks is the outer-scope let, assigned below.
     // Binding loadLinks directly here would capture undefined (assignment
@@ -6462,6 +6542,8 @@ const PAGE_SCRIPT = `<script>
     function close(){ try { document.body.removeChild(modal); } catch(_){} }
     function setStat(s){ var el = shell.querySelector("#jfStatus"); if(el) el.textContent = s || ""; }
     modal.querySelectorAll("[data-jf-close]").forEach(function(b){ b.addEventListener("click", function(e){ e.preventDefault(); close(); }); });
+    bindThemedPicker(shell.querySelector("#jfDate"));
+    bindThemedPicker(shell.querySelector("#jfTime"));
     backdrop.addEventListener("click", close);
     document.addEventListener("keydown", function jfEsc(e){ if(e.key === "Escape" && document.body.contains(modal)){ e.preventDefault(); close(); document.removeEventListener("keydown", jfEsc); } });
 
