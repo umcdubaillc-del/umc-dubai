@@ -3716,6 +3716,8 @@ urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><lastmod>{_LASTMOD}</las
 /testimonial/benjamin                  /                                 301
 /testimonial/hameed-bin-latif/         /                                 301
 /testimonial/hameed-bin-latif          /                                 301
+# Long-tail testimonial catch-all: any un-named /testimonial/* path -> /about.
+/testimonial/*                         /about                            301
 
 # v70,/our-fleet/* legacy 301s to the new dedicated pages. These EXPLICIT
 # rules must precede any future /our-fleet/* catch-all so they win on match.
@@ -3743,6 +3745,13 @@ urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><lastmod>{_LASTMOD}</las
 /fleet/king-long-model-2025            /fleet/luxury-coach        301
 /fleet/mercedes-benz-e-class/          /fleet/e-class             301
 /fleet/mercedes-benz-e-class           /fleet/e-class             301
+
+# Legacy WordPress sitemap indexes -> single canonical sitemap.
+/sitemap_index.xml                     /sitemap.xml               301
+/page-sitemap.xml                      /sitemap.xml               301
+/post-sitemap.xml                      /sitemap.xml               301
+/fleet-sitemap.xml                     /sitemap.xml               301
+/testimonial-sitemap.xml               /sitemap.xml               301
 """)
 (SITE/"_headers").write_text("""/*
   X-Content-Type-Options: nosniff
