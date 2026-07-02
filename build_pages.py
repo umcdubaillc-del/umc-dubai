@@ -1448,7 +1448,10 @@ corp_body = header("corporate.html") + f"""
 <section class="sec">
   <div class="wrap">
     <div class="dossier acctfile rv">
-      <div class="ca-tab" aria-hidden="true"><span class="ca-punch"></span>Corporate account · File UMC-CA-&#8202;____</div>
+      <div class="ca-bar" aria-hidden="true">
+        <span class="ca-bar-l"><span class="ca-punch"></span>Corporate account · File UMC-CA-2026-041</span>
+        <span class="ca-bar-r">Private &amp; confidential</span>
+      </div>
 
       <header class="ds-head">
         <div class="ds-headL">
@@ -1466,7 +1469,7 @@ corp_body = header("corporate.html") + f"""
       </header>
 
       <div class="ca-registry">
-        <div class="ca-field"><span class="ca-k">Account holder</span><span class="ca-v"><span class="ca-dotline">Your company</span></span></div>
+        <div class="ca-field"><span class="ca-k">Account holder</span><span class="ca-v">Your company</span></div>
         <div class="ca-field"><span class="ca-k">Account contact</span><span class="ca-v">Dedicated, named</span></div>
         <div class="ca-field"><span class="ca-k">Invoicing</span><span class="ca-v">Monthly, consolidated</span></div>
         <div class="ca-field"><span class="ca-k">Status</span><span class="ca-v ca-open"><span class="ca-dot"></span>Open in 48 hours</span></div>
@@ -1475,12 +1478,12 @@ corp_body = header("corporate.html") + f"""
       <div class="ca-sched-head"><span class="ca-sched-t">Schedule of services</span><span class="ca-sched-n">Applies to every journey on the account</span></div>
 
       <div class="ca-clauses">
-        <div class="ca-clause"><span class="ca-no">§ 1</span><div><h3 class="ca-ct">One account, one invoice</h3><p class="ca-cd">A dedicated account contact, consolidated monthly invoicing with per-journey breakdowns, and cost-centre references on request.</p></div></div>
-        <div class="ca-clause"><span class="ca-no">§ 2</span><div><h3 class="ca-ct">Booking authority</h3><p class="ca-cd">Assistants and travel managers reserve for executives and guests in minutes by phone, WhatsApp or email. A name board waits at every arrival.</p></div></div>
-        <div class="ca-clause"><span class="ca-no">§ 3</span><div><h3 class="ca-ct">Duty of care</h3><p class="ca-cd">Employed and background-checked chauffeurs in maintained late-model vehicles, with live flight tracking and a human escalation path at any hour.</p></div></div>
-        <div class="ca-clause"><span class="ca-no">§ 4</span><div><h3 class="ca-ct">Roadshows &amp; movements</h3><p class="ca-cd">Investor roadshows, delegations and multi-car convoys coordinated to the minute under a single point of contact.</p></div></div>
-        <div class="ca-clause"><span class="ca-no">§ 5</span><div><h3 class="ca-ct">Discretion</h3><p class="ca-cd">Our chauffeurs serve senior executives daily. Conversations, documents and itineraries stay in the car.</p></div></div>
-        <div class="ca-clause"><span class="ca-no">§ 6</span><div><h3 class="ca-ct">Fixed corporate rates</h3><p class="ca-cd">Agreed rates that include the chauffeur, fuel, Salik and parking, so finance sees no surprises.</p></div></div>
+        <div class="ca-clause"><span class="ca-no">01</span><div><h3 class="ca-ct">One account, one invoice</h3><p class="ca-cd">A dedicated account contact, consolidated monthly invoicing with per-journey breakdowns, and cost-centre references on request.</p></div></div>
+        <div class="ca-clause"><span class="ca-no">02</span><div><h3 class="ca-ct">Booking authority</h3><p class="ca-cd">Assistants and travel managers reserve for executives and guests in minutes by phone, WhatsApp or email. A name board waits at every arrival.</p></div></div>
+        <div class="ca-clause"><span class="ca-no">03</span><div><h3 class="ca-ct">Duty of care</h3><p class="ca-cd">Employed and background-checked chauffeurs in maintained late-model vehicles, with live flight tracking and a human escalation path at any hour.</p></div></div>
+        <div class="ca-clause"><span class="ca-no">04</span><div><h3 class="ca-ct">Roadshows &amp; movements</h3><p class="ca-cd">Investor roadshows, delegations and multi-car convoys coordinated to the minute under a single point of contact.</p></div></div>
+        <div class="ca-clause"><span class="ca-no">05</span><div><h3 class="ca-ct">Discretion</h3><p class="ca-cd">Our chauffeurs serve senior executives daily. Conversations, documents and itineraries stay in the car.</p></div></div>
+        <div class="ca-clause"><span class="ca-no">06</span><div><h3 class="ca-ct">Fixed corporate rates</h3><p class="ca-cd">Agreed rates that include the chauffeur, fuel, Salik and parking, so finance sees no surprises.</p></div></div>
       </div>
 
       <div class="ca-approval">
@@ -1585,37 +1588,35 @@ events_body = header("events.html") + f"""
           <h2 class="ds-title">A fleet in formation, however large.</h2>
           <p class="ds-intro">From a single car to a convoy of more than a hundred, across one day or many. Every vehicle planned, staged and timed as one movement, your coordinator working alongside ours.</p>
         </div>
-        <div class="mo-no" aria-hidden="true">Order № <b>MO-&#8202;____</b><span>Issued by the concierge desk</span></div>
+        <div class="mo-no" aria-hidden="true">Order № <b>MO-2026-117</b><span>Issued by the concierge desk</span></div>
       </header>
 
       <div class="mo-strength">
-        <div class="mo-cell"><span class="mo-k">Fleet assigned</span><span class="mo-v">1–100+
-          <span class="mo-tally" aria-hidden="true"><i></i><i></i><i></i><i></i><i class="mo-slash"></i><span class="mo-gap"></span><i></i><i></i><i></i><i></i><i class="mo-slash"></i><span class="mo-gap"></span><i class="mo-res"></i><i class="mo-res"></i></span>
-        </span></div>
+        <div class="mo-cell"><span class="mo-k">Fleet assigned</span><span class="mo-v">1–100+ vehicles</span></div>
         <div class="mo-cell"><span class="mo-k">Duration</span><span class="mo-v">Single or multi-day</span></div>
         <div class="mo-cell"><span class="mo-k">Status</span><span class="mo-v mo-ready"><span class="mo-dot"></span>Ready to plan</span></div>
       </div>
 
       <div class="mo-timeline">
         <div class="mo-move">
-          <div class="mo-t">T&#8202;−&#8202;14 days<small>Enquiry</small></div>
+          <div class="mo-t">14 days before<small>Enquiry</small></div>
           <div class="mo-node" aria-hidden="true"></div>
           <div class="mo-card"><div class="mo-row"><h3>You tell us the occasion</h3><span class="mo-stamp">Quoted</span></div><p>The occasion, the guests, the venues. We quote the fleet, and add cars as the plan grows.</p></div>
         </div>
         <div class="mo-move">
-          <div class="mo-t">T&#8202;−&#8202;7 days<small>Planning</small></div>
+          <div class="mo-t">7 days before<small>Planning</small></div>
           <div class="mo-node" aria-hidden="true"></div>
           <div class="mo-card"><div class="mo-row"><h3>Every movement agreed</h3><span class="mo-stamp">Scheduled</span></div><p>Your coordinator and ours settle each movement: airport arrivals, shuttles, every car assigned to its party, hour by hour.</p></div>
         </div>
         <div class="mo-move">
-          <div class="mo-t">T&#8202;−&#8202;90 min<small>Staging</small></div>
+          <div class="mo-t">90 min before<small>Staging</small></div>
           <div class="mo-node" aria-hidden="true"></div>
           <div class="mo-card"><div class="mo-row"><h3>Cars staged on site</h3><span class="mo-stamp">Staged</span></div><p>Every vehicle positioned, inspected and dressed before the first guest is anywhere near a kerb.</p></div>
         </div>
         <div class="mo-move mo-hhour">
-          <div class="mo-t">H&#8202;+&#8202;00<small>First arrival</small></div>
+          <div class="mo-t">On the hour<small>First arrival</small></div>
           <div class="mo-node" aria-hidden="true"></div>
-          <div class="mo-card"><div class="mo-row"><h3>The fleet moves as one</h3><span class="mo-stamp mo-hot">Rolling</span></div><p>Arrivals to the minute, convoys in formation, one point of contact through to the last departure.</p></div>
+          <div class="mo-card"><div class="mo-row"><h3>The fleet moves as one</h3><span class="mo-stamp mo-hot">Underway</span></div><p>Arrivals to the minute, convoys in formation, one point of contact through to the last departure.</p></div>
         </div>
       </div>
 
