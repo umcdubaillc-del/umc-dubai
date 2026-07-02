@@ -3783,4 +3783,14 @@ for card in (SITE/"assets"/"fleet").glob("*/*"):
         var = card.with_name(f"{card.stem}-{w}{card.suffix}")
         if not var.exists():
             _shutil_variants.copy2(card, var)
+    # cardImg() in fleet-data.js also advertises a 1080w srcset candidate
+    # (card-1080.<ext>). ensure_image_variants() skips it when the card source is
+    # <1080px wide (it never upscales), which 404s the 1080w slot on retina. Scope
+    # this fallback to the card source itself (stem == "card") so we don't spawn
+    # junk -1080-1080 files off the hero-1080/detail-1080 sources; copy the source
+    # verbatim when the real downscale is absent, exactly like the 360/720 case.
+    if card.stem == "card":
+        var = card.with_name(f"card-1080{card.suffix}")
+        if not var.exists():
+            _shutil_variants.copy2(card, var)
 print("all pages written")
