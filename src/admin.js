@@ -4336,6 +4336,10 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
 .doc-sheet-note{ color:var(--muted); font-size:.85rem; line-height:1.45; padding:.1rem .2rem .3rem; }
 /* Paid-invoice lock banner + adjust-after-payment warning (editor) */
 .paid-lock{ display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; background:rgba(46,125,84,.10); border:1px solid rgba(46,125,84,.35); color:var(--ink); border-radius:8px; padding:.7rem .9rem; margin:0 0 1rem; font-size:.9rem; line-height:1.45; }
+/* display:flex above beat the browser default [hidden]{display:none}, so the
+   banner showed on brand-new (unsaved, unpaid) docs where the JS correctly sets
+   the hidden attribute. Restore the exception. */
+.paid-lock[hidden]{ display:none; }
 .paid-lock__msg{ flex:1 1 220px; }
 .paid-lock #btnEditAnyway{ flex:0 0 auto; }
 .paid-warn{ background:rgba(168,75,12,.10); border:1px solid rgba(168,75,12,.40); color:var(--amber-deep); border-radius:8px; padding:.7rem .9rem; margin:0 0 1rem; font-size:.9rem; line-height:1.45; }
@@ -4782,7 +4786,7 @@ function appShellHTML() {
      openLinkPreviewModal flow keeps working unchanged; only the host moves. -->
 <div id="lkCreateModal" class="ed-modal" hidden role="dialog" aria-modal="true" aria-labelledby="lkCreateTitle">
   <div class="ed-backdrop" data-lkmclose aria-hidden="true"></div>
-  <div class="ed-shell" style="max-width:680px;max-height:90vh;inset:auto;position:absolute;top:5vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55);display:flex;flex-direction:column">
+  <div class="ed-shell">
     <header class="ed-head" style="padding:1rem 1.4rem">
       <h2 id="lkCreateTitle" style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.22rem">New payment link</h2>
       <button type="button" class="btn btn-small btn-ghost" data-lkmclose>Close</button>
