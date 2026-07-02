@@ -29,7 +29,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://maps.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/style.css?v=354fcc070b">
+<link rel="stylesheet" href="/assets/style.css?v=94813a0a40">
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 
 <!-- Google Tag Manager -->
@@ -72,25 +72,48 @@
           <h2 class="ds-title">A fleet in formation, however large.</h2>
           <p class="ds-intro">From a single car to a convoy of more than a hundred, across one day or many. Every vehicle planned, staged and timed as one movement, your coordinator working alongside ours.</p>
         </div>
-        <div class="ds-stamp" aria-hidden="true">
-          <div class="ds-stamp-row"><span class="k">Fleet</span><span class="v">1&ndash;100+</span></div>
-          <div class="ds-stamp-row"><span class="k">Duration</span><span class="v">Single / multi-day</span></div>
-          <div class="ds-stamp-row"><span class="k">Status</span><span class="v amb">Ready</span></div>
-        </div>
+        <div class="mo-no" aria-hidden="true">Order № <b>MO-&#8202;____</b><span>Issued by the concierge desk</span></div>
       </header>
-      <div class="fm-rows">
-        <div class="fm-row"><div class="fm-label"><span class="fm-title">Enquiry</span><span class="fm-sub">Phase 01</span></div><p class="fm-desc">You tell us the occasion and the guests. We quote the fleet, and add cars as the plan grows.</p><span class="fm-tag">Quoted</span></div>
-        <div class="fm-row"><div class="fm-label"><span class="fm-title">Planning</span><span class="fm-sub">Phase 02</span></div><p class="fm-desc">Your coordinator and ours agree every movement: airport arrivals, shuttles, each car assigned to its party, hour by hour.</p><span class="fm-tag">Scheduled</span></div>
-        <div class="fm-row"><div class="fm-label"><span class="fm-title">Execution</span><span class="fm-sub">Phase 03</span></div><p class="fm-desc">Every car staged on site to schedule, moving in formation under a single point of contact.</p><span class="fm-tag">Staged</span></div>
-        <div class="fm-row"><div class="fm-label"><span class="fm-title">Held in reserve</span><span class="fm-sub">Standby</span></div><p class="fm-desc">Spare cars on standby for the unplanned, so a change of guest or schedule is never a problem you see.</p><span class="fm-tag">Reserve</span></div>
+
+      <div class="mo-strength">
+        <div class="mo-cell"><span class="mo-k">Fleet assigned</span><span class="mo-v">1–100+
+          <span class="mo-tally" aria-hidden="true"><i></i><i></i><i></i><i></i><i class="mo-slash"></i><span class="mo-gap"></span><i></i><i></i><i></i><i></i><i class="mo-slash"></i><span class="mo-gap"></span><i class="mo-res"></i><i class="mo-res"></i></span>
+        </span></div>
+        <div class="mo-cell"><span class="mo-k">Duration</span><span class="mo-v">Single or multi-day</span></div>
+        <div class="mo-cell"><span class="mo-k">Status</span><span class="mo-v mo-ready"><span class="mo-dot"></span>Ready to plan</span></div>
       </div>
-      <div class="fm-pair">
-        <div><span class="fm-pair-lbl">Coordination</span><p>Your coordinator briefs ours once. From there the entire vehicle layer is ours to run.</p></div>
-        <div><span class="fm-pair-lbl">The fleet</span><p>Rolls-Royce, limousines, S Class, a matched fleet of any marque. You name it, we arrange it.</p></div>
+
+      <div class="mo-timeline">
+        <div class="mo-move">
+          <div class="mo-t">T&#8202;−&#8202;14 days<small>Enquiry</small></div>
+          <div class="mo-node" aria-hidden="true"></div>
+          <div class="mo-card"><div class="mo-row"><h3>You tell us the occasion</h3><span class="mo-stamp">Quoted</span></div><p>The occasion, the guests, the venues. We quote the fleet, and add cars as the plan grows.</p></div>
+        </div>
+        <div class="mo-move">
+          <div class="mo-t">T&#8202;−&#8202;7 days<small>Planning</small></div>
+          <div class="mo-node" aria-hidden="true"></div>
+          <div class="mo-card"><div class="mo-row"><h3>Every movement agreed</h3><span class="mo-stamp">Scheduled</span></div><p>Your coordinator and ours settle each movement: airport arrivals, shuttles, every car assigned to its party, hour by hour.</p></div>
+        </div>
+        <div class="mo-move">
+          <div class="mo-t">T&#8202;−&#8202;90 min<small>Staging</small></div>
+          <div class="mo-node" aria-hidden="true"></div>
+          <div class="mo-card"><div class="mo-row"><h3>Cars staged on site</h3><span class="mo-stamp">Staged</span></div><p>Every vehicle positioned, inspected and dressed before the first guest is anywhere near a kerb.</p></div>
+        </div>
+        <div class="mo-move mo-hhour">
+          <div class="mo-t">H&#8202;+&#8202;00<small>First arrival</small></div>
+          <div class="mo-node" aria-hidden="true"></div>
+          <div class="mo-card"><div class="mo-row"><h3>The fleet moves as one</h3><span class="mo-stamp mo-hot">Rolling</span></div><p>Arrivals to the minute, convoys in formation, one point of contact through to the last departure.</p></div>
+        </div>
       </div>
+
+      <div class="mo-reserve">
+        <span class="mo-rk">Held in reserve</span>
+        <p>Spare cars stand by throughout for the unplanned, so a change of guest or schedule is never a problem you see. Rolls-Royce, limousines, S&nbsp;Class — a matched fleet of any marque.</p>
+      </div>
+
       <footer class="ds-foot">
-        <span class="ds-foot-line">One movement &middot; One point of contact &middot; Nothing your guests see go wrong</span>
-        <a class="ds-foot-cta" href="/contact">Plan your event &rarr;</a>
+        <span class="ds-foot-line">One movement · One point of contact · Nothing your guests see go wrong</span>
+        <a class="ds-foot-cta" href="/contact">Plan your event →</a>
       </footer>
     </div>
   </div>
@@ -174,6 +197,6 @@
   <svg viewBox="0 0 32 32"><path d="M16 .8C7.6.8.8 7.6.8 16c0 2.7.7 5.3 2 7.6L.7 31.3l7.9-2.1c2.2 1.2 4.7 1.9 7.4 1.9 8.4 0 15.2-6.8 15.2-15.1S24.4.8 16 .8zm0 27.7c-2.4 0-4.7-.7-6.7-1.9l-.5-.3-4.7 1.2 1.3-4.6-.3-.5a12.4 12.4 0 0 1-1.9-6.6C3.2 9 8.9 3.3 16 3.3S28.8 9 28.8 16 23.1 28.5 16 28.5zm7-9.4c-.4-.2-2.3-1.1-2.6-1.2-.4-.1-.6-.2-.9.2-.3.4-1 1.2-1.2 1.5-.2.3-.4.3-.8.1-.4-.2-1.6-.6-3.1-1.9-1.1-1-1.9-2.2-2.1-2.6-.2-.4 0-.6.2-.8l.6-.7c.2-.2.3-.4.4-.6.1-.3 0-.5 0-.7l-1.2-2.8c-.3-.7-.6-.6-.9-.6h-.7c-.3 0-.7.1-1 .5-.4.4-1.3 1.3-1.3 3.2s1.4 3.7 1.6 4c.2.3 2.7 4.1 6.6 5.8.9.4 1.6.6 2.2.8.9.3 1.8.3 2.4.2.7-.1 2.3-.9 2.6-1.8.3-.9.3-1.7.2-1.8-.1-.2-.3-.3-.7-.5z"/></svg>
 </a>
 <script>window.UMC_FLEET_V="b8a47b7502";</script>
-<script src="/assets/fleet-data.js?v=354fcc070b"></script>
-<script src="/assets/main.js?v=354fcc070b"></script>
+<script src="/assets/fleet-data.js?v=94813a0a40"></script>
+<script src="/assets/main.js?v=94813a0a40"></script>
 </body></html>

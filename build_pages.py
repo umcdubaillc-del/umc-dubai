@@ -1448,28 +1448,52 @@ corp_body = header("corporate.html") + f"""
 <section class="sec">
   <div class="wrap">
     <div class="dossier acctfile rv">
+      <div class="ca-tab" aria-hidden="true"><span class="ca-punch"></span>Corporate account · File UMC-CA-&#8202;____</div>
+
       <header class="ds-head">
         <div class="ds-headL">
           <span class="ds-kicker">UMC Dubai, Corporate Account</span>
           <h2 class="ds-title">Your account, on file.</h2>
-          <p class="ds-intro">One agreement covers how your company moves. Everything below is held on your account and applied to every journey.</p>
+          <p class="ds-intro">One agreement covers how your company moves. Everything in this file is held on your account and applied to every journey, for every traveller you send.</p>
         </div>
-        <div class="ds-stamp" aria-hidden="true">
-          <div class="ds-stamp-row"><span class="k">Account</span><span class="v">Corporate</span></div>
-          <div class="ds-stamp-row"><span class="k">Status</span><span class="v amb">Open</span></div>
+        <div class="ca-seal" aria-hidden="true">
+          <svg viewBox="0 0 88 88">
+            <defs><path id="caCirc" d="M44,44 m-31,0 a31,31 0 1,1 62,0 a31,31 0 1,1 -62,0"/></defs>
+            <text class="ca-seal-ring"><textPath href="#caCirc">UMC DUBAI · CORPORATE DESK · 24/7 ·</textPath></text>
+          </svg>
+          <span class="ca-seal-mark">UMC</span>
         </div>
       </header>
-      <div class="acct-grid">
-        <div class="acct-item"><div class="acct-meta"><span class="acct-num">01</span><span class="acct-cat">Account</span></div><h3 class="acct-title">One account, one invoice</h3><p class="acct-desc">A dedicated account contact, consolidated monthly invoicing with per-journey breakdowns, and cost-centre references on request.</p></div>
-        <div class="acct-item"><div class="acct-meta"><span class="acct-num">02</span><span class="acct-cat">Booking</span></div><h3 class="acct-title">Book for anyone</h3><p class="acct-desc">Assistants and travel managers reserve for executives and guests in minutes by phone, WhatsApp or email. A name board waits at every arrival.</p></div>
-        <div class="acct-item"><div class="acct-meta"><span class="acct-num">03</span><span class="acct-cat">Duty of care</span></div><h3 class="acct-title">Vetted and accountable</h3><p class="acct-desc">Employed and background-checked chauffeurs in maintained late-model vehicles, with live flight tracking and a human escalation path at any hour.</p></div>
-        <div class="acct-item"><div class="acct-meta"><span class="acct-num">04</span><span class="acct-cat">Roadshows</span></div><h3 class="acct-title">Movements, to the minute</h3><p class="acct-desc">Investor roadshows, delegations and multi-car convoys coordinated under a single point of contact.</p></div>
-        <div class="acct-item"><div class="acct-meta"><span class="acct-num">05</span><span class="acct-cat">Discretion</span></div><h3 class="acct-title">Confidential by default</h3><p class="acct-desc">Our chauffeurs serve senior executives daily. Conversations, documents and itineraries stay in the car.</p></div>
-        <div class="acct-item"><div class="acct-meta"><span class="acct-num">06</span><span class="acct-cat">Certainty</span></div><h3 class="acct-title">Fixed corporate rates</h3><p class="acct-desc">Agreed rates that include the chauffeur, fuel, Salik and parking, so finance sees no surprises.</p></div>
+
+      <div class="ca-registry">
+        <div class="ca-field"><span class="ca-k">Account holder</span><span class="ca-v"><span class="ca-dotline">Your company</span></span></div>
+        <div class="ca-field"><span class="ca-k">Account contact</span><span class="ca-v">Dedicated, named</span></div>
+        <div class="ca-field"><span class="ca-k">Invoicing</span><span class="ca-v">Monthly, consolidated</span></div>
+        <div class="ca-field"><span class="ca-k">Status</span><span class="ca-v ca-open"><span class="ca-dot"></span>Open in 48 hours</span></div>
       </div>
+
+      <div class="ca-sched-head"><span class="ca-sched-t">Schedule of services</span><span class="ca-sched-n">Applies to every journey on the account</span></div>
+
+      <div class="ca-clauses">
+        <div class="ca-clause"><span class="ca-no">§ 1</span><div><h3 class="ca-ct">One account, one invoice</h3><p class="ca-cd">A dedicated account contact, consolidated monthly invoicing with per-journey breakdowns, and cost-centre references on request.</p></div></div>
+        <div class="ca-clause"><span class="ca-no">§ 2</span><div><h3 class="ca-ct">Booking authority</h3><p class="ca-cd">Assistants and travel managers reserve for executives and guests in minutes by phone, WhatsApp or email. A name board waits at every arrival.</p></div></div>
+        <div class="ca-clause"><span class="ca-no">§ 3</span><div><h3 class="ca-ct">Duty of care</h3><p class="ca-cd">Employed and background-checked chauffeurs in maintained late-model vehicles, with live flight tracking and a human escalation path at any hour.</p></div></div>
+        <div class="ca-clause"><span class="ca-no">§ 4</span><div><h3 class="ca-ct">Roadshows &amp; movements</h3><p class="ca-cd">Investor roadshows, delegations and multi-car convoys coordinated to the minute under a single point of contact.</p></div></div>
+        <div class="ca-clause"><span class="ca-no">§ 5</span><div><h3 class="ca-ct">Discretion</h3><p class="ca-cd">Our chauffeurs serve senior executives daily. Conversations, documents and itineraries stay in the car.</p></div></div>
+        <div class="ca-clause"><span class="ca-no">§ 6</span><div><h3 class="ca-ct">Fixed corporate rates</h3><p class="ca-cd">Agreed rates that include the chauffeur, fuel, Salik and parking, so finance sees no surprises.</p></div></div>
+      </div>
+
+      <div class="ca-approval">
+        <div class="ca-sig">
+          <div class="ca-sigline"><span class="ca-signame">Awaiting your signature</span></div>
+          <span class="ca-sigcap">Authorised signatory · Your company</span>
+        </div>
+        <div class="ca-stamp" aria-hidden="true">Account opens<b>Within 48 hrs</b>of company details</div>
+      </div>
+
       <footer class="ds-foot">
-        <span class="ds-foot-line">Held in confidence &middot; One account &middot; One standard</span>
-        <a class="ds-foot-cta" href="/contact?vehicle=Corporate%20Account">Open an account &rarr;</a>
+        <span class="ds-foot-line">Held in confidence · One account · One standard</span>
+        <a class="ds-foot-cta" href="/contact?vehicle=Corporate%20Account">Open an account →</a>
       </footer>
     </div>
   </div>
@@ -1561,25 +1585,48 @@ events_body = header("events.html") + f"""
           <h2 class="ds-title">A fleet in formation, however large.</h2>
           <p class="ds-intro">From a single car to a convoy of more than a hundred, across one day or many. Every vehicle planned, staged and timed as one movement, your coordinator working alongside ours.</p>
         </div>
-        <div class="ds-stamp" aria-hidden="true">
-          <div class="ds-stamp-row"><span class="k">Fleet</span><span class="v">1&ndash;100+</span></div>
-          <div class="ds-stamp-row"><span class="k">Duration</span><span class="v">Single / multi-day</span></div>
-          <div class="ds-stamp-row"><span class="k">Status</span><span class="v amb">Ready</span></div>
-        </div>
+        <div class="mo-no" aria-hidden="true">Order № <b>MO-&#8202;____</b><span>Issued by the concierge desk</span></div>
       </header>
-      <div class="fm-rows">
-        <div class="fm-row"><div class="fm-label"><span class="fm-title">Enquiry</span><span class="fm-sub">Phase 01</span></div><p class="fm-desc">You tell us the occasion and the guests. We quote the fleet, and add cars as the plan grows.</p><span class="fm-tag">Quoted</span></div>
-        <div class="fm-row"><div class="fm-label"><span class="fm-title">Planning</span><span class="fm-sub">Phase 02</span></div><p class="fm-desc">Your coordinator and ours agree every movement: airport arrivals, shuttles, each car assigned to its party, hour by hour.</p><span class="fm-tag">Scheduled</span></div>
-        <div class="fm-row"><div class="fm-label"><span class="fm-title">Execution</span><span class="fm-sub">Phase 03</span></div><p class="fm-desc">Every car staged on site to schedule, moving in formation under a single point of contact.</p><span class="fm-tag">Staged</span></div>
-        <div class="fm-row"><div class="fm-label"><span class="fm-title">Held in reserve</span><span class="fm-sub">Standby</span></div><p class="fm-desc">Spare cars on standby for the unplanned, so a change of guest or schedule is never a problem you see.</p><span class="fm-tag">Reserve</span></div>
+
+      <div class="mo-strength">
+        <div class="mo-cell"><span class="mo-k">Fleet assigned</span><span class="mo-v">1–100+
+          <span class="mo-tally" aria-hidden="true"><i></i><i></i><i></i><i></i><i class="mo-slash"></i><span class="mo-gap"></span><i></i><i></i><i></i><i></i><i class="mo-slash"></i><span class="mo-gap"></span><i class="mo-res"></i><i class="mo-res"></i></span>
+        </span></div>
+        <div class="mo-cell"><span class="mo-k">Duration</span><span class="mo-v">Single or multi-day</span></div>
+        <div class="mo-cell"><span class="mo-k">Status</span><span class="mo-v mo-ready"><span class="mo-dot"></span>Ready to plan</span></div>
       </div>
-      <div class="fm-pair">
-        <div><span class="fm-pair-lbl">Coordination</span><p>Your coordinator briefs ours once. From there the entire vehicle layer is ours to run.</p></div>
-        <div><span class="fm-pair-lbl">The fleet</span><p>Rolls-Royce, limousines, S Class, a matched fleet of any marque. You name it, we arrange it.</p></div>
+
+      <div class="mo-timeline">
+        <div class="mo-move">
+          <div class="mo-t">T&#8202;−&#8202;14 days<small>Enquiry</small></div>
+          <div class="mo-node" aria-hidden="true"></div>
+          <div class="mo-card"><div class="mo-row"><h3>You tell us the occasion</h3><span class="mo-stamp">Quoted</span></div><p>The occasion, the guests, the venues. We quote the fleet, and add cars as the plan grows.</p></div>
+        </div>
+        <div class="mo-move">
+          <div class="mo-t">T&#8202;−&#8202;7 days<small>Planning</small></div>
+          <div class="mo-node" aria-hidden="true"></div>
+          <div class="mo-card"><div class="mo-row"><h3>Every movement agreed</h3><span class="mo-stamp">Scheduled</span></div><p>Your coordinator and ours settle each movement: airport arrivals, shuttles, every car assigned to its party, hour by hour.</p></div>
+        </div>
+        <div class="mo-move">
+          <div class="mo-t">T&#8202;−&#8202;90 min<small>Staging</small></div>
+          <div class="mo-node" aria-hidden="true"></div>
+          <div class="mo-card"><div class="mo-row"><h3>Cars staged on site</h3><span class="mo-stamp">Staged</span></div><p>Every vehicle positioned, inspected and dressed before the first guest is anywhere near a kerb.</p></div>
+        </div>
+        <div class="mo-move mo-hhour">
+          <div class="mo-t">H&#8202;+&#8202;00<small>First arrival</small></div>
+          <div class="mo-node" aria-hidden="true"></div>
+          <div class="mo-card"><div class="mo-row"><h3>The fleet moves as one</h3><span class="mo-stamp mo-hot">Rolling</span></div><p>Arrivals to the minute, convoys in formation, one point of contact through to the last departure.</p></div>
+        </div>
       </div>
+
+      <div class="mo-reserve">
+        <span class="mo-rk">Held in reserve</span>
+        <p>Spare cars stand by throughout for the unplanned, so a change of guest or schedule is never a problem you see. Rolls-Royce, limousines, S&nbsp;Class — a matched fleet of any marque.</p>
+      </div>
+
       <footer class="ds-foot">
-        <span class="ds-foot-line">One movement &middot; One point of contact &middot; Nothing your guests see go wrong</span>
-        <a class="ds-foot-cta" href="/contact">Plan your event &rarr;</a>
+        <span class="ds-foot-line">One movement · One point of contact · Nothing your guests see go wrong</span>
+        <a class="ds-foot-cta" href="/contact">Plan your event →</a>
       </footer>
     </div>
   </div>
