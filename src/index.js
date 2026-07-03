@@ -326,9 +326,36 @@ export function emailWordmark() {
 }
 
 // Internal notification email — sent to LEAD_EMAIL_TO (the concierge desk).
+// Single Resend POST + per-call diagnostic log. role is "notify" (internal) or
+// "customer" (receipt). Logs an ISO timestamp and the Resend message id so a gap
+// between the two sends is diagnosable from Worker logs alone (tail: "RESEND ok").
+// No retry/backoff: a lead is captured in D1 first, and Resend accepts+queues on
+// its side, so re-POSTing here would risk duplicate sends without fixing latency.
+async function resendSend(env, message, role) {
+  const stamp = new Date().toISOString();
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + env.RESEND_API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify(message)
+    });
+    const bodyText = (await res.text()).slice(0, 200);
+    let id = "";
+    try { id = (JSON.parse(bodyText) || {}).id || ""; } catch { /* non-JSON body */ }
+    if (!res.ok) console.error(`RESEND FAIL ${res.status} [${role}] ${stamp} ${bodyText}`);
+    else console.log(`RESEND ok ${res.status} [${role}] id=${id} ${stamp}`);
+    return { label: "RESEND:" + role, ok: res.ok, status: res.status, id, body: bodyText };
+  } catch (e) {
+    const msg = e && (e.message || String(e));
+    console.error(`RESEND THREW [${role}] ${stamp} ${msg}`);
+    return { label: "RESEND:" + role, ok: false, status: 0, body: "exception: " + msg };
+  }
+}
+
 async function sendEmail(env, b) {
-  const label = "RESEND";
-  const to = env.LEAD_EMAIL_TO || "contact@umcdubai.ae";
+  // Notify recipients: LEAD_EMAIL_TO may be a comma-separated list so the owner can
+  // add a redundant inbox (e.g. a personal Gmail) via env with no code change.
+  const to = (env.LEAD_EMAIL_TO || "contact@umcdubai.ae").split(",").map(s => s.trim()).filter(Boolean);
   const subject = (b.verified === 0 ? "[UNVERIFIED] " : "") + `New reservation request — ${b.name} — ${b.service || "general"}`;
   // v22: split into "Guest details" + "Request details" sections; labels renamed to match
   // the website form's wording (Vehicle → Vehicle or service, Notes → Request).
@@ -373,30 +400,13 @@ async function sendEmail(env, b) {
 
   const message = {
     from: "UMC Dubai leads <noreply@umcdubai.ae>",
-    to: [to],
+    to,
     subject,
     html
   };
   if (b.email) message.reply_to = b.email;
 
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + env.RESEND_API_KEY,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(message)
-    });
-    const bodyText = (await res.text()).slice(0, 200);
-    if (!res.ok) console.error(label + " failed", res.status, bodyText);
-    else console.log(label + " ok", res.status);
-    return { label, ok: res.ok, status: res.status, body: bodyText };
-  } catch (e) {
-    const msg = e && (e.message || String(e));
-    console.error(label + " threw", msg);
-    return { label, ok: false, status: 0, body: "exception: " + msg };
-  }
+  return resendSend(env, message, "notify");
 }
 
 async function appendSheet(env, b) {
@@ -468,9 +478,8 @@ async function addToMailchimp(env, b) {
 // an email. Warm institutional tone, framed as a receipt, NOT a guarantee.
 export const CLIENT_EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 async function sendClientReceipt(env, b) {
-  const label = "CLIENT_RECEIPT";
   if (!b.email || !CLIENT_EMAIL_RX.test(b.email)) {
-    return { label, ok: true, status: 0, body: "skipped: no valid client email", skipped: true };
+    return { label: "RESEND:customer", ok: true, status: 0, body: "skipped: no valid client email", skipped: true };
   }
   const firstName = (b.name || "").trim().split(/\s+/)[0] || "there";
   const subject = "We have your reservation request — UMC Dubai";
@@ -526,24 +535,7 @@ async function sendClientReceipt(env, b) {
     subject,
     html
   };
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + env.RESEND_API_KEY,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(message)
-    });
-    const bodyText = (await res.text()).slice(0, 200);
-    if (!res.ok) console.error(label + " failed", res.status, bodyText);
-    else console.log(label + " ok", res.status);
-    return { label, ok: res.ok, status: res.status, body: bodyText };
-  } catch (e) {
-    const msg = e && (e.message || String(e));
-    console.error(label + " threw", msg);
-    return { label, ok: false, status: 0, body: "exception: " + msg };
-  }
+  return resendSend(env, message, "customer");
 }
 
 // --- Minimal MD5 (Joseph Myers, public domain, adapted) ---
