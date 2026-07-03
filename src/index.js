@@ -155,7 +155,8 @@ async function ensureLeadsSchema(env) {
        client_ts TEXT, payload_json TEXT,
        marketing_consent INTEGER DEFAULT 1,
        consent_text TEXT,
-       consent_at TEXT
+       consent_at TEXT,
+       vat_mode TEXT DEFAULT 'none'
      )`
   ).run();
   // Migrations for pre-v93 deployments where the leads table already exists.
@@ -164,6 +165,9 @@ async function ensureLeadsSchema(env) {
     "consent_text TEXT",
     "consent_at TEXT",
     "verified INTEGER DEFAULT 1",
+    // Display-only VAT label per lead ('plus' => show "+VAT" suffix in the
+    // admin Leads table; 'none' => plain amount). No calculation. Default none.
+    "vat_mode TEXT DEFAULT 'none'",
   ]) {
     try {
       await env.BILLING_DB.prepare(`ALTER TABLE leads ADD COLUMN ${col}`).run();

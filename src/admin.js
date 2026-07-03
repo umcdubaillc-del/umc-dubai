@@ -250,7 +250,8 @@ async function ensureSchema(env) {
          consent_at TEXT,
          status TEXT DEFAULT 'new',
          linked_doc_number TEXT,
-         converted_at TEXT
+         converted_at TEXT,
+         vat_mode TEXT DEFAULT 'none'
        )`
     ).run();
     await addMissingColumns(env, "leads", [
@@ -260,6 +261,8 @@ async function ensureSchema(env) {
       "status TEXT DEFAULT 'new'",
       "linked_doc_number TEXT",
       "converted_at TEXT",
+      // Display-only VAT label per lead ('plus'|'none'); default 'none' = No VAT.
+      "vat_mode TEXT DEFAULT 'none'",
     ]);
     // Dispatch Phase 1 — Fleet: drivers + vehicles. Foundational records that
     // Jobs (Phase 2) will reference by id, so DELETE is SOFT (active=0) to avoid
@@ -2951,11 +2954,26 @@ async function handleListLeads(env) {
             COALESCE(marketing_consent, 0) AS marketing_consent,
             COALESCE(status, 'new') AS status,
             COALESCE(verified, 1) AS verified,
+            COALESCE(vat_mode, 'none') AS vat_mode,
             linked_doc_number, converted_at
        FROM leads
       ORDER BY id DESC LIMIT 500`
   ).all();
   return json({ ok: true, items: results || [] });
+}
+
+// Display-only VAT label toggle for a lead. Persists 'plus' | 'none' in D1
+// (default 'none' = No VAT). This is a LABEL ONLY — it never computes or alters
+// the quote amount, and it is read back by handleListLeads for the Leads table.
+// It deliberately does NOT touch the quote email, WhatsApp text, or PDFs.
+async function handleSetLeadVat(id, request, env) {
+  await ensureSchema(env);
+  let body = {};
+  try { body = await request.json(); } catch (e) { body = {}; }
+  const mode = (body && body.vat_mode === "plus") ? "plus" : "none";
+  await env.BILLING_DB.prepare("UPDATE leads SET vat_mode=? WHERE id=?")
+    .bind(mode, id).run();
+  return json({ ok: true, id, vat_mode: mode });
 }
 
 // Phase 0.2 — customer asset export. De-duplicates paid Nomod charges by
@@ -3415,6 +3433,14 @@ export async function handleAdmin(request, env) {
       if (!authed) return json({ ok: false, error: "auth required" }, 401);
       if (!env.BILLING_DB) return dbUnavailable();
       return handleDeleteLead(parseInt(dm[1], 10), env);
+    }
+    // Display-only VAT label toggle (vat_mode: 'plus' | 'none'). Label only —
+    // no amount is computed or changed here (see handleSetLeadVat).
+    if (dm && method === "PATCH") {
+      const authed = await isAuthed(request, env);
+      if (!authed) return json({ ok: false, error: "auth required" }, 401);
+      if (!env.BILLING_DB) return dbUnavailable();
+      return handleSetLeadVat(parseInt(dm[1], 10), request, env);
     }
   }
 
@@ -4327,6 +4353,23 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
 .leadq-field .leadq-prefix{ color:var(--muted); font-size:11px; font-weight:600; letter-spacing:.06em; }
 .leadq-field input.leadq{ border:0; outline:0; background:transparent; width:96px; font-size:14px; color:var(--ink); padding:.32rem 0; font-family:inherit; }
 .leadq-field input.leadq::-webkit-outer-spin-button, .leadq-field input.leadq::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+/* Display-only "+VAT" suffix shown after the amount when vat_mode = plus */
+.leadq-field .leadq-vat-suffix{ color:var(--ink); font-size:12px; font-weight:600; white-space:nowrap; letter-spacing:.02em; }
+.doc-sheet-quote .leadq-vat-suffix{ color:var(--ink); font-weight:600; font-size:.9rem; white-space:nowrap; }
+/* Sliding VAT label switch next to the quote input. ON = +VAT. */
+.leadvat-switch{ display:inline-flex; align-items:center; gap:.5rem; border:0; background:transparent; cursor:pointer; padding:.2rem 0; font-family:inherit; align-self:center; }
+.leadvat-switch .lvs-track{ position:relative; flex:0 0 auto; width:40px; height:22px; border-radius:999px; background:var(--hair); transition:background .18s; }
+.leadvat-switch .lvs-knob{ position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.28); transition:left .18s; }
+.leadvat-switch.on .lvs-track{ background:var(--ink); }
+.leadvat-switch.on .lvs-knob{ left:20px; }
+.leadvat-switch .lvs-label{ font-size:12px; font-weight:600; color:var(--muted); min-width:42px; text-align:left; transition:color .18s; }
+.leadvat-switch.on .lvs-label{ color:var(--ink); }
+/* Mobile bottom-sheet mirror of the switch */
+.doc-sheet-vat{ width:100%; justify-content:space-between; padding:.55rem .2rem .2rem; }
+.doc-sheet-vat .lvs-track{ width:46px; height:26px; }
+.doc-sheet-vat .lvs-knob{ width:22px; height:22px; }
+.doc-sheet-vat.on .lvs-knob{ left:22px; }
+.doc-sheet-vat .lvs-label{ font-size:.95rem; }
 /* Mobile bottom-sheet mirror of the quote-price field */
 .doc-sheet-quote{ display:flex; align-items:center; gap:.6rem; width:100%; border:1px solid var(--hair); border-radius:12px; background:var(--bone); padding:.7rem .95rem; margin-bottom:.1rem; }
 .doc-sheet-quote .leadq-prefix{ color:var(--muted); font-weight:600; font-size:.85rem; letter-spacing:.06em; }
@@ -7658,11 +7701,22 @@ const PAGE_SCRIPT = `<script>
         const hasPhone = !!(x.phone && String(x.phone).trim());
         const hasEmail = !!(x.email && String(x.email).trim());
         const savedQ = (x.quote_price != null && String(x.quote_price) !== "") ? esc(String(x.quote_price)) : "";
+        // v109 — VAT label switch per lead. 'plus' appends a literal "+VAT" to
+        // the amount in the Leads table AND to the WhatsApp / Copy message
+        // (buildLeadMessage). It never alters the numeric amount; the branded
+        // email and PDFs are untouched. Default 'none' = No VAT.
+        const vatMode = (x.vat_mode === "plus") ? "plus" : "none";
+        const isPlusVat = vatMode === "plus";
         const followupBlock = ''
           + '<div class="leadq-field" title="Optional quote price (AED)">'
           +   '<span class="leadq-prefix">AED</span>'
           +   '<input type="number" inputmode="decimal" step="0.01" min="0" class="leadq" id="leadq-'+x.id+'" data-leadq="'+x.id+'" placeholder="Quote price" value="'+savedQ+'">'
+          +   '<span class="leadq-vat-suffix" data-leadvat-suffix="'+x.id+'"'+(isPlusVat?'':' hidden')+'>+VAT</span>'
           + '</div>'
+          + '<button type="button" role="switch" class="leadvat-switch'+(isPlusVat?' on':'')+'" data-leadvat="'+x.id+'" aria-checked="'+(isPlusVat?'true':'false')+'" title="When on, the quote shows &quot;+VAT&quot; in the WhatsApp / Copy message and in the Leads amount. Display label only — the number is never changed.">'
+          +   '<span class="lvs-track" aria-hidden="true"><span class="lvs-knob"></span></span>'
+          +   '<span class="lvs-label" data-leadvat-label="'+x.id+'">'+(isPlusVat?'+VAT':'No VAT')+'</span>'
+          + '</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leadsave="'+x.id+'" title="Save this quote price (used by the messages and when generating a quote/invoice)">Save</button>'
           + '<button type="button" class="btn btn-small btn-ink" data-leadwa="'+x.id+'"'+(hasPhone?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Send this follow-up to the client on WhatsApp">WhatsApp client</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leadcopy="'+x.id+'" title="Copy this follow-up message">Copy quote</button>'
@@ -8792,7 +8846,11 @@ const PAGE_SCRIPT = `<script>
     if(leadNz(x.vehicle))     L.push("Vehicle: " + leadNz(x.vehicle));
     if(leadNz(x.notes))       L.push("Notes: " + leadNz(x.notes));
     const price = leadNz(quoteStr);
-    L.push("Price: " + (price ? ("AED " + price) : "to be confirmed"));
+    // v109 — VAT label switch: when the lead is set to +VAT, append the literal
+    // " +VAT" to the price line here (WhatsApp + Copy). Display label only — the
+    // number is unchanged. No suffix on "to be confirmed".
+    const vatSuffix = (x && x.vat_mode === "plus") ? " +VAT" : "";
+    L.push("Price: " + (price ? ("AED " + price + vatSuffix) : "to be confirmed"));
     L.push("");
     L.push("Please confirm these details are correct and we will arrange everything for you. We are happy to adjust anything if needed.");
     L.push("");
@@ -8837,6 +8895,43 @@ const PAGE_SCRIPT = `<script>
   }
   // Exposed so the bottom-sheet IIFE (a separate scope) can commit the same way.
   window.__umcCommitLeadQuote = commitLeadQuote;
+
+  // v109 — VAT label switch. Paints every switch + label + amount-suffix for a
+  // lead (desktop drawer AND any open mobile sheet share the same data-attrs),
+  // WITHOUT touching the quote number. Persistence is separate.
+  function applyLeadVatUI(id, mode){
+    const isPlus = mode === "plus";
+    document.querySelectorAll('.leadvat-switch[data-leadvat="' + id + '"]').forEach(function(sw){
+      sw.classList.toggle("on", isPlus);
+      sw.setAttribute("aria-checked", isPlus ? "true" : "false");
+    });
+    document.querySelectorAll('[data-leadvat-label="' + id + '"]').forEach(function(l){ l.textContent = isPlus ? "+VAT" : "No VAT"; });
+    document.querySelectorAll('[data-leadvat-suffix="' + id + '"]').forEach(function(s){ s.hidden = !isPlus; });
+  }
+  // Optimistically set the label, persist to D1 ('plus' | 'none'), and revert on
+  // failure. LABEL ONLY — the quote amount is never recomputed or modified.
+  function setLeadVatMode(id, mode){
+    mode = (mode === "plus") ? "plus" : "none";
+    const lead = leadsCache.find(function(z){ return Number(z.id) === Number(id); });
+    const prev = (lead && lead.vat_mode === "plus") ? "plus" : "none";
+    if(mode === prev){ applyLeadVatUI(id, mode); return; }
+    if(lead) lead.vat_mode = mode;
+    applyLeadVatUI(id, mode);
+    fetch("/admin/api/leads/" + id, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ vat_mode: mode })
+    })
+      .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); })
+      .catch(function(){
+        if(lead) lead.vat_mode = prev;
+        applyLeadVatUI(id, prev);
+        setStatus("Could not save the VAT label — please try again.");
+      });
+  }
+  // Exposed for the bottom-sheet IIFE (separate scope) to set the same label.
+  window.__umcSetLeadVatMode = setLeadVatMode;
 
   // Phase 1 — Leads tab delegation. Status filter, sort dropdown, refresh,
   // and the two action buttons per row (Create quote / Create invoice).
@@ -8890,6 +8985,18 @@ const PAGE_SCRIPT = `<script>
         const prev = svBtn.textContent;
         svBtn.textContent = "Saved";
         setTimeout(function(){ svBtn.textContent = prev; }, 1400);
+        return;
+      }
+      // v109 — VAT label switch. Flips the lead between +VAT and No VAT,
+      // persists to D1, repaints the switch + amount suffix, and drives the
+      // WhatsApp/Copy message. Never changes the quote number.
+      const vatBtn = e.target.closest("[data-leadvat]");
+      if(vatBtn){
+        e.preventDefault();
+        const id = Number(vatBtn.getAttribute("data-leadvat"));
+        const lead = leadsCache.find(function(z){ return Number(z.id) === id; });
+        const cur = (lead && lead.vat_mode === "plus") ? "plus" : "none";
+        setLeadVatMode(id, cur === "plus" ? "none" : "plus");
         return;
       }
       // v103 — follow-up: WhatsApp / Copy / Email. Each reads the quote-price
@@ -9632,11 +9739,38 @@ const PAGE_SCRIPT = `<script>
         qsave.classList.add('doc-sheet-ok');
         setTimeout(function(){ qsave.textContent = 'Save'; qsave.classList.remove('doc-sheet-ok'); }, 1400);
       });
-      qf.appendChild(qpre); qf.appendChild(qin); qf.appendChild(qsave);
+      // v109 — mirror the VAT switch + "+VAT" amount suffix into the sheet.
+      // Reads the drawer's current state; writes via the shared persist fn so
+      // desktop + sheet stay in sync. LABEL ONLY — never edits the amount, and
+      // toggling MUST NOT dismiss the sheet (stopPropagation + excluded from the
+      // action-forwarder below).
+      var vatPlus = !!(panel && panel.querySelector('.leadvat-switch.on'));
+      var qsuf = document.createElement('span');
+      qsuf.className = 'leadq-vat-suffix';
+      qsuf.setAttribute('data-leadvat-suffix', qid);
+      qsuf.textContent = '+VAT';
+      if (!vatPlus) qsuf.hidden = true;
+      qf.appendChild(qpre); qf.appendChild(qin); qf.appendChild(qsuf); qf.appendChild(qsave);
       sheetEl.appendChild(qf);
+      var vatSw = document.createElement('button');
+      vatSw.type = 'button';
+      vatSw.className = 'leadvat-switch doc-sheet-vat' + (vatPlus ? ' on' : '');
+      vatSw.setAttribute('role', 'switch');
+      vatSw.setAttribute('data-leadvat', qid);
+      vatSw.setAttribute('aria-checked', vatPlus ? 'true' : 'false');
+      vatSw.innerHTML = '<span class="lvs-label" data-leadvat-label="' + qid + '">' + (vatPlus ? '+VAT' : 'No VAT') + '</span>'
+                      + '<span class="lvs-track" aria-hidden="true"><span class="lvs-knob"></span></span>';
+      vatSw.addEventListener('click', function(ev){
+        ev.preventDefault();
+        ev.stopPropagation();
+        var isOn = vatSw.classList.contains('on');
+        var fn = window.__umcSetLeadVatMode;
+        if (typeof fn === 'function') fn(Number(qid), isOn ? 'none' : 'plus');
+      });
+      sheetEl.appendChild(vatSw);
     }
     var src = [];
-    if (panel){ Array.prototype.forEach.call(panel.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ if (b.getAttribute && b.getAttribute('data-leadsave') != null) return; src.push(b); }); }
+    if (panel){ Array.prototype.forEach.call(panel.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ if (b.getAttribute && (b.getAttribute('data-leadsave') != null || b.getAttribute('data-leadvat') != null)) return; src.push(b); }); }
     if (cfg.inline){ Array.prototype.forEach.call(row.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ src.push(b); }); }
     var seen = {};
     for (var i = 0; i < src.length; i++){ var k = src[i].textContent.trim(); if (k && !seen[k]){ seen[k] = 1; bindAction(src[i]); } }
