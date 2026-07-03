@@ -18,7 +18,7 @@ import { emailEsc, emailRows, emailWordmark, CLIENT_EMAIL_RX } from "./index.js"
 //   POST /admin/api/billing                   create a record (auth)
 //
 // Auth: a single shared password lives in the Worker secret ADMIN_PASSWORD.
-// On login we set HttpOnly Secure SameSite=Strict cookie umc_admin=SHA256(pwd+SUFFIX).
+// On login we set HttpOnly Secure SameSite=Lax cookie umc_admin=SHA256(pwd+SUFFIX).
 // On each protected request we recompute the expected hash and compare. The cookie
 // is bound to the secret value — anyone with the secret can mint it, nobody else can.
 //
@@ -78,12 +78,18 @@ function setCookieHeader(value, days) {
   // v57: days falsy/0 → session cookie (no Max-Age, dies with browser).
   // days > 0 → persistent cookie of that many days (used when the user
   // ticks "Stay logged in" on the sign-in form).
-  const base = `${COOKIE_NAME}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict`;
+  // v110: SameSite=Lax (was Strict). Strict withheld the cookie whenever the
+  // admin was re-entered from a cross-site context — a home-screen shortcut, an
+  // external link, or the lead-notification email — so a valid 30-day session
+  // looked "logged out" on reopen. Lax sends the cookie on top-level GET
+  // navigations (the reopen/click case) while still withholding it from
+  // cross-site POST/PATCH/DELETE, so CSRF protection on writes is preserved.
+  const base = `${COOKIE_NAME}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax`;
   return (days && days > 0) ? `${base}; Max-Age=${days * 86400}` : base;
 }
 
 function clearCookieHeader() {
-  return `${COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
+  return `${COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 }
 
 function esc(s) {
@@ -4565,8 +4571,8 @@ function loginHTML(adminMissing) {
       <div class="field"><label class="lbl">Username</label><input id="username" name="username" type="text" autocomplete="username" value="umcdubaiadmin"></div>
       <div class="field"><label class="lbl">Password</label><input id="pwd" type="password" autocomplete="current-password" required autofocus></div>
       <label class="stay-row" for="stayLogged">
-        <input type="checkbox" id="stayLogged">
-        <span>Stay logged in</span>
+        <input type="checkbox" id="stayLogged" checked>
+        <span>Stay logged in for 30 days</span>
       </label>
       <button class="btn" type="submit">Sign in</button>
       <div class="err" id="err"></div>

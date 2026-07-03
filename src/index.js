@@ -276,7 +276,7 @@ async function handleLead(request, env, ctx) {
   }
 
   const tasks = [];
-  if (env.RESEND_API_KEY) tasks.push(sendEmail(env, payload));
+  if (env.RESEND_API_KEY) tasks.push(sendEmail(env, payload, new URL(request.url).origin + "/admin/billing"));
   if (env.SHEETS_WEBHOOK_URL) tasks.push(appendSheet(env, payload));
   if (payload.email && env.MC_API_KEY && env.MC_LIST_ID && env.MC_DC) {
     tasks.push(addToMailchimp(env, payload));
@@ -356,11 +356,15 @@ async function resendSend(env, message, role) {
   }
 }
 
-async function sendEmail(env, b) {
+async function sendEmail(env, b, adminUrl) {
   // Notify recipients: LEAD_EMAIL_TO may be a comma-separated list so the owner can
   // add a redundant inbox (e.g. a personal Gmail) via env with no code change.
   const to = (env.LEAD_EMAIL_TO || "contact@umcdubai.ae").split(",").map(s => s.trim()).filter(Boolean);
   const subject = (b.verified === 0 ? "[UNVERIFIED] " : "") + `New reservation request — ${b.name} — ${b.service || "general"}`;
+  // v110 — one-tap link to the admin (opens on the Leads tab, which is the
+  // default). Derived from the request origin so it follows the domain across
+  // cutover; falls back to env.ADMIN_URL then the workers.dev host (selftest).
+  const adminLink = adminUrl || env.ADMIN_URL || "https://umc-dubai.umcdubaillc.workers.dev/admin/billing";
   // v22: split into "Guest details" + "Request details" sections; labels renamed to match
   // the website form's wording (Vehicle → Vehicle or service, Notes → Request).
   const guestRowsHtml = emailRows([
@@ -395,6 +399,10 @@ async function sendEmail(env, b) {
     `<tr><td style="padding:18px 28px 8px 28px">` +
       `<p style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#A84B0C;margin:0 0 10px;font-weight:500">Request details</p>` +
       `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:14px;border-collapse:collapse">${requestRowsHtml}</table>` +
+    `</td></tr>` +
+    `<tr><td style="padding:8px 28px 24px 28px;text-align:center">` +
+      `<a href="${adminLink}" style="display:inline-block;background:#A84B0C;color:#FBF8F1;text-decoration:none;padding:13px 32px;font-size:12px;letter-spacing:.18em;text-transform:uppercase;font-weight:600;border-radius:3px">View in admin</a>` +
+      `<p style="margin:10px 0 0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;color:#7A6F5F">Opens the Leads tab. Sign in if prompted.</p>` +
     `</td></tr>` +
     `<tr><td style="padding:20px 28px 22px 28px;background:#231B12;text-align:center;font-family:-apple-system,Segoe UI,Roboto,sans-serif">` +
       `<p style="margin:0;color:#D9D0C0;font-size:12px">Submitted ${emailEsc(b.ts)}</p>` +
