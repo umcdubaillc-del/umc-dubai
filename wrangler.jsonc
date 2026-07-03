@@ -4,6 +4,22 @@
   "main": "src/index.js",
   "compatibility_date": "2026-06-13",
   "compatibility_flags": ["nodejs_compat"],
+  // v-cutover: bind the Worker to the production apex + www as custom domains.
+  // Deploying with these present triggers Cloudflare to override the placeholder
+  // A/AAAA/www DNS records and route both hostnames to the Worker with
+  // auto-provisioned SSL. Rollback = remove these two routes, redeploy, then
+  // recreate DNS-only records for the old site.
+  "routes": [
+    { "pattern": "umcdubai.ae", "custom_domain": true },
+    { "pattern": "www.umcdubai.ae", "custom_domain": true }
+  ],
+  // TEMPORARY: keep the *.workers.dev URL live alongside the custom domains.
+  // The Nomod payment webhook (/admin/webhooks/nomod) still points at
+  // umc-dubai.umcdubaillc.workers.dev and MUST keep resolving until Nomod's
+  // dashboard is repointed to the umcdubai.ae URL. Disabling workers_dev is a
+  // later DELIBERATE step, never a silent side effect of adding routes (which
+  // is what auto-disabled it during the cutover and 404'd the webhook host).
+  "workers_dev": true,
   "observability": {
     "enabled": true
   },
