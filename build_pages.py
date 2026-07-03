@@ -158,11 +158,11 @@ def head(title, desc, canon, extra=""):
 <meta property="og:site_name" content="UMC Dubai">
 <meta property="og:locale" content="en_GB">
 <meta property="og:url" content="https://umcdubai.ae/{canon}">
-<meta property="og:image" content="{OG_BASE}/assets/og-image.png">
+<meta property="og:image" content="{OG_BASE}/assets/og-image-v2.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="{OG_BASE}/assets/og-image.png">
+<meta name="twitter:image" content="{OG_BASE}/assets/og-image-v2.png">
 <meta name="msvalidate.01" content="1848923491E08E0A57EBF89D946D8B19">
 <meta name="facebook-domain-verification" content="sx2v5hd4o6p3f8ve51c385hcojspbn">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -459,7 +459,7 @@ ld_home = '<script type="application/ld+json">'+json.dumps({
  "description":"Luxury chauffeur service in Dubai and across the UAE. Airport transfers, corporate chauffeur programmes and hourly hire, 24/7.",
  "url":"https://umcdubai.ae/","telephone":"+971586497861",
  "email":"contact@umcdubai.ae",
- "image":"https://umcdubai.ae/assets/og-image.png",
+ "image":"https://umcdubai.ae/assets/og-image-v2.png",
  "address":{"@type":"PostalAddress","addressLocality":"Dubai","addressCountry":"AE"},
  "openingHoursSpecification":{"@type":"OpeningHoursSpecification","dayOfWeek":["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"],"opens":"00:00","closes":"23:59"},
  "priceRange":"AED 350–2400",
@@ -1287,7 +1287,7 @@ def rentacar_schema(em):
         "provider": {
             "@type": "Organization", "name": "UMC Dubai",
             "url": "https://umcdubai.ae/",
-            "logo": {"@type": "ImageObject", "url": f"{OG_BASE}/assets/og-image.png"}
+            "logo": {"@type": "ImageObject", "url": f"{OG_BASE}/assets/og-image-v2.png"}
         },
         "url": canon,
         "description": em["seo_meta"],
@@ -1426,7 +1426,7 @@ def renthub_schema():
         "provider": {
             "@type": "Organization", "name": "UMC Dubai",
             "url": "https://umcdubai.ae/",
-            "logo": {"@type": "ImageObject", "url": f"{OG_BASE}/assets/og-image.png"}
+            "logo": {"@type": "ImageObject", "url": f"{OG_BASE}/assets/og-image-v2.png"}
         },
         "url": canon,
         "description": "Chauffeur service for a half day or a full day, across all six emirates we serve. All-inclusive rates with fuel, Salik and parking included.",
@@ -3649,10 +3649,10 @@ def render_article_schema(p):
                    "name": p["author"]},
         "publisher": {
             "@type": "Organization", "name": "UMC Dubai",
-            "logo": {"@type": "ImageObject", "url": f"{OG_BASE}/assets/og-image.png"}
+            "logo": {"@type": "ImageObject", "url": f"{OG_BASE}/assets/og-image-v2.png"}
         },
         "mainEntityOfPage": {"@type": "WebPage", "@id": canon},
-        "image": [f"{OG_BASE}/assets/og-image.png"],
+        "image": [f"{OG_BASE}/assets/og-image-v2.png"],
     }
     return '<script type="application/ld+json">' + json.dumps(data, separators=(",", ":")) + '</script>'
 
