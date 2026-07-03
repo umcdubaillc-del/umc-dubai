@@ -296,6 +296,7 @@ FOOTER = f"""</main>
         <ul>
           <li><a href="/about">About UMC</a></li>
           <li><a href="/fleet">Our fleet</a></li>
+          <li><a href="/blog">Journal</a></li>
           <li><a href="/contact">Contact</a></li>
           <li><a href="/terms">Terms &amp; conditions</a></li>
           <li><a href="/privacy">Privacy</a></li>
@@ -766,6 +767,125 @@ booking_body = header("booking.html") + f"""
       "booking",
       '<link rel="stylesheet" href="/assets/vendor/flatpickr.min.css?v={V}">') + booking_body)
 
+# ---------- fleet grid: server-rendered cards (SEO / de-orphan) ----------
+# The /fleet vehicle grid used to be JS-only (renderFleet in fleet-data.js), so
+# view-source showed an empty <div id="fleetAll"> — zero vehicle names or links
+# for crawlers. We now server-render the full card grid here; on the /fleet page
+# renderFleet(...,{hydrate:true}) attaches interactivity ON TOP (view-rates
+# toggle + per-card emirate switch) without re-injecting.
+#
+# site/assets/fleet-data.js remains the SINGLE SOURCE OF TRUTH. The list below is
+# a server-render mirror; _assert_fleet_in_sync() diffs it against fleet-data.js
+# (vehicle ids, /fleet/ page links, and Dubai rates) and HARD-FAILS the build on
+# any drift, so prices/links can never silently diverge. The card markup mirrors
+# renderFleet's template in fleet-data.js — keep the two in step.
+import re as _re, urllib.parse as _urlparse
+
+def _fesc(s):
+    s = "" if s is None else str(s)
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+FLEET_EMIRATES = [("dubai","Dubai"),("abu-dhabi","Abu Dhabi"),("sharjah","Sharjah"),
+                  ("rak","Ras Al Khaimah"),("al-ain","Al Ain"),("umm-al-quwain","Umm Al Quwain")]
+
+# Fields mirror DEFAULT_FLEET; ra/r5/r10 are the DUBAI (default) rates.
+FLEET_VEHICLES = [
+  {"id":"mb-s-class","name":"Mercedes Benz S Class","category":"Flagship Sedan","seats":4,"luggage":2,"page":"/fleet/s-class","marque":"/assets/marques/mercedes.png","img":"/assets/fleet/s-class/card.webp","photo":True,"flip":True,"ra":850,"r5":1800,"r10":2400},
+  {"id":"bmw-7","name":"BMW 7 Series","category":"Flagship Sedan","seats":4,"luggage":2,"page":"/fleet/bmw-7-series","marque":"/assets/marques/bmw.png","img":"/assets/fleet/bmw-7/card.png","photo":True,"flip":False,"ra":600,"r5":1300,"r10":2000},
+  {"id":"cadillac-escalade","name":"Cadillac Escalade","category":"Luxury SUV","seats":6,"luggage":4,"page":"/fleet/cadillac-escalade","marque":"/assets/marques/cadillac.jpg","img":"/assets/fleet/cadillac-escalade/cadillac-escalade.jpg","photo":False,"flip":False,"ra":850,"r5":1800,"r10":2400},
+  {"id":"gmc-yukon-xl","name":"GMC Yukon Elevation XL","category":"Executive SUV","seats":6,"luggage":5,"page":"/fleet/gmc-yukon-xl","marque":"/assets/marques/gmc.png","img":"/assets/fleet/gmc-yukon-xl/gmc-yukon-xl.png","photo":False,"flip":False,"ra":550,"r5":900,"r10":1400},
+  {"id":"mb-e-class","name":"Mercedes Benz E Class","category":"Business Sedan","seats":4,"luggage":2,"page":"/fleet/e-class","marque":"/assets/marques/mercedes.png","img":"/assets/fleet/e-class/card.png","photo":True,"flip":False,"ra":400,"r5":1150,"r10":1600},
+  {"id":"lexus-es","name":"Lexus ES","category":"Business Sedan","seats":4,"luggage":2,"page":"/fleet/lexus-es","marque":"/assets/marques/lexus.jpg","img":"/assets/fleet/lexus-es/lexus-es.png","photo":False,"flip":False,"ra":350,"r5":700,"r10":1000},
+  {"id":"mb-v-class","name":"Mercedes Benz V Class","category":"Luxury Van","seats":7,"luggage":5,"page":"/fleet/v-class","marque":"/assets/marques/mercedes.png","img":"/assets/fleet/v-class/v-class.png","photo":False,"flip":False,"ra":500,"r5":1000,"r10":1400},
+  {"id":"mb-sprinter","name":"Mercedes Benz Sprinter","category":"Executive Van","seats":19,"luggage":10,"page":"/fleet/sprinter","marque":"/assets/marques/mercedes.png","img":"/assets/fleet/sprinter/sprinter.png","photo":False,"flip":False,"ra":None,"r5":None,"r10":None},
+  {"id":"luxury-coach","name":"Luxury Coach","category":"Luxury Coach","seats":55,"luggage":30,"page":"/fleet/luxury-coach","marque":"/assets/marques/king-long.png","img":"/assets/fleet/king-long/king-long.png","photo":False,"flip":False,"ra":None,"r5":None,"r10":None},
+]
+
+def _fmt_rate(n):
+    return "On request" if n in (None, "") else "AED " + f"{int(n):,}"
+
+def _from_rate(v):
+    xs = [n for n in (v["ra"], v["r5"], v["r10"]) if n not in (None, "")]
+    return ("AED " + f"{min(int(x) for x in xs):,}") if xs else None
+
+_WA_SVG = '<svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>'
+_CALL_SVG = '<svg viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.7"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>'
+_CHEV_SVG = '<svg viewBox="0 0 24 24" style="width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2;margin-left:.35rem;transition:transform .25s"><path d="M5 9l7 7 7-7"/></svg>'
+
+def _fleet_card_html(v):
+    e = _fesc
+    from_price = _from_rate(v)
+    bk = "/booking?vehicle=" + _urlparse.quote(v["id"], safe="")
+    ropts = "".join(
+        f'<option value="{p[0]}"{" selected" if p[0]=="dubai" else ""}>{p[1]}</option>'
+        for p in FLEET_EMIRATES)
+    rel = v["img"][len("/assets/fleet/"):] if v["img"].startswith("/assets/fleet/") else v["img"]
+    alt = f'{v["name"]}, chauffeur driven in Dubai with UMC'
+    img = responsive_img(rel, "", alt,
+        "(max-width:560px) 92vw, (max-width:980px) 45vw, 380px",
+        extra_attrs=' width="1200" height="750" decoding="async"')
+    vimg_cls = "vimg" + (" photo" if v["photo"] else "") + (" flip" if v["flip"] else "")
+    title = f'<a href="{e(v["page"])}">{e(v["name"])}</a>' if v.get("page") else e(v["name"])
+    marque = f'<img class="marque" src="{e(v["marque"])}" alt="" loading="lazy">' if v.get("marque") else ""
+    price_html = (f'<span class="from">From</span><b>{from_price}</b><span class="from">all-inclusive</span>'
+                  if from_price else '<b style="font-size:1rem">Rates on request</b>')
+    wa = _urlparse.quote(f'Hello UMC Dubai, I would like to reserve the {v["name"]}.', safe="")
+    return (
+      f'<article class="vcard rv" data-cat="{e(v["category"])}" data-vid="{e(v["id"])}" data-vehicle="{e(v["name"])}">'
+      f'<div class="{vimg_cls}">{img}</div>'
+      f'<div class="vbody">'
+      f'<div class="vtitle"><h3>{title}</h3>{marque}</div>'
+      f'<div class="vmeta"><span>{e(v["category"])}</span><span>{v["seats"]} guests</span><span>{v["luggage"]} cases</span></div>'
+      f'<div class="vprice">{price_html}</div>'
+      f'<div class="vdetail">'
+      f'<label class="em-switch"><span class="em-lbl">Rates for</span><select class="em-select" aria-label="Choose emirate for rates">{ropts}</select></label>'
+      f'<div class="r" data-rate="ra"><span>Airport transfer</span><b>{_fmt_rate(v["ra"])}</b></div>'
+      f'<div class="r" data-rate="r5"><span>5 hours at disposal</span><b>{_fmt_rate(v["r5"])}</b></div>'
+      f'<div class="r" data-rate="r10"><span>10 hours at disposal</span><b>{_fmt_rate(v["r10"])}</b></div>'
+      f'<p class="inc">Includes chauffeur, fuel, Salik &amp; parking, unlimited city mileage, water and chargers. Free cancellation up to 48 hours.</p>'
+      f'</div>'
+      f'<div class="vactions">'
+      f'<button class="vtoggle" type="button" aria-expanded="false">View rates{_CHEV_SVG}</button>'
+      f'<span class="vctas">'
+      f'<a class="ico" target="_blank" rel="noopener" aria-label="WhatsApp about the {e(v["name"])}" href="https://api.whatsapp.com/send?phone=971586497861&amp;text={wa}">{_WA_SVG}</a>'
+      f'<a class="ico" aria-label="Call about the {e(v["name"])}" href="tel:+971586497861">{_CALL_SVG}</a>'
+      f'<a class="btn btn-ink vcta" href="{bk}">Reserve</a>'
+      f'</span>'
+      f'</div>'
+      f'</div>'
+      f'</article>'
+    )
+
+def fleet_grid_html(ids=None):
+    vs = FLEET_VEHICLES if ids is None else [v for v in FLEET_VEHICLES if v["id"] in ids]
+    return "".join(_fleet_card_html(v) for v in vs)
+
+def _assert_fleet_in_sync():
+    """Fail the build if the server-render mirror drifts from fleet-data.js."""
+    txt = (SITE / "assets" / "fleet-data.js").read_text()
+    js_ids = _re.findall(r'\{id:"([^"]+)"', txt)
+    py_ids = [v["id"] for v in FLEET_VEHICLES]
+    if js_ids != py_ids:
+        raise SystemExit(f"FLEET SYNC ERROR (ids)\n  fleet-data.js: {js_ids}\n  build_pages : {py_ids}")
+    js_pages = dict(_re.findall(r'\{id:"([^"]+)"[^}]*?page:"(/fleet/[^"]+)"', txt, _re.S))
+    for v in FLEET_VEHICLES:
+        if js_pages.get(v["id"]) != v["page"]:
+            raise SystemExit(f"FLEET SYNC ERROR (page) {v['id']}: js={js_pages.get(v['id'])} py={v['page']}")
+    dubai = _re.search(r'"dubai":\s*\{(.*?)\}', txt, _re.S).group(1)
+    js_rates = {k: [int(a), int(b), int(c)]
+                for k, a, b, c in _re.findall(r'"([^"]+)":\s*\[\s*(\d+),\s*(\d+),\s*(\d+)\]', dubai)}
+    for v in FLEET_VEHICLES:
+        want = js_rates.get(v["id"])
+        have = [v["ra"], v["r5"], v["r10"]]
+        if want is None:
+            if any(x is not None for x in have):
+                raise SystemExit(f"FLEET SYNC ERROR (rates) {v['id']}: py={have} but no Dubai rate in fleet-data.js")
+        elif want != have:
+            raise SystemExit(f"FLEET SYNC ERROR (rates) {v['id']}: js={want} py={have}")
+    print(f"[fleet] server-render mirror in sync with fleet-data.js ({len(py_ids)} vehicles)")
+
+_assert_fleet_in_sync()
+
 # ---------- fleet ----------
 fleet_body = header("fleet.html") + f"""
 <section class="phero">
@@ -784,7 +904,7 @@ fleet_body = header("fleet.html") + f"""
       <button data-cat="van">Vans</button>
       <button data-cat="coach">Coaches</button>
     </div>
-    <div class="fleet-grid" id="fleetAll"></div>
+    <div class="fleet-grid" id="fleetAll">{fleet_grid_html()}</div>
     <p class="muted center" style="font-size:.85rem;margin-top:2.2rem">Rates may vary in peak season. Your quote is confirmed before you book.</p>
   </div>
 </section>
@@ -817,7 +937,7 @@ fleet_body = header("fleet.html") + f"""
   <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your car</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
 </section>
 """ + FOOTER + """
-<script>document.addEventListener("DOMContentLoaded",function(){renderFleet(document.getElementById("fleetAll"),{});
+<script>document.addEventListener("DOMContentLoaded",function(){renderFleet(document.getElementById("fleetAll"),{hydrate:true});
   var chips=document.querySelectorAll("#fleetChips button");
   chips.forEach(function(b){b.addEventListener("click",function(){
     chips.forEach(function(x){x.classList.remove("on")});this.classList.add("on");

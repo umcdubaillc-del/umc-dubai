@@ -181,6 +181,10 @@ function umcRowMates(card){
 function renderFleet(el, opts){
   if(!el) return;
   opts = opts || {};
+  // v60: hydrate mode — when the grid is server-rendered (build_pages.py) the
+  // cards already exist in the DOM; skip re-injection and only attach the
+  // interactivity (view-rates toggle + per-card emirate switch) ON TOP.
+  if(!(opts.hydrate && el.querySelector(".vcard"))){
   const defaultEm = opts.emirate || "dubai";
   let fleet = getFleet().filter(v=>v.visible!==false);
   if(opts.featured) fleet = opts.featured.map(id=>fleet.find(v=>v.id===id)).filter(Boolean);
@@ -221,6 +225,7 @@ function renderFleet(el, opts){
       </div>
     </article>`;
   }).join("");
+  }
   el.querySelectorAll(".vtoggle").forEach(b=>{
     b.addEventListener("click", ()=>{
       const card = b.closest(".vcard");
