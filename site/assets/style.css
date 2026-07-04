@@ -158,9 +158,14 @@ nav.mainnav .sub-toggle{display:none}
 .jline .n1{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--amber)}
 .jline .stem{width:1px;height:56px;background:linear-gradient(var(--amber),var(--line))}
 .jline .n2{width:8px;height:8px;border-radius:50%;background:var(--amber)}
+/* Divider variant with bottom breathing room, for dividers that sit directly
+   above a full-bleed dark CTA band so the bottom dot no longer touches it. */
+.jline--b{padding-bottom:clamp(2.6rem,6vw,4rem)}
 
 /* ---------- sections ---------- */
 .sec{padding:clamp(2.8rem,7vw,4.6rem) 0}
+/* Consecutive-paragraph spacing, scoped to the added bottom prose sections only. */
+.sec-prose p+p{margin-top:.75em}
 .shead{max-width:var(--narrow);margin:0 auto 2.4rem;text-align:center}
 .shead .lbl{display:block;margin-bottom:.8rem}
 .shead h2{margin-bottom:.8rem}

@@ -261,6 +261,7 @@ def header(active):
         ("rent-a-car-with-driver/al-ain", "Al Ain", False),
         ("rent-a-car-with-driver/umm-al-quwain", "Umm Al Quwain", False),
       ]),
+      ("inter-emirate.html", "Inter-emirate"),
       ("corporate.html", "Corporate"),
       ("events.html", "Events"),
       ("about.html", "About"),
@@ -369,6 +370,10 @@ FOOTER = f"""</main>
 """
 
 JL = '<div class="jline" aria-hidden="true"><span class="n1"></span><span class="stem"></span><span class="n2"></span></div>'
+# v112: JLB is the standard journey divider with bottom breathing room, used when
+# a divider sits directly above a full-bleed dark CTA band (otherwise the bottom
+# dot touches the band). Same dotted motif, extra padding-bottom to match section rhythm.
+JLB = '<div class="jline jline--b" aria-hidden="true"><span class="n1"></span><span class="stem"></span><span class="n2"></span></div>'
 
 def faq_details(faqs):
     return "".join(f"<details><summary>{q}</summary><p>{a}</p></details>" for q,a in faqs)
@@ -1740,17 +1745,18 @@ corp_body = header("corporate.html") + f"""
     <div class="faq rv">{faq_details(CORP_FAQS)}</div>
   </div>
 </section>
+{JL}
 <section class="sec">
   <div class="wrap">
     <div class="shead rv"><span class="lbl">The account</span><h2>How the account works day to day.</h2></div>
-    <div class="rv" style="max-width:68ch;margin:0 auto;text-align:left">
+    <div class="rv sec-prose" style="max-width:68ch;margin:0 auto;text-align:left">
       <p>An account changes how your company books rather than what it books. Once it is open &mdash; usually within 48 hours of receiving your company details &mdash; anyone you authorise reserves in minutes by phone, WhatsApp or email, and the desk already holds your preferences, cost-centre references and billing details, so no journey starts from a blank form.</p>
       <p>Priority sits with account holders. When demand is high around event weeks or early-morning airport peaks, account bookings are dispatched ahead of ad-hoc requests, and a dedicated, named contact owns your account rather than a rotating queue. Every journey on the account runs to one standard, and every traveller you send is treated as the account holder would be.</p>
       <p>Billing is consolidated into a single monthly statement, so finance reconciles once instead of chasing dozens of receipts. Confidentiality is assumed throughout: our chauffeurs serve senior executives daily, and conversations, documents and itineraries stay in the car.</p>
     </div>
   </div>
 </section>
-{JL}
+{JLB}
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Corporate accounts</span><h2 class="rv">Your executives, moved without friction.</h2>
   <div class="btns rv"><a class="btn btn-ink" href="/contact?vehicle=Corporate%20Account">Open a corporate account</a><a class="btn btn-ghost" href="tel:+971586497861">Call the desk</a></div></div>
@@ -1798,10 +1804,11 @@ about_body = header("about.html") + f"""
     </div>
   </div>
 </section>
+{JL}
 <section class="sec">
   <div class="wrap">
     <div class="shead rv"><span class="lbl">The company</span><h2>Built on a single standard.</h2></div>
-    <div class="rv" style="max-width:68ch;margin:0 auto;text-align:left">
+    <div class="rv sec-prose" style="max-width:68ch;margin:0 auto;text-align:left">
       <p>UMC Dubai was founded in December 2023 on a single conviction: that private ground transport in the Emirates should be consistent, discreet and quietly excellent on every journey, not just the first one. The company was built by Usman Hanif around a standard formed by watching how the best international operators work and what discerning travellers actually expect &mdash; reliability you can count on rather than occasional brilliance.</p>
       <p>That standard is the whole business. Every vehicle in the fleet is detailed before a journey and driven by a vetted, trained chauffeur, so the experience does not change depending on which car arrives or which chauffeur is assigned. The fleet is chosen for range rather than show: flagship sedans for executive travel, full-size SUVs for families and delegations, and vans and coaches for groups, each maintained to the same schedule and stocked the same way.</p>
       <p>The people UMC serves set the bar. The company has served guests and delegations for organisations including Emirates and Jetex, and around Dubai&rsquo;s major weeks such as GITEX and the Formula 1 weekend. Executives moving between DIFC, Business Bay and Downtown; families arriving for the season; and the assistants and travel managers who orchestrate complex itineraries all rely on the same promise: a clean schedule, a quiet cabin, and a person who answers at any hour.</p>
@@ -1810,7 +1817,7 @@ about_body = header("about.html") + f"""
     </div>
   </div>
 </section>
-{JL}
+{JLB}
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">Judge us by a single journey.</h2>
   <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your car</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
@@ -1911,14 +1918,14 @@ events_body = header("events.html") + f"""
 <section class="sec">
   <div class="wrap">
     <div class="shead rv"><span class="lbl">The operation</span><h2>Built for Dubai&rsquo;s event calendar.</h2></div>
-    <div class="rv" style="max-width:68ch;margin:0 auto;text-align:left">
+    <div class="rv sec-prose" style="max-width:68ch;margin:0 auto;text-align:left">
       <p>Dubai&rsquo;s biggest weeks are logistics problems as much as celebrations, and a chauffeur operation is only as good as its coordination. UMC plans event movements as a single operation: one coordinator working alongside yours, a written manifest of every car and every party, and a standard that holds from the first arrival to the last departure.</p>
       <p>The city&rsquo;s calendar shapes the demand. Weeks like GITEX and Gulfood fill the business hotels and move delegations on tight schedules; Art Dubai and the IIFA weekend bring guests who expect discretion; and the Formula 1 weekend turns the whole city into a movement exercise, with road closures and surge demand that reward planning made well in advance. For each, vehicles are readied and routed ahead of the first arrival, chauffeurs are briefed on the closures, and a held reserve of cars absorbs the unplanned, so a late change rarely reaches your guests at all.</p>
       <p>Staffing is the quiet part. Chauffeurs are employed, vetted and briefed as a team under one lead who answers to your planner rather than a dispatch line &mdash; which is what lets a convoy of many cars move as one, hour by hour, without the seams showing. At full stretch UMC has fielded up to 102 vehicles for a single event week, planned and staged as one movement.</p>
     </div>
   </div>
 </section>
-{JL}
+{JLB}
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Occasions</span><h2 class="rv">Begin with the standard.</h2>
   <div class="btns rv"><a class="btn btn-ink" href="/contact">Plan your occasion</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{EVENTS_WA}">WhatsApp concierge</a></div></div>
@@ -2087,7 +2094,7 @@ IE_FAQS = [
  ("Can the chauffeur wait and bring me back the same day?",
   "Yes. Many clients book a return or keep the car at their disposal for the day. Tell our concierge your plans and we will hold the car for you."),
 ]
-ie_body = header("airport-transfers.html").replace('class="on"','') + f"""
+ie_body = header("inter-emirate.html") + f"""
 <section class="phero">
   <div class="wrap">
     <span class="lbl" style="white-space:normal;line-height:1.6">Dubai &middot; Abu Dhabi &middot; Sharjah &middot; Ajman &middot; Umm Al Quwain &middot; Ras Al Khaimah &middot; Fujairah</span>
@@ -2123,10 +2130,11 @@ ie_body = header("airport-transfers.html").replace('class="on"','') + f"""
     <div class="faq rv">{faq_details(IE_FAQS)}</div>
   </div>
 </section>
+{JL}
 <section class="sec">
   <div class="wrap">
     <div class="shead rv"><span class="lbl">The routes</span><h2>What each route asks for.</h2></div>
-    <div class="rv" style="max-width:68ch;margin:0 auto;text-align:left">
+    <div class="rv sec-prose" style="max-width:68ch;margin:0 auto;text-align:left">
       <p>The Emirates are close enough that a chauffeur can cover most inter-city journeys in a morning, but each route has its own character.</p>
       <p><b>Dubai to Abu Dhabi</b> is the busiest corridor and the one most people ask about. Outside peak hours the drive is typically around 90 minutes down the E11, though the capital&rsquo;s morning inbound and evening outbound flows can add time, so meetings are best planned with a margin. The route crosses Dubai&rsquo;s Salik gates and, on the approach to Abu Dhabi island, the emirate&rsquo;s Darb toll &mdash; both are already inside your fixed quote, so nothing is added afterwards.</p>
       <p><b>Dubai to Sharjah and the northern emirates</b> is short in distance but shaped by the Dubai&ndash;Sharjah commuter crossing, among the region&rsquo;s heaviest at peak. We time departures around it rather than through it. From Sharjah the road runs on to Ajman, Umm Al Quwain and Ras Al Khaimah, and those onward legs are usually quicker than the first.</p>
@@ -2135,7 +2143,7 @@ ie_body = header("airport-transfers.html").replace('class="on"','') + f"""
     </div>
   </div>
 </section>
-{JL}
+{JLB}
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">One chauffeur, door to door.</h2>
   <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
