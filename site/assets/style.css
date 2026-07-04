@@ -854,6 +854,9 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 }
 @media(min-width:1280px){.hero2{--hdr:81px}}
 .h2copy h1{color:var(--bone);font-size:clamp(2.4rem,4.6vw,3.7rem);line-height:1.08;margin:.6rem 0 .9rem;letter-spacing:.005em;text-shadow:0 2px 18px rgba(0,0,0,.35)}
+/* mobile-only forced break in the hero H1 (hidden on desktop, so desktop wraps
+   naturally). Space before the <br> preserves the desktop spacing. */
+.h2copy h1 .hbr{display:none}
 .h2copy .lede{color:#D9D0C0;max-width:46ch;text-shadow:0 1px 14px rgba(0,0,0,.4)}
 .h2copy .kicker{color:#E0894A}
 .h2form .book{background:var(--bone);border:1px solid var(--line);border-radius:6px;box-shadow:0 40px 80px -32px rgba(0,0,0,.55);padding:1.4rem}
@@ -867,6 +870,8 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
      vacates blends into darkness. */
   .h2scrim{height:380px;bottom:auto;background:linear-gradient(180deg,rgba(20,15,9,.4) 0%,rgba(20,15,9,.5) 45%,rgba(12,8,4,.82) 78%,rgba(4,3,1,.97) 100%)}
   .h2grid{min-height:auto;padding:1rem clamp(1rem,4vw,1.4rem) 0;gap:0}
+  /* show the forced break on mobile: "Chauffeur driven," / "without compromise." */
+  .h2copy h1 .hbr{display:inline}
   /* v49 mobile-only: the kicker stays in .h2copy in the markup (desktop
      pre-Q5 layout preserved); on mobile we ungroup .h2copy via display:contents
      so its children become direct flex items of .h2grid, then visually reorder

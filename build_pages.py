@@ -512,7 +512,7 @@ index_body = header("index.html") + f"""
   <div class="wrap h2grid">
     <div class="h2copy">
       <span class="kicker"><i class="kdot kdot-open"></i><i class="krule"></i><em>Serving all seven emirates</em><i class="krule"></i><i class="kdot kdot-fill"></i></span>
-      <h1>Chauffeur driven, without compromise.</h1>
+      <h1>Chauffeur driven, <br class="hbr">without compromise.</h1>
       <p class="lede">Immaculate cars, vetted chauffeurs and a concierge that answers at any hour.</p>
     </div>
     <div class="h2form">
