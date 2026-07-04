@@ -1232,14 +1232,6 @@ def render_emirate_airport_page(em):
 {JL}
 <section class="sec">
   <div class="wrap">
-    <div class="shead rv"><span class="lbl">On the ground</span><h2>Landing in {em['name']}.</h2></div>
-    <p class="lede rv" style="max-width:68ch;margin:0 auto 1.2rem;text-align:left">{em['local']}</p>
-    <p class="rv" style="max-width:68ch;margin:0 auto;text-align:left;color:var(--muted)">{cars_line}</p>
-  </div>
-</section>
-{JL}
-<section class="sec">
-  <div class="wrap">
     <div class="shead rv"><span class="lbl">Included</span><h2>Attached to every journey.</h2></div>
     <div class="tagwrap rv">
       <div class="lugtag" role="list" aria-label="Included with every airport transfer">
@@ -1260,6 +1252,14 @@ def render_emirate_airport_page(em):
   <div class="wrap wide">
     <div class="shead rv"><span class="lbl">The fleet</span><h2>Choose your car.</h2><p class="lede">A seamless transfer between the terminal and your hotel, residence or boardroom, in the car that suits the moment.</p></div>
     <div class="fleet-grid" id="airportFleet"></div>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">On the ground</span><h2>Landing in {em['name']}.</h2></div>
+    <p class="lede rv" style="max-width:68ch;margin:0 auto 1.2rem;text-align:left">{em['local']}</p>
+    <p class="rv" style="max-width:68ch;margin:0 auto;text-align:left;color:var(--muted)">{cars_line}</p>
   </div>
 </section>
 {JL}
@@ -1418,13 +1418,6 @@ def render_rentacar_page(em):
 {JL}
 <section class="sec">
   <div class="wrap">
-    <div class="shead rv"><span class="lbl">On the ground</span><h2>A held car in {em['name']}.</h2></div>
-    <p class="lede rv" style="max-width:66ch;margin:0 auto;text-align:left">{em['local']}</p>
-  </div>
-</section>
-{JL}
-<section class="sec">
-  <div class="wrap">
     <div class="shead rv"><span class="lbl">How it works</span><h2>From request to kerbside, in a few clean steps.</h2></div>
     <div class="timeline rv">
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
@@ -1462,6 +1455,13 @@ def render_rentacar_page(em):
   <div class="wrap wide">
     <div class="shead rv"><span class="lbl">The fleet</span><h2>Choose your car.</h2><p class="lede">Rates below are for {em['name']}. The in-card selector swaps any vehicle's rates to another emirate.</p></div>
     <div class="fleet-grid" id="rentFleet"></div>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">On the ground</span><h2>A held car in {em['name']}.</h2></div>
+    <p class="lede rv" style="max-width:66ch;margin:0 auto;text-align:left">{em['local']}</p>
   </div>
 </section>
 {JL}
