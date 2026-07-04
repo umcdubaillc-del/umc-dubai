@@ -694,7 +694,7 @@ document.addEventListener("DOMContentLoaded", function(){
 
 (SITE/"index.html").write_text(
  head("Luxury Chauffeur Service in Dubai & the UAE | UMC Dubai",
-      "UMC Dubai is the luxury chauffeur service trusted across the UAE. Airport transfers, corporate and private drivers, one all-inclusive rate, 24/7.",
+      "UMC Dubai — the UAE's luxury chauffeur service. Airport transfers, corporate & private drivers. One fixed, all-inclusive rate. Rated 5★, 24/7.",
       "", ld_home + faq_schema(HOME_FAQS)
           + '<link rel="preload" as="image" href="/assets/home/hero.webp" type="image/webp" fetchpriority="high">'
           + '<link rel="stylesheet" href="/assets/vendor/flatpickr.min.css?v={V}">') + index_body)
@@ -1087,7 +1087,7 @@ airport_body = header("airport-transfers.html") + f"""
 </body></html>"""
 (SITE/"airport-transfers.html").write_text(
  head("Airport Transfers in Dubai & the UAE | UMC Dubai",
-      "Fixed-price airport transfers across the UAE. Live flight tracking, meet & greet at baggage claim. From AED 350, all-inclusive.",
+      "Fixed-price Dubai & UAE airport transfers from AED 350, all-inclusive. Live flight tracking, meet & greet at baggage claim, 24/7 chauffeur.",
       "airport-transfers", faq_schema(AIRPORT_FAQS)) + airport_body)
 
 # ---------- airport-transfers / per-emirate pages (v45 Dubai, v46 the other four) ----------
@@ -1169,7 +1169,7 @@ EMIRATES = [
     "cars": ["escalade", "v-class"],
     "local": "Ras Al Khaimah International (RKT) is a small, calm airport, and the walk from the aircraft to the arrivals hall is short &mdash; your chauffeur is waiting with a name board by the time you reach it. Most arrivals here are heading to the coast: the beachfront resorts and Al Marjan Island are typically around 20&ndash;25 minutes away, the city centre nearer 15. The mountain road up Jebel Jais is the exception &mdash; it climbs in long switchbacks and rewards an unhurried pace, so allow closer to 45 minutes to an hour to the summit viewpoints. Ras Al Khaimah has no Salik gates; the drive is toll-free and, like fuel and parking, priced into the fixed rate. Many guests arrive on charter or resort flights, and just as many prefer to land at Dubai&rsquo;s airports and be driven up the E311 &mdash; around 60 to 75 minutes &mdash; which we run as one booking. Night arrivals are simple here: the road north is quiet after dark, and the flight is tracked so the pick-up follows the actual landing.",
     "seo_title": "Ras Al Khaimah Airport Transfer (RKT) | UMC Dubai",
-    "seo_meta": "Chauffeur driven Ras Al Khaimah airport transfers from RKT. Meet & greet at arrivals, on to the resorts, the coast and Jebel Jais. Flight tracking included.",
+    "seo_meta": "Chauffeur driven Ras Al Khaimah airport transfers from RKT. Meet & greet at arrivals, on to the resorts and Jebel Jais, flight tracking included.",
     "faqs_extra": [
       ("Which Ras Al Khaimah airports do you cover?",
        "We cover Ras Al Khaimah International Airport (RKT). We also carry guests up from Dubai's airports to Ras Al Khaimah when the flight lands there instead."),
@@ -1348,7 +1348,7 @@ RENT_EMIRATES = [
     "intro": "Al Ain rewards an unhurried visit. A chauffeur at your disposal turns the oases, the heritage sites and Jebel Hafeet into a single composed day. UMC's half-day and full-day service operates throughout the city, with all-inclusive rates: chauffeur, fuel, Salik and parking.",
     "use_cases": "Heritage circuits, the Jebel Hafeet road, university and embassy programmes, family days, intercity transfers back to Dubai or Abu Dhabi.",
     "seo_title": "Rent a Car with Driver in Al Ain | UMC Dubai",
-    "seo_meta": "A private chauffeur in Al Ain, for a half day or a full day. Oases, Jebel Hafeet and heritage circuits, with all-inclusive rates and a maintained luxury fleet.",
+    "seo_meta": "A private chauffeur in Al Ain by the half day or full day. Oases, Jebel Hafeet and heritage circuits, all-inclusive rates, a maintained luxury fleet.",
     "closing": "Al Ain, taken slowly.",
     "local": "Al Ain rewards a slow, held day more than most: the oases, Al Jahili Fort, the camel market and the Jebel Hafeet summit road are spread across the garden city and its edges, and none of them reward a rushed schedule. The chauffeur keeps the car with you between them, so a heritage morning and a mountain afternoon sit comfortably in one booking. The inland roads are calm and toll-free, and the return leg to Dubai or Abu Dhabi is planned into the same day.",
   },
@@ -1740,6 +1740,17 @@ corp_body = header("corporate.html") + f"""
     <div class="faq rv">{faq_details(CORP_FAQS)}</div>
   </div>
 </section>
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">The account</span><h2>How the account works day to day.</h2></div>
+    <div class="rv" style="max-width:68ch;margin:0 auto;text-align:left">
+      <p>An account changes how your company books rather than what it books. Once it is open &mdash; usually within 48 hours of receiving your company details &mdash; anyone you authorise reserves in minutes by phone, WhatsApp or email, and the desk already holds your preferences, cost-centre references and billing details, so no journey starts from a blank form.</p>
+      <p>Priority sits with account holders. When demand is high around event weeks or early-morning airport peaks, account bookings are dispatched ahead of ad-hoc requests, and a dedicated, named contact owns your account rather than a rotating queue. Every journey on the account runs to one standard, and every traveller you send is treated as the account holder would be.</p>
+      <p>Billing is consolidated into a single monthly statement, so finance reconciles once instead of chasing dozens of receipts. Confidentiality is assumed throughout: our chauffeurs serve senior executives daily, and conversations, documents and itineraries stay in the car.</p>
+    </div>
+  </div>
+</section>
+{JL}
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Corporate accounts</span><h2 class="rv">Your executives, moved without friction.</h2>
   <div class="btns rv"><a class="btn btn-ink" href="/contact?vehicle=Corporate%20Account">Open a corporate account</a><a class="btn btn-ghost" href="tel:+971586497861">Call the desk</a></div></div>
@@ -1787,6 +1798,19 @@ about_body = header("about.html") + f"""
     </div>
   </div>
 </section>
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">The company</span><h2>Built on a single standard.</h2></div>
+    <div class="rv" style="max-width:68ch;margin:0 auto;text-align:left">
+      <p>UMC Dubai was founded in December 2023 on a single conviction: that private ground transport in the Emirates should be consistent, discreet and quietly excellent on every journey, not just the first one. The company was built by Usman Hanif around a standard formed by watching how the best international operators work and what discerning travellers actually expect &mdash; reliability you can count on rather than occasional brilliance.</p>
+      <p>That standard is the whole business. Every vehicle in the fleet is detailed before a journey and driven by a vetted, trained chauffeur, so the experience does not change depending on which car arrives or which chauffeur is assigned. The fleet is chosen for range rather than show: flagship sedans for executive travel, full-size SUVs for families and delegations, and vans and coaches for groups, each maintained to the same schedule and stocked the same way.</p>
+      <p>The people UMC serves set the bar. The company has served guests and delegations for organisations including Emirates and Jetex, and around Dubai&rsquo;s major weeks such as GITEX and the Formula 1 weekend. Executives moving between DIFC, Business Bay and Downtown; families arriving for the season; and the assistants and travel managers who orchestrate complex itineraries all rely on the same promise: a clean schedule, a quiet cabin, and a person who answers at any hour.</p>
+      <p>What holds it together is an operation built for accountability. Chauffeurs are employed and background-checked rather than dispatched from a pool, flights are tracked on every airport journey, and there is a human escalation path around the clock. Pricing is all-inclusive and agreed before a booking is confirmed, so there is no meter and no surprise.</p>
+      <p>None of this is complicated, but all of it is deliberate: a car that is clean every time, a chauffeur held to the same standard on a quiet Tuesday as on a first booking, a rate that does not move after the fact, and a desk a person actually answers. Held together, those are what separate a chauffeur company from a car with a driver attached &mdash; and they are the reason clients return rather than simply try us once.</p>
+    </div>
+  </div>
+</section>
+{JL}
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">Judge us by a single journey.</h2>
   <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your car</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
@@ -1803,8 +1827,8 @@ events_body = header("events.html") + f"""
 <section class="phero">
   <div class="wrap">
     <span class="lbl">Weddings &middot; Galas &middot; Private celebrations</span>
-    <h1>Arrivals worth remembering.</h1>
-    <p class="lede">For the occasions that deserve more than a car: a coordinated fleet, one point of contact and a standard that holds from the first arrival to the last.</p>
+    <h1>Wedding &amp; event chauffeur service in Dubai.</h1>
+    <p class="lede">Arrivals worth remembering. For the occasions that deserve more than a car: a coordinated fleet, one point of contact and a standard that holds from the first arrival to the last.</p>
     <div class="btns rv" style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
       <a class="btn btn-ink" href="/contact">Plan your occasion</a>
     </div>
@@ -1884,6 +1908,17 @@ events_body = header("events.html") + f"""
     </div>
   </div>
 </section>
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">The operation</span><h2>Built for Dubai&rsquo;s event calendar.</h2></div>
+    <div class="rv" style="max-width:68ch;margin:0 auto;text-align:left">
+      <p>Dubai&rsquo;s biggest weeks are logistics problems as much as celebrations, and a chauffeur operation is only as good as its coordination. UMC plans event movements as a single operation: one coordinator working alongside yours, a written manifest of every car and every party, and a standard that holds from the first arrival to the last departure.</p>
+      <p>The city&rsquo;s calendar shapes the demand. Weeks like GITEX and Gulfood fill the business hotels and move delegations on tight schedules; Art Dubai and the IIFA weekend bring guests who expect discretion; and the Formula 1 weekend turns the whole city into a movement exercise, with road closures and surge demand that reward planning made well in advance. For each, vehicles are readied and routed ahead of the first arrival, chauffeurs are briefed on the closures, and a held reserve of cars absorbs the unplanned, so a late change rarely reaches your guests at all.</p>
+      <p>Staffing is the quiet part. Chauffeurs are employed, vetted and briefed as a team under one lead who answers to your planner rather than a dispatch line &mdash; which is what lets a convoy of many cars move as one, hour by hour, without the seams showing. At full stretch UMC has fielded up to 102 vehicles for a single event week, planned and staged as one movement.</p>
+    </div>
+  </div>
+</section>
+{JL}
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Occasions</span><h2 class="rv">Begin with the standard.</h2>
   <div class="btns rv"><a class="btn btn-ink" href="/contact">Plan your occasion</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{EVENTS_WA}">WhatsApp concierge</a></div></div>
@@ -2088,6 +2123,19 @@ ie_body = header("airport-transfers.html").replace('class="on"','') + f"""
     <div class="faq rv">{faq_details(IE_FAQS)}</div>
   </div>
 </section>
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">The routes</span><h2>What each route asks for.</h2></div>
+    <div class="rv" style="max-width:68ch;margin:0 auto;text-align:left">
+      <p>The Emirates are close enough that a chauffeur can cover most inter-city journeys in a morning, but each route has its own character.</p>
+      <p><b>Dubai to Abu Dhabi</b> is the busiest corridor and the one most people ask about. Outside peak hours the drive is typically around 90 minutes down the E11, though the capital&rsquo;s morning inbound and evening outbound flows can add time, so meetings are best planned with a margin. The route crosses Dubai&rsquo;s Salik gates and, on the approach to Abu Dhabi island, the emirate&rsquo;s Darb toll &mdash; both are already inside your fixed quote, so nothing is added afterwards.</p>
+      <p><b>Dubai to Sharjah and the northern emirates</b> is short in distance but shaped by the Dubai&ndash;Sharjah commuter crossing, among the region&rsquo;s heaviest at peak. We time departures around it rather than through it. From Sharjah the road runs on to Ajman, Umm Al Quwain and Ras Al Khaimah, and those onward legs are usually quicker than the first.</p>
+      <p><b>Dubai to Al Ain</b> is the quiet one &mdash; typically around 90 minutes to two hours inland on the E66, on open roads with no Salik gates once you leave Dubai, which makes it an easy day trip or a calm transfer to the garden city.</p>
+      <p>Any of these runs as a single booking in both directions. The chauffeur waits at the destination for a meeting, a lunch or a full day and drives you back, so a round trip is one arrangement and one quote rather than two separate transfers. Waiting time and the return leg are agreed up front, with the all-inclusive rate &mdash; chauffeur, fuel and tolls &mdash; confirmed before departure.</p>
+    </div>
+  </div>
+</section>
+{JL}
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">One chauffeur, door to door.</h2>
   <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
@@ -2562,7 +2610,7 @@ FLEET_PAGES_DRAFT = [
    "archetype":"sedan",
    "amenities":"full",
    "title_seo":"BMW 7 Series Chauffeur in Dubai, Flagship Sedan | UMC Dubai",
-   "meta_seo":"Chauffeur driven BMW 7 Series in Dubai. Composed flagship sedan, vetted UMC chauffeur. Reserve in minutes.",
+   "meta_seo":"Chauffeur driven BMW 7 Series in Dubai. Composed flagship sedan on one all-inclusive rate, vetted UMC chauffeur, 24/7. Reserve in minutes.",
    "tagline":"Composure, engineered.",
    "hero_sub":"The executive saloon for those who know the difference. Quiet authority, precisely built.",
    # v73-C: real imagery wired in.
@@ -2587,7 +2635,7 @@ FLEET_PAGES_DRAFT = [
   {"id":"mb-e-class",
    "archetype":"sedan",
    "title_seo":"Mercedes E-Class Chauffeur in Dubai | UMC Dubai",
-   "meta_seo":"Chauffeur driven Mercedes-Benz E-Class in Dubai. The business sedan of choice for daily executive transfers.",
+   "meta_seo":"Chauffeur driven Mercedes-Benz E-Class in Dubai. The business sedan for daily executive transfers, on one all-inclusive rate, 24/7.",
    "tagline":"The quiet professional.",
    "hero_sub":"The business saloon that does the daily work of moving people who matter, without announcing it.",
    # v73-G: hero + 1-left + 3-of-4 right details wired. Slot 4 stays on
@@ -2612,7 +2660,7 @@ FLEET_PAGES_DRAFT = [
    "archetype":"sedan",
    "amenities":"lexus_es",
    "title_seo":"Lexus ES Chauffeur in Dubai, Business Sedan | UMC Dubai",
-   "meta_seo":"Chauffeur driven Lexus ES in Dubai. Japanese refinement, exceptional quiet, vetted UMC chauffeur.",
+   "meta_seo":"Chauffeur driven Lexus ES in Dubai. Japanese refinement and exceptional quiet on one all-inclusive rate, vetted UMC chauffeur, 24/7.",
    "tagline":"Stillness, as standard.",
    "hero_sub":"A saloon built around quiet, the Japanese idea that true luxury is the absence of disturbance.",
    # v73-C: hero + interior primary wired. The 4 detail images on usnews.com
@@ -2638,7 +2686,7 @@ FLEET_PAGES_DRAFT = [
    "archetype":"suv",
    "configuration_label":"Three rows. Front cabin; second-row captain&rsquo;s chairs as standard, third-row bench. A bench second row can be arranged on request to seat additional guests.",
    "title_seo":"Cadillac Escalade Chauffeur in Dubai, Luxury SUV | UMC Dubai",
-   "meta_seo":"Chauffeur driven Cadillac Escalade in Dubai. Full-size luxury SUV for group arrivals and family transfers.",
+   "meta_seo":"Chauffeur driven Cadillac Escalade in Dubai. Full-size luxury SUV for group arrivals and family transfers, one all-inclusive rate, 24/7.",
    "tagline":"Arrival, with presence.",
    "hero_sub":"The full-size SUV for those who travel with people, with luggage, or with the need to be seen arriving, and the room to do all three.",
    # v73-C: real imagery wired in.
@@ -3437,7 +3485,7 @@ BLOG_POSTS = [
   {
     "slug": "emirates-chauffeur-tips",
     "title": "Tipping a Chauffeur in Dubai: A First-Timer's Guide",
-    "meta": "How tipping works for chauffeurs and private drivers in Dubai: what's customary, how much, airport-transfer etiquette, and whether tips are already included.",
+    "meta": "How tipping works for chauffeurs in Dubai: what's customary, how much, airport-transfer etiquette, and whether tips are already in the rate.",
     "date": "2025-09-16",
     "date_label": "16 September 2025",
     "author": BLOG_AUTHOR_DEFAULT,
@@ -3832,6 +3880,35 @@ def render_article_schema(p):
     }
     return '<script type="application/ld+json">' + json.dumps(data, separators=(",", ":")) + '</script>'
 
+# v111 (SEO P3 — blog de-island): every post ends with a "Keep reading" block
+# of 2 contextual sibling posts + 1 relevant money page. Server-rendered links,
+# reusing the existing .lbl + .emirate-xlinks patterns. slug -> ([sib, sib], (money_href, money_label)).
+_POST_TITLE = {p["slug"]: p["title"] for p in BLOG_POSTS}
+BLOG_RELATED = {
+  "what-actually-makes-a-luxury-chauffeur-service-in-dubai": (["safe-driver-service-dubai", "private-car-service-vs-uber"], ("/fleet", "See the fleet")),
+  "guide-salik-dubai": (["private-car-service-vs-uber", "dubai-to-abu-dhabi-trip"], ("/airport-transfers", "Airport transfers")),
+  "private-car-service-vs-uber": (["what-actually-makes-a-luxury-chauffeur-service-in-dubai", "safe-driver-service-dubai"], ("/fleet", "See the fleet")),
+  "usman-hanif-pioneering-luxury-chauffeur-services-in-dubai": (["what-actually-makes-a-luxury-chauffeur-service-in-dubai", "safe-driver-service-dubai"], ("/corporate", "Corporate accounts")),
+  "safe-driver-service-dubai": (["what-actually-makes-a-luxury-chauffeur-service-in-dubai", "private-car-service-vs-uber"], ("/fleet", "See the fleet")),
+  "emirates-chauffeur-tips": (["safe-driver-service-dubai", "private-car-service-vs-uber"], ("/airport-transfers", "Airport transfers")),
+  "dubai-to-abu-dhabi-trip": (["guide-salik-dubai", "abu-dhabi-city-tour-private-driver"], ("/inter-emirate", "Inter-emirate transfers")),
+  "dubai-date-night-ideas": (["dubai-shopping-with-driver", "half-day-city-tour-dubai"], ("/fleet", "See the fleet")),
+  "failure-of-a-light-vehicle-to-abide-by-lane-discipline": (["guide-salik-dubai", "safe-driver-service-dubai"], ("/airport-transfers", "Airport transfers")),
+  "abu-dhabi-city-tour-private-driver": (["half-day-city-tour-dubai", "dubai-to-abu-dhabi-trip"], ("/rent-a-car-with-driver/abu-dhabi/", "Chauffeur in Abu Dhabi")),
+  "half-day-city-tour-dubai": (["abu-dhabi-city-tour-private-driver", "dubai-shopping-with-driver"], ("/rent-a-car-with-driver/dubai/", "Chauffeur in Dubai")),
+  "dubai-shopping-with-driver": (["dubai-date-night-ideas", "half-day-city-tour-dubai"], ("/fleet", "See the fleet")),
+}
+def render_related(slug):
+    entry = BLOG_RELATED.get(slug)
+    if not entry:
+        return ""
+    sibs, (mhref, mlabel) = entry
+    lis = "".join(f'<li><a href="/{s}/">{_POST_TITLE.get(s, s)}</a></li>' for s in sibs)
+    lis += f'<li><a href="{mhref}">{mlabel}</a></li>'
+    return ('<div class="rv" style="margin-top:3rem;padding-top:1.8rem;border-top:1px solid rgba(34,27,20,.12)">'
+            '<span class="lbl">Keep reading</span>'
+            f'<ul class="emirate-xlinks" style="margin-top:1rem">{lis}</ul></div>')
+
 def render_post(p):
     """Render a single blog post at site/<slug>/index.html."""
     canon = f"{p['slug']}/"
@@ -3855,6 +3932,7 @@ def render_post(p):
   <div class="article-body">
     <div class="wrap article-wrap rv">
       {p['body']}
+      {render_related(p['slug'])}
     </div>
   </div>
   <section class="closing band-dark article-closing">
