@@ -67,7 +67,12 @@ body.sc-no-scroll{overflow:hidden}
   .sc-hero{height:auto;min-height:0;max-height:none;aspect-ratio:auto;overflow:visible;background:var(--ink)}
   .sc-hero__stage{position:relative;height:380px}
   .sc-hero__img{object-position:var(--hero-pos-mobile,50% 50%)}
-  .sc-hero__stage::after{background:linear-gradient(180deg,rgba(20,15,9,.4) 0%,rgba(20,15,9,.5) 45%,rgba(12,8,4,.82) 78%,rgba(4,3,1,.97) 100%)}
+  /* Mobile hero fade-to-black kept ONLY on .sc-hero--mfade (gmc-yukon-xl, lexus-es).
+     Every other vehicle hero shows the image clean at mobile (::after suppressed,
+     also overriding the desktop base scrim), with a stronger H1 shadow below. */
+  .sc-hero:not(.sc-hero--mfade) .sc-hero__stage::after{background:none}
+  .sc-hero--mfade .sc-hero__stage::after{background:linear-gradient(180deg,rgba(20,15,9,.4) 0%,rgba(20,15,9,.5) 45%,rgba(12,8,4,.82) 78%,rgba(4,3,1,.97) 100%)}
+  .sc-hero:not(.sc-hero--mfade) .sc-hero__name{text-shadow:0 1px 3px rgba(0,0,0,.78),0 2px 22px rgba(0,0,0,.6)}
   .sc-hero__name{display:block;position:absolute;left:0;right:0;bottom:0;z-index:2;margin:0;
     padding:0 clamp(1.1rem,4vw,1.6rem) clamp(16px,4vh,26px);
     font-family:var(--serif);font-weight:400;color:var(--bone);
