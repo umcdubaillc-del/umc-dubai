@@ -541,7 +541,7 @@ index_body = header("index.html") + f"""
 <div class="authority rv">
   <div class="wrap">
     <span class="lbl">Guests and delegations served for</span>
-    <p class="names">Emirates <i>&middot;</i> Jetex <i>&middot;</i> IIFA Awards <i>&middot;</i> Gulfood <i>&middot;</i> Loro Piana <i>&middot;</i> Dolce &amp; Gabbana</p>
+    <p class="names">Emirates <i>&middot;</i> Jetex <i>&middot;</i> IIFA Awards <i>&middot;</i> Gulfood <i>&middot;</i> GITEX <i>&middot;</i> F1 Weekend</p>
   </div>
 </div>
 
