@@ -555,7 +555,8 @@ index_body = header("index.html") + f"""
       <p class="lede">Detailed before every journey and driven by the same vetted chauffeurs, whichever car you choose. The standard never changes, only the car does.</p>
     </div>
     <div class="fleet-grid" id="homeFleet"></div>
-    <div class="center rv" style="margin-top:2.6rem"><a class="btn btn-ghost" href="/fleet">View the complete fleet</a></div>
+    <p class="center rv" style="margin-top:2rem;font-size:.9rem;color:var(--muted)">A <a href="/fleet/rolls-royce">Rolls-Royce</a> is available by request for weddings and VIP arrivals.</p>
+    <div class="center rv" style="margin-top:1.4rem"><a class="btn btn-ghost" href="/fleet">View the complete fleet</a></div>
   </div>
 </section>
 
@@ -946,7 +947,8 @@ fleet_body = header("fleet.html") + f"""
       <button data-cat="coach">Coaches</button>
     </div>
     <div class="fleet-grid" id="fleetAll">{fleet_grid_html()}</div>
-    <p class="muted center" style="font-size:.85rem;margin-top:2.2rem">Rates may vary in peak season. Your quote is confirmed before you book.</p>
+    <p class="center rv" style="margin-top:2.2rem">Beyond the standing fleet, a <a href="/fleet/rolls-royce">Rolls-Royce Ghost or Cullinan</a> is available by request for weddings and milestone arrivals.</p>
+    <p class="muted center" style="font-size:.85rem;margin-top:1.2rem">Rates may vary in peak season. Your quote is confirmed before you book.</p>
   </div>
 </section>
 {JL}
@@ -997,6 +999,26 @@ fleet_body = header("fleet.html") + f"""
       "fleet", faq_schema(FLEET_FAQS)) + fleet_body)
 
 # ---------- airport ----------
+# v108 (SEO P2): shared vehicle-link helper. Contextual internal links from
+# service pages to the fleet money pages (server-rendered so they are
+# crawlable, unlike the JS-hydrated fleet grids). Single source of truth for
+# the /fleet/<slug> href + display label.
+FLEET_LINK = {
+  "s-class":  ("/fleet/s-class",          "Mercedes S-Class"),
+  "bmw-7":    ("/fleet/bmw-7-series",      "BMW 7 Series"),
+  "e-class":  ("/fleet/e-class",           "Mercedes E-Class"),
+  "lexus-es": ("/fleet/lexus-es",          "Lexus ES"),
+  "escalade": ("/fleet/cadillac-escalade", "Cadillac Escalade"),
+  "gmc":      ("/fleet/gmc-yukon-xl",      "GMC Yukon XL"),
+  "v-class":  ("/fleet/v-class",           "Mercedes V-Class"),
+  "sprinter": ("/fleet/sprinter",          "Mercedes Sprinter"),
+  "coach":    ("/fleet/luxury-coach",      "luxury coach"),
+  "rolls":    ("/fleet/rolls-royce",       "Rolls-Royce"),
+}
+def vlink(key, label=None):
+    href, default = FLEET_LINK[key]
+    return f'<a href="{href}">{label or default}</a>'
+
 airport_body = header("airport-transfers.html") + f"""
 <section class="phero">
   <div class="wrap">
@@ -1045,7 +1067,7 @@ airport_body = header("airport-transfers.html") + f"""
 {JL}
 <section class="sec">
   <div class="wrap wide">
-    <div class="shead rv"><span class="lbl">The fleet</span><h2>Choose your car.</h2><p class="lede">A seamless transfer between the terminal and your hotel, residence or boardroom, in the car that suits the moment.</p></div>
+    <div class="shead rv"><span class="lbl">The fleet</span><h2>Choose your car.</h2><p class="lede">A seamless transfer between the terminal and your hotel, residence or boardroom, in the car that suits the moment. For one or two travelling, the {vlink('s-class')} or {vlink('e-class')}; with luggage or a group, the {vlink('escalade')}, {vlink('gmc')} or {vlink('v-class')}.</p></div>
     <div class="fleet-grid" id="airportFleet"></div>
   </div>
 </section>
@@ -1093,6 +1115,8 @@ EMIRATES = [
     "hero_sub": "From DXB or DWC, the city begins the moment you land.",
     "lead": "Whether you land at Dubai International or Al Maktoum, the protocol is the same. Your chauffeur tracks the flight, waits in the arrivals hall, and is standing ready the moment you clear.",
     "closing_heading": "The car is there before you are.",
+    "cars": ["s-class", "escalade"],
+    "local": "Dubai has two airports and the meeting point differs at each. At Dubai International (DXB), your chauffeur waits in the arrivals hall of your terminal &mdash; Terminal 3 for Emirates and flydubai, Terminal 1 for most other international carriers, Terminal 2 on the Deira side for regional flights &mdash; with a name board, just past the baggage hall. At Al Maktoum (DWC) in Dubai South, a single arrivals hall keeps the meet simple. Drive times set expectations: from DXB, Downtown and DIFC are typically around 15 minutes outside peak, Business Bay a little less, and Dubai Marina, Palm Jumeirah or JBR closer to 30&ndash;35. From DWC, the Marina and Palm sit nearer than the Downtown core. The route&rsquo;s Salik toll gates &mdash; Airport Tunnel, Al Garhoud, Al Safa on the Marina run &mdash; are already in your fixed rate, so nothing is added afterwards. Dubai&rsquo;s long-haul flights from Europe and the Americas often land before dawn; the chauffeur is there for a 3 a.m. arrival exactly as for a midday one, tracking the flight so an early or delayed landing simply moves the pick-up.",
     "seo_title": "Dubai Airport Transfer (DXB & DWC) | UMC Dubai",
     "seo_meta": "Chauffeur driven Dubai airport transfers from DXB and Al Maktoum (DWC). Meet & greet at arrivals, live flight tracking.",
     "faqs_extra": [
@@ -1108,6 +1132,8 @@ EMIRATES = [
     "hero_sub": "From Zayed International to the capital, at the pace the capital keeps.",
     "lead": "Your chauffeur tracks the flight into Zayed International, waits in the arrivals hall, and is ready the moment you clear. Whether the journey ends at a ministry, a corporate office, or a hotel on the Corniche, the standard does not change.",
     "closing_heading": "The capital, met properly.",
+    "cars": ["s-class", "bmw-7", "v-class"],
+    "local": "Abu Dhabi&rsquo;s arrivals now run through the single Terminal A at Zayed International (AUH), opened at the end of 2023; it is a long, modern building, and your chauffeur waits in the arrivals hall past baggage with a name board while the flight is tracked from departure. Drive times depend on where the capital takes you: Yas Island sits close to the airport, typically 15&ndash;20 minutes; Saadiyat, Al Maryah and Al Reem islands and the Corniche are usually 30&ndash;35 minutes across the Sheikh Khalifa or Sheikh Zayed bridges. Note that Abu Dhabi does not use Salik &mdash; the emirate&rsquo;s Darb toll applies on the island bridges during weekday peak hours, and like fuel and parking it is already inside your fixed rate. Arrivals here skew to government, corporate and diplomatic visits, and to Etihad&rsquo;s long-haul flights that land early in the morning; a pre-dawn landing is handled exactly as a daytime one. Many guests also ask to be met at DXB and driven down to the capital, which runs as a single booking.",
     "seo_title": "Abu Dhabi Airport Transfer (AUH) | UMC Dubai",
     "seo_meta": "Chauffeur driven Abu Dhabi airport transfers from Zayed International (AUH). Meet & greet at arrivals, live flight tracking.",
     "faqs_extra": [
@@ -1123,6 +1149,8 @@ EMIRATES = [
     "hero_sub": "Met at Sharjah International. Driven on, wherever the day leads.",
     "lead": "Your chauffeur tracks the flight into Sharjah International, meets you at arrivals, and takes the luggage. Many journeys from here run on into Dubai or across the northern emirates, and we plan the route accordingly.",
     "closing_heading": "Arrival, without the wait.",
+    "cars": ["e-class", "gmc"],
+    "local": "Sharjah International (SHJ) is a single-terminal airport and a busy one &mdash; it is the home base of Air Arabia, so arrivals are frequent and often at unsocial hours. Your chauffeur meets you in the arrivals hall with a name board and takes the luggage. The detail that shapes every Sharjah transfer is the Dubai&ndash;Sharjah corridor: the emirate itself is quick to reach &mdash; Al Majaz, Al Qasba and the Heritage area are usually within 15&ndash;20 minutes &mdash; but journeys continuing into Dubai cross one of the region&rsquo;s heaviest commuter routes on Al Ittihad Road (E11), so we time the run to avoid the worst of the morning and evening peaks. Onward trips north to Ajman, Umm Al Quwain and Ras Al Khaimah are straightforward and often quicker than the Dubai leg. Air Arabia&rsquo;s schedule brings many late-night and early-morning landings; the flight is tracked and the chauffeur waits regardless of the hour, so a 2 a.m. arrival is met as calmly as a midday one.",
     "seo_title": "Sharjah Airport Transfer (SHJ) | UMC Dubai",
     "seo_meta": "Chauffeur driven Sharjah airport transfers from SHJ. Meet & greet at arrivals, onward into Dubai and the northern emirates, flight tracking included.",
     "faqs_extra": [
@@ -1138,6 +1166,8 @@ EMIRATES = [
     "hero_sub": "From RKT to the mountains and the shore, unhurried.",
     "lead": "Your chauffeur tracks the flight into Ras Al Khaimah International, meets you at arrivals, and sees you to the car. From here the road runs to the resorts, the coast, and Jebel Jais, and we keep the journey calm and exact.",
     "closing_heading": "The journey north, made easy.",
+    "cars": ["escalade", "v-class"],
+    "local": "Ras Al Khaimah International (RKT) is a small, calm airport, and the walk from the aircraft to the arrivals hall is short &mdash; your chauffeur is waiting with a name board by the time you reach it. Most arrivals here are heading to the coast: the beachfront resorts and Al Marjan Island are typically around 20&ndash;25 minutes away, the city centre nearer 15. The mountain road up Jebel Jais is the exception &mdash; it climbs in long switchbacks and rewards an unhurried pace, so allow closer to 45 minutes to an hour to the summit viewpoints. Ras Al Khaimah has no Salik gates; the drive is toll-free and, like fuel and parking, priced into the fixed rate. Many guests arrive on charter or resort flights, and just as many prefer to land at Dubai&rsquo;s airports and be driven up the E311 &mdash; around 60 to 75 minutes &mdash; which we run as one booking. Night arrivals are simple here: the road north is quiet after dark, and the flight is tracked so the pick-up follows the actual landing.",
     "seo_title": "Ras Al Khaimah Airport Transfer (RKT) | UMC Dubai",
     "seo_meta": "Chauffeur driven Ras Al Khaimah airport transfers from RKT. Meet & greet at arrivals, on to the resorts, the coast and Jebel Jais. Flight tracking included.",
     "faqs_extra": [
@@ -1153,6 +1183,8 @@ EMIRATES = [
     "hero_sub": "Into the garden city, quietly and on time.",
     "lead": "Your chauffeur tracks the flight into Al Ain International, meets you at arrivals, and takes the luggage. Al Ain rewards an unhurried arrival, and that is exactly how we drive it.",
     "closing_heading": "The garden city, met with care.",
+    "cars": ["e-class", "gmc"],
+    "local": "Al Ain International (AAN) is a small regional airport with a short, uncomplicated arrival &mdash; your chauffeur meets you in the arrivals hall with a name board and there is rarely a crowd to navigate. The garden city itself is close: the centre, the oases and the heritage sites are usually within 15&ndash;20 minutes, while the summit road up Jebel Hafeet &mdash; one of the region&rsquo;s great drives &mdash; is around 30 minutes and best taken slowly. Because scheduled flights into AAN are limited, many guests reach Al Ain by road instead, and we cover both approaches: the E66 from Dubai and the E22 from Abu Dhabi each run about 90 minutes to two hours, planned as a single booking. Al Ain sits inland with calm, open roads and no Salik gates, so the drive is toll-free and unhurried by nature. When a flight does land late, it is tracked from departure and the chauffeur waits for the actual arrival, so an evening landing is met with the same care as a midday one.",
     "seo_title": "Al Ain Airport Transfer (AAN) | UMC Dubai",
     "seo_meta": "Chauffeur driven Al Ain airport transfers from AAN. Meet & greet at arrivals, on into the garden city, oases and Jebel Hafeet. Flight tracking included.",
     "faqs_extra": [
@@ -1166,6 +1198,9 @@ EMIRATES = [
 
 def render_emirate_airport_page(em):
     faqs = COMMON_AIRPORT_FAQS + em["faqs_extra"]
+    _links = [vlink(k) for k in em.get("cars", [])]
+    _cars_sentence = (", ".join(_links[:-1]) + " and " + _links[-1]) if len(_links) >= 2 else (_links[0] if _links else "")
+    cars_line = f"For most {em['name']} arrivals, the {_cars_sentence} are the usual choices." if _cars_sentence else ""
     body = header(f"airport-transfers/{em['slug']}") + f"""
 <section class="phero">
   <div class="wrap">
@@ -1192,6 +1227,14 @@ def render_emirate_airport_page(em):
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7M6.5 9.5V20h11V9.5"/><path d="M10.5 20v-5h3v5"/></svg></div>
         <div><h3>Arrived<span class="lbl">Door to door</span></h3><p>The journey ends at your address in {em['name']}.</p></div></div>
     </div>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">On the ground</span><h2>Landing in {em['name']}.</h2></div>
+    <p class="lede rv" style="max-width:68ch;margin:0 auto 1.2rem;text-align:left">{em['local']}</p>
+    <p class="rv" style="max-width:68ch;margin:0 auto;text-align:left;color:var(--muted)">{cars_line}</p>
   </div>
 </section>
 {JL}
@@ -1259,6 +1302,7 @@ RENT_EMIRATES = [
     "seo_title": "Rent a Car with Driver in Dubai | UMC Dubai",
     "seo_meta": "Rent a luxury car with a professional chauffeur in Dubai, by the half day, full day or airport transfer. All-inclusive: fuel, Salik, parking.",
     "closing": "Dubai, on your schedule.",
+    "local": "A chauffeur-held day in Dubai usually means several stops with dead time between them &mdash; a DIFC meeting, lunch in Downtown, a showing in the Marina, an evening on the Palm &mdash; and the point of the service is that the car simply moves with you while you work or rest. The chauffeur holds the parking, the Salik gates and the route between Business Bay, Jumeirah and the outer districts, so the only decision left to you is where to be next.",
   },
   {
     "slug": "abu-dhabi", "name": "Abu Dhabi",
@@ -1270,6 +1314,7 @@ RENT_EMIRATES = [
     "seo_title": "Rent a Car with Driver in Abu Dhabi | UMC Dubai",
     "seo_meta": "A private chauffeur in Abu Dhabi by the half day, full day or airport transfer. Late-model luxury vehicles, all-inclusive rates, 24/7.",
     "closing": "Abu Dhabi, on your timing.",
+    "local": "An hourly chauffeur suits the capital&rsquo;s geography, where the distances between Yas Island, Saadiyat, the Corniche and the Grand Mosque are longer than they look and parking near the ministries and island developments is tightly managed. The car waits while you move between meetings or sights; the Darb toll on the island bridges, fuel and parking are already in the rate. Late returns to Dubai after a dinner or a full day are a routine part of the same booking.",
   },
   {
     "slug": "sharjah", "name": "Sharjah",
@@ -1281,6 +1326,7 @@ RENT_EMIRATES = [
     "seo_title": "Rent a Car with Driver in Sharjah | UMC Dubai",
     "seo_meta": "A private chauffeur in Sharjah by the half day or full day. Late-model luxury vehicles, all-inclusive rates, onward connections to Dubai.",
     "closing": "Sharjah, calmly driven.",
+    "local": "In Sharjah the hourly car earns its place on the corridor as much as in the emirate itself: a morning across Al Majaz, Al Qasba and the university and cultural districts, then an unhurried run into Dubai timed around the Al Ittihad Road peaks rather than through them. The chauffeur holds the schedule so the border traffic that shapes every Sharjah day becomes the driver&rsquo;s problem, not yours, and onward hops to Ajman or the northern emirates fold into the same booking.",
   },
   {
     "slug": "rak", "name": "Ras Al Khaimah",
@@ -1292,6 +1338,7 @@ RENT_EMIRATES = [
     "seo_title": "Rent a Car with Driver in Ras Al Khaimah | UMC Dubai",
     "seo_meta": "A private chauffeur in Ras Al Khaimah by the half day or full day. Resort transfers to Jebel Jais and Al Marjan, all-inclusive rates.",
     "closing": "Ras Al Khaimah, on your terms.",
+    "local": "A held car changes the rhythm of a Ras Al Khaimah day, where the good places sit far apart: a morning at Al Marjan Island or the beachfront, an afternoon climb up Jebel Jais, a heritage stop inland. Rather than drive the mountain switchbacks yourself and hunt for parking at the resorts, the chauffeur handles both and waits at each stop. The drive is toll-free, and transfers between the resorts and any address in the emirate run within the same block of hours.",
   },
   {
     "slug": "al-ain", "name": "Al Ain",
@@ -1303,6 +1350,7 @@ RENT_EMIRATES = [
     "seo_title": "Rent a Car with Driver in Al Ain | UMC Dubai",
     "seo_meta": "A private chauffeur in Al Ain, for a half day or a full day. Oases, Jebel Hafeet and heritage circuits, with all-inclusive rates and a maintained luxury fleet.",
     "closing": "Al Ain, taken slowly.",
+    "local": "Al Ain rewards a slow, held day more than most: the oases, Al Jahili Fort, the camel market and the Jebel Hafeet summit road are spread across the garden city and its edges, and none of them reward a rushed schedule. The chauffeur keeps the car with you between them, so a heritage morning and a mountain afternoon sit comfortably in one booking. The inland roads are calm and toll-free, and the return leg to Dubai or Abu Dhabi is planned into the same day.",
   },
   {
     "slug": "umm-al-quwain", "name": "Umm Al Quwain",
@@ -1314,6 +1362,7 @@ RENT_EMIRATES = [
     "seo_title": "Rent a Car with Driver in Umm Al Quwain | UMC Dubai",
     "seo_meta": "A private chauffeur in Umm Al Quwain, for a half day or a full day. Lagoons and resort transfers, with all-inclusive rates and a maintained luxury fleet.",
     "closing": "Umm Al Quwain, quietly handled.",
+    "local": "Umm Al Quwain asks little of a schedule, which is exactly why a held car suits it: the corniche, the old town, the mangroves and lagoons and the resort strip are quiet and close together, with none of the parking pressure of the larger emirates. The chauffeur keeps the day loose &mdash; a lagoon morning, a long lunch, an unhurried drive back &mdash; and onward connections to Sharjah, Ajman or Ras Al Khaimah are handled in the same booking without a second arrangement.",
   },
 ]
 
@@ -1364,6 +1413,13 @@ def render_rentacar_page(em):
     <div class="shead rv"><span class="lbl">The service</span><h2>The half day, the full day, the airport run.</h2></div>
     <p class="lede rv" style="text-align:center;max-width:62ch;margin:0 auto 1.4rem">{em['intro']}</p>
     <p class="lede rv" style="text-align:center;max-width:62ch;margin:0 auto 0;color:var(--muted)">{em['use_cases']}</p>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">On the ground</span><h2>A held car in {em['name']}.</h2></div>
+    <p class="lede rv" style="max-width:66ch;margin:0 auto;text-align:left">{em['local']}</p>
   </div>
 </section>
 {JL}
@@ -1673,6 +1729,13 @@ corp_body = header("corporate.html") + f"""
 {JL}
 <section class="sec">
   <div class="wrap">
+    <div class="shead rv"><span class="lbl">The account fleet</span><h2>The cars on your account.</h2></div>
+    <p class="lede rv" style="max-width:64ch;margin:0 auto">Executive travel usually means a {vlink('s-class')}, {vlink('bmw-7')} or {vlink('e-class')}; a {vlink('lexus-es')} for daily business runs; and a {vlink('sprinter')} or {vlink('coach')} when a delegation moves together.</p>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap">
     <div class="shead rv"><span class="lbl">Good to know</span><h2>Corporate account questions</h2></div>
     <div class="faq rv">{faq_details(CORP_FAQS)}</div>
   </div>
@@ -1791,7 +1854,7 @@ events_body = header("events.html") + f"""
 
       <div class="mo-reserve">
         <span class="mo-rk">Held in reserve</span>
-        <p>Spare cars stand by throughout for the unplanned, so a change of guest or schedule is never a problem you see. Rolls-Royce, limousines, S&nbsp;Class — a matched fleet of any marque.</p>
+        <p>Spare cars stand by throughout for the unplanned, so a change of guest or schedule is never a problem you see. <a href="/fleet/rolls-royce">Rolls-Royce</a>, limousines, <a href="/fleet/s-class">S&nbsp;Class</a> — a matched fleet of any marque, from a <a href="/fleet/v-class">V-Class</a> for the wedding party to a <a href="/fleet/luxury-coach">coach</a> for the guests.</p>
       </div>
 
       <footer class="ds-foot">
@@ -2015,7 +2078,7 @@ ie_body = header("airport-transfers.html").replace('class="on"','') + f"""
       <div class="bd-row"><span class="rt">Dubai <span class="ar">&#8596;</span> Fujairah</span><span class="cell km">≈ 130 km</span><span class="cell">100 min</span><a class="tag" target="_blank" rel="noopener" href="https://api.whatsapp.com/send?phone=971586497861&text=Hello%20UMC%20Dubai%2C%20I%20would%20like%20a%20quote%20for%20the%20Dubai%20-%20Fujairah%20transfer.">Get quote</a></div>
       <div class="bd-row"><span class="rt">Dubai <span class="ar">&#8596;</span> Al Ain</span><span class="cell km">≈ 160 km</span><span class="cell">95 min</span><a class="tag" target="_blank" rel="noopener" href="https://api.whatsapp.com/send?phone=971586497861&text=Hello%20UMC%20Dubai%2C%20I%20would%20like%20a%20quote%20for%20the%20Dubai%20-%20Al%20Ain%20transfer.">Get quote</a></div>
     </div>
-    <p class="muted center" style="font-size:.85rem;margin-top:1.8rem">Travelling from another emirate into Dubai, or between any two emirates, is arranged the same way. Our concierge confirms your quote within minutes.</p>
+    <p class="muted center" style="font-size:.85rem;margin-top:1.8rem">Travelling from another emirate into Dubai, or between any two emirates, is arranged the same way. An {vlink('e-class')} or {vlink('lexus-es')} suits two travelling, a {vlink('v-class')} a family, and a {vlink('sprinter')} or {vlink('coach')} a larger group. Our concierge confirms your quote within minutes.</p>
   </div>
 </section>
 {JL}
@@ -2314,6 +2377,17 @@ sc_body = header("fleet.html") + f"""
       </div>
       <a class="btn-line" href="/fleet/bmw-7-series">Reserve the 7 Series</a>
     </article>
+    <article class="acard">
+      <div class="marque-row"><span class="mk">Mercedes-Benz</span><span class="dash"></span><span>Business Sedan</span></div>
+      <h3>Mercedes E-Class</h3>
+      <div class="strap">The same standard, an everyday saloon.</div>
+      <p>The business sedan of the range for daily executive travel. The same vetted chauffeur and the same care, in a lighter car for the everyday run.</p>
+      <div class="stats">
+        <div class="it"><span class="k">Passengers</span><span class="v">Up to 4</span></div>
+        <div class="it"><span class="k">Luggage</span><span class="v">2 medium</span></div>
+      </div>
+      <a class="btn-line" href="/fleet/e-class">Reserve the E-Class</a>
+    </article>
   </div>
 </section>
 
@@ -2508,7 +2582,7 @@ FLEET_PAGES_DRAFT = [
      ("Three travelling","Two across the rear, the third in the front beside the chauffeur."),
    ],
    "seo_body":"The BMW 7 Series stands as Munich&rsquo;s answer to the executive saloon, composed, engineered to a fine degree, and quiet in its authority. Reclining rear seats, controlled climate and discreet charging at every seat. Suited to airport arrivals from DXB or DWC, board meetings across the DIFC, Downtown and Dubai Marina, and the journey where the room you arrive in should feel like the room you left.",
-   "also_consider":["mb-s-class"]},
+   "also_consider":["mb-s-class","lexus-es"]},
 
   {"id":"mb-e-class",
    "archetype":"sedan",
@@ -2532,7 +2606,7 @@ FLEET_PAGES_DRAFT = [
      ("Three travelling","Two across the rear, the third in the front beside the chauffeur."),
    ],
    "seo_body":"The Mercedes Benz E Class is the business sedan of the Dubai professional class, composed, dependable, quietly equipped. Controlled climate, generous rear-seat space, and the same chauffeur standard as the rest of the fleet. Suited to daily transfers, between-meetings journeys, and the airport runs that need to be dignified without ceremony.",
-   "also_consider":["lexus-es"]},
+   "also_consider":["mb-s-class","lexus-es"]},
 
   {"id":"lexus-es",
    "archetype":"sedan",
@@ -2558,7 +2632,7 @@ FLEET_PAGES_DRAFT = [
      ("Three travelling","Two across the rear, the third in the front beside the chauffeur."),
    ],
    "seo_body":"The Lexus ES is built around the Japanese principle that true luxury is the absence of disturbance, a hushed cabin, an even-tempered ride, and considered surfaces throughout. Suited to executive transfers, longer journeys, and any client who values quiet over presence.",
-   "also_consider":["mb-e-class"]},
+   "also_consider":["mb-e-class","bmw-7"]},
 
   {"id":"cadillac-escalade",
    "archetype":"suv",
@@ -2647,7 +2721,7 @@ FLEET_PAGES_DRAFT = [
      ("Total capacity","Up to seven passengers, including the front cabin."),
    ],
    "seo_body":"The Mercedes Benz V Class is the conversational people-mover, with two facing bench rows in the rear cabin, generous luggage, and the same chauffeur standard as the saloons. Suited to family travel, group transfers, and the journey that is meant to be spent in company rather than in rows.",
-   "also_consider":["gmc-yukon-xl","cadillac-escalade"]},
+   "also_consider":["gmc-yukon-xl","mb-sprinter"]},
 
   {"id":"mb-sprinter",
    "archetype":"group",
@@ -2678,7 +2752,7 @@ FLEET_PAGES_DRAFT = [
      ("Storage","Overhead and rear-cabin luggage stowage."),
    ],
    "seo_body":"The Mercedes Benz Sprinter is the executive minibus, coach-scale capacity with the manners of a Mercedes. Forward-facing rows, aisle access, and integrated climate. Suited to corporate group transport, event shuttles, and the team that has to arrive together and composed.",
-   "also_consider":["luxury-coach"]},
+   "also_consider":["mb-v-class","luxury-coach"]},
 
   # v83: King Long page consolidated into /fleet/luxury-coach. Hero, interior
   # gallery, and configurations CTA moved into the luxury-coach entry below;
