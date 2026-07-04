@@ -56,13 +56,13 @@ nav.mainnav{border-top:1px solid var(--hair)}
 nav.mainnav ul{display:flex;justify-content:center;gap:clamp(1.2rem,3vw,2.4rem);list-style:none;padding:.65rem 1rem}
 nav.mainnav a{font-size:.74rem;font-weight:400;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-soft);padding:.3rem 0;border-bottom:1px solid transparent;transition:.2s}
 nav.mainnav a:hover,nav.mainnav a.on{color:var(--ink);border-color:var(--amber)}
-@media(max-width:859px){
+@media(max-width:1199px){
   nav.mainnav{display:none;position:absolute;left:0;right:0;top:100%;background:var(--bone);border-bottom:1px solid var(--hair)}
   nav.mainnav.open{display:block}
   nav.mainnav ul{flex-direction:column;align-items:center;gap:0;padding:.6rem 0 1rem}
   nav.mainnav a{display:block;padding:.7rem 0;font-size:.8rem}
 }
-@media(min-width:860px){.burger{display:none}}
+@media(min-width:1200px){.burger{display:none}}
 
 /* ---------- submenu (Airport Transfers → emirates, v45) ---------- */
 nav.mainnav .has-sub{position:relative}
@@ -83,7 +83,7 @@ nav.mainnav .submenu .off{color:var(--muted);cursor:default}
 nav.mainnav .submenu .off em{font-style:normal;font-size:.72em;letter-spacing:.18em;text-transform:uppercase;color:var(--amber-deep);margin-left:.5em}
 /* Desktop: sub-toggle button is invisible; hover on .has-sub opens the submenu. */
 nav.mainnav .sub-toggle{display:none}
-@media(max-width:859px){
+@media(max-width:1199px){
   /* Mobile: parent link stays a real link (tap navigates). The sub-toggle button
      is the tap target that expands the submenu via .has-sub.open in main.js. */
   nav.mainnav .has-sub{width:100%;text-align:center;position:relative}
@@ -99,11 +99,11 @@ nav.mainnav .sub-toggle{display:none}
   nav.mainnav .submenu a,nav.mainnav .submenu .off{text-align:center;font-size:.72rem;padding:.45rem 0}
 }
 
-/* v76: wide-desktop single-row header (≥1280px). Collapses the two-row
-   topbar+mainnav into one row by absolutely positioning the centered nav
-   between the logo (left) and the Reserve+phone CTA (right). Below 1280px
-   the existing two-row stack stays intact. */
-@media (min-width:1280px){
+/* v76: wide-desktop single-row header. Collapses the two-row topbar+mainnav
+   into one row by absolutely positioning the centered nav between the logo
+   (left) and the Reserve+phone CTA (right). Below this width the two-row stack
+   stays intact. v112: raised 1280 -> 1400 so the 9-item nav clears the logo/CTA. */
+@media (min-width:1400px){
   header.site{position:sticky;top:0}
   .topbar{display:flex;align-items:center;justify-content:flex-start;width:auto;max-width:none;margin:0;padding:14px 52px}
   .topbar > .left{display:none}
@@ -834,8 +834,8 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
   /* v75 desktop redesign: full-bleed hero, copy upper-left, booking bar pinned
      to the bottom. v77 polish: scrim removed for a clean image; .seg pill
      floats centered above the bar; card top padding trimmed. v79: hero now
-     fills the viewport minus the sticky header (130px at 960-1279 two-row,
-     81px at >=1280 one-row). Mobile (<960px) unchanged. */
+     fills the viewport minus the sticky header (130px at 960-1399 two-row,
+     81px at >=1400 one-row). Mobile (<960px) unchanged. */
   .hero2{--hdr:130px;height:auto;min-height:calc(100vh - var(--hdr));min-height:calc(100svh - var(--hdr))}
   .h2scrim{background:linear-gradient(100deg,rgba(10,8,6,.68) 0%,rgba(10,8,6,.46) 26%,rgba(10,8,6,0) 58%)}
   .h2grid{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr auto;gap:0;align-items:start;justify-content:stretch;box-sizing:border-box;min-height:calc(100vh - var(--hdr));min-height:calc(100svh - var(--hdr));padding-top:clamp(2.4rem,7vh,5.5rem);padding-bottom:clamp(24px,4vh,48px)}
@@ -857,7 +857,7 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
   .h2form .book .two{display:contents}
   .h2form .book .btn{width:auto;margin-top:0;padding:.85rem 1.4rem;white-space:nowrap;min-height:52px;align-self:end}
 }
-@media(min-width:1280px){.hero2{--hdr:81px}}
+@media(min-width:1400px){.hero2{--hdr:81px}}
 .h2copy h1{color:var(--bone);font-size:clamp(2.4rem,4.6vw,3.7rem);line-height:1.08;margin:.6rem 0 .9rem;letter-spacing:.005em;text-shadow:0 2px 18px rgba(0,0,0,.35)}
 /* mobile-only forced break in the hero H1 (hidden on desktop, so desktop wraps
    naturally). Space before the <br> preserves the desktop spacing. */
