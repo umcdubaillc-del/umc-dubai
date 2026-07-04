@@ -860,19 +860,17 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 @media(max-width:959px){
   /* mobile hero: compact banner up top + form card below on bone */
   .hero2{min-height:380px;padding:2rem 0 2.4rem}
-  /* Shift the car UP within the fixed 380px frame (background-position) so it
-     clears the form's top edge and reads as the hero element. Small zoom only
-     to give the vertical room to shift; frame size unchanged. */
-  .h2bg{height:380px;bottom:auto;background-size:auto 120%;background-position:center 86%}
-  /* Bottom of the image gradient darkens to black. */
-  .h2scrim{height:380px;bottom:auto;background:linear-gradient(180deg,rgba(20,15,9,.32) 0%,rgba(20,15,9,.12) 34%,rgba(14,10,6,.5) 66%,rgba(6,4,2,.94) 100%)}
+  .h2bg{height:380px;bottom:auto}
+  .h2scrim{height:380px;bottom:auto;background:linear-gradient(180deg,rgba(20,15,9,.45) 0%,rgba(20,15,9,.66) 55%,rgba(20,15,9,.88) 100%)}
   .h2grid{min-height:auto;padding:1rem clamp(1rem,4vw,1.4rem) 0;gap:0}
+  /* v49 mobile-only: the kicker stays in .h2copy in the markup (desktop
+     pre-Q5 layout preserved); on mobile we ungroup .h2copy via display:contents
+     so its children become direct flex items of .h2grid, then visually reorder
+     them h1 -> lede -> kicker -> form. The kicker sits directly above the form
+     with ~1.55em (one paragraph line) of breathing room. */
   .h2copy{display:contents}
-  /* H1 sits low over the dark base of the banner. */
-  .h2copy h1{order:1;font-size:clamp(1.9rem,7.4vw,2.6rem);margin:230px 0 .6rem}
-  /* Subline removed on mobile (kept on desktop). */
-  .h2copy .lede{display:none}
-  /* Eyebrow + form unchanged from the original mobile layout. */
+  .h2copy h1{order:1;font-size:clamp(1.9rem,7.4vw,2.6rem);margin:1rem 0 .6rem}
+  .h2copy .lede{order:2}
   .h2copy .kicker{order:3;align-self:flex-start;margin:1.35em 0 1.55em}
   .h2form{order:4;position:relative;z-index:2}
   .h2form .book{box-shadow:0 24px 48px -24px rgba(0,0,0,.35)}
