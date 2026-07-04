@@ -15,7 +15,14 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FONTS = ROOT / "fonts"
-OUT = ROOT / "site" / "assets" / "og-image-v2.png"
+OUT = ROOT / "site" / "assets" / "og-image-v3.png"
+
+# v3 safe-zone fix: WhatsApp center-crops link previews toward a square, so the
+# whole wordmark must live inside a CENTERED square. We scale the entire lockup
+# down to fit MARK_MAX_W and re-centre it. (v2's "UMC" lost its left edge in real
+# WhatsApp previews and read as "JMC".)
+SAFE_ZONE = 600           # centered square WhatsApp crops toward (final px)
+MARK_MAX_W = 500          # cap the mark width (<= ~520) with margin inside SAFE_ZONE
 
 # Brand palette (CLAUDE.md brand tokens)
 BONE  = (246, 241, 231)   # #F6F1E7  background
@@ -63,13 +70,27 @@ def main():
     img = Image.new("RGB", (W, H), BONE)
     d = ImageDraw.Draw(img)
 
-    mark_font = ImageFont.truetype(str(MARK_FONT), MARK_SIZE * SS)
-    sub_font  = ImageFont.truetype(str(SUB_FONT),  SUB_SIZE * SS)
-
     mark_txt = "UMC"
     sub_txt  = "DUBAI"
-    mark_track = MARK_TRACK * MARK_SIZE * SS
-    sub_track  = SUB_TRACK * SUB_SIZE * SS
+
+    # Derive a scale so the tracked mark width fits MARK_MAX_W (only shrink).
+    ref_font = ImageFont.truetype(str(MARK_FONT), MARK_SIZE * SS)
+    ref_track = MARK_TRACK * MARK_SIZE * SS
+    natural_mark_w = tracked_width(ref_font, mark_txt, ref_track) / SS  # final px
+    scale = min(1.0, MARK_MAX_W / natural_mark_w)
+
+    mark_size = MARK_SIZE * scale
+    sub_size  = SUB_SIZE * scale
+    rule_w    = RULE_W * scale
+    rule_h    = max(2.0, RULE_H * scale)
+    gap_mr    = GAP_MARK_RULE * scale
+    gap_rs    = GAP_RULE_SUB * scale
+
+    mark_font = ImageFont.truetype(str(MARK_FONT), round(mark_size * SS))
+    sub_font  = ImageFont.truetype(str(SUB_FONT),  round(sub_size * SS))
+
+    mark_track = MARK_TRACK * mark_size * SS
+    sub_track  = SUB_TRACK * sub_size * SS
 
     # Measure the tight cap band of the mark (ignore font asc/descent padding so
     # the optical block centres on the real glyphs).
@@ -89,8 +110,8 @@ def main():
     sub_cap_h = sbb[3] - sbb[1]
 
     # Lockup total height = mark caps + gap + rule + gap + sub caps
-    lock_h = (mark_cap_h + GAP_MARK_RULE * SS + RULE_H * SS
-              + GAP_RULE_SUB * SS + sub_cap_h)
+    lock_h = (mark_cap_h + gap_mr * SS + rule_h * SS
+              + gap_rs * SS + sub_cap_h)
     # Optically centre slightly above true centre.
     lock_top = (H - lock_h) / 2.0 - 8 * SS
 
@@ -105,12 +126,12 @@ def main():
         x += mark_font.getlength(c) + mark_track
 
     # --- amber rule ---
-    rule_y = lock_top + mark_cap_h + GAP_MARK_RULE * SS
-    rw, rh = RULE_W * SS, RULE_H * SS
+    rule_y = lock_top + mark_cap_h + gap_mr * SS
+    rw, rh = rule_w * SS, rule_h * SS
     d.rectangle([cx - rw / 2, rule_y, cx + rw / 2, rule_y + rh], fill=AMBER)
 
     # --- DUBAI ---
-    sub_band_top = rule_y + rh + GAP_RULE_SUB * SS
+    sub_band_top = rule_y + rh + gap_rs * SS
     sub_origin_y = sub_band_top - sbb[1]
     x = cx - tracked_width(sub_font, sub_txt, sub_track) / 2.0
     for c in sub_txt:
