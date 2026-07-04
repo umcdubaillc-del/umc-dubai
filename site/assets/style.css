@@ -858,24 +858,22 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 .h2copy .kicker{color:#E0894A}
 .h2form .book{background:var(--bone);border:1px solid var(--line);border-radius:6px;box-shadow:0 40px 80px -32px rgba(0,0,0,.55);padding:1.4rem}
 @media(max-width:959px){
-  /* mobile hero: image banner shows the car with ONLY the H1 low over a dark
-     gradient. The seven-emirates eyebrow and the subline are RELOCATED as
-     visible text below the banner on bone (not hidden — relocated visible text
-     is the SEO-correct pattern), then the booking form. */
+  /* mobile hero: compact banner up top + form card below on bone */
   .hero2{min-height:380px;padding:2rem 0 2.4rem}
-  /* Car shown fuller (less zoom than the earlier lift), anchored slightly low. */
-  .h2bg{height:380px;bottom:auto;background-size:auto 112%;background-position:center 64%}
-  /* Transparent at the top so the car reads, darkening to near-black at the
-     bottom where the H1 sits — strong white-on-dark legibility. */
-  .h2scrim{height:380px;bottom:auto;background:linear-gradient(180deg,rgba(20,15,9,0) 0%,rgba(20,15,9,0) 30%,rgba(16,11,7,.5) 60%,rgba(8,5,3,.92) 100%)}
+  /* Shift the car UP within the fixed 380px frame (background-position) so it
+     clears the form's top edge and reads as the hero element. Small zoom only
+     to give the vertical room to shift; frame size unchanged. */
+  .h2bg{height:380px;bottom:auto;background-size:auto 120%;background-position:center 86%}
+  /* Bottom of the image gradient darkens to black. */
+  .h2scrim{height:380px;bottom:auto;background:linear-gradient(180deg,rgba(20,15,9,.32) 0%,rgba(20,15,9,.12) 34%,rgba(14,10,6,.5) 66%,rgba(6,4,2,.94) 100%)}
   .h2grid{min-height:auto;padding:1rem clamp(1rem,4vw,1.4rem) 0;gap:0}
   .h2copy{display:contents}
-  /* H1 pushed down so it sits low over the dark base of the 380px banner. */
-  .h2copy h1{order:1;font-size:clamp(1.9rem,7.4vw,2.6rem);margin:250px 0 0;position:relative;z-index:1}
-  /* Relocated below the banner onto bone: eyebrow (amber reads on bone as-is),
-     then subline in dark ink (its over-image light colour would vanish on bone). */
-  .h2copy .kicker{order:2;align-self:flex-start;margin:1.5rem 0 .55rem}
-  .h2copy .lede{order:3;color:var(--ink-soft);text-shadow:none;margin:0 0 1.5rem}
+  /* H1 sits low over the dark base of the banner. */
+  .h2copy h1{order:1;font-size:clamp(1.9rem,7.4vw,2.6rem);margin:230px 0 .6rem}
+  /* Subline removed on mobile (kept on desktop). */
+  .h2copy .lede{display:none}
+  /* Eyebrow + form unchanged from the original mobile layout. */
+  .h2copy .kicker{order:3;align-self:flex-start;margin:1.35em 0 1.55em}
   .h2form{order:4;position:relative;z-index:2}
   .h2form .book{box-shadow:0 24px 48px -24px rgba(0,0,0,.35)}
 }
