@@ -811,6 +811,9 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
    NOTE: style.css is served from /assets/, so url() is resolved RELATIVE TO /assets/.
    Root-absolute paths required to avoid /assets/assets/ doubling. */
 .h2bg{position:absolute;inset:0;background:url("/assets/home/hero.jpg") center 50%/cover no-repeat}
+/* WebP with JPG fallback (identical crop; ~34% lighter LCP payload). Browsers
+   without image-set() keep the url() jpg on the line above. */
+.h2bg{background-image:image-set(url("/assets/home/hero.webp") type("image/webp"), url("/assets/home/hero.jpg") type("image/jpeg"))}
 /* Two-zone scrim: subtle top dim so the form panel reads, heavy bottom dim
    so the headline reads over the image. Middle stays clear for the action. */
 .h2scrim{position:absolute;inset:0;background:linear-gradient(180deg,
@@ -857,8 +860,14 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 @media(max-width:959px){
   /* mobile hero: compact banner up top + form card below on bone */
   .hero2{min-height:380px;padding:2rem 0 2.4rem}
-  .h2bg{height:380px;bottom:auto}
-  .h2scrim{height:380px;bottom:auto;background:linear-gradient(180deg,rgba(20,15,9,.45) 0%,rgba(20,15,9,.66) 55%,rgba(20,15,9,.88) 100%)}
+  /* D: lift the car within the fixed 380px frame. At cover the scaled image
+     height == frame height (no vertical room to move), so we scale the image
+     taller than the frame and anchor low — this raises the car above the form's
+     top edge and makes it the hero element. Frame size unchanged. */
+  .h2bg{height:380px;bottom:auto;background-size:auto 146%;background-position:center 82%}
+  /* Bottom fade to bone so any image area exposed by the lift reads as a
+     deliberate premium fade into the form card below, not a gap. */
+  .h2scrim{height:380px;bottom:auto;background:linear-gradient(180deg,rgba(20,15,9,.45) 0%,rgba(20,15,9,.30) 42%,rgba(20,15,9,0) 66%,rgba(246,241,231,.55) 88%,var(--bone) 100%)}
   .h2grid{min-height:auto;padding:1rem clamp(1rem,4vw,1.4rem) 0;gap:0}
   /* v49 mobile-only: the kicker stays in .h2copy in the markup (desktop
      pre-Q5 layout preserved); on mobile we ungroup .h2copy via display:contents

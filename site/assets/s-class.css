@@ -64,7 +64,10 @@ body.sc-no-scroll{overflow:hidden}
   .sc-hero{height:clamp(440px,62vh,600px);min-height:0;aspect-ratio:auto}
 }
 @media (min-width:1025px){
-  .sc-hero{min-height:min(calc(100svh - var(--hdr)),820px)}
+  /* Match the homepage hero (.hero2, style.css) fit logic exactly: fill the
+     viewport minus the header, uncapped, so ultrawide/tall screens don't leave
+     the hero short. object-fit:cover + per-image --hero-pos keep the crop sane. */
+  .sc-hero{min-height:calc(100vh - var(--hdr));min-height:calc(100svh - var(--hdr))}
 }
 .sc-hero__stage::after{content:"";position:absolute;inset:0;pointer-events:none;
   background:linear-gradient(

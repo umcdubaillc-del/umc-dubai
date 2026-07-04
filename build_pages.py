@@ -105,6 +105,44 @@ def responsive_img(rel_path, css_class, alt, sizes_attr, loading="lazy", extra_a
             f'srcset="{", ".join(parts)}" '
             f'sizes="{sizes_attr}" '
             f'src="{plain_src}" alt="{alt}" loading="{loading}"{extra_attrs}>')
+
+def fleet_hero_img(rel_path, alt, hero_pos="50% 50%", hero_pos_mobile=None):
+    """Emit the full-bleed vehicle-page hero <img class="sc-hero__img"> with a
+    responsive srcset so high-DPR phones get a crisp source and low-DPR / small
+    screens get a lighter one. rel_path is relative to site/assets/fleet/.
+
+    Before this helper the hero was a single-source <img> (no srcset, no
+    width/height): every device downloaded the one native file and there were
+    no intrinsic dims (CLS risk). Now: srcset from the 360/720/1080 pipeline
+    variants + the native width, sizes=100vw (full-bleed), intrinsic
+    width/height for zero layout shift, and fetchpriority=high (it is the LCP
+    element on a vehicle page). object-fit:cover + inline --hero-pos keep the
+    crop identical to before."""
+    hero_pos_mobile = hero_pos_mobile or hero_pos
+    abs_src = SITE / 'assets' / 'fleet' / rel_path
+    result = ensure_image_variants(abs_src)
+    plain_src = f'/assets/fleet/{rel_path}?v={FV}'
+    style = f'--hero-pos:{hero_pos};--hero-pos-mobile:{hero_pos_mobile}'
+    dim_attr = ''
+    try:
+        from PIL import Image
+        with Image.open(abs_src) as _im:
+            dim_attr = f' width="{_im.size[0]}" height="{_im.size[1]}"'
+    except Exception:
+        pass
+    if not result:
+        return (f'<img class="sc-hero__img" src="{plain_src}" alt="{alt}" '
+                f'fetchpriority="high"{dim_attr} style="{style}">')
+    variants, nat_w = result
+    parent = pathlib.Path(rel_path).parent
+    stem = pathlib.Path(rel_path).stem
+    ext = pathlib.Path(rel_path).suffix
+    parts = [f'/assets/fleet/{parent}/{stem}-{w}{ext}?v={FV} {w}w' for w, _ in variants]
+    parts.append(f'{plain_src} {nat_w}w')
+    return (f'<img class="sc-hero__img" '
+            f'srcset="{", ".join(parts)}" sizes="100vw" '
+            f'src="{plain_src}" alt="{alt}" fetchpriority="high"{dim_attr} '
+            f'style="{style}">')
 WA = "https://api.whatsapp.com/send?phone=971586497861&text=Hello%2C%20I%20would%20like%20to%20reserve%20a%20car%20with%20UMC%20Dubai."
 MAPS_KEY = "AIzaSyBx8uKzaCk5fFG8a0D8zqW82HLwOsb7px0"
 def _compute_v():
@@ -655,7 +693,9 @@ document.addEventListener("DOMContentLoaded", function(){
 (SITE/"index.html").write_text(
  head("Luxury Chauffeur Service in Dubai & the UAE | UMC Dubai",
       "UMC Dubai is the luxury chauffeur service trusted across the UAE. Airport transfers, corporate and private drivers, one all-inclusive rate, 24/7.",
-      "", ld_home + faq_schema(HOME_FAQS) + '<link rel="stylesheet" href="/assets/vendor/flatpickr.min.css?v={V}">') + index_body)
+      "", ld_home + faq_schema(HOME_FAQS)
+          + '<link rel="preload" as="image" href="/assets/home/hero.webp" type="image/webp" fetchpriority="high">'
+          + '<link rel="stylesheet" href="/assets/vendor/flatpickr.min.css?v={V}">') + index_body)
 
 # ---------- booking ----------
 booking_body = header("booking.html") + f"""
@@ -2121,7 +2161,7 @@ sc_body = header("fleet.html") + f"""
 <section class="sc-hero" aria-label="Mercedes Benz S Class">
   <div class="sc-hero__stage">
     <!-- TEMPORARY hero image, replace with real UMC S Class photography. -->
-    <img class="sc-hero__img" src="/assets/fleet/s-class/{SC_HERO_IMG[0]}" alt="{SC_HERO_IMG[1]}" fetchpriority="high" style="--hero-pos:50% 50%;--hero-pos-mobile:0% 50%">
+    {fleet_hero_img(f"s-class/{SC_HERO_IMG[0]}", SC_HERO_IMG[1], "50% 50%", "0% 50%")}
   </div>
   <div class="sc-hero__caps">
     <div class="sc-hero__caps-inner">
@@ -2762,7 +2802,7 @@ def render_fleet_page_body(car):
         op = car.get("hero_object_pos", "50% 50%")
         op_m = car.get("hero_object_pos_mobile", op)
         hero_ph = (f'<!-- TEMPORARY hero image. Replace with final UMC {name} photography. -->'
-                   f'<img class="sc-hero__img" src="/assets/fleet/{car["hero_img"]}?v={FV}" alt="{name}, exterior" fetchpriority="high" style="--hero-pos:{op};--hero-pos-mobile:{op_m}">')
+                   + fleet_hero_img(car["hero_img"], f"{name}, exterior", op, op_m))
     else:
         hero_ph = fleet_placeholder(name + ", exterior", f"{cid}-hero", variant=0, css_class="sc-hero__img")
     # Interior primary image, primary cell is ~712px on desktop, full-width below 980px.
@@ -3192,7 +3232,7 @@ BLOG_POSTS = [
     "excerpt": "How a globally-formed perspective on luxury travel shaped a chauffeur service built on consistency, discretion and detail.",
     "kicker": "Founder",
     "body": """
-<p class="lede">UMC Dubai was founded by Usman Hanif on a simple conviction: that private travel should be consistent, discreet, and quietly excellent, every single time.</p>
+<p class="lede">UMC Dubai was founded by <a href="https://mrusmanhanif.com" target="_blank" rel="noopener">Usman Hanif</a> on a simple conviction: that private travel should be consistent, discreet, and quietly excellent, every single time.</p>
 
 <h2>A globally-formed perspective</h2>
 <p>Usman's view of service was shaped by time spent across major international cities. That exposure to how the best operators work, and what discerning travellers actually expect, became the standard UMC was built to meet: not occasional brilliance, but reliability you can count on.</p>
@@ -3662,13 +3702,18 @@ def render_post(p):
     head_extra = render_article_schema(p)
     primary_href, primary_label = p["cta_primary"]
     sec_href, sec_label = p["cta_secondary"]
+    # Link the byline to the founder's personal site — only on the Usman Hanif
+    # post (the sole post authored under that name); other posts use the default
+    # author and render plain. Normal followed link (no nofollow), new tab.
+    author_html = (f'<a href="https://mrusmanhanif.com" target="_blank" rel="noopener">{p["author"]}</a>'
+                   if p["author"] == "Usman Hanif" else p["author"])
     body = header(canon) + f"""
 <article class="article">
   <header class="article-hero">
     <div class="wrap article-wrap">
       <span class="lbl">{p['kicker']}</span>
       <h1>{p['title']}</h1>
-      <p class="article-meta"><time datetime="{p['date']}">{p['date_label']}</time> &middot; <span>By {p['author']}</span></p>
+      <p class="article-meta"><time datetime="{p['date']}">{p['date_label']}</time> &middot; <span>By {author_html}</span></p>
     </div>
   </header>
   <div class="article-body">
@@ -3702,7 +3747,7 @@ def render_blog_index():
         <h3><a href="/{p['slug']}/">{p['title']}</a></h3>
         <p class="blog-card-meta"><time datetime="{p['date']}">{p['date_label']}</time> &middot; {p['author']}</p>
         <p>{p['excerpt']}</p>
-        <a class="btn btn-line" href="/{p['slug']}/">Read</a>
+        <a class="btn-line" href="/{p['slug']}/">Read</a>
       </article>""")
     body = header("blog/") + f"""
 <section class="phero">
