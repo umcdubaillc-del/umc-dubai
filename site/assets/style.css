@@ -1115,8 +1115,10 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
   .ca-clause:nth-last-child(-n+2){border-bottom:1px dotted var(--line)}
   .ca-clause:last-child{border-bottom:none}
   .ca-approval{grid-template-columns:1fr;gap:1.4rem}
-  .ca-stamp{justify-self:start}
-  .ca-seal{width:72px;height:72px}
+  .ca-stamp{justify-self:center}
+  /* Mobile drops the round UMC seal entirely; display:none removes it from the
+     ds-head flex flow so no gap is left behind. Desktop (>=761px) keeps it. */
+  .ca-seal{display:none}
 }
 
 /* ============================================================
@@ -1194,6 +1196,8 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
   .mo-node::after{left:10px;top:16px;bottom:-1.7rem}
   .mo-row{flex-direction:column;gap:.5rem}
   .mo-reserve{flex-direction:column;align-items:flex-start;gap:.5rem}
+  /* Status stamps sit upright on mobile (desktop keeps the -4deg slant). */
+  .mo-stamp{transform:none}
 }
 
 /* mobile collapse (T2 + T3),most traffic is mobile; this stack must look deliberate */
@@ -1204,6 +1208,11 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
      margin/padding must follow — otherwise it keeps the clamp() value (1.6rem)
      and spills ~8px past the card on each side, breaking the header at ≤390px. */
   .acctfile .ca-bar{margin-left:-1.1rem;margin-right:-1.1rem;padding-left:1.1rem;padding-right:1.1rem}
+  /* The account-file card full-bleeds its confidential bar to the very top, so it
+     must have no top padding (as on desktop via .acctfile{padding-top:0}). The
+     mobile .dossier padding shorthand above re-adds 1.25rem top, leaving a band of
+     card colour above the bar — zero it at the root here, not with a margin nudge. */
+  .acctfile{padding-top:0}
   .dossier .ds-head{flex-direction:column;gap:1.05rem;margin-bottom:1.25rem}
   .dossier .ds-headL{flex:1 1 100%}
   .dossier .ds-kicker{margin-bottom:.7rem;font-size:.62rem;letter-spacing:.2em}
