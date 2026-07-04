@@ -2167,7 +2167,7 @@ sc_body = header("fleet.html") + f"""
   <div class="sc-hero__caps">
     <div class="sc-hero__caps-inner">
       <div>
-        <div class="sc-hero__kicker">Mercedes Benz S Class</div>
+        <div class="sc-hero__kicker">Mercedes-Benz</div>
         <div class="sc-hero__tagline">{SC_HERO_TAGLINE}</div>
       </div>
       <div class="sc-hero__ctas">
@@ -2465,7 +2465,7 @@ ALL_CARS = {
   # /fleet/rolls-royce. No other page lists rolls-royce in its also-consider,
   # so it never surfaces as a card on another model page either.
   "rolls-royce": {
-    "name": "Rolls-Royce", "marque": "Rolls-Royce", "category": "Halo Saloon and SUV",
+    "name": "Rolls-Royce", "marque": "EXCLUSIVE &middot; BY REQUEST", "category": "Halo Saloon and SUV",
     "page": "fleet/rolls-royce", "strap": "Arrival, considered.",
     "ac_body": "The Ghost and the Cullinan, presence and craft for the occasion that asks for it.",
     "pax": 4, "luggage": "3 medium", "reserve_label": "Reserve a Rolls-Royce",
@@ -3130,6 +3130,60 @@ for car in FLEET_PAGES_DRAFT:
 BLOG_AUTHOR_DEFAULT = "UMC Dubai"
 BLOG_PUBLISHED_DEFAULT = "2024-08-15"
 BLOG_POSTS = [
+  {
+    "slug": "what-actually-makes-a-luxury-chauffeur-service-in-dubai",
+    "title": "What Actually Makes a Luxury Chauffeur Service in Dubai",
+    "meta": "Not every “luxury chauffeur service” in Dubai lives up to the name. Here is what separates a genuine one from a rental car with a driver attached.",
+    "date": "2026-07-04",
+    "date_label": "4 July 2026",
+    "author": BLOG_AUTHOR_DEFAULT,
+    "excerpt": "The car is the smallest part of the decision. What actually separates a genuine luxury chauffeur service from a rental with a driver attached.",
+    "kicker": "Service standards",
+    "body": """
+<p class="lede">Search for a luxury chauffeur service in Dubai and you will find no shortage of results. Most of them lead with the same handful of car names. A Rolls-Royce here, a Maybach there, a Cullinan for good measure. The photos are glossy and the claims are big.</p>
+<p>None of that tells you much about the actual service you will get.</p>
+<p>A luxury car with an average driver is not a luxury chauffeur service. It is a rental with extra steps. The car matters less than most companies want you to think. What matters is what happens around it, before you ever get in and after you step out.</p>
+
+<h2>The car is the smallest part of the decision</h2>
+<p>Any operator with enough capital can lease an S-Class. That is not a differentiator, it is a starting cost. The real questions are harder to answer from a website photo.</p>
+<p>Was the vehicle detailed before your specific journey, or just whenever it last needed it? Is the same standard of chauffeur assigned to every car in the fleet, or only to the flagship models? Does the company track your flight if you are arriving late, or do you find out the hard way that nobody was watching?</p>
+<p>These are the details a genuine luxury chauffeur service in Dubai gets right by default, not as an upsell.</p>
+
+<h2>Discretion is a policy, not a personality trait</h2>
+<p>A good chauffeur is quiet by training, not by luck. In Dubai, where a large share of chauffeur clients are handling business calls, closing deals, or simply want privacy after a long flight, this matters more than the color of the leather seats.</p>
+<p>Ask a company directly how their chauffeurs are trained on discretion. A confident, specific answer is a good sign. A vague one is not.</p>
+
+<h2>Pricing that holds still</h2>
+<p>Luxury should feel calm, and nothing breaks that faster than a bill that changes after the fact. A dependable chauffeur service in Dubai quotes one all-inclusive rate before you confirm: the car, the fuel, Salik, parking, all of it. If a company's pricing page is full of asterisks and "starting from" language, read the fine print twice before you book.</p>
+
+<h2>Consistency across every booking</h2>
+<p>The test of a luxury chauffeur service is not the first ride. It is the tenth. Does the same standard show up on a random Tuesday afternoon as it did for your first booking, or does quality depend on which car happened to be free that day?</p>
+<p>This is where UMC Dubai has built its reputation. Every vehicle in the fleet is held to the same standard and driven by chauffeurs trained the same way, so the experience does not change depending on which car turns up. Whether it is an <a href="/airport-transfers">airport transfer</a>, a <a href="/rent-a-car-with-driver/">full day by the hour</a>, a <a href="/corporate">corporate account</a>, or transport for a wedding or gala through the <a href="/events">events team</a>, the standard is the one thing that never changes.</p>
+
+<h2>What to actually check before booking</h2>
+<p>A short list worth running through before you commit to any provider:</p>
+<ul>
+  <li>Is the rate genuinely all-inclusive, or will extras appear later</li>
+  <li>Are chauffeurs trained specifically in discretion, not just driving</li>
+  <li>Is the same vehicle and chauffeur standard applied across the whole fleet</li>
+  <li>Does the company track flights for airport pickups</li>
+  <li>Can you reach someone at 3am if your plans change</li>
+</ul>
+<p>If a company answers all five without hesitation, that is a genuine luxury chauffeur service. If they can only answer the first one, you are looking at a rental car with good marketing.</p>
+
+<h2>Frequently asked questions</h2>
+<h3>What is the difference between a limousine service and a chauffeur service in Dubai?</h3>
+<p>A limousine service usually centres on the vehicle itself, often a stretched or ceremonial car booked for a specific occasion. A chauffeur service like UMC Dubai centres on the standard of driving, discretion and reliability across everyday journeys, airport transfers and business travel, using a <a href="/fleet">fleet</a> of executive sedans and SUVs rather than ceremonial vehicles.</p>
+<h3>Is a luxury chauffeur service in Dubai worth it over a regular taxi or ride-hailing app?</h3>
+<p>For anyone who values a fixed rate, a vetted and consistent chauffeur, and a car held to a known standard, yes. Ride-hailing apps vary driver and vehicle quality on every trip, and pricing can surge without warning. A chauffeur service removes both of those uncertainties.</p>
+<h3>How do I know if a chauffeur company's luxury claims are genuine?</h3>
+<p>Ask specific questions about pricing, training and fleet standards rather than reading the homepage alone. A company confident in its service will answer directly. Reviews from real clients, ideally on Google rather than the company's own site, are also a reliable signal.</p>
+""",
+    "cta_heading": "Consistency, not just a car.",
+    "cta_body": "Every vehicle in our fleet is held to the same standard, driven by chauffeurs trained the same way. Book once and see it for yourself.",
+    "cta_primary": ("/booking", "Reserve your transfer"),
+    "cta_secondary": ("/fleet", "See our fleet"),
+  },
   {
     "slug": "guide-salik-dubai",
     "title": "Salik in Dubai 2026: Toll Gates & How to Save",
