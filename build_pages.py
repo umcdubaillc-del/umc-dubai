@@ -2162,6 +2162,7 @@ sc_body = header("fleet.html") + f"""
   <div class="sc-hero__stage">
     <!-- TEMPORARY hero image, replace with real UMC S Class photography. -->
     {fleet_hero_img(f"s-class/{SC_HERO_IMG[0]}", SC_HERO_IMG[1], "50% 50%", "0% 50%")}
+    <h1 class="sc-hero__name">Mercedes Benz S Class</h1>
   </div>
   <div class="sc-hero__caps">
     <div class="sc-hero__caps-inner">
@@ -2919,6 +2920,7 @@ def render_fleet_page_body(car):
   <div class="sc-hero__stage">
     <!-- PLACEHOLDER hero. Replace with real UMC {name} photography. -->
     {hero_ph}
+    <h1 class="sc-hero__name">{name}</h1>
   </div>
   <div class="sc-hero__caps">
     <div class="sc-hero__caps-inner">

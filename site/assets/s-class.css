@@ -45,6 +45,10 @@ body.sc-no-scroll{overflow:hidden}
      sets --hero-pos and --hero-pos-mobile inline via build_pages.py from
      car["hero_object_pos"] / car["hero_object_pos_mobile"]. */
   object-position:var(--hero-pos, 50% 50%)}
+/* Vehicle-name H1 lives in the stage but shows only on mobile (<=600px), where
+   it sits low over the image; hidden on desktop/tablet so those stay identical.
+   Declared BEFORE the mobile block so the mobile display:block wins the cascade. */
+.sc-hero__name{display:none}
 /* v88 — 3-tier responsive hero.
    Phones (<=600px): portrait frame so the front-centred crops the per-car
    --hero-pos-mobile values were tuned for actually land. Below 380 we shift
@@ -54,11 +58,21 @@ body.sc-no-scroll{overflow:hidden}
    Wide desktop (>=1025px): full-bleed but capped so ultrawide and tall
    screens don't over-stretch the 1200px source. */
 @media (max-width:600px){
-  /* Match the homepage mobile hero frame: a 380px HORIZONTAL banner (not a
-     portrait 5/7 box), so landscape car photos fit like the homepage does.
-     object-fit:cover + per-image --hero-pos-mobile keep each car composed. */
-  .sc-hero{height:380px;min-height:0;max-height:none;aspect-ratio:auto}
+  /* Mirror the homepage mobile hero. The 380px HORIZONTAL image frame carries
+     ONLY the vehicle name (an H1) low over a fade-to-black gradient (reusing the
+     homepage .h2scrim values); the marque, tagline, sub and CTA are relocated
+     BELOW the frame on the ink background (visible, not hidden). The .sc-hero
+     grows to fit; the image frame itself stays 380px with the same per-image
+     object-position from the last pass. */
+  .sc-hero{height:auto;min-height:0;max-height:none;aspect-ratio:auto;overflow:visible;background:var(--ink)}
+  .sc-hero__stage{position:relative;height:380px}
   .sc-hero__img{object-position:var(--hero-pos-mobile,50% 50%)}
+  .sc-hero__stage::after{background:linear-gradient(180deg,rgba(20,15,9,.4) 0%,rgba(20,15,9,.5) 45%,rgba(12,8,4,.82) 78%,rgba(4,3,1,.97) 100%)}
+  .sc-hero__name{display:block;position:absolute;left:0;right:0;bottom:0;z-index:2;margin:0;
+    padding:0 clamp(1.1rem,4vw,1.6rem) clamp(16px,4vh,26px);
+    font-family:var(--serif);font-weight:400;color:var(--bone);
+    font-size:clamp(1.5rem,6.4vw,2.1rem);line-height:1.1;letter-spacing:.005em;
+    text-shadow:0 2px 18px rgba(0,0,0,.5)}
 }
 @media (min-width:601px) and (max-width:1024px){
   .sc-hero{height:clamp(440px,62vh,600px);min-height:0;aspect-ratio:auto}
@@ -90,6 +104,13 @@ body.sc-no-scroll{overflow:hidden}
   .sc-hero__caps{padding:0 clamp(1.1rem,4vw,1.6rem) clamp(20px,4vh,36px)}
   .sc-hero__caps-inner{gap:.85rem}
   .sc-hero__tagline{font-size:clamp(1.2rem,5vw,1.7rem)}
+}
+@media (max-width:600px){
+  /* Relocated caps below the 380px image frame, on the ink background (placed
+     after the <=859 rule so this padding wins the cascade). Light caption text
+     stays legible on ink — no colour changes needed. */
+  .sc-hero__caps{position:static;left:auto;right:auto;bottom:auto;margin:0;
+    padding:clamp(20px,4.5vh,28px) clamp(1.1rem,4vw,1.6rem) clamp(24px,5vh,34px)}
 }
 
 /* ---------- 2 · INTERIOR,primary hotspot image (left) + 2x2 detail grid (right) ---------- */
