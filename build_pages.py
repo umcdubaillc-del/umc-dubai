@@ -2862,10 +2862,11 @@ def render_acard(c):
 def render_fleet_page_body(car):
     info = ALL_CARS[car["id"]]
     cid = car["id"]; name = info["name"]
-    # v109: the mobile hero fade-to-black gradient is kept ONLY on these two
-    # pages; every other vehicle hero (and the S-Class block) renders the mobile
-    # image clean, with a stronger H1 text-shadow for legibility instead.
-    mfade_cls = " sc-hero--mfade" if cid in ("gmc-yukon-xl", "lexus-es") else ""
+    # v109: the mobile hero fade-to-black gradient is kept ONLY on lexus-es
+    # (v110: gmc-yukon-xl removed too); every other vehicle hero (and the
+    # S-Class block) renders the mobile image clean, with a stronger H1
+    # text-shadow for legibility instead.
+    mfade_cls = " sc-hero--mfade" if cid in ("lexus-es",) else ""
     arc = ARCHETYPES[car.get("archetype", "sedan")]
     am_html = AMENITY_HTML[car.get("amenities", "standard")]
     config_row_html = ""
