@@ -860,8 +860,12 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 @media(max-width:959px){
   /* mobile hero: compact banner up top + form card below on bone */
   .hero2{min-height:380px;padding:2rem 0 2.4rem}
-  .h2bg{height:380px;bottom:auto}
-  .h2scrim{height:380px;bottom:auto;background:linear-gradient(180deg,rgba(20,15,9,.45) 0%,rgba(20,15,9,.66) 55%,rgba(20,15,9,.88) 100%)}
+  /* image nudged up a little inside the same 380px frame (slight zoom for the
+     vertical room to shift). */
+  .h2bg{height:380px;bottom:auto;background-size:auto 112%;background-position:center 78%}
+  /* black gradient at the bottom of the image so the space the lifted car
+     vacates blends into darkness. */
+  .h2scrim{height:380px;bottom:auto;background:linear-gradient(180deg,rgba(20,15,9,.4) 0%,rgba(20,15,9,.5) 45%,rgba(12,8,4,.82) 78%,rgba(4,3,1,.97) 100%)}
   .h2grid{min-height:auto;padding:1rem clamp(1rem,4vw,1.4rem) 0;gap:0}
   /* v49 mobile-only: the kicker stays in .h2copy in the markup (desktop
      pre-Q5 layout preserved); on mobile we ungroup .h2copy via display:contents
@@ -869,8 +873,10 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
      them h1 -> lede -> kicker -> form. The kicker sits directly above the form
      with ~1.55em (one paragraph line) of breathing room. */
   .h2copy{display:contents}
-  .h2copy h1{order:1;font-size:clamp(1.9rem,7.4vw,2.6rem);margin:1rem 0 .6rem}
-  .h2copy .lede{order:2}
+  /* subline removed on mobile; H1 drops into its vacated position so the eyebrow
+     and form stay exactly where they were. */
+  .h2copy h1{order:1;font-size:clamp(1.9rem,7.4vw,2.6rem);margin:72px 0 .6rem}
+  .h2copy .lede{display:none}
   .h2copy .kicker{order:3;align-self:flex-start;margin:1.35em 0 1.55em}
   .h2form{order:4;position:relative;z-index:2}
   .h2form .book{box-shadow:0 24px 48px -24px rgba(0,0,0,.35)}
