@@ -1181,9 +1181,17 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
   .mo-strength{grid-template-columns:1fr}
   .mo-cell{border-right:none;border-bottom:1px solid var(--hair)}
   .mo-cell:last-child{border-bottom:none}
-  .mo-move{grid-template-columns:64px 24px 1fr}
-  .mo-node::before,.mo-node::after{left:14px}
-  .mo-t{font-size:.68rem}
+  /* Left-rail timeline: the dotted line + dots get their own fixed 20px lane;
+     the time label and card share the content column, stacked. By construction
+     the absolutely-positioned rail (max x ~15px) never reaches the text column
+     (starts ~35px), so nothing renders over the phase labels at any width. */
+  .mo-move{grid-template-columns:20px 1fr;grid-template-rows:auto auto;gap:0 .95rem;padding-bottom:1.7rem}
+  .mo-move .mo-node{grid-column:1;grid-row:1 / span 2}
+  .mo-move .mo-t{grid-column:2;grid-row:1;display:flex;align-items:baseline;gap:.5rem;text-align:left;white-space:normal;padding-top:0;margin-bottom:.5rem;font-size:.72rem}
+  .mo-move .mo-t small{display:inline;margin-top:0}
+  .mo-move .mo-card{grid-column:2;grid-row:2}
+  .mo-node::before{left:10px;top:3px}
+  .mo-node::after{left:10px;top:16px;bottom:-1.7rem}
   .mo-row{flex-direction:column;gap:.5rem}
   .mo-reserve{flex-direction:column;align-items:flex-start;gap:.5rem}
 }
@@ -1191,6 +1199,11 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 /* mobile collapse (T2 + T3),most traffic is mobile; this stack must look deliberate */
 @media(max-width:720px){
   .dossier{border-radius:8px;padding:1.25rem 1.1rem 1.35rem;border-width:1.5px;max-width:none}
+  /* The confidential bar full-bleeds to the card edge via a negative margin equal
+     to the dossier padding. When that padding drops to 1.1rem here, the bar's
+     margin/padding must follow — otherwise it keeps the clamp() value (1.6rem)
+     and spills ~8px past the card on each side, breaking the header at ≤390px. */
+  .acctfile .ca-bar{margin-left:-1.1rem;margin-right:-1.1rem;padding-left:1.1rem;padding-right:1.1rem}
   .dossier .ds-head{flex-direction:column;gap:1.05rem;margin-bottom:1.25rem}
   .dossier .ds-headL{flex:1 1 100%}
   .dossier .ds-kicker{margin-bottom:.7rem;font-size:.62rem;letter-spacing:.2em}
