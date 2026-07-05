@@ -2835,6 +2835,59 @@ async function handleSales(url, env) {
 //     charges issued from the Nomod app.
 //   * The Nomod API key bound to NOMOD_API_KEY must have read scope on
 //     /v1/charges (transactions). Verify in Nomod Settings -> Apps & APIs.
+// ============================================================ Section A: Bank details
+// Single-row (id=1) settings table holding the beneficiary account. Editable in
+// the admin; the "Download bank details PDF" action renders the A4 portrait doc.
+async function ensureBankSchema(env) {
+  await env.BILLING_DB.prepare(
+    `CREATE TABLE IF NOT EXISTS bank_details (
+       id INTEGER PRIMARY KEY CHECK (id = 1),
+       bank_name TEXT, account_holder TEXT, account_number TEXT,
+       iban TEXT, swift_bic TEXT, currency TEXT DEFAULT 'AED',
+       legal_name TEXT, trading_as TEXT, updated_at TEXT
+     )`
+  ).run();
+}
+const BANK_SEED = {
+  bank_name:"", account_holder:"", account_number:"", iban:"", swift_bic:"",
+  currency:"AED", legal_name:"UMC In Bound Tour Operator LLC", trading_as:"UMC Dubai",
+};
+async function handleGetBankDetails(env) {
+  await ensureBankSchema(env);
+  const row = await env.BILLING_DB.prepare("SELECT * FROM bank_details WHERE id = 1").first();
+  return json({ ok:true, details: row || BANK_SEED });
+}
+async function handleSaveBankDetails(request, env) {
+  await ensureBankSchema(env);
+  let b = {}; try { b = await request.json(); } catch { return json({ ok:false, error:"bad json" }, 400); }
+  const s = (v, d) => { const t = String(v == null ? "" : v).trim(); return t || (d || null); };
+  await env.BILLING_DB.prepare(
+    `INSERT INTO bank_details
+       (id, bank_name, account_holder, account_number, iban, swift_bic, currency, legal_name, trading_as, updated_at)
+     VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       bank_name=excluded.bank_name, account_holder=excluded.account_holder,
+       account_number=excluded.account_number, iban=excluded.iban, swift_bic=excluded.swift_bic,
+       currency=excluded.currency, legal_name=excluded.legal_name, trading_as=excluded.trading_as,
+       updated_at=excluded.updated_at`
+  ).bind(
+    s(b.bank_name), s(b.account_holder), s(b.account_number), s(b.iban), s(b.swift_bic),
+    s(b.currency, "AED"), s(b.legal_name, BANK_SEED.legal_name), s(b.trading_as, BANK_SEED.trading_as),
+    new Date().toISOString()
+  ).run();
+  return json({ ok:true });
+}
+async function handleBankDetailsPdf(env) {
+  await ensureBankSchema(env);
+  const row = await env.BILLING_DB.prepare("SELECT * FROM bank_details WHERE id = 1").first() || BANK_SEED;
+  const { renderBankDetailsPdf } = await import("./pdf.js");
+  const bytes = await renderBankDetailsPdf(Object.assign({}, row, { issued: new Date().toISOString() }));
+  return new Response(bytes, { headers: {
+    "Content-Type": "application/pdf",
+    "Content-Disposition": 'inline; filename="UMC-Bank-Transfer-Details.pdf"',
+  }});
+}
+
 async function handleSyncNomod(request, env) {
   await ensureSchema(env);
   let body = {};
@@ -3711,6 +3764,17 @@ export async function handleAdmin(request, env) {
   }
 
   // v53 — standalone Nomod links (Links tab in /admin/billing)
+  // Section A — bank details editor + PDF.
+  if (path.startsWith("/admin/api/bank-details")) {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    if (path === "/admin/api/bank-details" && method === "GET") return handleGetBankDetails(env);
+    if (path === "/admin/api/bank-details" && method === "POST") return handleSaveBankDetails(request, env);
+    if (path === "/admin/api/bank-details/pdf" && method === "GET") return handleBankDetailsPdf(env);
+    return json({ ok: false, error: "not found" }, 404);
+  }
+
   if (path.startsWith("/admin/api/links")) {
     const authed = await isAuthed(request, env);
     if (!authed) return json({ ok: false, error: "auth required" }, 401);
@@ -5171,6 +5235,28 @@ function appShellHTML() {
 </section>
 </section><!-- /#tab-fleet -->
 
+<section id="tab-bank" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnMore" hidden>
+  <div class="wrap" style="max-width:600px">
+    <div style="margin:1.2rem 0 1.4rem">
+      <h2 style="font-family:Marcellus,Georgia,serif;font-size:1.5rem;margin:0 0 .3rem">Bank details</h2>
+      <p class="hist-sub" style="margin:0">The beneficiary account printed on the <b>Bank transfer details</b> PDF. Review a generated PDF with dummy values before entering the real account.</p>
+    </div>
+    <div class="field"><label class="lbl" for="bkLegal">Legal name</label><input id="bkLegal" type="text" maxlength="120" autocomplete="off" placeholder="UMC In Bound Tour Operator LLC"></div>
+    <div class="field"><label class="lbl" for="bkTrading">Trading as</label><input id="bkTrading" type="text" maxlength="80" autocomplete="off" placeholder="UMC Dubai"></div>
+    <div class="field"><label class="lbl" for="bkBankName">Bank name</label><input id="bkBankName" type="text" maxlength="80" autocomplete="off" placeholder="e.g. Wio Bank PJSC"></div>
+    <div class="field"><label class="lbl" for="bkHolder">Account holder</label><input id="bkHolder" type="text" maxlength="120" autocomplete="off" placeholder="Mirrors the legal name on the PDF"></div>
+    <div class="field"><label class="lbl" for="bkAcct">Account number</label><input id="bkAcct" type="text" maxlength="60" autocomplete="off"></div>
+    <div class="field"><label class="lbl" for="bkIban">IBAN</label><input id="bkIban" type="text" maxlength="60" autocomplete="off" placeholder="AE.."></div>
+    <div class="field"><label class="lbl" for="bkBic">SWIFT / BIC</label><input id="bkBic" type="text" maxlength="20" autocomplete="off"></div>
+    <div class="field"><label class="lbl" for="bkCurrency">Currency</label><input id="bkCurrency" type="text" maxlength="8" autocomplete="off" value="AED"></div>
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1.2rem">
+      <button type="button" class="btn btn-ink" id="bkSave">Save</button>
+      <button type="button" class="btn btn-ghost" id="bkPdf">Download bank details PDF</button>
+    </div>
+    <div id="bkStatus" class="hist-sub" style="margin-top:.7rem" aria-live="polite"></div>
+  </div>
+</section><!-- /#tab-bank -->
+
 <!-- Calendar — agenda view of our OWN jobs data (GET /admin/api/jobs). This page
      never queries Google; the Google Calendar sync remains one-way sync-out only.
      Days are listed vertically from the anchor date forward; cancelled jobs hide
@@ -6422,7 +6508,7 @@ const PAGE_SCRIPT = `<script>
     // v61: include "payments" — was missing in v60, which is why activating
     // the tab moved the underline but never un-hid #tab-payments.
     // v84: include "sales".
-    ["leads","create","documents","links","sales","fleet","calendar"].forEach(function(n){
+    ["leads","create","documents","links","sales","fleet","bank","calendar"].forEach(function(n){
       const el = document.getElementById("tab-" + n);
       if(!el) return;
       const on = n === name;
@@ -6434,6 +6520,7 @@ const PAGE_SCRIPT = `<script>
     if(name === "links") loadLinks();
     if(name === "sales") loadSales();
     if(name === "fleet") loadFleet();
+    if(name === "bank") loadBank();
     if(name === "calendar") loadCalendar();
     if(name === "create" && typeof fitDocToViewport === "function") fitDocToViewport();
     // v85: persist active tab in URL hash so refresh stays on the same tab.
@@ -6598,6 +6685,38 @@ const PAGE_SCRIPT = `<script>
     } catch(e){ setStatus("Fleet load failed."); }
   }
   async function loadFleet(){ await loadFleetKind("drivers"); await loadFleetKind("vehicles"); }
+
+  // Section A — Bank details editor.
+  async function loadBank(){
+    bindBankOnce();
+    try{
+      const j = await (await fetch("/admin/api/bank-details")).json();
+      const d = (j && j.details) || {};
+      const set = function(id, v){ const el = $(id); if(el) el.value = (v == null ? "" : v); };
+      set("bkLegal", d.legal_name); set("bkTrading", d.trading_as); set("bkBankName", d.bank_name);
+      set("bkHolder", d.account_holder); set("bkAcct", d.account_number); set("bkIban", d.iban);
+      set("bkBic", d.swift_bic); set("bkCurrency", d.currency || "AED");
+    }catch(e){ const s = $("bkStatus"); if(s) s.textContent = "Load failed."; }
+  }
+  function bindBankOnce(){
+    const root = document.getElementById("tab-bank");
+    if(!root || root._bankBound) return; root._bankBound = true;
+    const st = function(m){ const s = $("bkStatus"); if(s) s.textContent = m || ""; };
+    const saveBtn = $("bkSave"), pdfBtn = $("bkPdf");
+    if(saveBtn) saveBtn.addEventListener("click", function(){
+      const payload = {
+        legal_name:$("bkLegal").value, trading_as:$("bkTrading").value, bank_name:$("bkBankName").value,
+        account_holder:$("bkHolder").value, account_number:$("bkAcct").value, iban:$("bkIban").value,
+        swift_bic:$("bkBic").value, currency:$("bkCurrency").value
+      };
+      saveBtn.disabled = true; st("Saving …");
+      fetch("/admin/api/bank-details", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) })
+        .then(function(r){ return r.json(); })
+        .then(function(j){ saveBtn.disabled = false; st(j && j.ok ? "Saved." : ("Save failed: " + ((j && j.error) || ""))); if(j && j.ok && typeof showToast === "function") showToast("Bank details saved."); })
+        .catch(function(e){ saveBtn.disabled = false; st("Save failed — " + (e.message || e)); });
+    });
+    if(pdfBtn) pdfBtn.addEventListener("click", function(){ window.open("/admin/api/bank-details/pdf", "_blank", "noopener"); });
+  }
 
   // ── Jobs (Dispatch Phase 2) client UI ──────────────────────────────────────
   var jobsCache = [];
@@ -8561,7 +8680,8 @@ const PAGE_SCRIPT = `<script>
   // panel via switchTab (its data/API/logic are untouched).
   var MORE_TABS = [
     { id: "sales", label: "Sales" },
-    { id: "fleet", label: "Fleet" }
+    { id: "fleet", label: "Fleet" },
+    { id: "bank",  label: "Bank details" }
   ];
   function openMoreSheet(){
     // Desktop (horizontal tab bar, >620px) -> compact popover anchored under the

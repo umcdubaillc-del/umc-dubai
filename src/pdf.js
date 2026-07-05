@@ -424,6 +424,99 @@ export async function renderInvoicePdf(doc){
   return await pdf.save();
 }
 
+/* ---------- Document A: Bank transfer details (A4 portrait) ---------- */
+export async function renderBankDetailsPdf(data){
+  const d = data || {};
+  const pdf = await PDFDocument.create();
+  const f = await loadFonts(pdf);
+  const page = pdf.addPage([PAGE_W, PAGE_H]);
+  const padTop = 41.6, padX = 38.4;
+  const leftX = sx(padX), rightX = PAGE_W - sx(padX);
+
+  paintPaper(page);
+  const stampImg = await embedStamp(pdf);
+  const legal   = (d.legal_name && String(d.legal_name).trim()) || "UMC In Bound Tour Operator LLC";
+  const trading = (d.trading_as && String(d.trading_as).trim()) || "UMC Dubai";
+  const currency= (d.currency && String(d.currency).trim()) || "AED";
+  const issued  = String(d.issued || "");
+  const year    = issued.slice(0,4) || "";
+  const footBarH = sx(drawBrandFooter(page, f, stampImg,
+    legal + " · Trading as " + trading,
+    CONTACT.email + " · " + CONTACT.phone + " · " + CONTACT.web));
+
+  // ===== HEADER — lockup left, mono instruction block right =====
+  drawLockup(page, f, padX, padTop);
+  drawRight(page, "PAYMENT INSTRUCTIONS", rightX, padTop + 2, f.mono, 10, C.inkSoft, {trackingEm:0.08, upper:true});
+  drawRight(page, "REF UMC-BNK/" + year + "   ·   ISSUED " + fmtDate(issued).toUpperCase(), rightX, padTop + 2 + 10*1.9, f.mono, 8.5, C.muted, {trackingEm:0.04});
+
+  // ===== TITLE =====
+  let y = 150;
+  eyebrow(page, f, "For corporate settlement", leftX, y, {track:0.28});
+  y += 9 + 13;
+  drawText(page, "Bank transfer details", leftX, y, f.marcellus, 31, C.ink);
+  y += 31*1.08 + 30;
+
+  // ===== ENTITY BLOCK — hairline-ruled, TWO rows only (no TRN/address/contact) =====
+  page.drawRectangle({ x:leftX, y:PAGE_H - sx(y) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.line, opacity:0.18 });
+  y += 18;
+  const entLabelX = leftX, entValX = leftX + sx(130);
+  const entRows = [["Legal name", legal, true], ["Trading as", trading, false]];
+  for(const [k,v,serif] of entRows){
+    drawText(page, k, entLabelX, y+2, f.outfit, 10, C.muted, {trackingEm:0.04});
+    drawText(page, v, entValX, y, serif ? f.marcellus : f.outfit, serif ? 14.5 : 12.5, C.ink);
+    y += 26;
+  }
+  y += 2;
+  page.drawRectangle({ x:leftX, y:PAGE_H - sx(y) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.line, opacity:0.18 });
+  y += 34;
+
+  // ===== BANK PANEL — the one raised --card block (labels Outfit, values mono) =====
+  const bankRows = [
+    ["Bank name",      d.bank_name || ""],
+    ["Account holder", legal],                    // mirrors the legal-name field
+    ["Account number", d.account_number || ""],
+    ["IBAN",           d.iban || ""],
+    ["SWIFT / BIC",    d.swift_bic || ""],
+    ["Currency",       currency],
+  ];
+  const cPadX = 22, cPadY = 22, rowH = 30;
+  const cardH = cPadY*2 + 14 + bankRows.length*rowH;
+  cardPanel(page, leftX, y, rightX-leftX, cardH);
+  let by = y + cPadY;
+  eyebrow(page, f, "Beneficiary account", leftX + sx(cPadX), by);
+  by += 9 + 16;
+  const bLabelX = leftX + sx(cPadX), bValX = leftX + sx(cPadX + 150);
+  for(const [k,v] of bankRows){
+    drawText(page, k, bLabelX, by+3, f.outfit, 10.5, C.muted, {trackingEm:0.02});
+    drawText(page, v || "—", bValX, by+2, f.mono, 12, v ? C.ink : C.muted, {trackingEm:0.01});
+    by += rowH;
+  }
+  y += cardH + 28;
+
+  // ===== AMBER-LEFT-RULE CALLOUT — payment reference =====
+  const callTextX = leftX + sx(16);
+  const callW = (rightX - callTextX)/PX - 6;
+  const refHead = "Payment reference.";
+  const refBody = " Please quote the UMC invoice number (e.g. INV-1024) as your transfer reference. Unreferenced transfers may delay reconciliation and confirmation of your booking.";
+  const refLines = wrapLine(refHead + refBody, f.outfit, 11, callW);
+  const callH = 12 + refLines.length*(11*1.55) + 12;
+  page.drawRectangle({ x:leftX, y:PAGE_H - sx(y) - sx(callH), width:sx(3), height:sx(callH), color:C.amber });
+  let cy = y + 12;
+  // draw head bold-ish (outfitMed) then body — approximate by rendering the head then body inline on first line
+  for(let i=0;i<refLines.length;i++){
+    drawText(page, refLines[i], callTextX, cy, f.outfit, 11, C.inkSoft);
+    cy += 11*1.55;
+  }
+  // overlay the lead phrase in medium weight on the first line for emphasis
+  drawText(page, refHead, callTextX, y + 12, f.outfitMed, 11, C.ink);
+  y += callH + 24;
+
+  // ===== QUERIES LINE =====
+  drawText(page, "Remittance advice and confirmation queries: " + CONTACT.email + " · " + CONTACT.phone + " · attended 24 hours.", leftX, y, f.outfit, 10, C.muted);
+
+  return await pdf.save();
+}
+
 /* keep the stage-0/1 test export so /pdftest still works */
 export async function renderTestPdf(){
   const pdf=await PDFDocument.create(); const f=await loadFonts(pdf);
