@@ -8290,11 +8290,15 @@ const PAGE_SCRIPT = `<script>
         }
         function done(num){
           if(settled) return; settled = true; clearTimeout(watchdog);
+          // Reset the button BEFORE any re-render so a throw in a reload can never
+          // strand it on "Creating …" (the original stuck-state bug). loadLinks
+          // will replace the row anyway; if it throws, the button is already sane.
+          restore();
           setLkStatus("Invoice " + num + " created and marked Paid.");
           showToast("Invoice " + num + " created and marked Paid.");
-          loadLinks();
-          if(typeof loadHistory === "function") loadHistory();
-          if(typeof loadPayments === "function") loadPayments();
+          try { loadLinks(); } catch(_){}
+          try { if(typeof loadHistory === "function") loadHistory(); } catch(_){}
+          try { if(typeof loadPayments === "function") loadPayments(); } catch(_){}
         }
         mkp.disabled = true;
         mkp.textContent = "Creating …";
