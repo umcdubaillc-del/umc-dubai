@@ -3803,6 +3803,8 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
    Links (.hist-status.paid) and Payments. Keeps the warm amber accent free for
    action-pending states. */
 .pay-status.paid{color:#2E7D54}
+.pay-status.new{color:var(--amber)}
+.pay-status.pending{color:var(--muted)}
 .pay-status.unpaid{color:var(--muted)}
 .pay-status.expired{color:var(--muted);text-decoration:line-through}
 .pay-status.unknown{color:var(--muted);opacity:.7}
@@ -5013,8 +5015,7 @@ function appShellHTML() {
       <hr class="hair">
 
       <small class="lbl" style="margin-bottom:.4rem;display:block">Details</small>
-      <div class="field"><label class="lbl" for="lkTitle">Name (link title)</label><input id="lkTitle" type="text" placeholder="Deposit &middot; Mr Smith &middot; 18 Jun 2026" maxlength="50" autocomplete="off"></div>
-      <div class="field"><label class="lbl" for="lkClient">Client name (optional)</label><input id="lkClient" type="text" placeholder="Shown in the Links list and on the payment-received notification" maxlength="120" autocomplete="off"></div>
+      <div class="field"><label class="lbl" for="lkTitle">Client / link name</label><input id="lkTitle" type="text" placeholder="e.g. Mr Smith &middot; Deposit" maxlength="120" autocomplete="off"><small class="lbl" style="margin-top:.35rem;display:block;color:var(--muted);font-weight:400;letter-spacing:0;text-transform:none">Used as the Nomod link name and saved as the client on this record (edit later per link if they need to differ).</small></div>
       <div class="field"><label class="lbl" for="lkNote">Note (optional)</label><textarea id="lkNote" rows="2" maxlength="280" placeholder="Shown on the Nomod payment page"></textarea></div>
 
       <hr class="hair">
@@ -5911,15 +5912,22 @@ const PAGE_SCRIPT = `<script>
           if(String(x.currency || "AED").toUpperCase() !== "AED" && x.amount_aed != null && x.amount_aed !== "" && isFinite(Number(x.amount_aed))){
             aedSuffix = ' <span style="color:var(--muted);font-size:11px">(AED ' + esc(Number(x.amount_aed).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + ')</span>';
           }
-          // v110 (item 2b) — Links tab shows the VAT-INCLUSIVE total for every row,
-          // consistently. Convention is explicit via origin: 'workspace' rows store
-          // NET (operator typed net; Nomod adds 5%), so display net × 1.05; every
-          // other row (Nomod-synced direct sale) already arrives GROSS, shown as-is.
-          // This avoids double-VAT: a gross row is never multiplied again.
+          // v110.2 (item 2b + follow-up item 3) — Links tab shows the true
+          // VAT-INCLUSIVE total for every row, from an origin-aware source of truth:
+          //   • 'workspace' rows store the NET the operator typed (Nomod adds 5%),
+          //     so the gross = amount × 1.05.
+          //   • every other row is a Nomod-synced charge whose authoritative AED
+          //     gross is amount_aed (the reconciled charge total = net + tax, the
+          //     SAME field the Sales ledger trusts). We use that rather than the raw
+          //     amount column, which older sync builds stored inconsistently (some
+          //     net, some gross) — the cause of the "net labelled incl. VAT" bug.
+          // Zero double-VAT: workspace is multiplied once; nomod is never multiplied.
           const isWorkspaceRow = String(x.origin || "") === "workspace";
+          const aedGross = (x.amount_aed != null && x.amount_aed !== "" && isFinite(Number(x.amount_aed)))
+            ? Number(x.amount_aed) : null;
           const dispAmount = isWorkspaceRow
             ? Math.round(Number(x.amount) * 1.05 * 100) / 100
-            : Number(x.amount);
+            : (aedGross != null ? aedGross : Number(x.amount));
           const vatHint = ' <span style="color:var(--muted);font-size:11px">incl. VAT</span>';
           return '<tr class="'+trClass+'" data-expandable="1" data-lkid="'+x.id+'">'
             + '<td data-lbl="Client">'+esc(clientPrimary || "·")+invTag+subline+'</td>'
@@ -5944,10 +5952,9 @@ const PAGE_SCRIPT = `<script>
       const title    = $("lkTitle").value.trim();
       const currency = $("lkCurrency").value || "AED";
       const note     = $("lkNote").value.trim();
-      // v97: optional client name; persisted on payment_links.client_name so
-      // the Links list shows a real client, the payment-received email picks
-      // it up, and the relational chain holds.
-      const clientName = ($("lkClient") && $("lkClient").value || "").trim();
+      // v110.2 (follow-up item 1) — one merged "Client / link name" field feeds
+      // BOTH the Nomod link name (payload.title) and payment_links.client_name.
+      // The value is taken from the confirmed modal title below (values.title).
       const items    = lkItems
         .map(function(it){ return { name: (it.name||"").trim(), price: Number(it.price)||0, quantity: 1 }; })
         .filter(function(it){ return it.price > 0; });
@@ -5986,9 +5993,9 @@ const PAGE_SCRIPT = `<script>
             title: values.title,
             currency: values.currency,
             note: values.note,
-            // v97: forwarded to handleCreateStandaloneLink; stored verbatim
-            // on payment_links.client_name when present.
-            client_name: clientName || null,
+            // Merged field: the confirmed name is both the Nomod link title and
+            // the stored client_name, so a created link is never anonymous.
+            client_name: (values.title || "").trim() || null,
             items: amountChanged
               ? [{ name: values.title || "Service", price: Number(values.amount), quantity: 1 }]
               : items,
@@ -6012,7 +6019,6 @@ const PAGE_SCRIPT = `<script>
             setLkStatus(ok ? "Link created and copied to clipboard." : "Link created (auto-copy unavailable).");
             // reset to a clean form
             $("lkTitle").value = ""; $("lkNote").value = ""; $("lkDiscValue").value = ""; $("lkExpiry").value = "";
-            if($("lkClient")) $("lkClient").value = "";
             lkItems = [{ name:"", price:0 }]; renderLkItems();
             await loadLinks();
             // v102: close the create-link modal and land the operator on
@@ -7834,10 +7840,23 @@ const PAGE_SCRIPT = `<script>
       body.innerHTML = items.map(function(x){
         const created = String(x.created_at || "").slice(0,10);
         const status = String(x.status || "new").toLowerCase();
-        const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+        // follow-up item 2 — Status column driven by the SAME viewed_at state as
+        // the badge. A real pipeline status (converted, etc.) always wins; a lead
+        // still at 'new' shows "New" only while unviewed, then a muted "Pending"
+        // once opened. Single source of truth: leads.viewed_at.
+        const isUnseenStatus = !x.viewed_at;
+        let statusLabel, statusClass;
+        if(status !== "new"){
+          statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+          statusClass = status;
+        } else if(isUnseenStatus){
+          statusLabel = "New"; statusClass = "new";
+        } else {
+          statusLabel = "Pending"; statusClass = "pending";
+        }
         const statusCell = x.linked_doc_number
-          ? '<span class="pay-status '+status+'">'+esc(statusLabel)+' · '+esc(x.linked_doc_number)+'</span>'
-          : '<span class="pay-status '+status+'">'+esc(statusLabel)+'</span>';
+          ? '<span class="pay-status '+statusClass+'">'+esc(statusLabel)+' · '+esc(x.linked_doc_number)+'</span>'
+          : '<span class="pay-status '+statusClass+'">'+esc(statusLabel)+'</span>';
         // v106 — Turnstile spam signal. Show only when verified is strictly 0
         // (never for 1, null or undefined, which render exactly as before).
         const unverifiedPill = (x.verified === 0 || x.verified === "0")
@@ -9182,6 +9201,12 @@ const PAGE_SCRIPT = `<script>
       if(tr) tr.setAttribute("data-leadseen", "1");
       const badge = document.querySelector('[data-leadnew="'+id+'"]');
       if(badge && badge.parentNode) badge.parentNode.removeChild(badge);
+      // item 2 — flip the Status column "New" → muted "Pending" in place, so it
+      // matches the badge state without waiting for a reload.
+      if(tr){
+        const pill = tr.querySelector('td[data-lbl="Status"] .pay-status.new');
+        if(pill){ pill.textContent = "Pending"; pill.className = "pay-status pending"; }
+      }
     }catch(_){}
     try{
       if(Array.isArray(leadsCache)){
