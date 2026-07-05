@@ -224,6 +224,10 @@ async function ensureSchema(env) {
       "refunded_amount REAL",
       "client_email TEXT",
       "client_name TEXT",
+      // v111 (item 1 final) — client phone, so an invoice created from a link
+      // carries name + phone + email for later WhatsApp/quote/job workflows
+      // without a Nomod lookup. Filled from customer_info.phone_number (fill-only).
+      "client_phone TEXT",
       "excluded INTEGER DEFAULT 0",
       // v86 — back-reference to the invoice this link is attached to (if any).
       // Forward reference (billing_documents.nomod_link_id) already exists.
@@ -1179,7 +1183,7 @@ async function handleListLinks(env) {
   const { results } = await env.BILLING_DB.prepare(
     `SELECT id, title, amount, amount_aed, currency, note, nomod_link_id, nomod_link_url,
             nomod_charge_id, COALESCE(excluded, 0) AS excluded, created_at,
-            client_name, client_email, invoice_number, origin,
+            client_name, client_email, client_phone, invoice_number, origin,
             COALESCE(payment_status,'unpaid') AS payment_status, paid_at
      FROM payment_links ORDER BY created_at DESC LIMIT 500`
   ).all();
@@ -1630,7 +1634,7 @@ async function handleAttachLinkToInvoice(linkId, body, env) {
 async function handleCreateInvoiceFromPaidLink(linkId, env) {
   await ensureSchema(env);
   const link = await env.BILLING_DB.prepare(
-    `SELECT id, title, amount, currency, note, client_name, client_email,
+    `SELECT id, title, amount, amount_aed, origin, currency, note, client_name, client_email, client_phone,
             nomod_link_id, nomod_link_url, nomod_charge_id, payment_status,
             payment_method, paid_at, created_at, invoice_number
      FROM payment_links WHERE id = ?`
@@ -1657,7 +1661,20 @@ async function handleCreateInvoiceFromPaidLink(linkId, env) {
   // No fabrication: leave email blank when the link has none. The operator
   // can add it later by opening the invoice and saving.
   const clientEmail = (link.client_email && String(link.client_email).trim()) || null;
-  const rate = Number(link.amount) || 0;
+  // v111 (item 1 final) — carry the phone through so downstream WhatsApp/quote/job
+  // flows have the number without a Nomod lookup.
+  const clientPhone = (link.client_phone && String(link.client_phone).trim()) || null;
+  // v111 (item 4) — origin-aware money so the invoice total = the TRUE gross the
+  // customer paid, never a double-VAT. workspace links store NET (gross = ×1.05);
+  // nomod links store GROSS (amount_aed, the reconciled charge total). The invoice
+  // is vat_mode='exclusive', so the line rate + subtotal are the NET and VAT is
+  // added back to reach the same gross.
+  const grossPaid = String(link.origin || "") === "workspace"
+    ? Math.round((Number(link.amount) || 0) * 1.05 * 100) / 100
+    : ((link.amount_aed != null && link.amount_aed !== "" && isFinite(Number(link.amount_aed)))
+        ? Number(link.amount_aed) : (Number(link.amount) || 0));
+  const net = Math.round((grossPaid / 1.05) * 100) / 100;
+  const rate = net;
   // v98 — description priority: a real note on the link, else a generic service
   // line. NEVER the title (that is the client name, which belongs in client_name
   // only) and never a system-generated "Auto-captured from Nomod" note.
@@ -1669,9 +1686,9 @@ async function handleCreateInvoiceFromPaidLink(linkId, env) {
     qty: 1,
     rate: rate
   }];
-  const subtotal = rate;
-  const vat = Math.round(rate * 0.05 * 100) / 100;
-  const total = Math.round((rate + vat) * 100) / 100;
+  const subtotal = net;
+  const vat = Math.round((grossPaid - net) * 100) / 100;
+  const total = grossPaid;
   const currency = String(link.currency || "AED");
   const method = String(link.payment_method || "nomod");
   const now = new Date().toISOString();
@@ -1679,14 +1696,14 @@ async function handleCreateInvoiceFromPaidLink(linkId, env) {
   try {
     const res = await env.BILLING_DB.prepare(
       `INSERT INTO billing_documents
-        (doc_type, number, doc_date, client_name, client_email,
+        (doc_type, number, doc_date, client_name, client_email, client_phone,
          currency, vat_mode, line_items, discount, subtotal, vat, total,
          notes, internal_notes,
          nomod_link_id, nomod_link_url, nomod_link_created_at,
          nomod_charge_id, payment_status, paid_at, payment_method)
-       VALUES ('invoice', ?, ?, ?, ?, ?, 'exclusive', ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?)`
+       VALUES ('invoice', ?, ?, ?, ?, ?, ?, 'exclusive', ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?)`
     ).bind(
-      number, docDate, clientName, clientEmail,
+      number, docDate, clientName, clientEmail, clientPhone,
       currency, JSON.stringify(lineItems),
       subtotal, vat, total,
       null,
@@ -2961,9 +2978,29 @@ async function handleSyncNomod(request, env) {
         || (c.customer && c.customer.email)
         || ""
       ).trim().toLowerCase();
-      const clientName = String(
-        (c.customer_info && c.customer_info.name)
-        || (c.customer && (c.customer.name || c.customer.full_name))
+      // v111 (item 1, ground-truth confirmed) — resolve the CLIENT's name from the
+      // charge payload. Verified against real payloads (Margarita/Nithin):
+      //   • c.customer_info  = charge-level client info {first_name,last_name,email,phone_number}
+      //   • c.customer       = attached Nomod Customer record (same fields + business_name)
+      //   • c.source = "API" (a string) and card_holder_name (absent / payer's card name,
+      //     which may be someone else's) are CONFIRMED non-usable — dropped from the ladder.
+      // Name ladder: person name (customer_info, then customer), then business_name.
+      // Name/phone/email are all FILL-ONLY downstream — never overwrite owner-entered values.
+      const fullName = (o) => (o && typeof o === "object")
+        ? [o.first_name, o.last_name].map((s) => String(s || "").trim()).filter(Boolean).join(" ").trim()
+        : "";
+      const bizName = (o) => (o && typeof o === "object") ? String(o.business_name || "").trim() : "";
+      const clientName = (
+        fullName(c.customer_info)
+        || fullName(c.customer)
+        || bizName(c.customer)
+        || bizName(c.customer_info)
+        || String((c.customer_info && (c.customer_info.name || c.customer_info.full_name))
+             || (c.customer && (c.customer.name || c.customer.full_name)) || "").trim()
+      ).trim();
+      const clientPhone = String(
+        (c.customer_info && c.customer_info.phone_number)
+        || (c.customer && c.customer.phone_number)
         || ""
       ).trim();
       const title = matchedInvoiceNumber
@@ -2990,24 +3027,31 @@ async function handleSyncNomod(request, env) {
           // is only *filled* when empty, never overwritten.
           await env.BILLING_DB.prepare(
             `UPDATE payment_links
-                SET client_email=COALESCE(NULLIF(?, ''), client_email),
+                SET client_email=COALESCE(client_email, NULLIF(?, '')),
                     client_name =COALESCE(client_name, NULLIF(?, '')),
+                    client_phone=COALESCE(client_phone, NULLIF(?, '')),
                     payment_status='paid', paid_at=COALESCE(paid_at, ?),
                     last_checked_at=?,
                     payment_method=COALESCE(payment_method, ?),
                     amount_aed=COALESCE(amount_aed, ?)
               WHERE id=?`
-          ).bind(clientEmail, clientName, paidAt, now, paymentMethod, amountAed, existing.id).run();
+          ).bind(clientEmail, clientName, clientPhone, paidAt, now, paymentMethod, amountAed, existing.id).run();
         } else {
+          // v111 (item 0) — CRITICAL: client_name / client_email are FILL-ONLY for
+          // nomod-origin rows too. The owner enters client names by hand on synced
+          // rows (the payload historically carried none), so a sync must never
+          // overwrite a name/email that is already set — only fill an empty one.
+          // COALESCE(existing, incoming) = keep what's there, else fill.
           await env.BILLING_DB.prepare(
             `UPDATE payment_links
                 SET title=?, amount=?, currency=?, note=?, created_at=?,
-                    client_email=COALESCE(NULLIF(?, ''), client_email),
-                    client_name =COALESCE(NULLIF(?, ''), client_name),
+                    client_email=COALESCE(client_email, NULLIF(?, '')),
+                    client_name =COALESCE(client_name, NULLIF(?, '')),
+                    client_phone=COALESCE(client_phone, NULLIF(?, '')),
                     payment_status='paid', paid_at=?, last_checked_at=?,
                     payment_method=?, amount_aed=?
               WHERE id=?`
-          ).bind(title, amount, currency, note, paidAt, clientEmail, clientName, paidAt, now, paymentMethod, amountAed, existing.id).run();
+          ).bind(title, amount, currency, note, paidAt, clientEmail, clientName, clientPhone, paidAt, now, paymentMethod, amountAed, existing.id).run();
         }
         updated++;
       } else {
@@ -3015,12 +3059,12 @@ async function handleSyncNomod(request, env) {
           `INSERT INTO payment_links
             (title, amount, currency, note, nomod_link_id, nomod_link_url,
              created_at, payment_status, paid_at, last_checked_at,
-             nomod_charge_id, payment_method, client_email, client_name, amount_aed, origin)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?, 'nomod')`
+             nomod_charge_id, payment_method, client_email, client_name, client_phone, amount_aed, origin)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?, ?, 'nomod')`
         ).bind(
           title, amount, currency, note,
           linkId, urlField, paidAt, paidAt, now, chargeId, paymentMethod,
-          clientEmail, clientName, amountAed
+          clientEmail, clientName, clientPhone, amountAed
         ).run();
         imported++;
         flagged.push({ chargeId, linkId, amount, currency, paidAt, customer: clientName || clientEmail || null });
@@ -5862,7 +5906,11 @@ const PAGE_SCRIPT = `<script>
           const invTag = attachedNum
             ? ' <span class="hist-status linked" style="margin-left:.4em">'+esc(attachedNum)+'</span>'
             : '';
-          const subline = x.note ? '<div class="hist-link" style="color:var(--muted)">'+esc(x.note)+'</div>' : '';
+          // v111 (item 1) — surface phone/email under the client so the owner can
+          // spot-check the synced contact details at a glance.
+          const contactLine = [x.client_phone, x.client_email].filter(function(s){ return s && String(s).trim(); }).map(function(s){ return esc(String(s).trim()); }).join(' · ');
+          const subline = (x.note ? '<div class="hist-link" style="color:var(--muted)">'+esc(x.note)+'</div>' : '')
+            + (contactLine ? '<div class="hist-link" style="color:var(--muted);font-size:11px">'+contactLine+'</div>' : '');
           const statusPill = isPaid
             ? '<span class="hist-status paid">Paid</span>'
             : (status === "expired"
