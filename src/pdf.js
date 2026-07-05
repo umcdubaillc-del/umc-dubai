@@ -1,6 +1,6 @@
 import { PDFDocument, rgb, pushGraphicsState, popGraphicsState, concatTransformationMatrix } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
-import { MARCELLUS_400, OUTFIT_400, OUTFIT_500, FRAUNCES_400 } from "./fonts.js";
+import { MARCELLUS_400, OUTFIT_400, OUTFIT_500, MONO_400 } from "./fonts.js";
 import { UMC_STAMP_PNG_B64 } from "./stamp.js";
 
 /* ---------- byte helper ---------- */
@@ -34,6 +34,21 @@ function paintPaper(page, w, h){ page.drawRectangle({ x:0, y:0, width:w||PAGE_W,
 // Embed the transparent stamp PNG once per document.
 async function embedStamp(pdf){ try { return await pdf.embedPng(b(UMC_STAMP_PNG_B64)); } catch(e){ return null; } }
 
+// A raised --card (#FBF8F1) panel with a hairline border. x/w in pt; y/h in px-from-top.
+function cardPanel(page, xPt, yTopPx, wPt, hPx){
+  page.drawRectangle({
+    x:xPt, y:PAGE_H - sx(yTopPx) - sx(hPx), width:wPt, height:sx(hPx),
+    color:C.card, borderColor:C.line, borderWidth:sx(1), borderOpacity:0.12,
+  });
+}
+// A small amber-deep spaced-caps eyebrow (the ONLY place spaced caps appear).
+function eyebrow(page, f, str, xPt, yTopPx, opts={}){
+  return drawText(page, str, xPt, yTopPx, f.outfitMed, opts.size||9, C.amberDeep, {trackingEm:opts.track||0.26, upper:true});
+}
+function eyebrowRight(page, f, str, rightXPt, yTopPx, opts={}){
+  return drawRight(page, str, rightXPt, yTopPx, f.outfitMed, opts.size||9, C.amberDeep, {trackingEm:opts.track||0.26, upper:true});
+}
+
 // UMC / amber-rule / DUBAI lockup, top-left anchored at (leftPx, topPx). Returns
 // the y (px-from-top) of the lockup's bottom so callers can flow beneath it.
 function drawLockup(page, f, leftPx, topPx){
@@ -59,11 +74,11 @@ function drawBrandFooter(page, f, stampImg, line1, line2, opts={}){
   const regionTopPx = (PAGE_H/PX) - regionHpx;
   // top hairline
   page.drawRectangle({ x:leftX, y:PAGE_H - sx(regionTopPx) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.line, opacity:0.14 });
-  // text lines (left)
+  // text lines (left) — ruling 5: normal case, normal tracking (no spaced caps).
   let ty = regionTopPx + 22;
-  drawText(page, line1, leftX, ty, f.outfit, 9, C.inkSoft, {trackingEm:0.16, upper:true});
+  drawText(page, line1, leftX, ty, f.outfitMed, 9, C.inkSoft, {trackingEm:0.01});
   ty += 9*1.7;
-  drawText(page, line2, leftX, ty, f.outfit, 9.5, C.muted, {trackingEm:0.02});
+  drawText(page, line2, leftX, ty, f.outfit, 9.5, C.muted, {trackingEm:0.01});
   // stamp (right), modest institutional size, vertically centred in the region
   if(stampImg){
     const stampPx = 58;                    // ~44pt square
@@ -96,7 +111,7 @@ async function loadFonts(pdf){
     marcellus: await pdf.embedFont(b(MARCELLUS_400)),
     outfit:    await pdf.embedFont(b(OUTFIT_400)),
     outfitMed: await pdf.embedFont(b(OUTFIT_500)),
-    fraunces:  await pdf.embedFont(b(FRAUNCES_400)),
+    mono:      await pdf.embedFont(b(MONO_400)), // suite data voice (IBM Plex Mono)
   };
 }
 
@@ -237,185 +252,174 @@ export async function renderInvoicePdf(doc){
   const footLine2 = CONTACT.email + " · " + CONTACT.phone + " · " + CONTACT.web;
   const footBarH = sx(drawBrandFooter(page, f, stampImg, footLine1, footLine2));
 
-  // ===== HEADER — left column =====
-  // lockup: UMC (Marcellus 1.7rem=27.2px, .36em), amber dash 30px, Dubai (Outfit 9.5px .36em)
-  let yL = padTop;
-  drawText(page,"UMC",leftX,yL,f.marcellus,27.2,C.ink,{trackingEm:0.36});
-  // amber dash centered under UMC block: dash 30px wide, margin .65rem(10.4px) above/below
-  const umcW = textWidth("UMC",f.marcellus,27.2,0.36);
-  const dashY = yL + 27.2 + 10.4;
-  page.drawRectangle({ x:leftX + (umcW - 30*PX)/2, y:PAGE_H - sx(dashY) - sx(1), width:sx(30), height:sx(1), color:C.amber });
-  const duoY = dashY + 1 + 10.4;
-  drawText(page,"Dubai",leftX + (umcW - textWidth("Dubai",f.outfit,9.5,0.36))/2 ,duoY,f.outfit,9.5,C.muted,{trackingEm:0.36,upper:true});
-
-  // company block: gap 2.2rem(35.2px) below lockup bottom
-  let yC = duoY + 9.5 + 35.2;
-  drawText(page,COMPANY.legal,leftX,yC,f.marcellus,15.7,C.ink); // .98rem
-  yC += 15.7*1.3 + 4.8;                                          // margin-bottom .3rem
-  for(const ln of [COMPANY.addr,COMPANY.phone,COMPANY.email]){
-    drawText(page,ln,leftX,yC,f.outfit,11,C.inkSoft); yC += 11*1.65;
+  // ===== HEADER — left: lockup + entity block =====
+  const lockBottom = drawLockup(page, f, padX, padTop);   // px-from-top of lockup bottom
+  let yC = lockBottom + 30;
+  drawText(page, COMPANY.legal, leftX, yC, f.marcellus, 15.7, C.ink);
+  yC += 15.7*1.3 + 5;
+  for(const ln of [COMPANY.addr, COMPANY.phone, COMPANY.email]){
+    drawText(page, ln, leftX, yC, f.outfit, 10.5, C.inkSoft); yC += 10.5*1.7;
   }
-  if(isInv){ yC += 7.2-11*0.65; drawText(page,"TRN "+COMPANY.trn,leftX,yC,f.fraunces,11.5,C.ink,{trackingEm:0.05}); }
+  // TRN — MANDATORY on invoices (FTA), in the mono data voice.
+  if(isInv){ yC += 4; drawText(page, "TRN "+COMPANY.trn, leftX, yC, f.mono, 10.5, C.ink, {trackingEm:0.01}); yC += 10.5*1.6; }
 
-  // ===== HEADER — right column (right-aligned to rightX) =====
+  // ===== HEADER — right: eyebrow, Marcellus title, mono meta, restrained PAID mark =====
   let yR = padTop;
-  drawRight(page,isInv?"Invoice":"Quote",rightX,yR,f.marcellus,38.4,C.ink,{trackingEm:0.18,upper:true}); // 2.4rem
-  yR += 38.4 + 3.2;
-  drawRight(page,doc.number||"UMC-…-####",rightX,yR,f.fraunces,18.4,C.amberDeep,{trackingEm:0.05}); // 1.15rem
-  yR += 18.4*1.2 + 35.2; // gap 2.2rem to date row
-  drawRight(page,fmtDate(doc.doc_date),rightX,yR,f.outfit,10.5,C.muted,{trackingEm:0.14,upper:true});
-  yR += 10.5*1.4;
-  if(isInv && doc.payment_status==="paid"){ drawRight(page,"Paid",rightX,yR,f.outfit,10,C.paid,{trackingEm:0.22,upper:true}); yR += 10*1.6; }
-  // billed-to / quote-for block
+  eyebrowRight(page, f, isInv ? "TAX INVOICE" : "QUOTATION", rightX, yR, {track:0.28});
+  yR += 9 + 8;
+  drawRight(page, isInv ? "Invoice" : "Quotation", rightX, yR, f.marcellus, 31, C.ink);
+  yR += 31*1.02 + 9;
+  drawRight(page, (doc.number||"UMC-…-####") + "   ·   " + fmtDate(doc.doc_date), rightX, yR, f.mono, 10.5, C.inkSoft, {trackingEm:0.01});
+  yR += 10.5*1.5;
+  if(isInv && doc.payment_status === "paid"){
+    yR += 8;
+    const ps=9, chipPadX=11, chipPadY=6;
+    const twP = textWidth("PAID", f.outfitMed, ps, 0.28);
+    const chipW = twP + sx(chipPadX*2);
+    const chipH = sx(ps + chipPadY*2);
+    const chipL = rightX - chipW;
+    page.drawRectangle({ x:chipL, y:PAGE_H - sx(yR) - chipH, width:chipW, height:chipH, color:C.bone, borderColor:C.amberDeep, borderWidth:sx(1), borderOpacity:0.75 });
+    drawText(page, "PAID", chipL + sx(chipPadX), yR + chipPadY - 1, f.outfitMed, ps, C.amberDeep, {trackingEm:0.28, upper:true});
+    yR += (ps + chipPadY*2);
+  }
+  // billed-to / quote-for
   yR += 18;
-  drawRight(page, isInv?"Billed to":"Quote made for", rightX, yR, f.outfit, 9, C.muted, {trackingEm:0.26,upper:true});
-  yR += 9 + 7.2;
-  if(doc.client_name){ drawRight(page,doc.client_name,rightX,yR,f.marcellus,16.8,C.ink); yR += 16.8*1.25; }
-  for(const ln of [doc.client_company,doc.client_address,doc.client_phone,doc.client_email].filter(Boolean)){
-    drawRight(page,ln,rightX,yR,f.outfit,11.5,C.inkSoft); yR += 11.5*1.6;
+  eyebrowRight(page, f, isInv ? "BILLED TO" : "QUOTE MADE FOR", rightX, yR);
+  yR += 9 + 8;
+  if(doc.client_name){ drawRight(page, doc.client_name, rightX, yR, f.marcellus, 16.8, C.ink); yR += 16.8*1.25; }
+  for(const ln of [doc.client_company, doc.client_address, doc.client_phone, doc.client_email].filter(Boolean)){
+    drawRight(page, ln, rightX, yR, f.outfit, 11, C.inkSoft); yR += 11*1.6;
   }
 
-  // ===== LINE ITEMS TABLE =====
-  // table starts below whichever header column ran longer, + 1.8rem(.dh margin-bottom)
-  let y = Math.max(yC, yR) + 28.8;
-
-  // column x-positions (CSS px from left): description at padX; right edges for qty/rate/amount
+  // ===== LINE ITEMS TABLE — hairlines only, eyebrow header, mono figures =====
+  let y = Math.max(yC, yR) + 30;
   const colDescX = leftX;
-  const colAmtR  = rightX;                 // Amount right edge
-  const colRateR = rightX - sx(150);       // Unit rate right edge
-  const colQtyR  = rightX - sx(300);       // Qty right edge
-  const descMaxW = (colQtyR - leftX)/PX - 18; // description wrap width in px, small gutter
+  const colAmtR  = rightX;
+  const colRateR = rightX - sx(150);
+  const colQtyR  = rightX - sx(300);
+  const descMaxW = (colQtyR - leftX)/PX - 18;
 
-  // header row: top+bottom 1px var(--ink-soft) borders, .6rem .35rem padding, Outfit500 9px .26em upper muted
-  const thPadY=9.6, thPadX=5.6, thSize=9;
+  const thPadY=9.6, thPadX=2, thSize=9;
   const thTop = y;
-  page.drawRectangle({ x:leftX, y:PAGE_H - sx(thTop) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.inkSoft }); // top border
+  page.drawRectangle({ x:leftX, y:PAGE_H - sx(thTop) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.line, opacity:0.18 });
   const thTextY = thTop + thPadY;
-  drawText(page,"Description",colDescX+sx(thPadX),thTextY,f.outfitMed,thSize,C.muted,{trackingEm:0.26,upper:true});
-  drawRight(page,"Qty",colQtyR,thTextY,f.outfitMed,thSize,C.muted,{trackingEm:0.26,upper:true});
-  drawRight(page,"Unit rate",colRateR,thTextY,f.outfitMed,thSize,C.muted,{trackingEm:0.26,upper:true});
-  drawRight(page,"Amount",colAmtR,thTextY,f.outfitMed,thSize,C.muted,{trackingEm:0.26,upper:true});
+  eyebrow(page, f, "Description", colDescX+sx(thPadX), thTextY);
+  eyebrowRight(page, f, "Qty", colQtyR, thTextY);
+  eyebrowRight(page, f, "Unit rate", colRateR, thTextY);
+  eyebrowRight(page, f, "Amount", colAmtR, thTextY);
   const thBot = thTextY + thSize + thPadY;
-  page.drawRectangle({ x:leftX, y:PAGE_H - sx(thBot) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.inkSoft }); // bottom border
+  page.drawRectangle({ x:leftX, y:PAGE_H - sx(thBot) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.line, opacity:0.18 });
   y = thBot;
 
-  // body rows: 11.5px, .75rem .35rem padding, bottom border var(--hair) at 10% ink
   const tdPadY=12, tdSize=11.5, lineLeadPx=tdSize*1.35;
   for(const li of (doc.line_items||[])){
     const qty = Number(li.qty)||0, rate = Number(li.rate)||0, amt = qty*rate;
     const descLines = wrapDescription(li.description||"", f.outfit, tdSize, descMaxW);
     const rowTextTop = y + tdPadY;
-    // description (multi-line, Outfit, --ink)
     let dy = rowTextTop;
     for(const dl of descLines){ drawText(page,dl,colDescX+sx(thPadX),dy,f.outfit,tdSize,C.ink); dy += lineLeadPx; }
-    // qty / rate / amount — Fraunces, --ink-soft, top-aligned to first line
-    drawRight(page,qty.toFixed(2),colQtyR,rowTextTop,f.fraunces,tdSize,C.inkSoft);
-    drawRight(page,fmtMoney(rate,doc.currency),colRateR,rowTextTop,f.fraunces,tdSize,C.inkSoft);
-    drawRight(page,fmtMoney(amt,doc.currency),colAmtR,rowTextTop,f.fraunces,tdSize,C.inkSoft);
+    // qty / rate / amount — MONO data voice, right-aligned
+    drawRight(page,qty.toFixed(2),colQtyR,rowTextTop,f.mono,tdSize-0.5,C.inkSoft);
+    drawRight(page,fmtMoney(rate,doc.currency),colRateR,rowTextTop,f.mono,tdSize-0.5,C.inkSoft);
+    drawRight(page,fmtMoney(amt,doc.currency),colAmtR,rowTextTop,f.mono,tdSize-0.5,C.ink);
     const rowBot = Math.max(dy, rowTextTop+lineLeadPx) + tdPadY*0.4;
-    page.drawRectangle({ x:leftX, y:PAGE_H - sx(rowBot) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.hair, opacity:0.10 });
+    page.drawRectangle({ x:leftX, y:PAGE_H - sx(rowBot) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.line, opacity:0.10 });
     y = rowBot;
   }
-  // expose where the table ended for later stages
   const tableEndY = y;
 
-  // ===== TOTALS BOX (right-anchored, min-width 280px) =====
+  // ===== TOTALS — in a raised --card panel =====
   const r = compute(doc);
   const isPaid = isInv && doc.payment_status === "paid";
-  const boxW = sx(280);
-  const boxL = rightX - boxW;          // left edge of the 280px box
-  let ty = tableEndY + 28.8;           // 1.8rem margin above totals
+  const boxW = sx(300);
+  const boxL = rightX - boxW;
+  const totRows = [
+    { label:"Net subtotal", fig:fmtMoney(r.subtotal, doc.currency), kind:"line" },
+    { label:"VAT 5%",       fig:fmtMoney(r.vat, doc.currency),      kind:"line" },
+  ];
+  if(r.discount > 0) totRows.push({ label:"Discount", fig:"− "+fmtMoney(r.discount, doc.currency), kind:"line" });
+  totRows.push({ label:"Total", fig:fmtMoney(r.total, doc.currency), kind:"grand" });
+  if(isInv){ const bal = isPaid?0:r.total; totRows.push({ label:"Balance due", fig:fmtMoney(bal, doc.currency), kind:"balance", zero: bal===0 }); }
 
-  // helper: one label/figure row with optional hairline + styling
-  function totalRow(label, figure, opts={}){
-    const padY = opts.grandTop ? 11.2 : 6.4;          // .7rem top for grand, .4rem otherwise
-    ty += padY;
-    const labelFont = opts.grand ? f.marcellus : f.outfit;
-    const labelSize = opts.grand ? 16.8 : 10;          // 1.05rem vs 10px
-    const labelColor = opts.grand ? C.ink : C.muted;
-    const labelTrack = opts.grand ? 0.06 : 0.2;
-    const figFont = f.fraunces;
-    const figSize = opts.grand ? 20.8 : (opts.balance?12:12); // 1.3rem grand
-    const figColor = opts.figColor || C.ink;
-    // top border for grand row (1px --ink-soft); else nothing here
-    if(opts.grandTop){
-      page.drawRectangle({ x:boxL, y:PAGE_H - sx(ty) + sx(4), width:boxW, height:sx(1), color:C.inkSoft });
-      ty += 3.2; // margin-top .2rem after the border
-    }
-    drawText(page, label, boxL, ty, labelFont, labelSize, labelColor, {trackingEm:labelTrack, upper:!opts.grand?true:true});
-    drawRight(page, figure, rightX, ty, figFont, figSize, figColor);
-    ty += (opts.grand?labelSize:labelSize) + padY;
-    // hairline under non-grand rows (var(--hair) 10% ink)
-    if(!opts.grand && !opts.noBorder){
-      page.drawRectangle({ x:boxL, y:PAGE_H - sx(ty) - sx(0.5), width:boxW, height:sx(1), color:C.hair, opacity:0.10 });
+  // measure card height
+  const cPadY=16, cPadX=16;
+  let cardH = cPadY;
+  for(const row of totRows){ cardH += (row.kind==="grand") ? 34 : 21; }
+  cardH += cPadY - 4;
+  const cardTop = tableEndY + 30;
+  cardPanel(page, boxL, cardTop, boxW, cardH);
+  const inL = boxL + sx(cPadX), inR = rightX - sx(cPadX);
+  let ty = cardTop + cPadY;
+  for(const row of totRows){
+    if(row.kind==="grand"){
+      ty += 8;
+      page.drawRectangle({ x:inL, y:PAGE_H - sx(ty) - sx(0.5), width:inR-inL, height:sx(1), color:C.line, opacity:0.22 });
+      ty += 9;
+      drawText(page, "Total", inL, ty, f.marcellus, 16.2, C.ink);
+      drawRight(page, row.fig, inR, ty, f.mono, 15, C.ink);
+      ty += 26;
+    } else {
+      const figCol = row.kind==="balance" ? (row.zero ? C.muted : C.amber) : C.ink;
+      drawText(page, row.label, inL, ty+3, f.outfit, 10.5, C.muted, {trackingEm:0.02});
+      drawRight(page, row.fig, inR, ty+3, f.mono, 11, figCol);
+      ty += 21;
     }
   }
+  const totalsEndY = cardTop + cardH;
 
-  totalRow("Net subtotal", fmtMoney(r.subtotal, doc.currency));
-  totalRow("VAT 5%", fmtMoney(r.vat, doc.currency));
-  if(r.discount > 0) totalRow("Discount", "− "+fmtMoney(r.discount, doc.currency));
-  totalRow("Total", fmtMoney(r.total, doc.currency), { grand:true, grandTop:true });
-  if(isInv){
-    const balance = isPaid ? 0 : r.total;
-    const balColor = balance > 0 ? C.amber : C.paid;
-    totalRow("Balance due", fmtMoney(balance, doc.currency), { figColor: balColor, balance:true, noBorder:true });
-  }
-  const totalsEndY = ty;   // thread for Stage 5
-
-  // ===== LEGAL BAND (Terms | Bank) — pinned low, above the espresso footer (option a) =====
+  // ===== LEGAL BAND — Terms (left) | Bank remittance --card (right) =====
   const contentWpx = (rightX - leftX)/PX;
-  const legalGapPx = 35.2;                                  // 2.2rem
-  const colLW = (contentWpx - legalGapPx)*(1.4/2.4);        // terms column width (px)
-  const colRW = (contentWpx - legalGapPx)*(1.0/2.4);        // bank column width (px)
-  const colRX = leftX + sx(colLW + legalGapPx);             // bank column left edge (pt)
-  const termsIndentPx = 17.6;                               // ol padding-left 1.1rem
+  const legalGapPx = 32;
+  const colLW = (contentWpx - legalGapPx)*(1.34/2.4);      // terms column width (px)
+  const colRW = (contentWpx - legalGapPx)*(1.06/2.4);      // bank column width (px)
+  const colRX = leftX + sx(colLW + legalGapPx);            // bank card left edge (pt)
+  const termsIndentPx = 17.6;
   const termsTextWpx = colLW - termsIndentPx;
 
   const TERMS = isInv ? TERMS_INVOICE : TERMS_QUOTE;
   const termWrapped = TERMS.map(t => wrapLine(t, f.outfit, 10.5, termsTextWpx));
-  let leftHpx = 9 + 9.6;                                    // h4 + margin-bottom .6rem
+  let leftHpx = 9 + 10;
   for(const lines of termWrapped){ leftHpx += lines.length*(10.5*1.6) + 4.8; }
-  const noteWrapped = wrapLine("For alternative payment arrangements, please contact our concierge.", f.outfit, 10, colRW);
-  let rightHpx = 9 + 9.6 + 4*(10.5*1.6) + 10.4 + noteWrapped.length*(10*1.55);
-  const bandBodyHpx = Math.max(leftHpx, rightHpx);
-  const bandHpx = 16 + bandBodyHpx;                         // padding-top 1rem
 
-  const pageHpx = PAGE_H/PX;                                // 1123
+  // bank card content height
+  const bankCardPadX=16, bankCardPadY=15;
+  const bankRows = [["Bank",BANK.name,false],["Account",BANK.title,false],["IBAN",BANK.iban,true],["BIC",BANK.bic,true]];
+  const noteWrapped = wrapLine("For alternative payment arrangements, please contact our concierge.", f.outfit, 10, colRW - bankCardPadX*2);
+  let bankBodyHpx = 9 + 12 + bankRows.length*(10.5*1.7) + 8 + noteWrapped.length*(10*1.5);
+  const bankCardH = bankCardPadY*2 + bankBodyHpx;
+
+  const bandHpx = Math.max(leftHpx + 12, bankCardH);
+  const pageHpx = PAGE_H/PX;
   const footHpx = footBarH/PX;
-  const gapAboveFooterPx = 32;
+  const gapAboveFooterPx = 30;
   let bandTopPx = pageHpx - footHpx - gapAboveFooterPx - bandHpx;
-  if(bandTopPx < totalsEndY + 28.8) bandTopPx = totalsEndY + 28.8;   // never collide with totals
+  if(bandTopPx < totalsEndY + 30) bandTopPx = totalsEndY + 30;
 
-  // top hairline
-  page.drawRectangle({ x:leftX, y:PAGE_H - sx(bandTopPx) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.hair, opacity:0.10 });
-  const bandContentTop = bandTopPx + 16;
-
-  // LEFT: Terms
-  let ly = bandContentTop;
-  drawText(page,"Terms & Conditions",leftX,ly,f.outfit,9,C.muted,{trackingEm:0.26,upper:true});
-  ly += 9 + 9.6;
+  // LEFT: Terms — eyebrow + numbered list
+  let ly = bandTopPx + 2;
+  eyebrow(page, f, "Terms & Conditions", leftX, ly);
+  ly += 9 + 11;
   let tnum = 1;
   for(const lines of termWrapped){
-    drawText(page, tnum+".", leftX, ly, f.outfit, 10.5, C.inkSoft);
+    drawText(page, tnum+".", leftX, ly, f.outfit, 10.5, C.muted);
     for(const ln of lines){ drawText(page, ln, leftX + sx(termsIndentPx), ly, f.outfit, 10.5, C.inkSoft); ly += 10.5*1.6; }
-    ly += 4.8;
-    tnum++;
+    ly += 4.8; tnum++;
   }
 
-  // RIGHT: Bank
-  let ry = bandContentTop;
-  drawText(page,"Payment · bank transfer",colRX,ry,f.outfit,9,C.muted,{trackingEm:0.26,upper:true});
-  ry += 9 + 9.6;
-  const bankRows = [["Bank",BANK.name],["Account",BANK.title],["IBAN",BANK.iban],["BIC",BANK.bic]];
-  const valX = colRX + sx(72);
-  for(const [k,v] of bankRows){
-    drawText(page,k,colRX,ry,f.outfit,9.5,C.muted,{trackingEm:0.18,upper:true});
-    if(k==="IBAN") drawText(page,v,valX,ry,f.fraunces,10.5,C.ink,{trackingEm:0.05});
-    else drawText(page,v,valX,ry,f.outfit,10.5,C.inkSoft);
-    ry += 10.5*1.6;
+  // RIGHT: Bank remittance --card panel (mirrors Document A)
+  cardPanel(page, colRX, bandTopPx, sx(colRW), bankCardH);
+  let ry = bandTopPx + bankCardPadY;
+  const bIn = colRX + sx(bankCardPadX);
+  eyebrow(page, f, "Payment · Bank transfer", bIn, ry);
+  ry += 9 + 12;
+  const bValX = bIn + sx(70);
+  for(const [k,v,isMono] of bankRows){
+    drawText(page, k, bIn, ry, f.outfit, 9.5, C.muted, {trackingEm:0.04});
+    drawText(page, v, bValX, ry, isMono?f.mono:f.outfit, 10.5, isMono?C.ink:C.inkSoft, isMono?{trackingEm:0.01}:{});
+    ry += 10.5*1.7;
   }
-  ry += 4.8;
-  for(const ln of noteWrapped){ drawText(page, ln, colRX, ry, f.outfit, 10, C.muted, {oblique:true}); ry += 10*1.55; }
+  ry += 4;
+  for(const ln of noteWrapped){ drawText(page, ln, bIn, ry, f.outfit, 10, C.muted, {oblique:true}); ry += 10*1.5; }
 
   return await pdf.save();
 }
