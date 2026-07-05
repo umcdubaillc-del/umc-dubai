@@ -1872,6 +1872,35 @@ function computeAmountAed(c) {
   return null;
 }
 
+// v111 — resolve the CLIENT's contact from a Nomod charge, per the owner's
+// confirmed ladder (verified against real payloads): person name from
+// customer_info, then the attached customer record, then business_name. source
+// ("API" string) and card_holder_name are non-usable and excluded. Phone/email
+// come from customer_info first. Used by the sync's Step-3 upsert AND the
+// targeted contact backfill.
+function nomodChargeContact(c) {
+  const fullName = (o) => (o && typeof o === "object")
+    ? [o.first_name, o.last_name].map((s) => String(s || "").trim()).filter(Boolean).join(" ").trim() : "";
+  const bizName = (o) => (o && typeof o === "object") ? String(o.business_name || "").trim() : "";
+  const name = (
+    fullName(c.customer_info) || fullName(c.customer) || bizName(c.customer) || bizName(c.customer_info)
+    || String((c.customer_info && (c.customer_info.name || c.customer_info.full_name))
+         || (c.customer && (c.customer.name || c.customer.full_name)) || "").trim()
+  ).trim();
+  const phone = String((c.customer_info && c.customer_info.phone_number) || (c.customer && c.customer.phone_number) || "").trim();
+  const email = String((c.customer_info && c.customer_info.email) || (c.customer && c.customer.email) || "").trim().toLowerCase();
+  return { name, phone, email };
+}
+
+// v111 (item 1) — the "Direct sale" reconciliation label was never a real client
+// name; when it lands in client_name (any origin) it is treated as EMPTY so the
+// ladder can fill it. Every other non-empty name stays absolutely protected.
+// The SQL fragment below binds the incoming name once (?) and keeps the existing
+// value only when it is a genuine, non-sentinel name.
+const CLIENT_NAME_FILL_SQL =
+  "CASE WHEN client_name IS NULL OR TRIM(client_name)='' OR LOWER(TRIM(client_name))='direct sale' " +
+  "THEN COALESCE(NULLIF(?, ''), client_name) ELSE client_name END";
+
 function mapChargesToPaid(chargesBody) {
   // Accepts either a paginated body { results: [...] } or a bare array.
   const results = (chargesBody && Array.isArray(chargesBody.results))
@@ -2887,6 +2916,42 @@ async function handleSyncNomod(request, env) {
             )`
   ).run();
 
+  // Phase 0.3 (v111, item 1) — TARGETED contact backfill. The big newest-first
+  // scan below can be throttled by D1's per-invocation query budget on large
+  // accounts and may not reach older rows, and an incremental sync early-exits
+  // before them. So directly heal every row whose client_name is EMPTY or the
+  // 'Direct sale' sentinel by fetching its own charges and filling name/phone/
+  // email from customer_info — FILL-ONLY (a real, non-sentinel name is untouched).
+  // Bounded (LIMIT 80) and keyed on the link id, so it is a handful of requests.
+  let namesFilled = 0;
+  try {
+    const need = await env.BILLING_DB.prepare(
+      `SELECT id, nomod_link_id FROM payment_links
+        WHERE nomod_link_id IS NOT NULL
+          AND (client_name IS NULL OR TRIM(client_name)='' OR LOWER(TRIM(client_name))='direct sale')
+        ORDER BY id DESC LIMIT 80`
+    ).all();
+    for (const row of (need.results || [])) {
+      try {
+        const cr = await nomodListChargesByLink(env, row.nomod_link_id);
+        if (!cr.ok) continue;
+        const list = (cr.data && (cr.data.results || cr.data.data)) || (Array.isArray(cr.data) ? cr.data : []);
+        const c = list.find((x) => PAID_CHARGE_STATUSES.has(String((x && (x.status || x.state)) || "").toLowerCase())) || list[0];
+        if (!c) continue;
+        const contact = nomodChargeContact(c);
+        if (!contact.name && !contact.phone && !contact.email) continue;
+        const r = await env.BILLING_DB.prepare(
+          `UPDATE payment_links
+              SET client_name =${CLIENT_NAME_FILL_SQL},
+                  client_phone=COALESCE(client_phone, NULLIF(?, '')),
+                  client_email=COALESCE(client_email, NULLIF(?, ''))
+            WHERE id=?`
+        ).bind(contact.name, contact.phone, contact.email, row.id).run();
+        if (r && r.meta && r.meta.changes) namesFilled++;
+      } catch (_) { /* skip one bad row, continue */ }
+    }
+  } catch (_) { /* backfill is best-effort; never fail the sync over it */ }
+
   const MAX_PAGES = 50;
   const MAX_CHARGES = 5000;
   let pulled = 0, imported = 0, updated = 0, skipped = 0;
@@ -2972,37 +3037,10 @@ async function handleSyncNomod(request, env) {
       // Step 3: UPSERT every Nomod charge into payment_links (the money ledger),
       // keyed by nomod_charge_id. Title is the reconciliation label ("Paid · #"
       // when an invoice match exists, else "Direct sale" — never the email).
-      // client_email / client_name hold the customer asset separately.
-      const clientEmail = String(
-        (c.customer_info && c.customer_info.email)
-        || (c.customer && c.customer.email)
-        || ""
-      ).trim().toLowerCase();
-      // v111 (item 1, ground-truth confirmed) — resolve the CLIENT's name from the
-      // charge payload. Verified against real payloads (Margarita/Nithin):
-      //   • c.customer_info  = charge-level client info {first_name,last_name,email,phone_number}
-      //   • c.customer       = attached Nomod Customer record (same fields + business_name)
-      //   • c.source = "API" (a string) and card_holder_name (absent / payer's card name,
-      //     which may be someone else's) are CONFIRMED non-usable — dropped from the ladder.
-      // Name ladder: person name (customer_info, then customer), then business_name.
-      // Name/phone/email are all FILL-ONLY downstream — never overwrite owner-entered values.
-      const fullName = (o) => (o && typeof o === "object")
-        ? [o.first_name, o.last_name].map((s) => String(s || "").trim()).filter(Boolean).join(" ").trim()
-        : "";
-      const bizName = (o) => (o && typeof o === "object") ? String(o.business_name || "").trim() : "";
-      const clientName = (
-        fullName(c.customer_info)
-        || fullName(c.customer)
-        || bizName(c.customer)
-        || bizName(c.customer_info)
-        || String((c.customer_info && (c.customer_info.name || c.customer_info.full_name))
-             || (c.customer && (c.customer.name || c.customer.full_name)) || "").trim()
-      ).trim();
-      const clientPhone = String(
-        (c.customer_info && c.customer_info.phone_number)
-        || (c.customer && c.customer.phone_number)
-        || ""
-      ).trim();
+      // client_email / client_name / client_phone hold the customer asset
+      // separately, resolved by the shared ladder (customer_info → customer →
+      // business_name; source/card_holder_name excluded). All FILL-ONLY downstream.
+      const { name: clientName, phone: clientPhone, email: clientEmail } = nomodChargeContact(c);
       const title = matchedInvoiceNumber
         ? `Paid · ${matchedInvoiceNumber}`
         : "Direct sale";
@@ -3028,7 +3066,7 @@ async function handleSyncNomod(request, env) {
           await env.BILLING_DB.prepare(
             `UPDATE payment_links
                 SET client_email=COALESCE(client_email, NULLIF(?, '')),
-                    client_name =COALESCE(client_name, NULLIF(?, '')),
+                    client_name =${CLIENT_NAME_FILL_SQL},
                     client_phone=COALESCE(client_phone, NULLIF(?, '')),
                     payment_status='paid', paid_at=COALESCE(paid_at, ?),
                     last_checked_at=?,
@@ -3046,7 +3084,7 @@ async function handleSyncNomod(request, env) {
             `UPDATE payment_links
                 SET title=?, amount=?, currency=?, note=?, created_at=?,
                     client_email=COALESCE(client_email, NULLIF(?, '')),
-                    client_name =COALESCE(client_name, NULLIF(?, '')),
+                    client_name =${CLIENT_NAME_FILL_SQL},
                     client_phone=COALESCE(client_phone, NULLIF(?, '')),
                     payment_status='paid', paid_at=?, last_checked_at=?,
                     payment_method=?, amount_aed=?
@@ -3080,7 +3118,7 @@ async function handleSyncNomod(request, env) {
     if (!nextUrl) break;
   }
 
-  return json({ ok: true, pulled, imported, updated, skipped, flagged, errors });
+  return json({ ok: true, pulled, imported, updated, skipped, namesFilled, flagged, errors });
 }
 
 // Phase 1 — Leads list for the admin (newest-first). Auth gated upstream.
@@ -3858,6 +3896,8 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 /* item 3 — "NEW" badge for an unopened lead; disappears once the lead is first
    opened (viewed state persisted in D1). Solid amber so it reads as a call-out. */
 .lead-new{display:inline-block;margin-left:.45rem;padding:.12rem .42rem;border-radius:4px;font-family:Outfit,sans-serif;font-size:9px;letter-spacing:.16em;text-transform:uppercase;font-weight:700;color:#fff;background:var(--amber);vertical-align:middle}
+/* item 2 — small muted badge showing a Links row's stored origin. */
+.lk-origin{display:inline-block;margin-left:.45rem;padding:.08rem .4rem;border-radius:4px;font-family:Outfit,sans-serif;font-size:9px;letter-spacing:.16em;text-transform:uppercase;font-weight:600;color:var(--muted);background:rgba(122,111,95,.12);vertical-align:middle}
 .pay-type{font-family:Outfit,sans-serif;font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
 /* v59: editor modal overlay. The Documents tab's Open action moves the
    shared #editorHost into #editorSlot and reveals this overlay. Same
@@ -5906,6 +5946,11 @@ const PAGE_SCRIPT = `<script>
           const invTag = attachedNum
             ? ' <span class="hist-status linked" style="margin-left:.4em">'+esc(attachedNum)+'</span>'
             : '';
+          // v111 (item 2) — stored record origin as a small muted badge.
+          const originVal = String(x.origin || "").toLowerCase();
+          const originTag = originVal === "workspace"
+            ? ' <span class="lk-origin">Workspace</span>'
+            : (originVal === "nomod" ? ' <span class="lk-origin">Nomod</span>' : '');
           // v111 (item 1) — surface phone/email under the client so the owner can
           // spot-check the synced contact details at a glance.
           const contactLine = [x.client_phone, x.client_email].filter(function(s){ return s && String(s).trim(); }).map(function(s){ return esc(String(s).trim()); }).join(' · ');
@@ -5978,7 +6023,7 @@ const PAGE_SCRIPT = `<script>
             : (aedGross != null ? aedGross : Number(x.amount));
           const vatHint = ' <span style="color:var(--muted);font-size:11px">incl. VAT</span>';
           return '<tr class="'+trClass+'" data-expandable="1" data-lkid="'+x.id+'">'
-            + '<td data-lbl="Client">'+esc(clientPrimary || "·")+invTag+subline+'</td>'
+            + '<td data-lbl="Client">'+esc(clientPrimary || "·")+invTag+originTag+subline+'</td>'
             + '<td data-lbl="Amount" style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(dispAmount, x.currency))+aedSuffix+vatHint+'</td>'
             + '<td data-lbl="Created">'+esc(fmtDate(x.created_at))+'</td>'
             + '<td data-lbl="Link">'
