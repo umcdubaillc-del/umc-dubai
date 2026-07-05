@@ -10,3 +10,6 @@ staff-tools/
 !.dev.vars.example
 .env*
 !.env.example
+
+# local PDF render harness (not for deploy)
+_render_test.mjs

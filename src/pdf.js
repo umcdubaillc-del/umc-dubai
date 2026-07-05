@@ -1,6 +1,7 @@
 import { PDFDocument, rgb, pushGraphicsState, popGraphicsState, concatTransformationMatrix } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { MARCELLUS_400, OUTFIT_400, OUTFIT_500, FRAUNCES_400 } from "./fonts.js";
+import { UMC_STAMP_PNG_B64 } from "./stamp.js";
 
 /* ---------- byte helper ---------- */
 function b(b64){ const s=atob(b64); const u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; }
@@ -17,7 +18,63 @@ const C = {
   paid:       rgb(0x2E/255,0x7D/255,0x54/255), // #2E7D54
   white:      rgb(1,1,1),
   hair:       rgb(0x22/255,0x1B/255,0x14/255), // used at 10% opacity via opacity arg
+  bone:       rgb(0xF6/255,0xF1/255,0xE7/255), // #F6F1E7 — the paper
+  bone2:      rgb(0xEF/255,0xE8/255,0xD9/255), // #EFE8D9 — alt row tint
+  card:       rgb(0xFB/255,0xF8/255,0xF1/255), // #FBF8F1 — raised block
+  line:       rgb(0x22/255,0x1B/255,0x14/255), // hairline (use at ~14% opacity)
 };
+
+/* ---------- shared brand chrome (used by invoice, bank-details, rate-card) ---------- */
+// Contact/legal lines rendered in the two-line footer across the suite.
+const CONTACT = { email:"contact@umcdubai.ae", phone:"+971 58 649 7861", web:"umcdubai.ae" };
+
+// Fill the whole A4 page with the bone paper colour. Call FIRST.
+function paintPaper(page, w, h){ page.drawRectangle({ x:0, y:0, width:w||PAGE_W, height:h||PAGE_H, color:C.bone }); }
+
+// Embed the transparent stamp PNG once per document.
+async function embedStamp(pdf){ try { return await pdf.embedPng(b(UMC_STAMP_PNG_B64)); } catch(e){ return null; } }
+
+// UMC / amber-rule / DUBAI lockup, top-left anchored at (leftPx, topPx). Returns
+// the y (px-from-top) of the lockup's bottom so callers can flow beneath it.
+function drawLockup(page, f, leftPx, topPx){
+  const leftX = sx(leftPx);
+  drawText(page,"UMC",leftX,topPx,f.marcellus,27.2,C.ink,{trackingEm:0.36});
+  const umcW = textWidth("UMC",f.marcellus,27.2,0.36);
+  const dashY = topPx + 27.2 + 10.4;
+  page.drawRectangle({ x:leftX + (umcW - 30*PX)/2, y:PAGE_H - sx(dashY) - sx(1), width:sx(30), height:sx(1), color:C.amber });
+  const duoY = dashY + 1 + 10.4;
+  drawText(page,"Dubai",leftX + (umcW - textWidth("Dubai",f.outfit,9.5,0.36))/2, duoY, f.outfit,9.5,C.muted,{trackingEm:0.36,upper:true});
+  return duoY + 9.5;
+}
+
+// Shared two-line footer + footer-right stamp, on bone. Occupies a fixed region
+// at the page bottom. line1 (legal · trading) is uppercased/tracked; line2
+// (contact · phone · web) sits beneath. Returns the footer region height in px.
+function drawBrandFooter(page, f, stampImg, line1, line2, opts={}){
+  const pageW = opts.pageW || PAGE_W;
+  const rightPx = opts.rightPx != null ? opts.rightPx : 38.4;
+  const leftPx  = opts.leftPx  != null ? opts.leftPx  : 38.4;
+  const leftX = sx(leftPx), rightX = pageW - sx(rightPx);
+  const regionHpx = 84;                    // fixed footer region height
+  const regionTopPx = (PAGE_H/PX) - regionHpx;
+  // top hairline
+  page.drawRectangle({ x:leftX, y:PAGE_H - sx(regionTopPx) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.line, opacity:0.14 });
+  // text lines (left)
+  let ty = regionTopPx + 22;
+  drawText(page, line1, leftX, ty, f.outfit, 9, C.inkSoft, {trackingEm:0.16, upper:true});
+  ty += 9*1.7;
+  drawText(page, line2, leftX, ty, f.outfit, 9.5, C.muted, {trackingEm:0.02});
+  // stamp (right), modest institutional size, vertically centred in the region
+  if(stampImg){
+    const stampPx = 58;                    // ~44pt square
+    const sxPt = sx(stampPx);
+    const sxX = rightX - sxPt;
+    const sYcenterPx = regionTopPx + regionHpx/2;
+    const sY = PAGE_H - sx(sYcenterPx) - sxPt/2;
+    page.drawImage(stampImg, { x:sxX, y:sY, width:sxPt, height:sxPt });
+  }
+  return regionHpx;
+}
 
 /* ---------- geometry: CSS px (top-left) -> PDF pt (bottom-left) ---------- */
 const PX = 0.75;                 // 794px -> 595.5pt; A4 = 595.28 x 841.89
@@ -170,20 +227,15 @@ export async function renderInvoicePdf(doc){
   const leftX = sx(padX);
   const rightX = PAGE_W - sx(padX);
 
-  // ===== espresso footer bar (pinned bottom). .dfoot padding 1.4rem 2.4rem 1.6rem =====
-  const footPadTop=22.4, footPadBot=25.6;
-  const footTextSize=9.5;
-  const footBarH = sx(footPadTop + footTextSize*1.2 + footPadBot);
-  page.drawRectangle({ x:0, y:0, width:PAGE_W, height:footBarH, color:C.espresso });
-  // centered umcdubai.ae, tracking .22em, uppercase, footText colour
-  {
-    const s="umcdubai.ae"; const size=footTextSize;
-    const w=textWidth(s,f.outfit,size,0.22);
-    const startX=(PAGE_W - w)/2;
-    const y = footBarH - sx(footPadTop) - sx(size);
-    let cx=startX; const tr=0.22*sx(size);
-    for(const ch of s.toUpperCase()){ page.drawText(ch,{x:cx,y,size:sx(size),font:f.outfit,color:C.footText}); cx+=f.outfit.widthOfTextAtSize(ch,sx(size))+tr; }
-  }
+  // ===== bone paper + brand two-line footer + footer-right stamp (v112) =====
+  // Restyled from the old espresso bar to the suite's bone system. footBarH is
+  // kept as the footer-region height so the legal-band positioning math below is
+  // unchanged. Functional content (line items, totals, VAT, references) untouched.
+  paintPaper(page);
+  const stampImg = await embedStamp(pdf);
+  const footLine1 = COMPANY.legal + " · Trading as UMC Dubai";
+  const footLine2 = CONTACT.email + " · " + CONTACT.phone + " · " + CONTACT.web;
+  const footBarH = sx(drawBrandFooter(page, f, stampImg, footLine1, footLine2));
 
   // ===== HEADER — left column =====
   // lockup: UMC (Marcellus 1.7rem=27.2px, .36em), amber dash 30px, Dubai (Outfit 9.5px .36em)
