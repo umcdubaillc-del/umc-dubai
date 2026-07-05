@@ -232,12 +232,46 @@ async function ensureSchema(env) {
       // charges this is the AED gross (Nomod original_total), so Sales sums a
       // single currency. Nullable: a foreign row stays null until a sync fills it.
       "amount_aed REAL",
+      // v110 — record origin so a Nomod sync can be NON-DESTRUCTIVE to
+      // locally-created records. 'workspace' = created in this admin (standalone
+      // create OR invoice dual-write); its client fields + title are operator
+      // truth and must never be overwritten by a sync. 'nomod' = imported from a
+      // Nomod charge by the sync. Also drives the VAT-display convention (item 2):
+      // 'workspace' rows store NET (display ×1.05); 'nomod' rows arrive GROSS.
+      "origin TEXT",
     ]);
     // v107 — backfill amount_aed for AED rows (idempotent: only touches NULLs).
     // Foreign rows are filled by a normal Nomod sync, which updates existing rows.
     await env.BILLING_DB.prepare(
       `UPDATE payment_links SET amount_aed = amount
         WHERE amount_aed IS NULL AND UPPER(COALESCE(currency,'AED'))='AED'`
+    ).run();
+    // v110 — one-time origin backfill (idempotent: only touches origin IS NULL).
+    // Order matters: classify workspace rows FIRST, then everything remaining
+    // that carries a Nomod charge is a sync import.
+    //   (a) invoice dual-writes are always workspace.
+    await env.BILLING_DB.prepare(
+      `UPDATE payment_links SET origin='workspace'
+        WHERE origin IS NULL AND invoice_number IS NOT NULL`
+    ).run();
+    //   (b) any row never touched by a sync (no charge id) was created here.
+    await env.BILLING_DB.prepare(
+      `UPDATE payment_links SET origin='workspace'
+        WHERE origin IS NULL AND nomod_charge_id IS NULL`
+    ).run();
+    //   (c) the two workspace-created AED 850 S-Class links whose titles the
+    //   v109 sync clobbered to 'Direct sale' (ids 210 & 211, confirmed with the
+    //   owner). They carry a charge id (paid + synced) so (b) misses them; mark
+    //   them explicitly so the sync stops overwriting and item 2 shows 892.50.
+    await env.BILLING_DB.prepare(
+      `UPDATE payment_links SET origin='workspace'
+        WHERE origin IS NULL AND id IN (210, 211)
+          AND ROUND(amount,2)=850 AND title='Direct sale'`
+    ).run();
+    //   (d) everything else with a Nomod charge is a genuine sync import (gross).
+    await env.BILLING_DB.prepare(
+      `UPDATE payment_links SET origin='nomod'
+        WHERE origin IS NULL AND nomod_charge_id IS NOT NULL`
     ).run();
     // Phase 1 — leads table is created by the public /api/lead handler in
     // index.js. Mirror the CREATE here so the admin can read/write leads even on
@@ -269,7 +303,23 @@ async function ensureSchema(env) {
       "converted_at TEXT",
       // Display-only VAT label per lead ('plus'|'none'); default 'none' = No VAT.
       "vat_mode TEXT DEFAULT 'none'",
+      // v110 (item 4) — whether the operator has explicitly set the VAT toggle.
+      // 0 = no saved choice → the sheet defaults the toggle to +VAT ON. 1 = the
+      // stored vat_mode is a deliberate choice and is preserved as-is.
+      "vat_mode_set INTEGER DEFAULT 0",
+      // v110 (item 3) — first-open timestamp. NULL = never opened → the "NEW"
+      // badge shows; set on first open so the badge stops shouting once seen.
+      "viewed_at TEXT",
     ]);
+    // v110 (item 3) — one-time seed so the feature doesn't paint a wall of NEW
+    // badges across the whole history on first deploy. A lead that is already
+    // converted (or linked to a doc) has clearly been handled, so mark it seen.
+    // Leads still at status 'new' keep viewed_at NULL and correctly show NEW.
+    await env.BILLING_DB.prepare(
+      `UPDATE leads SET viewed_at = COALESCE(viewed_at, created_at)
+        WHERE viewed_at IS NULL
+          AND (COALESCE(status,'new') <> 'new' OR linked_doc_number IS NOT NULL)`
+    ).run();
     // Dispatch Phase 1 — Fleet: drivers + vehicles. Foundational records that
     // Jobs (Phase 2) will reference by id, so DELETE is SOFT (active=0) to avoid
     // orphaning future Job references. Same CREATE-IF-NOT-EXISTS + PRAGMA-diff
@@ -971,7 +1021,8 @@ async function handlePaymentLink(id, env, opts, override) {
       await env.BILLING_DB.prepare(
         `UPDATE payment_links
          SET title = ?, amount = ?, currency = ?, note = ?,
-             nomod_link_url = ?, client_name = ?, invoice_number = ?
+             nomod_link_url = ?, client_name = ?, invoice_number = ?,
+             origin = 'workspace'
          WHERE id = ?`
       ).bind(
         linkTitle.slice(0, 120), persistedNet, payload.currency, linkNote,
@@ -982,8 +1033,8 @@ async function handlePaymentLink(id, env, opts, override) {
       await env.BILLING_DB.prepare(
         `INSERT INTO payment_links
           (title, amount, currency, note, nomod_link_id, nomod_link_url,
-           client_name, invoice_number, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           client_name, invoice_number, created_at, origin)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'workspace')`
       ).bind(
         linkTitle.slice(0, 120), persistedNet, payload.currency, linkNote,
         nomodBody.id || null, nomodBody.url,
@@ -1110,8 +1161,8 @@ async function handleCreateStandaloneLink(request, env) {
   const persistedNote = note || derivedNote || null;
   try {
     const ins = await env.BILLING_DB.prepare(
-      `INSERT INTO payment_links (title, amount, currency, note, nomod_link_id, nomod_link_url, client_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO payment_links (title, amount, currency, note, nomod_link_id, nomod_link_url, client_name, origin)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'workspace')`
     ).bind(title, persistedNet, currency, persistedNote, nomodBody.id || null, nomodBody.url, clientName).run();
     const id = ins && ins.meta && ins.meta.last_row_id;
     return json({ ok: true, id, url: nomodBody.url, nomod_id: nomodBody.id, amount: persistedNet });
@@ -1128,11 +1179,27 @@ async function handleListLinks(env) {
   const { results } = await env.BILLING_DB.prepare(
     `SELECT id, title, amount, amount_aed, currency, note, nomod_link_id, nomod_link_url,
             nomod_charge_id, COALESCE(excluded, 0) AS excluded, created_at,
-            client_name, client_email, invoice_number,
+            client_name, client_email, invoice_number, origin,
             COALESCE(payment_status,'unpaid') AS payment_status, paid_at
      FROM payment_links ORDER BY created_at DESC LIMIT 500`
   ).all();
   return json({ ok: true, items: results || [] });
+}
+
+// v110 — edit the client name on a single link record (item 1). Deliberately
+// does NOT change origin: a nomod-imported gross row that gets a name added must
+// stay 'nomod' so item 2 never multiplies its VAT. The two clobbered workspace
+// links are already re-marked 'workspace' by the ensureSchema origin backfill.
+async function handleUpdateLinkClientName(id, request, env) {
+  await ensureSchema(env);
+  let b = {};
+  try { b = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
+  const name = String((b && b.client_name) || "").trim().slice(0, 120);
+  const res = await env.BILLING_DB.prepare(
+    "UPDATE payment_links SET client_name = ? WHERE id = ?"
+  ).bind(name || null, id).run();
+  if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
+  return json({ ok: true, id, client_name: name || null });
 }
 
 async function handleDeleteLink(id, env) {
@@ -2772,11 +2839,14 @@ async function handleSyncNomod(request, env) {
             )
         AND title NOT LIKE 'Paid · %'`
   ).run();
-  //   (c) relabel everything else to "Direct sale".
+  //   (c) relabel everything else to "Direct sale" — but NEVER a workspace-
+  //   created row: its title is operator truth (often the client's name). This
+  //   guard is the root fix for the sync clobbering locally-set client names.
   await env.BILLING_DB.prepare(
     `UPDATE payment_links
         SET title = 'Direct sale'
       WHERE nomod_charge_id IS NOT NULL
+        AND COALESCE(origin,'nomod') <> 'workspace'
         AND title NOT LIKE 'Paid · %'
         AND title <> 'Direct sale'`
   ).run();
@@ -2906,29 +2976,47 @@ async function handleSyncNomod(request, env) {
       let existing = null;
       if (chargeId) {
         existing = await env.BILLING_DB.prepare(
-          `SELECT id FROM payment_links WHERE nomod_charge_id = ?`
+          `SELECT id, origin FROM payment_links WHERE nomod_charge_id = ?`
         ).bind(chargeId).first();
       }
       // v107 — AED gross for this charge (null when no AED gross derivable).
       const amountAed = computeAmountAed(c);
       if (existing && existing.id) {
-        await env.BILLING_DB.prepare(
-          `UPDATE payment_links
-              SET title=?, amount=?, currency=?, note=?, created_at=?,
-                  client_email=COALESCE(NULLIF(?, ''), client_email),
-                  client_name =COALESCE(NULLIF(?, ''), client_name),
-                  payment_status='paid', paid_at=?, last_checked_at=?,
-                  payment_method=?, amount_aed=?
-            WHERE id=?`
-        ).bind(title, amount, currency, note, paidAt, clientEmail, clientName, paidAt, now, paymentMethod, amountAed, existing.id).run();
+        if (existing.origin === "workspace") {
+          // v110 — NON-DESTRUCTIVE upsert for a locally-created row: only fill
+          // payment/charge state (and client_email if we still have none). Never
+          // touch title, amount, currency, note or client_name — those are the
+          // operator's truth. amount stays NET (workspace convention). client_name
+          // is only *filled* when empty, never overwritten.
+          await env.BILLING_DB.prepare(
+            `UPDATE payment_links
+                SET client_email=COALESCE(NULLIF(?, ''), client_email),
+                    client_name =COALESCE(client_name, NULLIF(?, '')),
+                    payment_status='paid', paid_at=COALESCE(paid_at, ?),
+                    last_checked_at=?,
+                    payment_method=COALESCE(payment_method, ?),
+                    amount_aed=COALESCE(amount_aed, ?)
+              WHERE id=?`
+          ).bind(clientEmail, clientName, paidAt, now, paymentMethod, amountAed, existing.id).run();
+        } else {
+          await env.BILLING_DB.prepare(
+            `UPDATE payment_links
+                SET title=?, amount=?, currency=?, note=?, created_at=?,
+                    client_email=COALESCE(NULLIF(?, ''), client_email),
+                    client_name =COALESCE(NULLIF(?, ''), client_name),
+                    payment_status='paid', paid_at=?, last_checked_at=?,
+                    payment_method=?, amount_aed=?
+              WHERE id=?`
+          ).bind(title, amount, currency, note, paidAt, clientEmail, clientName, paidAt, now, paymentMethod, amountAed, existing.id).run();
+        }
         updated++;
       } else {
         await env.BILLING_DB.prepare(
           `INSERT INTO payment_links
             (title, amount, currency, note, nomod_link_id, nomod_link_url,
              created_at, payment_status, paid_at, last_checked_at,
-             nomod_charge_id, payment_method, client_email, client_name, amount_aed)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?)`
+             nomod_charge_id, payment_method, client_email, client_name, amount_aed, origin)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?, 'nomod')`
         ).bind(
           title, amount, currency, note,
           linkId, urlField, paidAt, paidAt, now, chargeId, paymentMethod,
@@ -2960,7 +3048,13 @@ async function handleListLeads(env) {
             COALESCE(marketing_consent, 0) AS marketing_consent,
             COALESCE(status, 'new') AS status,
             COALESCE(verified, 1) AS verified,
-            COALESCE(vat_mode, 'none') AS vat_mode,
+            -- item 4: effective toggle state. Explicitly-set leads keep their
+            -- stored value; leads with no saved choice default to '+VAT' ON.
+            CASE WHEN COALESCE(vat_mode_set, 0) = 1
+                 THEN COALESCE(vat_mode, 'none') ELSE 'plus' END AS vat_mode,
+            COALESCE(vat_mode_set, 0) AS vat_mode_set,
+            -- item 3: viewed state persisted in D1 (NULL = never opened = NEW).
+            viewed_at,
             linked_doc_number, converted_at
        FROM leads
       ORDER BY id DESC LIMIT 500`
@@ -2977,9 +3071,23 @@ async function handleSetLeadVat(id, request, env) {
   let body = {};
   try { body = await request.json(); } catch (e) { body = {}; }
   const mode = (body && body.vat_mode === "plus") ? "plus" : "none";
-  await env.BILLING_DB.prepare("UPDATE leads SET vat_mode=? WHERE id=?")
+  // item 4 — mark that the operator has made an explicit choice, so this lead is
+  // no longer treated as "no saved choice" (which now defaults to +VAT ON).
+  await env.BILLING_DB.prepare("UPDATE leads SET vat_mode=?, vat_mode_set=1 WHERE id=?")
     .bind(mode, id).run();
   return json({ ok: true, id, vat_mode: mode });
+}
+
+// item 3 — stamp a lead's first-open time. Only writes when viewed_at is still
+// NULL, so re-opening never moves the timestamp; the "NEW" badge is derived from
+// viewed_at being NULL, giving a D1-persisted (not localStorage) seen state.
+async function handleMarkLeadViewed(id, env) {
+  await ensureSchema(env);
+  const now = new Date().toISOString();
+  await env.BILLING_DB.prepare(
+    "UPDATE leads SET viewed_at = ? WHERE id = ? AND viewed_at IS NULL"
+  ).bind(now, id).run();
+  return json({ ok: true, id });
 }
 
 // Phase 0.2 — customer asset export. De-duplicates paid Nomod charges by
@@ -3448,6 +3556,15 @@ export async function handleAdmin(request, env) {
       if (!env.BILLING_DB) return dbUnavailable();
       return handleSetLeadVat(parseInt(dm[1], 10), request, env);
     }
+    // item 3 — mark a lead viewed (first open). Idempotent: only stamps the
+    // first time, so the "NEW" badge state is persisted in D1, not localStorage.
+    const vm = path.match(/^\/admin\/api\/leads\/(\d+)\/viewed$/);
+    if (vm && method === "POST") {
+      const authed = await isAuthed(request, env);
+      if (!authed) return json({ ok: false, error: "auth required" }, 401);
+      if (!env.BILLING_DB) return dbUnavailable();
+      return handleMarkLeadViewed(parseInt(vm[1], 10), env);
+    }
   }
 
   // v87 — Sync from Nomod: imports any settled payments the webhook missed.
@@ -3530,6 +3647,10 @@ export async function handleAdmin(request, env) {
     // Fix 8: create a brand-new pre-paid invoice from a paid payment_links row.
     const cim = path.match(/^\/admin\/api\/links\/(\d+)\/create-invoice$/);
     if (cim && method === "POST") return handleCreateInvoiceFromPaidLink(parseInt(cim[1], 10), env);
+    // v110 — edit the client name on a link record from the UI (item 1). Covers
+    // restoring names the sync clobbered and any future correction.
+    const cnm = path.match(/^\/admin\/api\/links\/(\d+)\/client-name$/);
+    if (cnm && method === "POST") return handleUpdateLinkClientName(parseInt(cnm[1], 10), request, env);
     return json({ ok: false, error: "not found" }, 404);
   }
 
@@ -3658,6 +3779,10 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 .lockup .uni{font-family:Marcellus,serif;font-size:1.25rem;letter-spacing:.36em;color:var(--ink)}
 .lockup .dash{width:24px;height:1px;background:var(--amber)}
 .lockup .duo{font-family:Outfit,sans-serif;font-size:.65rem;letter-spacing:.3em;text-transform:uppercase;color:var(--muted)}
+/* v110 — the UMC/Dubai lockup is the untouched brand mark; "Billing" is a
+   separate quiet label to its right, vertically centred, divided by a hairline. */
+.brand{display:flex;align-items:center;gap:.85rem}
+.brandsub{font-family:Outfit,sans-serif;font-size:.62rem;letter-spacing:.28em;text-transform:uppercase;color:var(--muted);padding-left:.85rem;border-left:1px solid var(--hair)}
 .hdr-right{display:flex;align-items:center;gap:1rem}
 .crumb{font-family:Outfit,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
 @media (max-width:560px){.crumb{display:none}}
@@ -3684,6 +3809,9 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 /* v106 — Turnstile spam-signal marker on unverified leads. Amber warning tone,
    distinct from the green/neutral status badges but not alarming. */
 .lead-unverified{display:inline-block;margin-left:.4rem;padding:.1rem .4rem;border-radius:4px;font-family:Outfit,sans-serif;font-size:9px;letter-spacing:.16em;text-transform:uppercase;font-weight:600;color:var(--amber-deep);background:rgba(168,75,12,.12);vertical-align:middle}
+/* item 3 — "NEW" badge for an unopened lead; disappears once the lead is first
+   opened (viewed state persisted in D1). Solid amber so it reads as a call-out. */
+.lead-new{display:inline-block;margin-left:.45rem;padding:.12rem .42rem;border-radius:4px;font-family:Outfit,sans-serif;font-size:9px;letter-spacing:.16em;text-transform:uppercase;font-weight:700;color:#fff;background:var(--amber);vertical-align:middle}
 .pay-type{font-family:Outfit,sans-serif;font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
 /* v59: editor modal overlay. The Documents tab's Open action moves the
    shared #editorHost into #editorSlot and reveals this overlay. Same
@@ -4068,6 +4196,8 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
     backdrop-filter:saturate(1.4) blur(18px);
   }
   .lockup .uni{font-size:1.05rem;letter-spacing:.3em}
+  .brand{gap:.6rem}
+  .brandsub{font-size:.56rem;letter-spacing:.22em;padding-left:.6rem}
 
   /* Bottom tab bar */
   nav.tabbar{
@@ -4544,9 +4674,12 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 <body>
 
 <header class="top">
-  <div class="lockup">
-    <span class="uni">UMC</span><span class="dash"></span>
-    <span class="duo">Dubai · Billing</span>
+  <div class="brand">
+    <div class="lockup">
+      <span class="uni">UMC</span><span class="dash"></span>
+      <span class="duo">Dubai</span>
+    </div>
+    <span class="brandsub">Billing</span>
   </div>
   <div class="hdr-right">
     <span class="crumb">${authed ? "Internal workspace" : "Sign-in required"}</span>
@@ -4871,8 +5004,10 @@ function appShellHTML() {
       <div class="lk-totals">
         <div class="r"><span>Items subtotal</span><span id="lkSub">&middot;</span></div>
         <div class="r" id="lkDiscRow" style="display:none"><span>Discount</span><span id="lkDiscShow">&middot;</span></div>
-        <div class="r tot"><span>Total (NET)</span><span id="lkTot">&middot;</span></div>
-        <div class="lk-vat-note">Nomod adds 5% VAT on the payment page. Customer pays NET &times; 1.05.</div>
+        <div class="r"><span>Net amount (sent to Nomod)</span><span id="lkTot">&middot;</span></div>
+        <div class="r"><span>+ VAT 5%</span><span id="lkVat">&middot;</span></div>
+        <div class="r tot"><span>Total (incl. VAT)</span><span id="lkGross">&middot;</span></div>
+        <div class="lk-vat-note">Only the net amount is sent to Nomod; it adds 5% VAT on the payment page, so the customer pays the total shown above.</div>
       </div>
 
       <hr class="hair">
@@ -5634,6 +5769,11 @@ const PAGE_SCRIPT = `<script>
       if(discAmt > 0){ dRow.style.display = "flex"; $("lkDiscShow").textContent = "-" + fmtMoney(discAmt, currency); }
       else dRow.style.display = "none";
       $("lkTot").textContent = fmtMoney(net, currency);
+      // item 2a — live VAT breakdown (display only; the API still receives NET).
+      const vat = Math.round(net * 0.05 * 100) / 100;
+      const gross = Math.round((net + vat) * 100) / 100;
+      if($("lkVat"))   $("lkVat").textContent   = "+ " + fmtMoney(vat, currency);
+      if($("lkGross")) $("lkGross").textContent = fmtMoney(gross, currency);
     }
     function bindLkInputs(){
       $("lkItems").addEventListener("input", function(e){
@@ -5760,6 +5900,9 @@ const PAGE_SCRIPT = `<script>
           // cell is hidden, so the row Copy button is unreachable without this.
           // bindLinksClickOnce already dispatches data-lkcopy, so no new wiring.
           actions.unshift('<button type="button" class="btn btn-small btn-ghost" data-lkcopy="'+esc(u)+'" title="Copy this Nomod payment link">Copy link</button>');
+          // v110 (item 1) — edit the client name on any link record. Restores names
+          // the sync clobbered and covers future corrections.
+          actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkeditname="'+x.id+'" data-lkcurname="'+esc(x.client_name||"")+'" title="Edit the client name shown on this link">Edit client name</button>');
           const trClass = "expandable" + (isExcl ? " excluded" : "");
           // v108 — for a foreign-currency row, show the reconciled AED gross next
           // to the card-currency amount. Blank for AED rows or when amount_aed
@@ -5768,9 +5911,19 @@ const PAGE_SCRIPT = `<script>
           if(String(x.currency || "AED").toUpperCase() !== "AED" && x.amount_aed != null && x.amount_aed !== "" && isFinite(Number(x.amount_aed))){
             aedSuffix = ' <span style="color:var(--muted);font-size:11px">(AED ' + esc(Number(x.amount_aed).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + ')</span>';
           }
+          // v110 (item 2b) — Links tab shows the VAT-INCLUSIVE total for every row,
+          // consistently. Convention is explicit via origin: 'workspace' rows store
+          // NET (operator typed net; Nomod adds 5%), so display net × 1.05; every
+          // other row (Nomod-synced direct sale) already arrives GROSS, shown as-is.
+          // This avoids double-VAT: a gross row is never multiplied again.
+          const isWorkspaceRow = String(x.origin || "") === "workspace";
+          const dispAmount = isWorkspaceRow
+            ? Math.round(Number(x.amount) * 1.05 * 100) / 100
+            : Number(x.amount);
+          const vatHint = ' <span style="color:var(--muted);font-size:11px">incl. VAT</span>';
           return '<tr class="'+trClass+'" data-expandable="1" data-lkid="'+x.id+'">'
             + '<td data-lbl="Client">'+esc(clientPrimary || "·")+invTag+subline+'</td>'
-            + '<td data-lbl="Amount" style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(Number(x.amount), x.currency))+aedSuffix+'</td>'
+            + '<td data-lbl="Amount" style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(dispAmount, x.currency))+aedSuffix+vatHint+'</td>'
             + '<td data-lbl="Created">'+esc(fmtDate(x.created_at))+'</td>'
             + '<td data-lbl="Link">'
             +   '<div class="hist-link" style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">'
@@ -5919,6 +6072,30 @@ const PAGE_SCRIPT = `<script>
   }
   function flashCopied(btn, label){ flashCopyState(btn, "✓ " + (label || "Copied")); }
   function flashCopyFailed(btn){ flashCopyState(btn, "Copy failed"); }
+  // v110 (item 5c) — transient toast so a failed/OK action is never silent.
+  // Self-contained (inline styles); no CSS dependency. isError paints it red.
+  function showToast(msg, isError){
+    try{
+      var t = document.getElementById("umcToast");
+      if(!t){
+        t = document.createElement("div");
+        t.id = "umcToast";
+        t.style.cssText = "position:fixed;left:50%;bottom:24px;transform:translateX(-50%);"
+          + "z-index:9999;max-width:min(92vw,420px);padding:.7rem 1rem;border-radius:10px;"
+          + "font-family:Outfit,sans-serif;font-size:.85rem;line-height:1.4;box-shadow:0 8px 30px rgba(0,0,0,.18);"
+          + "opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;text-align:center";
+        document.body.appendChild(t);
+      }
+      t.style.background = isError ? "#7a1e12" : "#231B12";
+      t.style.color = isError ? "#ffdfd6" : "#F6F1E7";
+      t.style.border = "1px solid " + (isError ? "#C75B12" : "rgba(255,255,255,.14)");
+      t.textContent = String(msg || "");
+      t.style.opacity = "1";
+      t.style.transform = "translateX(-50%) translateY(0)";
+      clearTimeout(t._hide);
+      t._hide = setTimeout(function(){ t.style.opacity = "0"; t.style.transform = "translateX(-50%) translateY(6px)"; }, isError ? 5200 : 3200);
+    }catch(_){}
+  }
   function copy(ta, btn){
     if(!ta) return;
     const text = ta.value;
@@ -7727,9 +7904,13 @@ const PAGE_SCRIPT = `<script>
           + '<button type="button" class="btn btn-small btn-ink" data-leadwa="'+x.id+'"'+(hasPhone?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Send this follow-up to the client on WhatsApp">WhatsApp client</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leadcopy="'+x.id+'" title="Copy this follow-up message">Copy quote</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leademail="'+x.id+'"'+(hasEmail?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Email this follow-up to the client">Email client</button>';
-        return '<tr class="expandable" data-expandable="1" data-leadstat="'+status+'" data-sortdate="'+esc(x.created_at||"")+'" data-sortamount="'+sortAmount+'">'
+        // item 3 — "NEW" badge persisted in D1: shown until the lead is first
+        // opened (viewed_at is NULL). Marked seen server-side on first expand.
+        const isUnseen = !x.viewed_at;
+        const newBadge = isUnseen ? ' <span class="lead-new" data-leadnew="'+x.id+'">NEW</span>' : '';
+        return '<tr class="expandable" data-expandable="1" data-leadid="'+x.id+'" data-leadseen="'+(isUnseen?'0':'1')+'" data-leadstat="'+status+'" data-sortdate="'+esc(x.created_at||"")+'" data-sortamount="'+sortAmount+'">'
           + '<td data-lbl="Date">'+esc(created)+'</td>'
-          + '<td data-lbl="Name">'+esc(x.name || "")+'</td>'
+          + '<td data-lbl="Name">'+esc(x.name || "")+newBadge+'</td>'
           + '<td data-lbl="Contact">'+(contactBits.join('<br>') || '<span style="color:var(--muted)">·</span>')+'</td>'
           + '<td data-lbl="Service">'+esc(serviceBits || "·")+'</td>'
           + '<td data-lbl="Route">'+esc(route || "·")+'</td>'
@@ -8053,6 +8234,33 @@ const PAGE_SCRIPT = `<script>
         openInvoiceByNumber(num);
         return;
       }
+      const en = e.target.closest("[data-lkeditname]");
+      if(en){
+        e.preventDefault(); e.stopPropagation();
+        const lkId = en.getAttribute("data-lkeditname");
+        const cur = en.getAttribute("data-lkcurname") || "";
+        const next = window.prompt("Client name for this link:", cur);
+        if(next === null) return;            // cancelled
+        const name = String(next).trim();
+        en.disabled = true;
+        fetch("/admin/api/links/" + lkId + "/client-name", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client_name: name })
+        })
+          .then(function(r){ return r.text().then(function(t){ let j=null; try{j=t?JSON.parse(t):null;}catch(_){} return {status:r.status, body:j}; }); })
+          .then(function(o){
+            en.disabled = false;
+            if(o.status === 200 && o.body && o.body.ok){
+              showToast("Client name updated.");
+              loadLinks();
+            } else {
+              showToast("Couldn’t update name — " + ((o.body && o.body.error) || ("error " + o.status)), true);
+            }
+          })
+          .catch(function(err){ en.disabled = false; showToast("Couldn’t update name — " + (err.message || err), true); });
+        return;
+      }
       const mk = e.target.closest("[data-lkmakeinv]");
       if(mk){
         e.preventDefault(); e.stopPropagation();
@@ -8070,31 +8278,51 @@ const PAGE_SCRIPT = `<script>
         const link = lastLinksById[lkId];
         const label = (link && (link.client_name || link.title)) || ("link #" + lkId);
         if(!confirm("Create a pre-paid invoice from this paid payment ("+label+")?\\nThe invoice will be marked Paid and attached to this link.")) return;
-        mkp.disabled = true;
         const origLabel = mkp.textContent;
+        // v110 (item 5c) — bullet-proof lifecycle: the button ALWAYS returns to a
+        // usable state and the operator ALWAYS sees an outcome. A watchdog covers
+        // the "stuck on Creating… until refresh" case (fetch hang / worker time-out).
+        let settled = false;
+        function restore(){ mkp.disabled = false; mkp.textContent = origLabel; }
+        function fail(msg){
+          if(settled) return; settled = true; clearTimeout(watchdog);
+          restore(); setLkStatus("Create failed: " + msg); showToast("Couldn’t create invoice — " + msg, true);
+        }
+        function done(num){
+          if(settled) return; settled = true; clearTimeout(watchdog);
+          setLkStatus("Invoice " + num + " created and marked Paid.");
+          showToast("Invoice " + num + " created and marked Paid.");
+          loadLinks();
+          if(typeof loadHistory === "function") loadHistory();
+          if(typeof loadPayments === "function") loadPayments();
+        }
+        mkp.disabled = true;
         mkp.textContent = "Creating …";
         setLkStatus("Creating invoice from link …");
+        const watchdog = setTimeout(function(){ fail("timed out, please try again"); }, 20000);
         fetch("/admin/api/links/" + lkId + "/create-invoice", { method: "POST" })
-          .then(function(r){ return r.json().then(function(j){ return { status: r.status, body: j }; }); })
+          .then(function(r){
+            return r.text().then(function(txt){
+              let j = null; try { j = txt ? JSON.parse(txt) : null; } catch(_){}
+              return { status: r.status, body: j, raw: txt };
+            });
+          })
           .then(function(o){
             const j = o.body || {};
-            if(o.status === 200 && j.ok){
-              setLkStatus("Invoice " + j.number + " created and marked Paid.");
-              loadLinks();
-              if(typeof loadHistory === "function") loadHistory();
-              if(typeof loadPayments === "function") loadPayments();
-            } else if(o.status === 409 && j.invoice_number){
+            if(o.status === 200 && j.ok){ done(j.number); return; }
+            if(o.status === 409 && j.invoice_number){
+              if(settled) return; settled = true; clearTimeout(watchdog);
+              restore();
               setLkStatus("Link already attached to " + j.invoice_number + ".");
+              showToast("Link already attached to " + j.invoice_number + ".", true);
               loadLinks();
-            } else {
-              setLkStatus("Create failed: " + ((j && j.error) || o.status));
-              mkp.disabled = false; mkp.textContent = origLabel;
+              return;
             }
+            const detail = (j && j.error) || ("server error " + o.status)
+              + (o.raw && !j ? (": " + String(o.raw).slice(0,120)) : "");
+            fail(detail);
           })
-          .catch(function(err){
-            setLkStatus("Create failed: " + (err.message || err));
-            mkp.disabled = false; mkp.textContent = origLabel;
-          });
+          .catch(function(err){ fail((err && (err.message || err)) || "network error"); });
         return;
       }
       const at = e.target.closest("[data-lkattach]");
@@ -8941,6 +9169,24 @@ const PAGE_SCRIPT = `<script>
 
   // Phase 1 — Leads tab delegation. Status filter, sort dropdown, refresh,
   // and the two action buttons per row (Create quote / Create invoice).
+  // item 3 — mark a lead seen (D1-persisted). Optimistic: clear the badge in
+  // place immediately, persist in the background, and keep leadsCache in sync so
+  // a later re-render doesn't resurrect the badge.
+  function markLeadViewed(id, tr){
+    if(!id) return;
+    try{
+      if(tr) tr.setAttribute("data-leadseen", "1");
+      const badge = document.querySelector('[data-leadnew="'+id+'"]');
+      if(badge && badge.parentNode) badge.parentNode.removeChild(badge);
+    }catch(_){}
+    try{
+      if(Array.isArray(leadsCache)){
+        const it = leadsCache.find(function(l){ return String(l.id) === String(id); });
+        if(it && !it.viewed_at) it.viewed_at = new Date().toISOString();
+      }
+    }catch(_){}
+    fetch("/admin/api/leads/" + id + "/viewed", { method: "POST" }).catch(function(){});
+  }
   function bindLeadsClickOnce(){
     const root = document.getElementById("tab-leads");
     if(!root || root._leadsClickBound) return;
@@ -9131,6 +9377,12 @@ const PAGE_SCRIPT = `<script>
       const expTr = e.target.closest("tr[data-expandable='1']");
       if(expTr && !e.target.closest("a, button")){
         toggleAccordionRow(expTr, root);
+        // item 3 — first open marks the lead seen (persisted in D1). Only when
+        // the row is now open and not already seen; the badge is cleared in place
+        // (no reload) so the drawer the operator just opened stays open.
+        if(expTr.classList.contains("open") && expTr.getAttribute("data-leadseen") === "0"){
+          markLeadViewed(expTr.getAttribute("data-leadid"), expTr);
+        }
       }
     });
     const sortSel = document.getElementById("leadsSort");
