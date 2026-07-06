@@ -4420,6 +4420,14 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 .links-page > .panel{max-width:640px}
 .links-page .actions{margin-top:.6rem}
 .links-page .history-wrap{padding:0}
+/* item 11 follow-up — Bank details uses the bare .wrap container, which has no
+   gutter, so its content sat flush at 0px against the viewport edge. Give it the
+   SAME inset as the rate card (1.5rem desktop / 1rem mobile). It keeps its inline
+   max-width:600px; only the padding is added. Audited 2026-07-06: bank was the
+   only flush tab — Leads/Documents/Links/Fleet/Calendar inset via
+   .history-wrap/.links-page, Sales via .sales-page, rate card already fixed. */
+#tab-bank .wrap{padding:1.5rem}
+@media (max-width:620px){ #tab-bank .wrap{padding:1rem} }
 
 /* v55 — "Converted -> UMC-INV-####" label that replaces the Convert button
    once the conversion has happened. Quiet typographic affordance, no chrome. */
