@@ -181,6 +181,76 @@ PAYLINE = ('<div class="payline">' + paysvg("visa") + paysvg("mastercard") + pay
  '</div>')
 GTM_BODY = ('<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=' + GTM_ID + '" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>')
 
+# S-1 item 1 — site-wide Organization node. Carries the legal entity, logo, url and
+# every verified profile (sameAs). @id lets Service/WebPage schema reference it as
+# `provider`/`publisher` instead of inlining a fresh Organization each time.
+ORG_ID = "https://umcdubai.ae/#organization"
+ld_organization = '<script type="application/ld+json">' + json.dumps({
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "@id": ORG_ID,
+    "name": "UMC Dubai",
+    "legalName": "UMC IN BOUND TOUR OPERATOR LLC",
+    "url": "https://umcdubai.ae/",
+    "logo": {"@type": "ImageObject", "url": f"{OG_BASE}/assets/og-image-v3.png"},
+    "sameAs": [
+        "https://www.facebook.com/umcdubai",
+        "https://www.instagram.com/umcdubai",
+        "https://www.linkedin.com/company/umc-dubai/",
+        "https://maps.app.goo.gl/UdPJ9VDBtFegaeX56",
+    ],
+}, separators=(",", ":")) + '</script>'
+
+# S-1 item 5 — content-review stamp for the commercial pages. REVIEWED_ISO feeds
+# dateModified in per-page WebPage JSON-LD; REVIEWED_LABEL is the visible
+# "Reviewed …" line. These pages are genuinely revised in this pass, so the date
+# is a real change date, not fake-fresh. Bump both when the pages are next revised.
+REVIEWED_ISO = "2026-07-07"
+REVIEWED_LABEL = "July 2026"
+
+def webpage_ld(canon, name):
+    # S-1 item 5 — dateModified (a real page-change date) on a valid WebPage node,
+    # published by the site-wide Organization. Added to the commercial pages.
+    return '<script type="application/ld+json">' + json.dumps({
+        "@context": "https://schema.org", "@type": "WebPage",
+        "@id": canon + "#webpage", "url": canon, "name": name,
+        "dateModified": REVIEWED_ISO, "publisher": {"@id": ORG_ID},
+    }, separators=(",", ":")) + '</script>'
+
+def airport_schema(em):
+    # S-1 item 2 — Service schema for the airport-transfers/{city} pages.
+    canon = f"https://umcdubai.ae/airport-transfers/{em['slug']}"
+    return '<script type="application/ld+json">' + json.dumps({
+        "@context": "https://schema.org", "@type": "Service",
+        "name": f"Airport transfer service in {em['name']}",
+        "serviceType": "Airport transfer",
+        "areaServed": {"@type": "AdministrativeArea", "name": em["name"]},
+        "provider": {"@id": ORG_ID}, "url": canon, "description": em["seo_meta"],
+    }, separators=(",", ":")) + '</script>'
+
+def vehicle_service_schema(vehicle_name, canon):
+    # S-1 item 3 — light Service markup for a vehicle page (chauffeur service
+    # featuring that vehicle class). NO Review/AggregateRating (policy).
+    return '<script type="application/ld+json">' + json.dumps({
+        "@context": "https://schema.org", "@type": "Service",
+        "name": f"Chauffeur service with the {vehicle_name}",
+        "serviceType": "Chauffeur service",
+        "areaServed": {"@type": "Country", "name": "United Arab Emirates"},
+        "provider": {"@id": ORG_ID}, "url": canon,
+    }, separators=(",", ":")) + '</script>'
+
+def capsule(text):
+    # S-1 item 6 — direct-answer capsule: a self-contained 40-60 word opener at the
+    # top of a money page (what the service is + how all-inclusive pricing works).
+    return ('<p class="answer-capsule" style="max-width:66ch;margin:0 auto 1.4rem;'
+            'font-size:1.04rem;line-height:1.6;color:var(--ink)">' + text + '</p>')
+
+def reviewed_line():
+    # S-1 item 5 — visible freshness stamp, paired with the WebPage dateModified.
+    return ('<p class="reviewed-note" style="text-align:center;color:var(--muted);'
+            'font-size:.8rem;letter-spacing:.03em;margin:0 0 1.6rem">Reviewed '
+            + REVIEWED_LABEL + '</p>')
+
 def head(title, desc, canon, extra=""):
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -215,6 +285,7 @@ def head(title, desc, canon, extra=""):
 <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/style.css?v={V}">
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+{ld_organization}
 {extra}
 {GTM_HEAD}
 </head>
@@ -359,6 +430,7 @@ FOOTER = f"""</main>
       <span>&copy; 2026 UMC Dubai. All rights reserved.</span>
       <span><span class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</span>5.0 on Google</span>
     </div>
+    <div class="flegal" style="text-align:center;margin-top:.7rem;font-size:.76rem;letter-spacing:.02em;color:var(--muted);line-height:1.6">UMC IN BOUND TOUR OPERATOR LLC &middot; Trading as UMC Dubai &middot; Trade Licence 1270934</div>
   </div>
 </footer>
 <a class="wa-float" aria-label="WhatsApp UMC Dubai" target="_blank" rel="noopener" href="{WA}">
@@ -1038,6 +1110,7 @@ airport_body = header("airport-transfers.html") + f"""
 {JL}
 <section class="sec">
   <div class="wrap">
+    {capsule("UMC Dubai runs airport transfers across the UAE &mdash; Dubai (DXB, DWC), Abu Dhabi, Sharjah, Ras Al Khaimah and Al Ain. Your chauffeur tracks the flight, meets you at arrivals with a name board and drives you door to door. Every rate is an all-inclusive flat fee &mdash; fuel, tolls and parking covered &mdash; confirmed before booking, never metered.")}
     <div class="shead rv"><span class="lbl">The arrival protocol</span><h2>From the arrivals hall to your door.</h2></div>
     <div class="timeline rv">
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M21 15.5l-8-3V5.2a1.7 1.7 0 0 0-3.4 0v7.3l-6.6 2.5v2l6.6-1.4v3.6L7.5 21v1.4l4.8-1 4.8 1V21l-2.1-1.8v-3.6l6 1.3z"/></svg></div>
@@ -1073,7 +1146,7 @@ airport_body = header("airport-transfers.html") + f"""
 <section class="sec">
   <div class="wrap wide">
     <div class="shead rv"><span class="lbl">The fleet</span><h2>Choose your car.</h2><p class="lede">A seamless transfer between the terminal and your hotel, residence or boardroom, in the car that suits the moment. For one or two travelling, the {vlink('s-class')} or {vlink('e-class')}; with luggage or a group, the {vlink('escalade')}, {vlink('gmc')} or {vlink('v-class')}.</p></div>
-    <div class="fleet-grid" id="airportFleet"></div>
+    <div class="fleet-grid" id="airportFleet">{fleet_grid_html()}</div>
   </div>
 </section>
 {JL}
@@ -1093,7 +1166,9 @@ airport_body = header("airport-transfers.html") + f"""
 (SITE/"airport-transfers.html").write_text(
  head("Airport Transfers in Dubai & the UAE | UMC Dubai",
       "Fixed-price Dubai & UAE airport transfers from AED 350, all-inclusive. Live flight tracking, meet & greet at baggage claim, 24/7 chauffeur.",
-      "airport-transfers", faq_schema(AIRPORT_FAQS)) + airport_body)
+      "airport-transfers",
+      webpage_ld("https://umcdubai.ae/airport-transfers", "Airport Transfers in Dubai & the UAE | UMC Dubai")
+      + faq_schema(AIRPORT_FAQS)) + airport_body)
 
 # ---------- airport-transfers / per-emirate pages (v45 Dubai, v46 the other four) ----------
 # Same template as the master (header, hero, arrival protocol, included, fleet,
@@ -1203,6 +1278,7 @@ EMIRATES = [
 
 def render_emirate_airport_page(em):
     faqs = COMMON_AIRPORT_FAQS + em["faqs_extra"]
+    cap = capsule("Airport transfers in " + em['name'] + " with UMC Dubai: a vetted chauffeur tracks your flight, meets you in the arrivals hall with a name board, and drives you to your door in a maintained luxury car. Rates are all-inclusive flat fees &mdash; fuel, Salik tolls and parking covered &mdash; quoted and confirmed before you book, with no meter and no surge.")
     _links = [vlink(k) for k in em.get("cars", [])]
     _cars_sentence = (", ".join(_links[:-1]) + " and " + _links[-1]) if len(_links) >= 2 else (_links[0] if _links else "")
     cars_line = f"For most {em['name']} arrivals, the {_cars_sentence} are the usual choices." if _cars_sentence else ""
@@ -1220,6 +1296,8 @@ def render_emirate_airport_page(em):
 {JL}
 <section class="sec">
   <div class="wrap">
+    {cap}
+    {reviewed_line()}
     <div class="shead rv"><span class="lbl">The arrival protocol</span><h2>From the arrivals hall to your door.</h2></div>
     <p class="lede rv" style="text-align:center;max-width:60ch;margin:0 auto 2rem">{em['lead']}</p>
     <div class="timeline rv">
@@ -1256,7 +1334,7 @@ def render_emirate_airport_page(em):
 <section class="sec">
   <div class="wrap wide">
     <div class="shead rv"><span class="lbl">The fleet</span><h2>Choose your car.</h2><p class="lede">A seamless transfer between the terminal and your hotel, residence or boardroom, in the car that suits the moment.</p></div>
-    <div class="fleet-grid" id="airportFleet"></div>
+    <div class="fleet-grid" id="airportFleet">{fleet_grid_html()}</div>
   </div>
 </section>
 {JL}
@@ -1284,7 +1362,10 @@ def render_emirate_airport_page(em):
     (SITE/"airport-transfers").mkdir(parents=True, exist_ok=True)
     (SITE/"airport-transfers"/f"{em['slug']}.html").write_text(
         head(em["seo_title"], em["seo_meta"],
-             f"airport-transfers/{em['slug']}", faq_schema(faqs)) + body)
+             f"airport-transfers/{em['slug']}",
+             airport_schema(em)
+             + webpage_ld(f"https://umcdubai.ae/airport-transfers/{em['slug']}", em["seo_title"])
+             + faq_schema(faqs)) + body)
 
 for em in EMIRATES:
     render_emirate_airport_page(em)
@@ -1379,11 +1460,7 @@ def rentacar_schema(em):
         "name": f"Chauffeur driven car rental in {em['name']}",
         "serviceType": "Chauffeur service",
         "areaServed": {"@type": "AdministrativeArea", "name": em["name"]},
-        "provider": {
-            "@type": "Organization", "name": "UMC Dubai",
-            "url": "https://umcdubai.ae/",
-            "logo": {"@type": "ImageObject", "url": f"{OG_BASE}/assets/og-image-v3.png"}
-        },
+        "provider": {"@id": ORG_ID},
         "url": canon,
         "description": em["seo_meta"],
     }
@@ -1395,6 +1472,7 @@ def render_rentacar_page(em):
         f'<li><a href="/rent-a-car-with-driver/{o["slug"]}/">{o["name"]}</a></li>'
         for o in others
     )
+    cap = capsule("Rent a car with a driver in " + em['name'] + ": a professional chauffeur and a luxury vehicle at your disposal for a half day (five hours) or a full day (ten hours), on your own schedule. Rates are all-inclusive &mdash; fuel, Salik and parking included, with unlimited city mileage &mdash; and agreed up front, so the price you are quoted is the price you pay.")
     # v66: the "Airport transfers in {Emirate}" bordered button was removed
     # from this section. It was category-mismatched (this block is about other
     # emirates' chauffeur pages, not airport transfers) and visually left-
@@ -1415,6 +1493,7 @@ def render_rentacar_page(em):
 {JL}
 <section class="sec">
   <div class="wrap">
+    {cap}
     <div class="shead rv"><span class="lbl">The service</span><h2>The half day, the full day, the airport run.</h2></div>
     <p class="lede rv" style="text-align:center;max-width:62ch;margin:0 auto 1.4rem">{em['intro']}</p>
     <p class="lede rv" style="text-align:center;max-width:62ch;margin:0 auto 0;color:var(--muted)">{em['use_cases']}</p>
@@ -1459,7 +1538,7 @@ def render_rentacar_page(em):
 <section class="sec">
   <div class="wrap wide">
     <div class="shead rv"><span class="lbl">The fleet</span><h2>Choose your car.</h2><p class="lede">Rates below are for {em['name']}. The in-card selector swaps any vehicle's rates to another emirate.</p></div>
-    <div class="fleet-grid" id="rentFleet"></div>
+    <div class="fleet-grid" id="rentFleet">{fleet_grid_html()}</div>
   </div>
 </section>
 {JL}
@@ -1490,7 +1569,8 @@ def render_rentacar_page(em):
     (out_dir / "index.html").write_text(
         head(em["seo_title"], em["seo_meta"],
              f"rent-a-car-with-driver/{em['slug']}/",
-             rentacar_schema(em)) + body
+             rentacar_schema(em)
+             + webpage_ld(f"https://umcdubai.ae/rent-a-car-with-driver/{em['slug']}/", em["seo_title"])) + body
     )
 
 for _em in RENT_EMIRATES:
@@ -1525,11 +1605,7 @@ def renthub_schema():
         "name": "Chauffeur service across the UAE",
         "serviceType": "Chauffeur driven car hire",
         "areaServed": {"@type": "Country", "name": "United Arab Emirates"},
-        "provider": {
-            "@type": "Organization", "name": "UMC Dubai",
-            "url": "https://umcdubai.ae/",
-            "logo": {"@type": "ImageObject", "url": f"{OG_BASE}/assets/og-image-v3.png"}
-        },
+        "provider": {"@id": ORG_ID},
         "url": canon,
         "description": "Chauffeur service for a half day or a full day, across all six emirates we serve. All-inclusive rates with fuel, Salik and parking included.",
     }
@@ -1581,6 +1657,7 @@ def render_rentacar_hub():
 {JL}
 <section class="sec">
   <div class="wrap">
+    {capsule("UMC Dubai's chauffeur service puts a dedicated driver and a luxury car at your disposal by the hour, for a half day or a full day, in any emirate we serve. Rates are all-inclusive flat blocks &mdash; fuel, Salik and parking included, with unlimited city mileage &mdash; quoted before you book, so there is no meter and no surprise on the total.")}
     <div class="shead rv"><span class="lbl">The service</span><h2>One chauffeur, one car, for the time you need.</h2></div>
     <p class="lede rv" style="text-align:center;max-width:62ch;margin:0 auto">A five-hour block for an afternoon, a ten-hour day for a full programme, or a single transfer when that is all the day requires. The rate is all-inclusive: the chauffeur, fuel, Salik, parking and unlimited city mileage. The car stays with you. The standard does not change between bookings.</p>
   </div>
@@ -1629,7 +1706,9 @@ def render_rentacar_hub():
     (SITE / "rent-a-car-with-driver" / "index.html").write_text(
         head("Rent a Car with Driver Across the UAE | UMC Dubai",
              "Chauffeur service across the UAE: a private driver and luxury car by the half day or full day. All-inclusive rates, fuel, Salik and parking.",
-             "rent-a-car-with-driver/", renthub_schema()) + body)
+             "rent-a-car-with-driver/",
+             renthub_schema()
+             + webpage_ld("https://umcdubai.ae/rent-a-car-with-driver/", "Rent a Car with Driver Across the UAE | UMC Dubai")) + body)
 
 render_rentacar_hub()
 
@@ -1677,6 +1756,8 @@ corp_body = header("corporate.html") + f"""
 {JL}
 <section class="sec">
   <div class="wrap">
+    {capsule("UMC Dubai's corporate chauffeur programme gives your company one account for all ground transport &mdash; airport pickups, executive travel, guest transfers and events across the UAE. Billing is consolidated into a single monthly invoice at all-inclusive rates that cover fuel, tolls and parking, so costs are predictable and every booking runs to one standard, 24 hours a day.")}
+    {reviewed_line()}
     <div class="dossier acctfile rv">
       <div class="ca-bar" aria-hidden="true">
         <span class="ca-bar-l"><span class="ca-punch"></span>Corporate account · File UMC-CA-2026-041</span>
@@ -1765,7 +1846,9 @@ corp_body = header("corporate.html") + f"""
 (SITE/"corporate.html").write_text(
  head("Corporate Chauffeur Service in Dubai | UMC Dubai",
       "Corporate chauffeur programmes in Dubai: consolidated invoicing, book-for-a-guest, vetted chauffeurs and 24/7 support. Live in 48 hours.",
-      "corporate", faq_schema(CORP_FAQS)) + corp_body)
+      "corporate",
+      webpage_ld("https://umcdubai.ae/corporate", "Corporate Chauffeur Service in Dubai | UMC Dubai")
+      + faq_schema(CORP_FAQS)) + corp_body)
 
 # ---------- about ----------
 about_body = header("about.html") + f"""
@@ -1844,6 +1927,7 @@ events_body = header("events.html") + f"""
 {JL}
 <section class="sec">
   <div class="wrap">
+    {capsule("UMC Dubai provides chauffeur service for weddings, celebrations and corporate events &mdash; a maintained luxury car and a vetted chauffeur for the arrival that matters. Rates are all-inclusive and quoted per occasion around your schedule, vehicle and route, covering fuel, tolls and parking, and confirmed in advance so the day carries no meter and no surprises.")}
     <div class="dossier flmove rv">
       <header class="ds-head">
         <div class="ds-headL">
@@ -1934,7 +2018,8 @@ events_body = header("events.html") + f"""
 (SITE/"events.html").write_text(
  head("Wedding & Event Chauffeur Service Dubai | UMC Dubai",
       "Chauffeur service for weddings, galas and private events across the UAE. A coordinated fleet, one point of contact and a standard that never changes.",
-      "events") + events_body)
+      "events",
+      webpage_ld("https://umcdubai.ae/events", "Wedding & Event Chauffeur Service Dubai | UMC Dubai")) + events_body)
 
 # ---------- contact (with verbatim terms) ----------
 contact_body = header("contact.html") + f"""
@@ -2108,6 +2193,8 @@ ie_body = header("inter-emirate.html") + f"""
 {JL}
 <section class="sec">
   <div class="wrap">
+    {capsule("Inter-emirate transfers move you between any two emirates &mdash; Dubai to Abu Dhabi, Sharjah, Ras Al Khaimah and beyond &mdash; in one car with one chauffeur, door to door. The rate is a fixed all-inclusive fee covering fuel, Salik tolls and parking, agreed and confirmed before departure, so the long journey carries no meter and no per-kilometre charge.")}
+    {reviewed_line()}
     <div class="shead rv"><span class="lbl">Routes</span><h2>Where the day takes you.</h2>
     <p class="lede">One car and one chauffeur for the whole journey, with the quote agreed before departure.</p></div>
     <div class="depboard rv" role="table" aria-label="Inter-emirate routes">
@@ -2152,7 +2239,9 @@ ie_body = header("inter-emirate.html") + f"""
 (SITE/"inter-emirate.html").write_text(
  head("Inter-Emirate Transfers, Dubai & Abu Dhabi | UMC Dubai",
       "Chauffeur driven transfers between Dubai, Abu Dhabi and every emirate. One car and one chauffeur door to door, on a fixed quote agreed before departure.",
-      "inter-emirate", faq_schema(IE_FAQS)) + ie_body)
+      "inter-emirate",
+      webpage_ld("https://umcdubai.ae/inter-emirate", "Inter-Emirate Transfers, Dubai & Abu Dhabi | UMC Dubai")
+      + faq_schema(IE_FAQS)) + ie_body)
 
 # ---------- 404 ----------
 notfound = header("index.html").replace('class="on"','') + f"""
@@ -2527,7 +2616,8 @@ sc_body = header("fleet.html") + f"""
 sc_head = head("Mercedes S-Class Chauffeur in Dubai | UMC Dubai",
                "Chauffeur driven Mercedes-Benz S-Class in Dubai and across the UAE: reclining rear seats, hushed cabin, vetted UMC chauffeur. Reserve in minutes.",
                "fleet/s-class",
-               f'<link rel="stylesheet" href="/assets/s-class.css?v={V}">')
+               f'<link rel="stylesheet" href="/assets/s-class.css?v={V}">'
+               + vehicle_service_schema("Mercedes-Benz S-Class", "https://umcdubai.ae/fleet/s-class"))
 sc_head = sc_head.replace('<title>', '<base href="/">\n<title>', 1)
 (SITE/"fleet").mkdir(parents=True, exist_ok=True)
 (SITE/"fleet"/"s-class.html").write_text(sc_head + sc_body)
@@ -3252,6 +3342,7 @@ for car in FLEET_PAGES_DRAFT:
         car["meta_seo"],
         info["page"],
         f'<link rel="stylesheet" href="/assets/s-class.css?v={V}">'
+        + vehicle_service_schema(info["name"], "https://umcdubai.ae" + info["page"])
     )
     head_html = head_html.replace('<title>', '<base href="/">\n<title>', 1)
     (SITE/"fleet").mkdir(parents=True, exist_ok=True)
