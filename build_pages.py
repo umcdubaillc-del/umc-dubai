@@ -4083,7 +4083,7 @@ _pages_noslash = [
 pages = _pages_slash + _pages_noslash
 urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><lastmod>{_page_lastmod(p)}</lastmod></url>" for p in pages)
 (SITE/"sitemap.xml").write_text(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>')
-(SITE/"robots.txt").write_text("User-agent: *\nAllow: /\nSitemap: https://umcdubai.ae/sitemap.xml\n")
+(SITE/"robots.txt").write_text("User-agent: Bytespider\nDisallow: /\n\nUser-agent: *\nContent-Signal: search=yes, ai-input=yes, ai-train=yes\nAllow: /\n\nSitemap: https://umcdubai.ae/sitemap.xml\n")
 # ---------- legacy 301 redirects (Cloudflare Workers Static Assets _redirects) ----------
 # Phase C: 8 indexed legacy fleet model URLs from the WordPress sitemap that
 # 404 on the new site. The new pages already live at /fleet/<model>; these
