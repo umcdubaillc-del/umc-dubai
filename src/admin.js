@@ -2888,6 +2888,186 @@ async function handleBankDetailsPdf(env) {
   }});
 }
 
+// ============================================================ Section B: B2B Rate Card
+// Five-table model (rate_cards + columns + rows + cells + terms). Only ONE card
+// ("Standard") is exposed this phase, but the schema carries card_id everywhere
+// so versioning can be layered on later. Cells are stored densely (one per
+// row × column, amount NULL when empty) so the editor and the PDF both read a
+// simple aligned matrix. Auto-creates + seeds once on first request, mirroring
+// the CREATE-TABLE-IF-NOT-EXISTS bootstrap used across the billing tool.
+const RATE_CARD_SEED_COLUMNS = ["Lexus ES","BMW 7-Series","GMC Yukon XL","Mercedes Benz V Class","Mercedes Benz S Class","Cadillac Escalade"];
+const RATE_CARD_SEED_ROWS = [
+  { kind:"transfer", from_text:"DXB Airport", to_text:"Downtown", description:"" },
+  { kind:"transfer", from_text:"DXB Airport", to_text:"Marina / Palm / JLT / Al Barsha", description:"" },
+  { kind:"transfer", from_text:"DXB Airport", to_text:"Jebel Ali / Sharjah", description:"" },
+  { kind:"transfer", from_text:"DXB Airport", to_text:"Abu Dhabi / RAK / Al Ain / Fujairah / Umm Al Quwain", description:"" },
+  { kind:"package",  from_text:"", to_text:"", description:"Full Day (10 Hours) — Dubai / Sharjah" },
+  { kind:"package",  from_text:"", to_text:"", description:"Full Day (10 Hours) — Abu Dhabi / RAK / Al Ain / Fujairah / Umm Al Quwain" },
+  { kind:"hourly",   from_text:"", to_text:"", description:"Additional Hours (rate per extra hour)" },
+];
+// Stored VERBATIM — do not rewrite. Numbered, one clause per line.
+const RATE_CARD_SEED_TERMS =
+  "1. Payment: All payments are to be made directly to UMC Dubai's designated corporate bank account. Bank details will be shared separately upon request.\n" +
+  "2. Additional Charges: Charges incurred beyond the scope of the confirmed rate will be invoiced separately following completion of service and are due for settlement within ten (10) business days of the invoice date.\n" +
+  "3. Rate Validity: Rates quoted herein are subject to periodic revision in line with prevailing market conditions. Any changes will be communicated to the client in advance of confirmation.\n" +
+  "4. Inclusions: All rates are inclusive of professional chauffeur service, fuel, toll charges, and standard public parking.\n" +
+  "5. Vehicle Availability: Vehicles are subject to availability at the time of booking. Where a vehicle is sourced through a third-party partner, rates may be adjusted accordingly and confirmed with the client prior to service.\n" +
+  "6. Mileage: No mileage restrictions apply to journeys within city limits. Travel beyond city limits is subject to additional charges, to be agreed and confirmed in advance.\n" +
+  "7. No-Show Policy: Bookings for which the client or passenger fails to present for service will be charged in full at the confirmed rate.";
+
+async function ensureRateCardSchema(env) {
+  const db = env.BILLING_DB;
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS rate_cards (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       name TEXT NOT NULL, valid_from TEXT, created_at TEXT, updated_at TEXT
+     )`
+  ).run();
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS rate_card_columns (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       card_id INTEGER NOT NULL, label TEXT NOT NULL, sort INTEGER NOT NULL DEFAULT 0
+     )`
+  ).run();
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS rate_card_rows (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       card_id INTEGER NOT NULL,
+       kind TEXT NOT NULL,          -- transfer | package | hourly
+       from_text TEXT, to_text TEXT, description TEXT, sort INTEGER NOT NULL DEFAULT 0
+     )`
+  ).run();
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS rate_card_cells (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       row_id INTEGER NOT NULL, column_id INTEGER NOT NULL, amount REAL
+     )`
+  ).run();
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS rate_card_terms (
+       card_id INTEGER PRIMARY KEY, body TEXT
+     )`
+  ).run();
+  const existing = await db.prepare("SELECT id FROM rate_cards LIMIT 1").first();
+  if (!existing) await seedRateCard(env);
+}
+
+async function seedRateCard(env) {
+  const db = env.BILLING_DB;
+  const now = new Date().toISOString();
+  const card = await db.prepare(
+    "INSERT INTO rate_cards (name, valid_from, created_at, updated_at) VALUES (?,?,?,?)"
+  ).bind("Standard", null, now, now).run();
+  const cardId = card.meta.last_row_id;
+  const colIds = [];
+  for (let i = 0; i < RATE_CARD_SEED_COLUMNS.length; i++) {
+    const r = await db.prepare("INSERT INTO rate_card_columns (card_id, label, sort) VALUES (?,?,?)")
+      .bind(cardId, RATE_CARD_SEED_COLUMNS[i], i).run();
+    colIds.push(r.meta.last_row_id);
+  }
+  const cellStmts = [];
+  for (let i = 0; i < RATE_CARD_SEED_ROWS.length; i++) {
+    const row = RATE_CARD_SEED_ROWS[i];
+    const rr = await db.prepare(
+      "INSERT INTO rate_card_rows (card_id, kind, from_text, to_text, description, sort) VALUES (?,?,?,?,?,?)"
+    ).bind(cardId, row.kind, row.from_text || null, row.to_text || null, row.description || null, i).run();
+    const rowId = rr.meta.last_row_id;
+    for (let c = 0; c < colIds.length; c++) {
+      cellStmts.push(db.prepare("INSERT INTO rate_card_cells (row_id, column_id, amount) VALUES (?,?,?)")
+        .bind(rowId, colIds[c], null));   // every cell EMPTY by construction
+    }
+  }
+  if (cellStmts.length) await db.batch(cellStmts);
+  await db.prepare("INSERT INTO rate_card_terms (card_id, body) VALUES (?,?)")
+    .bind(cardId, RATE_CARD_SEED_TERMS).run();
+}
+
+// Assemble the single card into a normalized, aligned matrix consumed by BOTH
+// the editor (GET) and the PDF renderer. amounts[] follows column order.
+async function fetchRateCard(env) {
+  await ensureRateCardSchema(env);
+  const db = env.BILLING_DB;
+  const card = await db.prepare("SELECT * FROM rate_cards ORDER BY id LIMIT 1").first();
+  if (!card) return null;
+  const cols = (await db.prepare("SELECT id, label, sort FROM rate_card_columns WHERE card_id=? ORDER BY sort, id").bind(card.id).all()).results || [];
+  const rows = (await db.prepare("SELECT id, kind, from_text, to_text, description, sort FROM rate_card_rows WHERE card_id=? ORDER BY sort, id").bind(card.id).all()).results || [];
+  const cells = (await db.prepare("SELECT row_id, column_id, amount FROM rate_card_cells WHERE row_id IN (SELECT id FROM rate_card_rows WHERE card_id=?)").bind(card.id).all()).results || [];
+  const colIndex = {}; cols.forEach((c, i) => { colIndex[c.id] = i; });
+  const byRow = {}; rows.forEach(r => { byRow[r.id] = new Array(cols.length).fill(null); });
+  cells.forEach(c => { const ci = colIndex[c.column_id]; if (ci != null && byRow[c.row_id]) byRow[c.row_id][ci] = (c.amount == null ? null : c.amount); });
+  const termsRow = await db.prepare("SELECT body FROM rate_card_terms WHERE card_id=?").bind(card.id).first();
+  return {
+    card_id: card.id, name: card.name, valid_from: card.valid_from || "",
+    terms: (termsRow && termsRow.body) || "",
+    columns: cols.map(c => ({ id: c.id, label: c.label })),
+    rows: rows.map(r => ({ id: r.id, kind: r.kind, from_text: r.from_text || "", to_text: r.to_text || "", description: r.description || "", amounts: byRow[r.id] })),
+  };
+}
+
+async function handleGetRateCard(env) {
+  return json({ ok: true, card: await fetchRateCard(env) });
+}
+
+// Full-state replace within the single card: update the card row, wipe children,
+// re-insert columns/rows/cells from the payload, upsert terms. Editor sends the
+// entire aligned state so there is no diff to reconcile.
+async function handleSaveRateCard(request, env) {
+  await ensureRateCardSchema(env);
+  const db = env.BILLING_DB;
+  let b = {}; try { b = await request.json(); } catch { return json({ ok:false, error:"bad json" }, 400); }
+  const existing = await db.prepare("SELECT id FROM rate_cards ORDER BY id LIMIT 1").first();
+  if (!existing) return json({ ok:false, error:"no card" }, 404);
+  const cardId = existing.id;
+  const s = (v) => { const t = String(v == null ? "" : v).trim(); return t || null; };
+  const now = new Date().toISOString();
+  await db.prepare("UPDATE rate_cards SET name=?, valid_from=?, updated_at=? WHERE id=?")
+    .bind(s(b.name) || "Standard", s(b.valid_from), now, cardId).run();
+  // wipe children (cells first — FK-free but keep the order logical)
+  await db.prepare("DELETE FROM rate_card_cells WHERE row_id IN (SELECT id FROM rate_card_rows WHERE card_id=?)").bind(cardId).run();
+  await db.prepare("DELETE FROM rate_card_rows WHERE card_id=?").bind(cardId).run();
+  await db.prepare("DELETE FROM rate_card_columns WHERE card_id=?").bind(cardId).run();
+  const cols = Array.isArray(b.columns) ? b.columns : [];
+  const colIds = [];
+  for (let i = 0; i < cols.length; i++) {
+    const r = await db.prepare("INSERT INTO rate_card_columns (card_id, label, sort) VALUES (?,?,?)")
+      .bind(cardId, s(cols[i] && cols[i].label) || ("Column " + (i + 1)), i).run();
+    colIds.push(r.meta.last_row_id);
+  }
+  const rows = Array.isArray(b.rows) ? b.rows : [];
+  const cellStmts = [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i] || {};
+    const kind = (row.kind === "package" || row.kind === "hourly") ? row.kind : "transfer";
+    const rr = await db.prepare("INSERT INTO rate_card_rows (card_id, kind, from_text, to_text, description, sort) VALUES (?,?,?,?,?,?)")
+      .bind(cardId, kind, s(row.from_text), s(row.to_text), s(row.description), i).run();
+    const rowId = rr.meta.last_row_id;
+    const amounts = Array.isArray(row.amounts) ? row.amounts : [];
+    for (let c = 0; c < colIds.length; c++) {
+      let amt = amounts[c];
+      amt = (amt == null || amt === "" || isNaN(Number(amt))) ? null : Number(amt);
+      cellStmts.push(db.prepare("INSERT INTO rate_card_cells (row_id, column_id, amount) VALUES (?,?,?)").bind(rowId, colIds[c], amt));
+    }
+  }
+  if (cellStmts.length) await db.batch(cellStmts);
+  await db.prepare("INSERT INTO rate_card_terms (card_id, body) VALUES (?,?) ON CONFLICT(card_id) DO UPDATE SET body=excluded.body")
+    .bind(cardId, String(b.terms == null ? "" : b.terms)).run();
+  return json({ ok:true });
+}
+
+async function handleRateCardPdf(request, env) {
+  const card = await fetchRateCard(env);
+  if (!card) return json({ ok:false, error:"no card" }, 404);
+  const url = new URL(request.url);
+  const override = url.searchParams.get("valid_from");
+  const validFrom = (override && override.trim()) || card.valid_from || new Date().toISOString().slice(0, 10);
+  const { renderRateCardPdf } = await import("./pdf.js");
+  const bytes = await renderRateCardPdf(Object.assign({}, card, { valid_from: validFrom }));
+  return new Response(bytes, { headers: {
+    "Content-Type": "application/pdf",
+    "Content-Disposition": 'inline; filename="UMC-Corporate-Rate-Card.pdf"',
+  }});
+}
+
 async function handleSyncNomod(request, env) {
   await ensureSchema(env);
   let body = {};
@@ -3772,6 +3952,17 @@ export async function handleAdmin(request, env) {
     if (path === "/admin/api/bank-details" && method === "GET") return handleGetBankDetails(env);
     if (path === "/admin/api/bank-details" && method === "POST") return handleSaveBankDetails(request, env);
     if (path === "/admin/api/bank-details/pdf" && method === "GET") return handleBankDetailsPdf(env);
+    return json({ ok: false, error: "not found" }, 404);
+  }
+
+  // Section B — B2B rate card editor + landscape PDF.
+  if (path.startsWith("/admin/api/rate-card")) {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    if (path === "/admin/api/rate-card" && method === "GET") return handleGetRateCard(env);
+    if (path === "/admin/api/rate-card" && method === "POST") return handleSaveRateCard(request, env);
+    if (path === "/admin/api/rate-card/pdf" && method === "GET") return handleRateCardPdf(request, env);
     return json({ ok: false, error: "not found" }, 404);
   }
 
@@ -5257,6 +5448,64 @@ function appShellHTML() {
   </div>
 </section><!-- /#tab-bank -->
 
+<!-- Section B — B2B Rate Card editor. Tap-to-edit rate matrix (rows × 6 vehicle
+     columns), add/remove/reorder rows, editable column labels + valid-from + T&C.
+     Exports the branded A4-landscape rate card via /admin/api/rate-card/pdf. -->
+<style>
+  #tab-ratecard .rc-wrap{max-width:1180px}
+  #tab-ratecard .rc-scroll{overflow-x:auto;margin:0 -.2rem}
+  #tab-ratecard .rc-grid{width:100%;border-collapse:collapse;font-size:.86rem}
+  #tab-ratecard .rc-grid th,#tab-ratecard .rc-grid td{padding:.45rem .5rem;border-bottom:1px solid rgba(34,27,20,.10);vertical-align:top}
+  #tab-ratecard .rc-grid thead th{font-weight:500;color:var(--muted,#7A6F5F);font-size:.72rem;letter-spacing:.03em;text-align:left}
+  #tab-ratecard .rc-colh{min-width:96px}
+  #tab-ratecard .rc-colh input{width:100%;font:inherit;font-size:.76rem;font-weight:500;text-align:center;border:1px solid rgba(34,27,20,.14);border-radius:6px;padding:.3rem .3rem;background:var(--card,#FBF8F1);color:var(--ink,#221B14)}
+  #tab-ratecard .rc-route{min-width:230px}
+  #tab-ratecard .rc-route input{width:100%;font:inherit;border:1px solid rgba(34,27,20,.14);border-radius:6px;padding:.34rem .45rem;background:#fff;color:var(--ink,#221B14)}
+  #tab-ratecard .rc-route .rc-arrow{color:var(--amber,#C75B12);padding:0 .25rem;font-weight:600;flex:0 0 auto}
+  #tab-ratecard .rc-kind{font-size:.64rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted,#7A6F5F);display:block;margin-bottom:.25rem}
+  #tab-ratecard .rc-cell{min-width:80px}
+  #tab-ratecard .rc-cell input{width:100%;font:inherit;text-align:center;border:1px solid rgba(34,27,20,.10);border-radius:6px;padding:.34rem .2rem;background:#fff;color:var(--ink,#221B14)}
+  #tab-ratecard .rc-cell input::placeholder{color:rgba(122,111,95,.5)}
+  #tab-ratecard .rc-cell input:focus,#tab-ratecard .rc-route input:focus,#tab-ratecard .rc-colh input:focus{outline:2px solid rgba(199,91,18,.32);border-color:var(--amber,#C75B12)}
+  #tab-ratecard .rc-ctrls{white-space:nowrap;text-align:right}
+  #tab-ratecard .rc-ctrls button{border:0;background:transparent;cursor:pointer;font-size:.9rem;color:var(--muted,#7A6F5F);padding:.2rem .3rem;border-radius:5px;line-height:1}
+  #tab-ratecard .rc-ctrls button:hover{background:rgba(34,27,20,.06);color:var(--ink,#221B14)}
+  #tab-ratecard .rc-warn{background:#FBF8F1;border:1px solid rgba(199,91,18,.35);border-left:3px solid var(--amber,#C75B12);border-radius:8px;padding:.7rem .9rem;margin:1rem 0 0;font-size:.82rem;line-height:1.55;color:var(--ink-soft,#4A4136)}
+</style>
+<section id="tab-ratecard" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnMore" hidden>
+  <div class="wrap rc-wrap">
+    <div style="margin:1.2rem 0 1rem">
+      <h2 style="font-family:Marcellus,Georgia,serif;font-size:1.5rem;margin:0 0 .3rem">B2B Rate Card</h2>
+      <p class="hist-sub" style="margin:0">Corporate chauffeur tariff across the fleet. Tap any rate to edit; leave a cell blank and it prints as an em-dash (&mdash;). Column headings and the routes are editable. Export renders the branded A4-landscape rate card.</p>
+    </div>
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:1.1rem">
+      <div class="field" style="margin:0"><label class="lbl" for="rcValidFrom">Valid from</label><input id="rcValidFrom" type="date" style="min-width:180px"></div>
+    </div>
+    <div class="rc-scroll">
+      <table class="rc-grid">
+        <thead><tr id="rcHead"></tr></thead>
+        <tbody id="rcBody"></tbody>
+      </table>
+    </div>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.9rem">
+      <button type="button" class="btn btn-small btn-ghost" data-rcadd="transfer">+ Transfer row</button>
+      <button type="button" class="btn btn-small btn-ghost" data-rcadd="package">+ Package row</button>
+      <button type="button" class="btn btn-small btn-ghost" data-rcadd="hourly">+ Hourly row</button>
+    </div>
+    <div class="field" style="margin-top:1.5rem">
+      <label class="lbl" for="rcTerms">Terms &amp; conditions</label>
+      <textarea id="rcTerms" rows="9" spellcheck="false" style="width:100%;font:inherit;font-size:.82rem;line-height:1.55;border:1px solid rgba(34,27,20,.14);border-radius:8px;padding:.6rem .7rem;background:#fff;color:var(--ink,#221B14);resize:vertical"></textarea>
+      <p class="hist-sub" style="margin:.4rem 0 0">One numbered clause per line. The lead words up to the first colon print bold on the PDF.</p>
+    </div>
+    <div id="rcWarn" class="rc-warn" hidden></div>
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1.1rem">
+      <button type="button" class="btn btn-ink" id="rcSave">Save</button>
+      <button type="button" class="btn btn-ghost" id="rcExport">Save &amp; export PDF</button>
+    </div>
+    <div id="rcStatus" class="hist-sub" style="margin-top:.7rem" aria-live="polite"></div>
+  </div>
+</section><!-- /#tab-ratecard -->
+
 <!-- Calendar — agenda view of our OWN jobs data (GET /admin/api/jobs). This page
      never queries Google; the Google Calendar sync remains one-way sync-out only.
      Days are listed vertically from the anchor date forward; cancelled jobs hide
@@ -6508,7 +6757,7 @@ const PAGE_SCRIPT = `<script>
     // v61: include "payments" — was missing in v60, which is why activating
     // the tab moved the underline but never un-hid #tab-payments.
     // v84: include "sales".
-    ["leads","create","documents","links","sales","fleet","bank","calendar"].forEach(function(n){
+    ["leads","create","documents","links","sales","fleet","bank","ratecard","calendar"].forEach(function(n){
       const el = document.getElementById("tab-" + n);
       if(!el) return;
       const on = n === name;
@@ -6521,6 +6770,7 @@ const PAGE_SCRIPT = `<script>
     if(name === "sales") loadSales();
     if(name === "fleet") loadFleet();
     if(name === "bank") loadBank();
+    if(name === "ratecard") loadRateCard();
     if(name === "calendar") loadCalendar();
     if(name === "create" && typeof fitDocToViewport === "function") fitDocToViewport();
     // v85: persist active tab in URL hash so refresh stays on the same tab.
@@ -6716,6 +6966,167 @@ const PAGE_SCRIPT = `<script>
         .catch(function(e){ saveBtn.disabled = false; st("Save failed — " + (e.message || e)); });
     });
     if(pdfBtn) pdfBtn.addEventListener("click", function(){ window.open("/admin/api/bank-details/pdf", "_blank", "noopener"); });
+  }
+
+  // ── Section B — B2B Rate Card editor ───────────────────────────────────────
+  // Full-state model held client-side; every edit mutates rcState in place and
+  // Save posts the whole matrix (mirrors the invoice line-items editor idiom).
+  // Column count is fixed at load (labels editable); rows add/remove/reorder.
+  var rcState = null;
+  function rcSetStatus(m){ var s = $("rcStatus"); if(s) s.textContent = m || ""; }
+  async function loadRateCard(){
+    bindRateCardOnce();
+    try{
+      var j = await (await fetch("/admin/api/rate-card")).json();
+      var card = (j && j.card) || null;
+      if(!card){ rcSetStatus("No rate card found."); return; }
+      rcState = {
+        card_id: card.card_id, name: card.name || "Standard",
+        valid_from: card.valid_from || "", terms: card.terms || "",
+        columns: (card.columns || []).map(function(c){ return { label: c.label || "" }; }),
+        rows: (card.rows || []).map(function(r){
+          return { kind:r.kind, from_text:r.from_text||"", to_text:r.to_text||"", description:r.description||"", amounts:(r.amounts||[]).slice() };
+        })
+      };
+      var vf = $("rcValidFrom"); if(vf) vf.value = rcState.valid_from || "";
+      var tt = $("rcTerms"); if(tt) tt.value = rcState.terms || "";
+      renderRateHead(); renderRateRows();
+      rcSetStatus("");
+    }catch(e){ rcSetStatus("Load failed."); }
+  }
+  function renderRateHead(){
+    var head = $("rcHead"); if(!head || !rcState) return;
+    var html = '<th class="rc-route">Route / Service</th>';
+    for(var i=0;i<rcState.columns.length;i++){
+      html += '<th class="rc-colh"><input data-colh="'+i+'" type="text" value="'+esc(rcState.columns[i].label)+'" aria-label="Vehicle column label"></th>';
+    }
+    html += '<th aria-hidden="true"></th>';
+    head.innerHTML = html;
+  }
+  function renderRateRows(){
+    var body = $("rcBody"); if(!body || !rcState) return;
+    var nc = rcState.columns.length;
+    body.innerHTML = rcState.rows.map(function(row, i){
+      var first;
+      if(row.kind === "transfer"){
+        first = '<span class="rc-kind">Transfer</span>'
+          + '<div style="display:flex;align-items:center;gap:.15rem">'
+          + '<input data-k="from_text" data-i="'+i+'" type="text" placeholder="From (e.g. DXB Airport)" value="'+esc(row.from_text)+'">'
+          + '<span class="rc-arrow" aria-hidden="true">&#8644;</span>'
+          + '<input data-k="to_text" data-i="'+i+'" type="text" placeholder="To (e.g. Downtown)" value="'+esc(row.to_text)+'">'
+          + '</div>';
+      } else {
+        var lbl = row.kind === "package" ? "Package" : "Hourly";
+        first = '<span class="rc-kind">'+lbl+'</span>'
+          + '<input data-k="description" data-i="'+i+'" type="text" placeholder="Description" value="'+esc(row.description)+'">';
+      }
+      var cells = '';
+      for(var c=0;c<nc;c++){
+        var amt = row.amounts[c];
+        var val = (amt==null || amt==="") ? "" : amt;
+        cells += '<td class="rc-cell"><input data-cell="'+i+'_'+c+'" type="text" inputmode="decimal" pattern="[0-9.]*" value="'+val+'" placeholder="&mdash;"></td>';
+      }
+      var ctrls = '<td class="rc-ctrls">'
+        + '<button type="button" data-rcmove="'+i+'_up" aria-label="Move row up" title="Move up">&#9650;</button>'
+        + '<button type="button" data-rcmove="'+i+'_down" aria-label="Move row down" title="Move down">&#9660;</button>'
+        + '<button type="button" data-rcdel="'+i+'" aria-label="Remove row" title="Remove row">&times;</button>'
+        + '</td>';
+      return '<tr data-row="'+i+'"><td class="rc-route">'+first+'</td>'+cells+ctrls+'</tr>';
+    }).join("");
+  }
+  function rcMoveRow(i, dir){
+    var j = dir === "up" ? i-1 : i+1;
+    if(j < 0 || j >= rcState.rows.length) return;
+    var tmp = rcState.rows[i]; rcState.rows[i] = rcState.rows[j]; rcState.rows[j] = tmp;
+    renderRateRows();
+  }
+  function rcAddRow(kind){
+    var nc = rcState.columns.length, amounts = [];
+    for(var c=0;c<nc;c++) amounts.push(null);
+    rcState.rows.push({ kind:kind, from_text:"", to_text:"", description:"", amounts:amounts });
+    renderRateRows();
+  }
+  function bindRateCardOnce(){
+    var root = document.getElementById("tab-ratecard");
+    if(!root || root._rcBound) return; root._rcBound = true;
+    // Input: never re-render the focused field (keeps the mobile keyboard open,
+    // same rule as the line-items editor); just mutate rcState.
+    root.addEventListener("input", function(e){
+      if(!rcState) return;
+      var t = e.target;
+      if(t.id === "rcValidFrom"){ rcState.valid_from = t.value; return; }
+      if(t.id === "rcTerms"){ rcState.terms = t.value; return; }
+      var colh = t.getAttribute && t.getAttribute("data-colh");
+      if(colh != null){ rcState.columns[Number(colh)].label = t.value; return; }
+      var cell = t.getAttribute && t.getAttribute("data-cell");
+      if(cell != null){
+        var parts = cell.split("_"), ri = Number(parts[0]), ci = Number(parts[1]);
+        var raw = String(t.value).replace(/[^0-9.]/g, ""), n = Number(raw);
+        rcState.rows[ri].amounts[ci] = (raw === "" || isNaN(n)) ? null : n;
+        return;
+      }
+      var k = t.getAttribute && t.getAttribute("data-k");
+      if(k){ rcState.rows[Number(t.getAttribute("data-i"))][k] = t.value; return; }
+    });
+    root.addEventListener("click", function(e){
+      if(!rcState) return;
+      var mv = e.target.closest("[data-rcmove]");
+      if(mv){ var m = mv.getAttribute("data-rcmove").split("_"); rcMoveRow(Number(m[0]), m[1]); return; }
+      var del = e.target.closest("[data-rcdel]");
+      if(del){ rcState.rows.splice(Number(del.getAttribute("data-rcdel")), 1); renderRateRows(); return; }
+      var add = e.target.closest("[data-rcadd]");
+      if(add){ rcAddRow(add.getAttribute("data-rcadd")); return; }
+    });
+    var saveBtn = $("rcSave"); if(saveBtn) saveBtn.addEventListener("click", function(){ rcSave(false); });
+    var expBtn = $("rcExport"); if(expBtn) expBtn.addEventListener("click", function(){ rcSave(true); });
+  }
+  function rcSave(thenExport){
+    if(!rcState) return;
+    var vf = $("rcValidFrom"); if(vf) rcState.valid_from = vf.value;
+    var tt = $("rcTerms"); if(tt) rcState.terms = tt.value;
+    var payload = {
+      card_id: rcState.card_id, name: rcState.name, valid_from: rcState.valid_from,
+      terms: rcState.terms, columns: rcState.columns, rows: rcState.rows
+    };
+    var saveBtn = $("rcSave"), expBtn = $("rcExport");
+    if(saveBtn) saveBtn.disabled = true; if(expBtn) expBtn.disabled = true;
+    rcSetStatus("Saving …");
+    fetch("/admin/api/rate-card", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if(saveBtn) saveBtn.disabled = false; if(expBtn) expBtn.disabled = false;
+        if(!(j && j.ok)){ rcSetStatus("Save failed: " + ((j && j.error) || "")); return; }
+        if(typeof showToast === "function") showToast("Rate card saved.");
+        if(thenExport){ rcExport(); } else { rcSetStatus("Saved."); }
+      })
+      .catch(function(e){ if(saveBtn) saveBtn.disabled = false; if(expBtn) expBtn.disabled = false; rcSetStatus("Save failed — " + (e.message || e)); });
+  }
+  function rcExport(){
+    // Non-blocking warning: list the empty cells that will print as an em-dash,
+    // then open the PDF regardless (export is never blocked).
+    var empties = [];
+    for(var i=0;i<rcState.rows.length;i++){
+      var row = rcState.rows[i];
+      var label = row.kind === "transfer" ? ((row.from_text||"") + " ⇄ " + (row.to_text||"")) : (row.description||"");
+      for(var c=0;c<rcState.columns.length;c++){
+        var a = row.amounts[c];
+        if(a==null || a===""){ empties.push((label || ("Row " + (i+1))) + " — " + (rcState.columns[c].label || ("Column " + (c+1)))); }
+      }
+    }
+    var warn = $("rcWarn");
+    if(warn){
+      if(empties.length){
+        var shown = empties.slice(0, 12), more = empties.length - shown.length;
+        warn.innerHTML = '<b>' + empties.length + ' empty rate' + (empties.length===1?'':'s') + '</b> will print as an em-dash (&mdash;):<br>'
+          + shown.map(function(x){ return esc(x); }).join('<br>')
+          + (more > 0 ? ('<br>&hellip; and ' + more + ' more.') : '');
+        warn.hidden = false;
+      } else { warn.hidden = true; }
+    }
+    rcSetStatus("Exported — review the PDF opened in the new tab.");
+    var vf = rcState.valid_from || "";
+    var url = "/admin/api/rate-card/pdf" + (vf ? ("?valid_from=" + encodeURIComponent(vf)) : "");
+    window.open(url, "_blank", "noopener");
   }
 
   // ── Jobs (Dispatch Phase 2) client UI ──────────────────────────────────────
@@ -8681,7 +9092,8 @@ const PAGE_SCRIPT = `<script>
   var MORE_TABS = [
     { id: "sales", label: "Sales" },
     { id: "fleet", label: "Fleet" },
-    { id: "bank",  label: "Bank details" }
+    { id: "bank",  label: "Bank details" },
+    { id: "ratecard", label: "B2B Rate Card" }
   ];
   function openMoreSheet(){
     // Desktop (horizontal tab bar, >620px) -> compact popover anchored under the

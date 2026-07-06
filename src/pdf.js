@@ -31,8 +31,10 @@ const CONTACT = { email:"contact@umcdubai.ae", phone:"+971 58 649 7861", web:"um
 // document — invoice/quote, bank details, rate card — inherits the same glyph.
 const SEP = " · ";
 
-// Fill the whole A4 page with the bone paper colour. Call FIRST.
-function paintPaper(page, w, h){ page.drawRectangle({ x:0, y:0, width:w||PAGE_W, height:h||PAGE_H, color:C.bone }); }
+// Fill the whole A4 page with the bone paper colour. Call FIRST. Page dims are
+// read from the page itself so this works for BOTH the portrait suite and the
+// landscape rate card without a mutable module-level page height.
+function paintPaper(page, w, h){ page.drawRectangle({ x:0, y:0, width:w||page.getWidth(), height:h||page.getHeight(), color:C.bone }); }
 
 // Embed the transparent stamp PNG once per document.
 async function embedStamp(pdf){ try { return await pdf.embedPng(b(UMC_STAMP_PNG_B64)); } catch(e){ return null; } }
@@ -40,7 +42,7 @@ async function embedStamp(pdf){ try { return await pdf.embedPng(b(UMC_STAMP_PNG_
 // A raised --card (#FBF8F1) panel with a hairline border. x/w in pt; y/h in px-from-top.
 function cardPanel(page, xPt, yTopPx, wPt, hPx){
   page.drawRectangle({
-    x:xPt, y:PAGE_H - sx(yTopPx) - sx(hPx), width:wPt, height:sx(hPx),
+    x:xPt, y:page.getHeight() - sx(yTopPx) - sx(hPx), width:wPt, height:sx(hPx),
     color:C.card, borderColor:C.line, borderWidth:sx(1), borderOpacity:0.12,
   });
 }
@@ -59,7 +61,7 @@ function drawLockup(page, f, leftPx, topPx){
   drawText(page,"UMC",leftX,topPx,f.marcellus,27.2,C.ink,{trackingEm:0.36});
   const umcW = textWidth("UMC",f.marcellus,27.2,0.36);
   const dashY = topPx + 27.2 + 10.4;
-  page.drawRectangle({ x:leftX + (umcW - 30*PX)/2, y:PAGE_H - sx(dashY) - sx(1), width:sx(30), height:sx(1), color:C.amber });
+  page.drawRectangle({ x:leftX + (umcW - 30*PX)/2, y:page.getHeight() - sx(dashY) - sx(1), width:sx(30), height:sx(1), color:C.amber });
   const duoY = dashY + 1 + 10.4;
   drawText(page,"Dubai",leftX + (umcW - textWidth("Dubai",f.outfit,9.5,0.36))/2, duoY, f.outfit,9.5,C.muted,{trackingEm:0.36,upper:true});
   return duoY + 9.5;
@@ -69,18 +71,19 @@ function drawLockup(page, f, leftPx, topPx){
 // at the page bottom. line1 (legal · trading) is uppercased/tracked; line2
 // (contact · phone · web) sits beneath. Returns the footer region height in px.
 function drawBrandFooter(page, f, stampImg, legal, trading, opts={}){
-  const pageW = opts.pageW || PAGE_W;
+  const H = page.getHeight();
+  const pageW = opts.pageW || page.getWidth();
   const rightPx = opts.rightPx != null ? opts.rightPx : 38.4;
   const leftPx  = opts.leftPx  != null ? opts.leftPx  : 38.4;
   const leftX = sx(leftPx), rightX = pageW - sx(rightPx);
   const regionHpx = 84;                    // fixed footer region height
-  const regionTopPx = (PAGE_H/PX) - regionHpx;
+  const regionTopPx = (H/PX) - regionHpx;
   // Suite-standard footer lines, composed here from the ONE SEP constant so every
   // document inherits identical separators. line1 legal · trading; line2 contacts.
   const line1 = legal + SEP + "Trading as " + trading;
   const line2 = CONTACT.email + SEP + CONTACT.phone + SEP + CONTACT.web;
   // top hairline
-  page.drawRectangle({ x:leftX, y:PAGE_H - sx(regionTopPx) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.line, opacity:0.14 });
+  page.drawRectangle({ x:leftX, y:H - sx(regionTopPx) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.line, opacity:0.14 });
   // text lines (left) — ruling 5: normal case, normal tracking (no spaced caps).
   let ty = regionTopPx + 22;
   drawText(page, line1, leftX, ty, f.outfitMed, 9, C.inkSoft, {trackingEm:0.01});
@@ -92,7 +95,7 @@ function drawBrandFooter(page, f, stampImg, legal, trading, opts={}){
     const sxPt = sx(stampPx);
     const sxX = rightX - sxPt;
     const sYcenterPx = regionTopPx + regionHpx/2;
-    const sY = PAGE_H - sx(sYcenterPx) - sxPt/2;
+    const sY = H - sx(sYcenterPx) - sxPt/2;
     page.drawImage(stampImg, { x:sxX, y:sY, width:sxPt, height:sxPt });
   }
   return regionHpx;
@@ -107,7 +110,7 @@ function P(page){
     // x from left edge, in CSS px
     x: px => sx(px),
     // y in pt from a CSS "px-from-top" value
-    yTop: topPx => PAGE_H - sx(topPx),
+    yTop: topPx => page.getHeight() - sx(topPx),
   };
 }
 
@@ -127,7 +130,7 @@ const OBLIQUE = 0.213; // tan(12°) — matches the browser's synthetic italic
 
 function drawText(page, str, x, yTop, font, sizePx, color, opts={}){
   const size = sx(sizePx);
-  const y = PAGE_H - sx(yTop) - size; // place by top of cap box approx
+  const y = page.getHeight() - sx(yTop) - size; // place by top of cap box approx
   const tracking = (opts.trackingEm||0) * size;
   let text = str==null ? "" : String(str);
   if(opts.upper) text = text.toUpperCase();
@@ -519,6 +522,187 @@ export async function renderBankDetailsPdf(data){
 
   // ===== QUERIES LINE =====
   drawText(page, "Remittance advice and confirmation queries: " + CONTACT.email + " · " + CONTACT.phone + " · attended 24 hours.", leftX, y, f.outfit, 10, C.muted);
+
+  return await pdf.save();
+}
+
+/* ---------- Section B: B2B Corporate Rate Card (A4 landscape) ---------- */
+
+// Rate figure — plain decimal, NO currency code (the header carries "ALL RATES
+// IN AED"). Whole numbers print without decimals; fractional keep two. Returns
+// null for empty/blank so the caller can print the em-dash by construction.
+function fmtRate(v){
+  if(v==null || v==="" ) return null;
+  const n = Number(v); if(!isFinite(n)) return null;
+  const frac = (n % 1 === 0) ? 0 : 2;
+  try { return new Intl.NumberFormat("en-US",{minimumFractionDigits:frac,maximumFractionDigits:2}).format(n); }
+  catch(e){ return String(n); }
+}
+
+// Bidirectional amber arrow (⇄) drawn as a vector so it never depends on a font
+// carrying the U+21C4 glyph. Two offset shafts with heads: top points right,
+// bottom points left. Centred vertically on the text line at yTopPx.
+function drawBiArrow(page, xPt, yTopPx, sizePx, color){
+  const boxH = 9;                                   // path design units (tall)
+  const scale = sx(sizePx)/boxH * 0.92;
+  const midPt = page.getHeight() - sx(yTopPx + sizePx*0.52);
+  const topPt = midPt + (boxH*scale)/2;             // drawSvgPath anchors the top; y grows downward
+  const path = "M0 2 H10 M10 2 L7 0.4 M10 2 L7 3.6 M14 7 H4 M4 7 L7 5.4 M4 7 L7 8.6";
+  page.drawSvgPath(path, { x:xPt, y:topPt, scale, borderColor:color, borderWidth:Math.max(0.6, sx(sizePx)*0.1) });
+}
+
+// Lay out a run of tokens with wrapping inside a column. tokens: {t, font?, color?, arrow?}.
+// arrow tokens render the vector ⇄ (amber). Returns the bottom yTop (px) after the run.
+function drawTokenRun(page, tokens, xPx, yTopPx, sizePx, maxWpx, defFont, defColor){
+  const leftPt = sx(xPx), maxPt = sx(maxWpx);
+  const lead = sizePx*1.34, arrowWpx = 21;
+  let curX = leftPt, y = yTopPx;
+  for(const tok of tokens){
+    if(tok.arrow){
+      const wPt = sx(arrowWpx);
+      if(curX > leftPt && (curX + wPt) > (leftPt + maxPt)){ y += lead; curX = leftPt; }
+      drawBiArrow(page, curX + sx(4), y, sizePx, C.amber);
+      curX += wPt;
+      continue;
+    }
+    const font = tok.font || defFont, color = tok.color || defColor;
+    const wPt = textWidth(tok.t, font, sizePx), spaceW = textWidth(" ", font, sizePx);
+    if(curX > leftPt && (curX + wPt) > (leftPt + maxPt)){ y += lead; curX = leftPt; }
+    drawText(page, tok.t, curX, y, font, sizePx, color);
+    curX += wPt + spaceW;
+  }
+  return y + lead;
+}
+
+// Route/service label for a row -> token list. transfer rows compose
+// from ⇄ to (bidirectional); package/hourly rows render the description bold.
+function rowRouteTokens(row, f){
+  if(row.kind === "transfer"){
+    const toks = [];
+    for(const w of String(row.from_text||"").split(/\s+/).filter(Boolean)) toks.push({ t:w, font:f.outfit, color:C.ink });
+    toks.push({ arrow:true });
+    for(const w of String(row.to_text||"").split(/\s+/).filter(Boolean)) toks.push({ t:w, font:f.outfit, color:C.ink });
+    return toks;
+  }
+  return String(row.description||"").split(/\s+/).filter(Boolean).map(function(w){ return { t:w, font:f.outfitMed, color:C.ink }; });
+}
+
+// Parse one stored terms line ("4. Inclusions: All rates ...") into number,
+// bolded lead ("Inclusions:") and the remaining body. Falls back gracefully.
+function parseTermLine(line){
+  const m = String(line||"").match(/^\s*(\d+)\.\s+([^:]+:)\s*([\s\S]*)$/);
+  if(m) return { num:m[1], lead:m[2], rest:m[3] };
+  const m2 = String(line||"").match(/^\s*(\d+)\.\s+([\s\S]*)$/);
+  if(m2) return { num:m2[1], lead:"", rest:m2[2] };
+  return { num:"", lead:"", rest:String(line||"") };
+}
+
+export async function renderRateCardPdf(data){
+  const d = data || {};
+  const pdf = await PDFDocument.create();
+  const f = await loadFonts(pdf);
+  const page = pdf.addPage([PAGE_H, PAGE_W]);   // A4 LANDSCAPE (swap dims)
+  const W = page.getWidth(), H = page.getHeight();
+  const padX = 38.4, padTop = 34;
+  const leftX = sx(padX), rightX = W - sx(padX);
+  const contentWpx = (rightX - leftX)/PX;
+
+  paintPaper(page);
+  const stampImg = await embedStamp(pdf);
+  const legal   = (d.legal_name && String(d.legal_name).trim()) || COMPANY.legal;
+  const trading = (d.trading_as && String(d.trading_as).trim()) || "UMC Dubai";
+  drawBrandFooter(page, f, stampImg, legal, trading);
+
+  // ===== HEADER — lockup left; eyebrow + valid-from + AED note right =====
+  drawLockup(page, f, padX, padTop);
+  eyebrowRight(page, f, "CORPORATE RATE CARD", rightX, padTop + 2, {track:0.28});
+  const validFrom = String(d.valid_from||"").trim();
+  drawRight(page, "VALID FROM " + (validFrom ? fmtDate(validFrom).toUpperCase() : ""), rightX, padTop + 2 + 9 + 12, f.mono, 10, C.inkSoft, {trackingEm:0.06});
+  drawRight(page, "ALL RATES IN AED", rightX, padTop + 2 + 9 + 12 + 10*1.7, f.mono, 9, C.muted, {trackingEm:0.08});
+
+  // ===== GRID geometry — Route/Service (~31%) + 6 vehicle columns =====
+  const routeWpx = contentWpx * 0.31;
+  const cols = (d.columns||[]).map(function(c){ return { label:String(c.label||"") }; });
+  const nCol = Math.max(1, cols.length);
+  const vehWpx = (contentWpx - routeWpx) / nCol;
+  const colLeftPx = function(i){ return (padX) + routeWpx + i*vehWpx; };  // px from page left
+  const colCenterPx = function(i){ return colLeftPx(i) + vehWpx/2; };
+
+  let gy = 132;                                    // grid top (px from top)
+  // header row
+  const hdrTextY = gy + 4;
+  eyebrow(page, f, "Route / Service", leftX, hdrTextY, {size:8.5, track:0.22});
+  for(let i=0;i<nCol;i++){
+    const lines = wrapLine(cols[i].label, f.outfitMed, 8.5, vehWpx - 10);
+    let ly = hdrTextY - ((lines.length-1)*(8.5*1.28))/2;   // vertical-centre 1–2 line headers
+    for(const ln of lines){
+      drawRight(page, ln, sx(colCenterPx(i)) + textWidth(ln,f.outfitMed,8.5)/2, ly, f.outfitMed, 8.5, C.ink);
+      ly += 8.5*1.28;
+    }
+  }
+  gy += 26;
+  page.drawRectangle({ x:leftX, y:H - sx(gy) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.line, opacity:0.20 });
+
+  // ===== GRID rows =====
+  const rows = d.rows || [];
+  const rSize = 9.5, rowPadY = 10;
+  for(let ri=0; ri<rows.length; ri++){
+    const row = rows[ri];
+    const toks = rowRouteTokens(row, f);
+    // measure route height by a dry token run into an off-page y, then draw for real
+    const rowTop = gy;
+    const routeTextTop = rowTop + rowPadY;
+    // draw route (also returns bottom); alternate tint drawn first underneath
+    // measure first: replicate the wrap to count lines
+    const routeBottom = drawTokenRun(page, toks, padX + 2, routeTextTop, rSize, routeWpx - 10, f.outfit, C.ink);
+    const rowBottom = Math.max(routeBottom, routeTextTop + rSize*1.34) + rowPadY*0.5;
+    const rowH = rowBottom - rowTop;
+    // alternate row tint (behind everything already drawn — draw as a translucent
+    // card panel underneath by re-painting; simplest: draw tint BEFORE text would
+    // require pre-measure, so instead draw a very light card panel now with blend).
+    if(ri % 2 === 1){
+      page.drawRectangle({ x:leftX, y:H - sx(rowBottom), width:rightX-leftX, height:sx(rowH), color:C.card, opacity:0.55 });
+      // re-draw route + cells ON TOP of the tint
+      drawTokenRun(page, toks, padX + 2, routeTextTop, rSize, routeWpx - 10, f.outfit, C.ink);
+    }
+    // rate cells — mono, centred, em-dash for empty
+    const amounts = row.amounts || [];
+    const cellY = routeTextTop;                    // top-align cells to first route line
+    for(let ci=0; ci<nCol; ci++){
+      const fig = fmtRate(amounts[ci]);
+      const txt = fig==null ? "—" : fig;
+      const col = fig==null ? C.muted : C.ink;
+      const cx = sx(colCenterPx(ci));
+      drawText(page, txt, cx - textWidth(txt,f.mono,rSize)/2, cellY, f.mono, rSize, col, {trackingEm:0.01});
+    }
+    // hairline under the row
+    page.drawRectangle({ x:leftX, y:H - sx(rowBottom) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.line, opacity:0.10 });
+    gy = rowBottom;
+  }
+
+  // ===== TERMS & CONDITIONS — eyebrow, numbered two-column list =====
+  let ty = gy + 26;
+  eyebrow(page, f, "Terms & Conditions", leftX, ty, {size:9});
+  ty += 9 + 12;
+  const termItems = String(d.terms||"").split("\n").map(function(s){ return s.trim(); }).filter(Boolean).map(parseTermLine);
+  const colGapPx = 34;
+  const tcColWpx = (contentWpx - colGapPx)/2;
+  const half = Math.ceil(termItems.length/2);
+  const tSize = 7.9, gutterPx = 15;
+  const drawTermsCol = function(items, colXPx, startY){
+    let y = startY;
+    for(const it of items){
+      drawText(page, it.num + ".", sx(colXPx), y, f.outfit, tSize, C.muted);
+      const toks = [];
+      if(it.lead) for(const w of it.lead.split(/\s+/).filter(Boolean)) toks.push({ t:w, font:f.outfitMed, color:C.ink });
+      for(const w of it.rest.split(/\s+/).filter(Boolean)) toks.push({ t:w, font:f.outfit, color:C.inkSoft });
+      const bottom = drawTokenRun(page, toks, colXPx + gutterPx, y, tSize, tcColWpx - gutterPx, f.outfit, C.inkSoft);
+      y = bottom + 5;
+    }
+    return y;
+  };
+  const leftBottom  = drawTermsCol(termItems.slice(0, half), padX, ty);
+  const rightBottom = drawTermsCol(termItems.slice(half), padX + tcColWpx + colGapPx, ty);
 
   return await pdf.save();
 }

@@ -102,6 +102,7 @@ export default {
         url.pathname.startsWith("/admin/api/billing") ||
         url.pathname.startsWith("/admin/api/links") ||
         url.pathname.startsWith("/admin/api/bank-details") ||
+        url.pathname.startsWith("/admin/api/rate-card") ||
         url.pathname.startsWith("/admin/api/payments") ||
         url.pathname === "/admin/api/sales" ||
         url.pathname === "/admin/api/sync-nomod" ||
