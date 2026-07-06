@@ -27,6 +27,9 @@ const C = {
 /* ---------- shared brand chrome (used by invoice, bank-details, rate-card) ---------- */
 // Contact/legal lines rendered in the two-line footer across the suite.
 const CONTACT = { email:"contact@umcdubai.ae", phone:"+971 58 649 7861", web:"umcdubai.ae" };
+// Suite-wide segment separator: space · space (U+00B7). ONE constant so every
+// document — invoice/quote, bank details, rate card — inherits the same glyph.
+const SEP = " · ";
 
 // Fill the whole A4 page with the bone paper colour. Call FIRST.
 function paintPaper(page, w, h){ page.drawRectangle({ x:0, y:0, width:w||PAGE_W, height:h||PAGE_H, color:C.bone }); }
@@ -65,13 +68,17 @@ function drawLockup(page, f, leftPx, topPx){
 // Shared two-line footer + footer-right stamp, on bone. Occupies a fixed region
 // at the page bottom. line1 (legal · trading) is uppercased/tracked; line2
 // (contact · phone · web) sits beneath. Returns the footer region height in px.
-function drawBrandFooter(page, f, stampImg, line1, line2, opts={}){
+function drawBrandFooter(page, f, stampImg, legal, trading, opts={}){
   const pageW = opts.pageW || PAGE_W;
   const rightPx = opts.rightPx != null ? opts.rightPx : 38.4;
   const leftPx  = opts.leftPx  != null ? opts.leftPx  : 38.4;
   const leftX = sx(leftPx), rightX = pageW - sx(rightPx);
   const regionHpx = 84;                    // fixed footer region height
   const regionTopPx = (PAGE_H/PX) - regionHpx;
+  // Suite-standard footer lines, composed here from the ONE SEP constant so every
+  // document inherits identical separators. line1 legal · trading; line2 contacts.
+  const line1 = legal + SEP + "Trading as " + trading;
+  const line2 = CONTACT.email + SEP + CONTACT.phone + SEP + CONTACT.web;
   // top hairline
   page.drawRectangle({ x:leftX, y:PAGE_H - sx(regionTopPx) - sx(0.5), width:rightX-leftX, height:sx(1), color:C.line, opacity:0.14 });
   // text lines (left) — ruling 5: normal case, normal tracking (no spaced caps).
@@ -248,9 +255,7 @@ export async function renderInvoicePdf(doc){
   // unchanged. Functional content (line items, totals, VAT, references) untouched.
   paintPaper(page);
   const stampImg = await embedStamp(pdf);
-  const footLine1 = COMPANY.legal + " · Trading as UMC Dubai";
-  const footLine2 = CONTACT.email + " · " + CONTACT.phone + " · " + CONTACT.web;
-  const footBarH = sx(drawBrandFooter(page, f, stampImg, footLine1, footLine2));
+  const footBarH = sx(drawBrandFooter(page, f, stampImg, COMPANY.legal, "UMC Dubai"));
 
   // ===== HEADER — left: lockup + entity block =====
   const lockBottom = drawLockup(page, f, padX, padTop);   // px-from-top of lockup bottom
@@ -269,7 +274,10 @@ export async function renderInvoicePdf(doc){
   yR += 9 + 8;
   drawRight(page, isInv ? "Invoice" : "Quotation", rightX, yR, f.marcellus, 31, C.ink);
   yR += 31*1.02 + 9;
-  drawRight(page, (doc.number||"UMC-…-####") + "   ·   " + fmtDate(doc.doc_date), rightX, yR, f.mono, 10.5, C.inkSoft, {trackingEm:0.01});
+  // Stacked meta (matches the old layout): number on line 1, date beneath it.
+  drawRight(page, doc.number||"UMC-…-####", rightX, yR, f.mono, 10.5, C.inkSoft, {trackingEm:0.01});
+  yR += 10.5*1.6;
+  drawRight(page, fmtDate(doc.doc_date), rightX, yR, f.mono, 10.5, C.inkSoft, {trackingEm:0.01});
   yR += 10.5*1.5;
   if(isInv && doc.payment_status === "paid"){
     yR += 8;
@@ -440,9 +448,7 @@ export async function renderBankDetailsPdf(data){
   const currency= (d.currency && String(d.currency).trim()) || "AED";
   const issued  = String(d.issued || "");
   const year    = issued.slice(0,4) || "";
-  const footBarH = sx(drawBrandFooter(page, f, stampImg,
-    legal + " · Trading as " + trading,
-    CONTACT.email + " · " + CONTACT.phone + " · " + CONTACT.web));
+  const footBarH = sx(drawBrandFooter(page, f, stampImg, legal, trading));
 
   // ===== HEADER — lockup left, mono instruction block right =====
   drawLockup(page, f, padX, padTop);
