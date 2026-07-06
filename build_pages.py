@@ -526,7 +526,7 @@ index_body = header("index.html") + f"""
           <button type="button" class="on" data-mode="transfer">Transfer</button>
           <button type="button" data-mode="hourly">By the hour</button>
         </div>
-        <div class="f"><label for="bFrom">Pick-up</label><input id="bFrom" autocomplete="off" placeholder="DXB Terminal 3, hotel, residence" required></div>
+        <div class="f"><label for="bFrom">Pick-up</label><input id="bFrom" autocomplete="off" placeholder="DXB Airport, hotel, residence" required></div>
         <div class="swap">
           <div class="f" id="fTo"><label for="bTo">Destination</label><input id="bTo" autocomplete="off" placeholder="Where to?" required></div>
           <div class="f" id="fHours" style="display:none"><label for="bHours">At your disposal</label>
@@ -735,7 +735,7 @@ booking_body = header("booking.html") + f"""
           <div class="f hide" id="rowDays"><label for="kDays">Number of days</label>
             <input id="kDays" type="number" min="2" max="60" value="2" inputmode="numeric">
           </div>
-          <div class="f"><label for="kFrom">Pick-up</label><input id="kFrom" autocomplete="off" placeholder="Airport, hotel, residence" required></div>
+          <div class="f"><label for="kFrom">Pick-up</label><input id="kFrom" autocomplete="off" placeholder="DXB Airport, hotel, residence" required></div>
           <div class="f" id="rowTo"><label for="kTo">Destination</label><input id="kTo" autocomplete="off" placeholder="Where to?"></div>
           <div class="two">
             <div class="f"><label for="kDate">Date</label><input id="kDate" type="text" placeholder="Select date" required></div>
@@ -796,7 +796,7 @@ booking_body = header("booking.html") + f"""
     <div class="hide" id="bkDone">
       <div class="bk-card" style="max-width:560px;margin:0 auto;text-align:center">
         <h2>Request received</h2>
-        <p class="lede" style="margin-bottom:1rem">Thank you! Our team will confirm the details with you shortly. We&rsquo;re opening WhatsApp so you can reach us directly, if it doesn&rsquo;t open, or you&rsquo;d prefer, call us on <a href="tel:+971586497861" style="border-bottom:1px solid var(--amber);color:var(--ink)">+971 58 649 7861</a> or email <a href="mailto:contact@umcdubai.ae" style="border-bottom:1px solid var(--amber);color:var(--ink)">contact@umcdubai.ae</a>.</p>
+        <p class="lede" style="margin-bottom:1rem">Thank you! Our concierge desk will be in touch to confirm your booking. We&rsquo;re opening WhatsApp so you can reach us directly, if it doesn&rsquo;t open, or you&rsquo;d prefer, call us on <a href="tel:+971586497861" style="border-bottom:1px solid var(--amber);color:var(--ink)">+971 58 649 7861</a> or email <a href="mailto:contact@umcdubai.ae" style="border-bottom:1px solid var(--amber);color:var(--ink)">contact@umcdubai.ae</a>.</p>
       </div>
     </div>
   </div>
@@ -1967,7 +1967,7 @@ contact_body = header("contact.html") + f"""
       </div>
       <div class="bk-card hide" id="ctDone" style="text-align:center">
         <h2>Request received</h2>
-        <p class="lede" style="margin-bottom:1rem">Thank you! Our team will confirm the details with you shortly. We&rsquo;re opening WhatsApp so you can reach us directly, if it doesn&rsquo;t open, or you&rsquo;d prefer, call us on <a href="tel:+971586497861" style="border-bottom:1px solid var(--amber);color:var(--ink)">+971 58 649 7861</a> or email <a href="mailto:contact@umcdubai.ae" style="border-bottom:1px solid var(--amber);color:var(--ink)">contact@umcdubai.ae</a>.</p>
+        <p class="lede" style="margin-bottom:1rem">Thank you! Your request is with our concierge desk. We&rsquo;re opening WhatsApp so you can reach us directly, if it doesn&rsquo;t open, or you&rsquo;d prefer, call us on <a href="tel:+971586497861" style="border-bottom:1px solid var(--amber);color:var(--ink)">+971 58 649 7861</a> or email <a href="mailto:contact@umcdubai.ae" style="border-bottom:1px solid var(--amber);color:var(--ink)">contact@umcdubai.ae</a>.</p>
       </div>
       <div class="bk-card">
         <div class="chatcard rv" aria-hidden="true">
@@ -2120,7 +2120,7 @@ ie_body = header("inter-emirate.html") + f"""
       <div class="bd-row"><span class="rt">Dubai <span class="ar">&#8596;</span> Fujairah</span><span class="cell km">≈ 130 km</span><span class="cell">100 min</span><a class="tag" target="_blank" rel="noopener" href="https://api.whatsapp.com/send?phone=971586497861&text=Hello%20UMC%20Dubai%2C%20I%20would%20like%20a%20quote%20for%20the%20Dubai%20-%20Fujairah%20transfer.">Get quote</a></div>
       <div class="bd-row"><span class="rt">Dubai <span class="ar">&#8596;</span> Al Ain</span><span class="cell km">≈ 160 km</span><span class="cell">95 min</span><a class="tag" target="_blank" rel="noopener" href="https://api.whatsapp.com/send?phone=971586497861&text=Hello%20UMC%20Dubai%2C%20I%20would%20like%20a%20quote%20for%20the%20Dubai%20-%20Al%20Ain%20transfer.">Get quote</a></div>
     </div>
-    <p class="muted center" style="font-size:.85rem;margin-top:1.8rem">Travelling from another emirate into Dubai, or between any two emirates, is arranged the same way. An {vlink('e-class')} or {vlink('lexus-es')} suits two travelling, a {vlink('v-class')} a family, and a {vlink('sprinter')} or {vlink('coach')} a larger group. Our concierge confirms your quote within minutes.</p>
+    <p class="muted center" style="font-size:.85rem;margin-top:1.8rem">Travelling from another emirate into Dubai, or between any two emirates, is arranged the same way. An {vlink('e-class')} or {vlink('lexus-es')} suits two travelling, a {vlink('v-class')} a family, and a {vlink('sprinter')} or {vlink('coach')} a larger group. Our concierge desk will be in touch to confirm your booking.</p>
   </div>
 </section>
 {JL}

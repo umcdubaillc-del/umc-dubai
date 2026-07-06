@@ -3149,20 +3149,29 @@ async function handleSyncNomod(request, env) {
             )`
   ).run();
 
-  // Phase 0.3 (v111, item 1) — TARGETED contact backfill. The big newest-first
-  // scan below can be throttled by D1's per-invocation query budget on large
-  // accounts and may not reach older rows, and an incremental sync early-exits
-  // before them. So directly heal every row whose client_name is EMPTY or the
-  // 'Direct sale' sentinel by fetching its own charges and filling name/phone/
-  // email from customer_info — FILL-ONLY (a real, non-sentinel name is untouched).
-  // Bounded (LIMIT 80) and keyed on the link id, so it is a handful of requests.
+  // Phase 0.3 (v111, item 1; extended v112, item 9) — TARGETED contact backfill.
+  // The big newest-first scan below can be throttled by D1's per-invocation query
+  // budget on large accounts and may not reach older rows, and an incremental
+  // sync early-exits before them. So directly heal every row that is MISSING any
+  // contact field — an empty/sentinel client_name OR an empty client_phone OR an
+  // empty client_email — by fetching its own charges and filling from
+  // customer_info. FILL-ONLY and PER-FIELD: a real, non-sentinel name is never
+  // touched (CLIENT_NAME_FILL_SQL) and phone/email use COALESCE, so a non-empty
+  // value is never overwritten. item 9: because the criterion now includes
+  // empty phone/email (not just empty name), workspace-origin links that already
+  // carry a name (e.g. "Oscar") finally get their empty phone/email filled — the
+  // old name-only criterion excluded them. Bounded (LIMIT 150), keyed on link id.
   let namesFilled = 0;
   try {
     const need = await env.BILLING_DB.prepare(
       `SELECT id, nomod_link_id FROM payment_links
         WHERE nomod_link_id IS NOT NULL
-          AND (client_name IS NULL OR TRIM(client_name)='' OR LOWER(TRIM(client_name))='direct sale')
-        ORDER BY id DESC LIMIT 80`
+          AND (
+                client_name  IS NULL OR TRIM(client_name)='' OR LOWER(TRIM(client_name))='direct sale'
+             OR client_phone IS NULL OR TRIM(client_phone)=''
+             OR client_email IS NULL OR TRIM(client_email)=''
+              )
+        ORDER BY id DESC LIMIT 150`
     ).all();
     for (const row of (need.results || [])) {
       try {
@@ -3639,6 +3648,26 @@ async function handleEmailClient(id, env) {
 // PAGE_SCRIPT's buildLeadMessage, and the Service line is DERIVED exactly like
 // PAGE_SCRIPT's leadServiceLabel (from flight/sign/days — NOT the raw service
 // column) so the email matches what the admin sees in the drawer.
+// item 5 — airport-transfer detection. A lead is an airport transfer when a
+// flight number or welcome sign was captured OR when EITHER the pickup or the
+// destination names an airport. Case-insensitive indicators: "airport",
+// "terminal", the IATA codes we serve, and the emirate-airport names. This
+// mirrors the PAGE_SCRIPT LEAD_AIRPORT_RX / leadServiceLabel replica so the
+// admin drawer, the follow-up email and quote line items all agree. Root cause
+// of the "Josh Eckley" misclass: the old derivation read ONLY flight/sign/days
+// and ignored the pickup, so an airport pickup with no flight number fell
+// through to point-to-point. (Exported for scripts/test-lead-airport.mjs.)
+export const LEAD_AIRPORT_RX = /\b(airport|terminal|dxb|dwc|auh|shj|rkt|al maktoum|maktoum international|zayed international|abu dhabi international|sharjah international|ras al khaimah international|al ain international)\b/i;
+export function leadIsAirportFields(pickup, destination) {
+  const s = String(pickup == null ? "" : pickup) + " " + String(destination == null ? "" : destination);
+  return LEAD_AIRPORT_RX.test(s);
+}
+export function deriveLeadServiceLabel(lead) {
+  const nz = (v) => (v == null ? "" : String(v).trim());
+  if (nz(lead.flight) || nz(lead.sign) || leadIsAirportFields(lead.pickup, lead.destination)) return "Airport Transfer";
+  return nz(lead.days) ? "Chauffeur by the Hour" : "Point to Point Transfer";
+}
+
 async function handleSendLeadQuote(request, env) {
   await ensureSchema(env);
   let body = {};
@@ -3663,10 +3692,9 @@ async function handleSendLeadQuote(request, env) {
   }
 
   // Exact replica of PAGE_SCRIPT leadServiceLabel(x): derived, not the raw col.
+  // item 5 — now also airport iff pickup/destination names an airport.
   const nz = (v) => (v == null ? "" : String(v).trim());
-  const serviceLabel = (nz(lead.flight) || nz(lead.sign))
-    ? "Airport Transfer"
-    : (nz(lead.days) ? "Chauffeur by the Hour" : "Point to Point Transfer");
+  const serviceLabel = deriveLeadServiceLabel(lead);
 
   const firstName = (lead.name || "").trim().split(/\s+/)[0] || "there";
 
@@ -4064,10 +4092,13 @@ h1{font-size:1.75rem}
 h2{font-size:1.25rem}
 h3{font-size:1.05rem}
 small,.lbl{font-family:Outfit,sans-serif;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500}
-input,select,textarea,button{font-family:inherit;color:inherit;font-size:16px}
-/* font-size:16px (not the design-system 14px) so mobile Safari does NOT auto-zoom
-   when an input is focused; the page would otherwise sign-in already half-zoomed. */
-input,select,textarea{background:var(--card);border:1px solid var(--hair);border-radius:3px;padding:.55rem .65rem;width:100%;transition:border-color .15s,box-shadow .15s;font-size:16px;color:var(--ink)}
+input,select,textarea,button{font-family:inherit;color:inherit;font-size:14px}
+/* items 3 + 10 — form controls track the 14px design system on DESKTOP (so every
+   tab, incl. Bank details and the rate card, reads consistently), and are bumped
+   to >=16px only at <=760px (see the mobile rule near the end of this stylesheet)
+   so mobile Safari never auto-zooms on focus and never gets stuck zoomed. No
+   maximum-scale / user-scalable viewport hacks — that would break accessibility. */
+input,select,textarea{background:var(--card);border:1px solid var(--hair);border-radius:3px;padding:.55rem .65rem;width:100%;transition:border-color .15s,box-shadow .15s;font-size:14px;color:var(--ink)}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--amber);box-shadow:0 0 0 3px rgba(199,91,18,.12)}
 /* v59: on-brand select styling — strips the OS chrome, adds an amber-tinted caret
    SVG. Matches the visual language of the public booking form (bone surface,
@@ -4706,6 +4737,9 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #tab-leads td[data-lbl="Service"]{order:5; flex:0 0 100%; max-width:100%; font-size:12px; color:var(--muted); padding:.15rem 0 0; margin:0}
   #tab-leads td[data-lbl="Contact"]{order:6; flex:0 0 100%; max-width:100%; font-size:12px; color:var(--muted); padding:.15rem 0 0; margin:0; display:block}
   #tab-leads td[data-lbl="Status"]{order:2; flex:1 1 0; text-align:right; padding:0; margin-left:auto}
+  /* item 6 — the muted "Pending" chip adds nothing on the mobile card; hide it
+     there (real statuses stay; the NEW badge lives in the Name cell). */
+  #tab-leads td[data-lbl="Status"] .pay-status.pending{display:none}
   #tab-leads td[data-lbl="Consent"]{display:none}
   #tab-leads td[data-lbl="Actions"]{order:7; flex:0 0 100%; max-width:100%; margin-top:.5rem; display:flex; flex-wrap:wrap; gap:.4rem; text-align:center; justify-content:center}
   #tab-leads td[data-lbl="Actions"] .btn{margin:0}
@@ -4815,6 +4849,17 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   .doc-sheet-total{ font-family:'Fraunces',serif; font-size:1.3rem; color:var(--ink); text-align:right; white-space:nowrap; }
   .doc-sheet-meta{ display:flex; justify-content:space-between; align-items:center; margin-top:.5rem; color:var(--muted); font-size:.8rem; text-transform:uppercase; letter-spacing:.06em; }
   .doc-sheet-hr{ height:1px; background:var(--hair); margin:.9rem 0 .2rem; }
+  /* item 7/8 — lead sheet: details block, prominent primary chooser, quiet secondary. */
+  .lead-sheet-details{ margin:.1rem 0 .5rem; display:flex; flex-direction:column; }
+  .lsd-row{ display:flex; gap:.8rem; padding:.5rem 0; border-bottom:1px solid rgba(34,27,20,.07); font-size:.92rem; line-height:1.4; }
+  .lsd-row:last-child{ border-bottom:0; }
+  .lsd-k{ flex:0 0 34%; color:var(--muted); }
+  .lsd-v{ flex:1 1 auto; color:var(--ink); word-break:break-word; }
+  .doc-sheet-primary{ background:var(--ink) !important; color:var(--card) !important; border-color:var(--ink) !important; font-weight:600; margin-top:.1rem; }
+  .doc-sheet-primary.open{ border-radius:12px 12px 0 0; }
+  .lead-sheet-chooser{ display:flex; gap:.5rem; }
+  .lead-sheet-chooser .doc-sheet-choose{ flex:1 1 0; width:auto; margin:0; }
+  .doc-sheet-secondary{ background:transparent; border-color:var(--hair); color:var(--muted); font-size:.92rem; padding:.75rem 1rem; }
 }
 /* Mark-paid settlement-amount options (Paid in full / Paid in part) */
 .mp-optgroup{ display:flex; flex-direction:column; gap:.55rem; margin-bottom:.9rem; }
@@ -5010,6 +5055,24 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 .flatpickr-time input:hover,.flatpickr-time input:focus,.flatpickr-time .flatpickr-am-pm:hover,.flatpickr-time .flatpickr-am-pm:focus{background:var(--bone2)}
 .flatpickr-numInputWrapper span.arrowUp:after{border-bottom-color:var(--muted)}
 .flatpickr-numInputWrapper span.arrowDown:after{border-top-color:var(--muted)}
+/* item 10 — iOS zoom guard: EVERY admin form control >=16px at <=760px so mobile
+   Safari never auto-zooms on focus (and never gets stuck zoomed). Selectors mirror
+   the sub-16px overrides above so specificity matches; being later in the sheet,
+   this block wins. No maximum-scale / user-scalable viewport hack (accessibility).
+   Rate-card controls get the same treatment in their own <style> block. */
+@media (max-width:760px){
+  input,select,textarea,
+  .lt input,.lt textarea,
+  .history .hist-search input,
+  .lk-item-row textarea,.lk-item-row input,
+  .email-out textarea,
+  .sales-yearwrap select,
+  .leadq,.leadq-sheet,
+  #ltTable td:first-child textarea,#ltTable td:first-child input,
+  #ltTable td.qty input,#ltTable td.rate input,#ltTable td.tot input{
+    font-size:16px;
+  }
+}
 </style>
 </head>
 <body>
@@ -5083,6 +5146,10 @@ function appShellHTML() {
       <button type="button" class="btn btn-small btn-ghost" id="leadsRefresh">Refresh</button>
     </div>
     <div class="hist-filter" style="display:flex;gap:1rem;flex-wrap:wrap">
+      <div class="hist-search">
+        <label class="lbl" for="leadsSearch">Search</label>
+        <input id="leadsSearch" type="search" inputmode="search" autocomplete="off" placeholder="Name, phone, email, service or route">
+      </div>
       <div class="hist-tsrow">
         <div class="hist-ctrl">
           <span class="lbl">Status</span>
@@ -5291,6 +5358,12 @@ function appShellHTML() {
       </div>
       <button type="button" class="btn btn-small btn-ghost" id="lkRefresh">Refresh</button>
     </div>
+    <div class="hist-filter" style="margin:0 0 .2rem">
+      <div class="hist-search">
+        <label class="lbl" for="lkSearch">Search</label>
+        <input id="lkSearch" type="search" inputmode="search" autocomplete="off" placeholder="Client, phone, email, title, amount or status">
+      </div>
+    </div>
     <div class="hist-scroll">
       <table>
         <thead><tr><th>Client</th><th style="text-align:right">Amount</th><th>Created</th><th>Link</th><th>Status</th><th aria-hidden="true"></th></tr></thead>
@@ -5452,8 +5525,11 @@ function appShellHTML() {
      columns), add/remove/reorder rows, editable column labels + valid-from + T&C.
      Exports the branded A4-landscape rate card via /admin/api/rate-card/pdf. -->
 <style>
-  #tab-ratecard .rc-wrap{max-width:1180px}
-  #tab-ratecard .rc-scroll{overflow-x:auto;margin:0 -.2rem}
+  /* item 11 — match the sibling content tabs' gutter (mirrors .links-page): fill
+     the width with a 1.5rem inset (1rem on mobile) so the rate card no longer
+     touches the left edge and aligns with Links/Leads rather than centering. */
+  #tab-ratecard .rc-wrap{padding:1.5rem}
+  #tab-ratecard .rc-scroll{overflow-x:auto}
   #tab-ratecard .rc-grid{width:100%;border-collapse:collapse;font-size:.86rem}
   #tab-ratecard .rc-grid th,#tab-ratecard .rc-grid td{padding:.45rem .5rem;border-bottom:1px solid rgba(34,27,20,.10);vertical-align:top}
   #tab-ratecard .rc-grid thead th{font-weight:500;color:var(--muted,#7A6F5F);font-size:.72rem;letter-spacing:.03em;text-align:left}
@@ -5471,6 +5547,18 @@ function appShellHTML() {
   #tab-ratecard .rc-ctrls button{border:0;background:transparent;cursor:pointer;font-size:.9rem;color:var(--muted,#7A6F5F);padding:.2rem .3rem;border-radius:5px;line-height:1}
   #tab-ratecard .rc-ctrls button:hover{background:rgba(34,27,20,.06);color:var(--ink,#221B14)}
   #tab-ratecard .rc-warn{background:#FBF8F1;border:1px solid rgba(199,91,18,.35);border-left:3px solid var(--amber,#C75B12);border-radius:8px;padding:.7rem .9rem;margin:1rem 0 0;font-size:.82rem;line-height:1.55;color:var(--ink-soft,#4A4136)}
+  #tab-ratecard #rcTerms{font-size:.82rem}
+  @media (max-width:620px){ #tab-ratecard .rc-wrap{padding:1rem} }
+  /* item 10 — rate-card controls >=16px on mobile so iOS never auto-zooms. This
+     block sits later in the DOM than the head stylesheet, so it wins over the
+     .76rem/.86rem editor sizes above. */
+  @media (max-width:760px){
+    #tab-ratecard .rc-colh input,
+    #tab-ratecard .rc-cell input,
+    #tab-ratecard .rc-route input,
+    #tab-ratecard #rcValidFrom,
+    #tab-ratecard #rcTerms{ font-size:16px; }
+  }
 </style>
 <section id="tab-ratecard" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnMore" hidden>
   <div class="wrap rc-wrap">
@@ -5494,7 +5582,7 @@ function appShellHTML() {
     </div>
     <div class="field" style="margin-top:1.5rem">
       <label class="lbl" for="rcTerms">Terms &amp; conditions</label>
-      <textarea id="rcTerms" rows="9" spellcheck="false" style="width:100%;font:inherit;font-size:.82rem;line-height:1.55;border:1px solid rgba(34,27,20,.14);border-radius:8px;padding:.6rem .7rem;background:#fff;color:var(--ink,#221B14);resize:vertical"></textarea>
+      <textarea id="rcTerms" rows="9" spellcheck="false" style="width:100%;font-family:inherit;line-height:1.55;border:1px solid rgba(34,27,20,.14);border-radius:8px;padding:.6rem .7rem;background:#fff;color:var(--ink,#221B14);resize:vertical"></textarea>
       <p class="hist-sub" style="margin:.4rem 0 0">One numbered clause per line. The lead words up to the first colon print bold on the PDF.</p>
     </div>
     <div id="rcWarn" class="rc-warn" hidden></div>
@@ -6373,6 +6461,7 @@ const PAGE_SCRIPT = `<script>
             + '<tr class="hist-actions-row" hidden><td colspan="6"><div class="hist-actions-panel">'+actions.join(' ')+'</div></td></tr>';
         }).join("");
         linksLoaded = true;
+        applyLinksFilter();   // item 2 — re-apply any active search after a reload
       } catch(e){ setLkStatus("Links load failed."); }
     };
     function setLkStatus(s){ const el = $("lkStatus"); if(el) el.textContent = s; }
@@ -8442,10 +8531,33 @@ const PAGE_SCRIPT = `<script>
     const body = $("leadsBody"); if(!body) return;
     sortTbodyRows(body);
     const want = (body.dataset.statFilter || "all").toLowerCase();
-    body.querySelectorAll("tr").forEach(function(tr){
+    // item 2 — free-text search across each row's visible text (name, phone,
+    // email, service and route all live in the main row cells). AND-combined with
+    // the status segment. Drawer rows follow their main row's visibility.
+    const qEl = $("leadsSearch");
+    const q = qEl ? qEl.value.trim().toLowerCase() : "";
+    body.querySelectorAll("tr.expandable").forEach(function(tr){
       const st = (tr.getAttribute("data-leadstat") || "").toLowerCase();
-      const ok = want === "all" || st === want;
-      tr.style.display = ok ? "" : "none";
+      const okStat = want === "all" || st === want;
+      const okText = !q || (tr.textContent || "").toLowerCase().indexOf(q) !== -1;
+      const show = okStat && okText;
+      tr.style.display = show ? "" : "none";
+      const drawer = tr.nextElementSibling;
+      if(drawer && drawer.classList.contains("hist-actions-row")) drawer.style.display = show ? "" : "none";
+    });
+  }
+  // item 2 — Links tab free-text search. Each row's text carries client name,
+  // phone, email, title, amount and status, so a plain substring match covers
+  // every field the owner asked for. Drawer rows follow their main row.
+  function applyLinksFilter(){
+    const body = $("lkBody"); if(!body) return;
+    const qEl = $("lkSearch");
+    const q = qEl ? qEl.value.trim().toLowerCase() : "";
+    body.querySelectorAll("tr.expandable").forEach(function(tr){
+      const show = !q || (tr.textContent || "").toLowerCase().indexOf(q) !== -1;
+      tr.style.display = show ? "" : "none";
+      const drawer = tr.nextElementSibling;
+      if(drawer && drawer.classList.contains("hist-actions-row")) drawer.style.display = show ? "" : "none";
     });
   }
   async function loadLeads(){
@@ -8857,6 +8969,9 @@ const PAGE_SCRIPT = `<script>
     const root = document.getElementById("tab-links");
     if(!root || root._linksClickBound) return;
     root._linksClickBound = true;
+    // item 2 — live text filter for the Links tab.
+    const searchEl = root.querySelector("#lkSearch");
+    if(searchEl) searchEl.addEventListener("input", function(){ applyLinksFilter(); });
     root.addEventListener("click", function(e){
       const cp = e.target.closest("[data-lkcopy]");
       if(cp){
@@ -9706,8 +9821,14 @@ const PAGE_SCRIPT = `<script>
   // v103 — Leads follow-up helpers. The message is assembled purely from the
   // lead's own fields; a line is emitted only when its field is non-empty.
   function leadNz(v){ return v == null ? "" : String(v).trim(); }
+  // item 5 — airport indicators in EITHER pickup or destination classify a lead
+  // as an airport transfer, even without a flight number / welcome sign. Mirrors
+  // the server LEAD_AIRPORT_RX. Backslashes are DOUBLED for the PAGE_SCRIPT
+  // template literal (emitted browser JS gets single-backslash word boundaries).
+  var LEAD_AIRPORT_RX = /\\b(airport|terminal|dxb|dwc|auh|shj|rkt|al maktoum|maktoum international|zayed international|abu dhabi international|sharjah international|ras al khaimah international|al ain international)\\b/i;
+  function leadIsAirport(x){ return LEAD_AIRPORT_RX.test(leadNz(x.pickup) + " " + leadNz(x.destination)); }
   function leadServiceLabel(x){
-    if(leadNz(x.flight) || leadNz(x.sign)) return "Airport Transfer";
+    if(leadNz(x.flight) || leadNz(x.sign) || leadIsAirport(x)) return "Airport Transfer";
     if(leadNz(x.days)) return "Chauffeur by the Hour";
     return "Point to Point Transfer";
   }
@@ -9814,6 +9935,10 @@ const PAGE_SCRIPT = `<script>
   }
   // Exposed for the bottom-sheet IIFE (separate scope) to set the same label.
   window.__umcSetLeadVatMode = setLeadVatMode;
+  // item 7/8 — expose lead data + the derived service label to the bottom-sheet
+  // IIFE so the mobile lead sheet can render a full details block from source.
+  window.__umcLeadById = function(id){ id = String(id); for(var i=0;i<leadsCache.length;i++){ if(String(leadsCache[i].id) === id) return leadsCache[i]; } return null; };
+  window.__umcLeadServiceLabel = function(x){ return leadServiceLabel(x); };
 
   // Phase 1 — Leads tab delegation. Status filter, sort dropdown, refresh,
   // and the two action buttons per row (Create quote / Create invoice).
@@ -9845,6 +9970,9 @@ const PAGE_SCRIPT = `<script>
     const root = document.getElementById("tab-leads");
     if(!root || root._leadsClickBound) return;
     root._leadsClickBound = true;
+    // item 2 — live text filter (re-applies the combined status + search filter).
+    const searchEl = root.querySelector("#leadsSearch");
+    if(searchEl) searchEl.addEventListener("input", function(){ applyLeadsFilter(); });
     root.addEventListener("click", function(e){
       const refresh = e.target.closest("#leadsRefresh");
       if(refresh){ e.preventDefault(); loadLeads(); return; }
@@ -10541,13 +10669,14 @@ const PAGE_SCRIPT = `<script>
   window.__sheetBound = true;
   var CFG = {
     'tab-documents': { title:{lbl:'Number',link:true},  sub:{lbl:'Client'},  right:{lbl:'Total'},  metaL:['Type','Date'], metaR:'Status', inline:false },
-    'tab-leads':     { title:{lbl:'Name'},               sub:{lbl:'Contact'}, right:null,           metaL:['Service'],    metaR:function(row){ var c = row.querySelector('td[data-lbl="Status"]'); var s = c && c.querySelector('.pay-status'); var base = s ? s.textContent.trim() : (c ? c.textContent.trim() : ''); return base + (row.querySelector('.lead-unverified') ? ' \u00b7 UNVERIFIED' : ''); }, inline:true  },
+    'tab-leads':     { title:{lbl:'Name'},               sub:{lbl:'Contact'}, right:null,           metaL:['Service'],    metaR:function(row){ var c = row.querySelector('td[data-lbl="Status"]'); var s = c && c.querySelector('.pay-status'); /* item 6 \u2014 suppress the muted "Pending" chip on mobile cards (adds nothing there); real statuses + UNVERIFIED still show, and the NEW badge lives in the title. */ var base = (s && !s.classList.contains('pending')) ? s.textContent.trim() : ''; var parts = []; if(base) parts.push(base); if(row.querySelector('.lead-unverified')) parts.push('UNVERIFIED'); return parts.join(' \u00b7 '); }, inline:true, lead:true  },
     'tab-links':     { title:{lbl:'Client',first:true},  sub:null,            right:{lbl:'Amount'}, metaL:['Created'],    metaR:'Status', inline:false },
     'tab-fleet':     { title:{lbl:'Name'},               sub:{lbl:'Detail'},  right:null,           metaL:[],             metaR:function(row){ var p = row.querySelector('td[data-lbl="Status"] .hist-status'); return p ? p.textContent.trim() : ''; }, inline:false }
   };
   var TABS = ['tab-documents','tab-leads','tab-links','tab-fleet'];
   function mq(){ return window.matchMedia('(max-width: 620px)').matches; }
   var sheetEl = null, backdropEl = null, currentRow = null;
+  function shtEsc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function cell(row, lbl){ return row.querySelector('td[data-lbl="' + lbl + '"]'); }
   function cellText(row, lbl){ var c = cell(row, lbl); return c ? c.textContent.trim() : ''; }
   function cellJoined(row, lbl){
@@ -10575,12 +10704,12 @@ const PAGE_SCRIPT = `<script>
     sheetEl = document.getElementById('docSheet');
     if (!sheetEl){ sheetEl = document.createElement('div'); sheetEl.id = 'docSheet'; document.body.appendChild(sheetEl); }
   }
-  function bindAction(orig){
+  function bindAction(orig, quiet){
     var label = orig.textContent.trim();
     if (label === '×') label = 'Delete';
     var b = document.createElement('button');
     b.type = 'button';
-    b.className = 'doc-sheet-action';
+    b.className = 'doc-sheet-action' + (quiet ? ' doc-sheet-secondary' : '');
     b.textContent = label;
     var dis = orig.disabled === true || orig.getAttribute('aria-disabled') === 'true' || orig.classList.contains('is-disabled') || orig.classList.contains('disabled');
     if (dis) b.disabled = true;
@@ -10605,6 +10734,7 @@ const PAGE_SCRIPT = `<script>
   function buildSheet(row, cfg){
     var drawer = row.nextElementSibling;
     var panel = (drawer && drawer.classList && drawer.classList.contains('hist-actions-row')) ? drawer.querySelector('.hist-actions-panel') : null;
+    var isLead = !!cfg.lead;   // item 7/8 — leads get a details-first sheet
     var subTxt = cfg.sub ? cellJoined(row, cfg.sub.lbl) : '';
     var rightHtml = cfg.right ? '<div class="doc-sheet-total">' + cellText(row, cfg.right.lbl) + '</div>' : '';
     var subHtml = subTxt ? '<div class="doc-sheet-client">' + subTxt + '</div>' : '';
@@ -10620,6 +10750,62 @@ const PAGE_SCRIPT = `<script>
     if (cfg.note){ html += '<div class="doc-sheet-note">' + cfg.note + '</div>'; }
     sheetEl.innerHTML = html;
     var grab = document.getElementById('docSheetGrab'); if (grab) grab.addEventListener('click', dismiss);
+    // item 7/8 — LEADS: render a clean details block FIRST (every captured field),
+    // then a single primary "Create quote / invoice / job" chooser. The current
+    // congested row of separate buttons is gone; everything else drops below as a
+    // quieter secondary action. Built to fit a 390px sheet.
+    if (isLead){
+      var lid = row.getAttribute('data-leadid');
+      var lead = (typeof window.__umcLeadById === 'function') ? window.__umcLeadById(lid) : null;
+      if (lead){
+        var svc = (typeof window.__umcLeadServiceLabel === 'function') ? window.__umcLeadServiceLabel(lead) : (lead.service || '');
+        var dt = [lead.date, lead.time].filter(function(s){ return s && String(s).trim(); }).join(' · ');
+        var consent = (Number(lead.marketing_consent) === 1) ? 'Yes' : 'No';
+        var created = String(lead.created_at || '').replace('T', ' ').slice(0, 16);
+        var drows = [
+          ['Phone', lead.phone], ['Email', lead.email], ['Service', svc],
+          ['Pickup', lead.pickup], ['Destination', lead.destination],
+          ['Date / time', dt], ['At disposal', lead.days],
+          ['Flight', lead.flight], ['Welcome sign', lead.sign],
+          ['Vehicle', lead.vehicle], ['Message', lead.notes],
+          ['Consent', consent], ['Created', created]
+        ];
+        var dlHtml = '';
+        for (var di = 0; di < drows.length; di++){
+          var dk = drows[di][0], dv = drows[di][1];
+          if (dv == null || String(dv).trim() === '') continue;
+          dlHtml += '<div class="lsd-row"><span class="lsd-k">' + dk + '</span><span class="lsd-v">' + shtEsc(String(dv)) + '</span></div>';
+        }
+        var dl = document.createElement('div');
+        dl.className = 'lead-sheet-details';
+        dl.innerHTML = dlHtml;
+        sheetEl.appendChild(dl);
+      }
+      // Primary chooser — one prominent button opening Quote / Invoice / Job.
+      var createBtns = { Quote: row.querySelector('[data-leadquote]'), Invoice: row.querySelector('[data-leadinvoice]'), Job: row.querySelector('[data-leadjob]') };
+      if (createBtns.Quote || createBtns.Invoice || createBtns.Job){
+        var primary = document.createElement('button');
+        primary.type = 'button';
+        primary.className = 'doc-sheet-action doc-sheet-primary';
+        primary.textContent = 'Create quote / invoice / job';
+        var chooser = document.createElement('div');
+        chooser.className = 'lead-sheet-chooser';
+        chooser.hidden = true;
+        ['Quote', 'Invoice', 'Job'].forEach(function(kind){
+          var orig = createBtns[kind];
+          if (!orig) return;
+          var cb = document.createElement('button');
+          cb.type = 'button';
+          cb.className = 'doc-sheet-action doc-sheet-choose';
+          cb.textContent = kind;
+          cb.addEventListener('click', function(){ hide(); orig.click(); });
+          chooser.appendChild(cb);
+        });
+        primary.addEventListener('click', function(){ chooser.hidden = !chooser.hidden; primary.classList.toggle('open', !chooser.hidden); });
+        sheetEl.appendChild(primary);
+        sheetEl.appendChild(chooser);
+      }
+    }
     // v104 — leads quote-price: the sheet shows its OWN mirror input, prefilled
     // from the canonical drawer input. There is NO per-keystroke writeback (that
     // race was the bug). A dedicated Save button commits via the shared
@@ -10683,9 +10869,14 @@ const PAGE_SCRIPT = `<script>
     }
     var src = [];
     if (panel){ Array.prototype.forEach.call(panel.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ if (b.getAttribute && (b.getAttribute('data-leadsave') != null || b.getAttribute('data-leadvat') != null)) return; src.push(b); }); }
-    if (cfg.inline){ Array.prototype.forEach.call(row.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ src.push(b); }); }
+    if (cfg.inline){ Array.prototype.forEach.call(row.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){
+      // item 7/8 — for leads the create buttons are promoted into the primary
+      // chooser above, so exclude them from the flat secondary list.
+      if (isLead && b.getAttribute && (b.getAttribute('data-leadquote') != null || b.getAttribute('data-leadinvoice') != null || b.getAttribute('data-leadjob') != null)) return;
+      src.push(b);
+    }); }
     var seen = {};
-    for (var i = 0; i < src.length; i++){ var k = src[i].textContent.trim(); if (k && !seen[k]){ seen[k] = 1; bindAction(src[i]); } }
+    for (var i = 0; i < src.length; i++){ var k = src[i].textContent.trim(); if (k && !seen[k]){ seen[k] = 1; bindAction(src[i], isLead); } }
     var cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
     cancelBtn.className = 'doc-sheet-action doc-sheet-cancel';
