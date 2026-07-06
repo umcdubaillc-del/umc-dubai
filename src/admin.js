@@ -5517,7 +5517,6 @@ function appShellHTML() {
     <div class="field"><label class="lbl" for="bkTrading">Trading as</label><input id="bkTrading" type="text" maxlength="80" autocomplete="off" placeholder="UMC Dubai"></div>
     <div class="field"><label class="lbl" for="bkBankName">Bank name</label><input id="bkBankName" type="text" maxlength="80" autocomplete="off" placeholder="e.g. Wio Bank PJSC"></div>
     <div class="field"><label class="lbl" for="bkHolder">Account holder</label><input id="bkHolder" type="text" maxlength="120" autocomplete="off" placeholder="Mirrors the legal name on the PDF"></div>
-    <div class="field"><label class="lbl" for="bkAcct">Account number</label><input id="bkAcct" type="text" maxlength="60" autocomplete="off"></div>
     <div class="field"><label class="lbl" for="bkIban">IBAN</label><input id="bkIban" type="text" maxlength="60" autocomplete="off" placeholder="AE.."></div>
     <div class="field"><label class="lbl" for="bkBic">SWIFT / BIC</label><input id="bkBic" type="text" maxlength="20" autocomplete="off"></div>
     <div class="field"><label class="lbl" for="bkCurrency">Currency</label><input id="bkCurrency" type="text" maxlength="8" autocomplete="off" value="AED"></div>
@@ -7041,7 +7040,7 @@ const PAGE_SCRIPT = `<script>
       const d = (j && j.details) || {};
       const set = function(id, v){ const el = $(id); if(el) el.value = (v == null ? "" : v); };
       set("bkLegal", d.legal_name); set("bkTrading", d.trading_as); set("bkBankName", d.bank_name);
-      set("bkHolder", d.account_holder); set("bkAcct", d.account_number); set("bkIban", d.iban);
+      set("bkHolder", d.account_holder); set("bkIban", d.iban);
       set("bkBic", d.swift_bic); set("bkCurrency", d.currency || "AED");
     }catch(e){ const s = $("bkStatus"); if(s) s.textContent = "Load failed."; }
   }
@@ -7053,7 +7052,7 @@ const PAGE_SCRIPT = `<script>
     if(saveBtn) saveBtn.addEventListener("click", function(){
       const payload = {
         legal_name:$("bkLegal").value, trading_as:$("bkTrading").value, bank_name:$("bkBankName").value,
-        account_holder:$("bkHolder").value, account_number:$("bkAcct").value, iban:$("bkIban").value,
+        account_holder:$("bkHolder").value, iban:$("bkIban").value,
         swift_bic:$("bkBic").value, currency:$("bkCurrency").value
       };
       saveBtn.disabled = true; st("Saving …");

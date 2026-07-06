@@ -480,10 +480,12 @@ export async function renderBankDetailsPdf(data){
   y += 34;
 
   // ===== BANK PANEL — the one raised --card block (labels Outfit, values mono) =====
+  // Account number intentionally omitted (2026-07-06). The panel height derives
+  // from bankRows.length, so removing the row auto-closes the gap and the
+  // Bank / Account holder / IBAN / SWIFT-BIC / Currency rhythm stays even.
   const bankRows = [
     ["Bank name",      d.bank_name || ""],
     ["Account holder", legal],                    // mirrors the legal-name field
-    ["Account number", d.account_number || ""],
     ["IBAN",           d.iban || ""],
     ["SWIFT / BIC",    d.swift_bic || ""],
     ["Currency",       currency],
