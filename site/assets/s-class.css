@@ -273,3 +273,44 @@ body.sc-no-scroll{overflow:hidden}
    constrains the link to the width of its text so the underline hugs it. */
 .sc-also .acard .btn-line{margin-top:.6rem;justify-self:start;width:auto}
 @media (prefers-reduced-motion:reduce){.sc-also .acard{transition:none}.sc-also .acard:hover{transform:none;box-shadow:none}}
+
+/* ============================================================
+   FLEET-UX-1-DESIGN — capacity module (seat map + luggage)
+   ============================================================ */
+.sc-cap .sc-paper__wrap{max-width:760px}
+.cap-card{background:var(--bone,#F6F1E7);border:1px solid var(--hair,rgba(34,27,20,.10));border-radius:14px;padding:1.5rem 1.5rem 1.4rem}
+.cap-head{margin-bottom:1rem}
+.cap-eyebrow{display:block;font-family:var(--sans,'Outfit',system-ui,sans-serif);font-weight:500;font-size:.68rem;letter-spacing:.24em;text-transform:uppercase;color:var(--amber-deep,#A84B0C)}
+.cap-name{font-family:var(--serif,'Marcellus',Georgia,serif);font-weight:400;font-size:1.5rem;line-height:1.15;color:var(--ink,#221B14);margin:.35rem 0 0}
+.cap-tabs{display:flex;gap:1.5rem;border-bottom:1px solid var(--hair,rgba(34,27,20,.10));margin-bottom:1.35rem}
+.cap-tab{background:none;border:0;padding:.55rem 0;margin-bottom:-1px;font-family:var(--sans,'Outfit',system-ui,sans-serif);font-weight:500;font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--muted,#7A6F5F);cursor:pointer;border-bottom:2px solid transparent;transition:color .2s,border-color .2s}
+.cap-tab.on{color:var(--ink,#221B14);border-bottom-color:#C75B12}
+.cap-body{display:flex;flex-direction:column;gap:1.4rem}
+.cap-right{display:flex;justify-content:center}
+.cap-svg{width:170px;height:auto;max-width:62vw}
+.cap-left{display:flex;flex-direction:column;gap:.9rem}
+.cap-panel{display:flex;flex-direction:column;gap:.55rem;margin:0}
+.cap-scen{display:block;text-align:left;width:100%;background:var(--card,#FBF8F1);border:1px solid var(--line,rgba(34,27,20,.18));border-radius:9px;padding:.7rem .85rem;cursor:pointer;transition:border-color .18s,box-shadow .18s}
+.cap-scen:hover{border-color:rgba(199,91,18,.5)}
+.cap-scen.on{border-color:#C75B12;box-shadow:inset 0 0 0 1px #C75B12}
+.cap-scen__t{display:block;font-family:var(--sans,'Outfit',system-ui,sans-serif);font-weight:500;font-size:12.5px;color:var(--ink,#221B14)}
+.cap-scen__d{display:block;font-size:11.5px;line-height:1.45;color:var(--muted,#7A6F5F);margin-top:.15rem}
+.cap-chips{display:flex;flex-wrap:wrap;gap:.5rem}
+.cap-chip{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:11.5px;letter-spacing:.02em;background:var(--card,#FBF8F1);border:1px solid var(--line,rgba(34,27,20,.18));border-radius:999px;padding:.42rem .8rem;color:var(--ink-soft,#4A4136);cursor:pointer;transition:.18s}
+.cap-chip:hover{border-color:rgba(199,91,18,.5)}
+.cap-chip.on{border-color:#C75B12;color:#A84B0C;background:rgba(199,91,18,.06)}
+.cap-honesty{font-size:12px;line-height:1.5;color:var(--muted,#7A6F5F);margin:.25rem 0 0}
+.cap-size{align-self:flex-start;background:none;border:0;padding:0;font-family:var(--sans,'Outfit',system-ui,sans-serif);font-weight:500;font-size:12.5px;color:#A84B0C;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.sc-cap__note{margin-top:1.4rem;color:var(--ink-soft,#4A4136)}
+/* seat states */
+.cap-svg .seat{fill:none;stroke:#221B14;stroke-width:1.5;opacity:.5;transition:fill .2s,fill-opacity .2s,stroke .2s,opacity .2s}
+.cap-svg .seat.occupied{fill:#C75B12;fill-opacity:.16;stroke:#C75B12;stroke-width:1.7;opacity:1}
+.cap-card.mode-luggage .cap-svg .seat,.cap-card.mode-luggage .cap-svg .seat.occupied{fill:none;fill-opacity:1;stroke:#221B14;stroke-width:1.5;opacity:.5}
+/* two-column desktop: scenario cards left, diagram right */
+@media (min-width:720px){
+  .cap-body{flex-direction:row;align-items:flex-start;gap:2rem}
+  .cap-left{order:1;flex:1 1 auto;min-width:0}
+  .cap-right{order:2;flex:0 0 auto;width:190px;position:sticky;top:100px}
+  .cap-svg{width:190px;max-width:none}
+}
+@media (prefers-reduced-motion:reduce){.cap-svg .seat{transition:none}}

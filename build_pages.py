@@ -166,7 +166,7 @@ def _compute_v():
     import hashlib, pathlib
     h = hashlib.md5()
     for rel in ("assets/style.css","assets/s-class.css","assets/main.js",
-                "assets/booking.js","assets/fleet-data.js",
+                "assets/booking.js","assets/fleet-data.js","assets/capacity.js",
                 "assets/vendor/flatpickr.min.css","assets/vendor/flatpickr.min.js"):
         p = SITE / rel
         if p.exists(): h.update(p.read_bytes())
@@ -2420,6 +2420,106 @@ notfound = header("index.html").replace('class="on"','') + f"""
 
 # ---------- fleet / s-class (flagship model page; template for the other 7 cars) ----------
 # Single static hero image (no rotation, no dots).
+# ============================================================
+# FLEET-UX-1-DESIGN — reusable capacity module (top-down seat map + luggage).
+# Emits the bone card: eyebrow + Marcellus name, SEATING | LUGGAGE tabs, scenario
+# cards + the exact reference SVG diagram, luggage combination chips, honesty line
+# and a Size guide link (opens the existing sc-sg modal via the shared .sc-mt JS).
+# SSR renders the full SVG + the default seating scenario occupied; capacity.js
+# enhances the tabs / scenarios / luggage chips. Returns a plain string, so it is
+# safe to drop into an f-string page body via {capacity_module(cfg)} — the braces
+# in the embedded JSON are a value, not re-parsed by the outer f-string.
+# ============================================================
+def _cap_seat(seat_id, x, y, w, h, rx, occupied):
+    occ = " occupied" if seat_id in occupied else ""
+    return f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{rx}" class="seat{occ}" data-seat="{seat_id}"/>'
+
+def capacity_module(cfg):
+    occ = next(s["occupied"] for s in cfg["scenarios"] if s["id"] == cfg["default_scenario"])
+    seats_svg = (
+        _cap_seat("front-guest", 102, 88, 38, 46, 9, occ)
+        + _cap_seat("rear-1", 46, 168, 30, 46, 8, occ)
+        + _cap_seat("rear-2", 80, 168, 30, 46, 8, occ)
+        + _cap_seat("rear-3", 114, 168, 30, 46, 8, occ)
+    )
+    svg = (
+        f'<svg class="cap-svg" viewBox="0 0 190 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Top-down seating plan of the {cfg["name"]}">'
+        '<rect x="6" y="52" width="14" height="34" rx="6" fill="none" stroke="#221B14" stroke-width="1.4" opacity="0.45"/>'
+        '<rect x="170" y="52" width="14" height="34" rx="6" fill="none" stroke="#221B14" stroke-width="1.4" opacity="0.45"/>'
+        '<rect x="6" y="238" width="14" height="34" rx="6" fill="none" stroke="#221B14" stroke-width="1.4" opacity="0.45"/>'
+        '<rect x="170" y="238" width="14" height="34" rx="6" fill="none" stroke="#221B14" stroke-width="1.4" opacity="0.45"/>'
+        '<path d="M 38 30 Q 38 8 95 8 Q 152 8 152 30 L 155 250 Q 155 332 95 332 Q 35 332 35 250 Z" fill="#FBF8F1" stroke="#221B14" stroke-width="1.7"/>'
+        '<path d="M 46 74 Q 95 60 144 74" fill="none" stroke="#221B14" stroke-width="1" opacity="0.35"/>'
+        '<path d="M 44 268 Q 95 280 146 268" fill="none" stroke="#221B14" stroke-width="1" opacity="0.35"/>'
+        '<rect x="50" y="88" width="38" height="46" rx="9" fill="none" stroke="#221B14" stroke-width="1.5" stroke-dasharray="3 3"/>'
+        '<circle cx="69" cy="104" r="8" fill="none" stroke="#221B14" stroke-width="1.4"/>'
+        '<line x1="69" y1="98" x2="69" y2="110" stroke="#221B14" stroke-width="1.2"/>'
+        f'{seats_svg}'
+        '<line x1="42" y1="240" x2="148" y2="240" stroke="#221B14" stroke-width="1" opacity="0.3"/>'
+        '<g class="boot-cases"></g>'
+        '<text x="95" y="326" font-size="8" fill="#7A6F5F" text-anchor="middle" letter-spacing="2" font-family="ui-monospace,Menlo,monospace">BOOT</text>'
+        '</svg>'
+    )
+    scen_cards = "".join(
+        f'<button type="button" class="cap-scen{" on" if s["id"]==cfg["default_scenario"] else ""}" '
+        f'data-scen="{s["id"]}" role="tab" aria-selected="{"true" if s["id"]==cfg["default_scenario"] else "false"}">'
+        f'<span class="cap-scen__t">{s["title"]}</span><span class="cap-scen__d">{s["desc"]}</span></button>'
+        for s in cfg["scenarios"]
+    )
+    chips = "".join(
+        f'<button type="button" class="cap-chip{" on" if c["id"]==cfg["default_combo"] else ""}" '
+        f'data-combo="{c["id"]}" aria-pressed="{"true" if c["id"]==cfg["default_combo"] else "false"}">{c["label"]}</button>'
+        for c in cfg["luggage"]
+    )
+    data = json.dumps({
+        "scenarios": cfg["scenarios"], "luggage": cfg["luggage"],
+        "defaultScenario": cfg["default_scenario"], "defaultCombo": cfg["default_combo"],
+    }, separators=(",", ":"))
+    return (
+        '<div class="cap-card" data-cap>'
+        f'<div class="cap-head"><span class="cap-eyebrow">Capacity</span><h2 class="cap-name">{cfg["name"]}</h2></div>'
+        '<div class="cap-tabs" role="tablist" aria-label="Capacity view">'
+        '<button type="button" class="cap-tab on" data-tab="seating" role="tab" aria-selected="true">Seating</button>'
+        '<button type="button" class="cap-tab" data-tab="luggage" role="tab" aria-selected="false">Luggage</button>'
+        '</div>'
+        '<div class="cap-body">'
+        f'<div class="cap-right">{svg}</div>'
+        '<div class="cap-left">'
+        f'<div class="cap-panel" data-panel="seating">{scen_cards}</div>'
+        f'<div class="cap-panel" data-panel="luggage" hidden><div class="cap-chips">{chips}</div></div>'
+        f'<p class="cap-honesty">{cfg["honesty"]}</p>'
+        '<button type="button" class="cap-size sc-mt" aria-haspopup="dialog" aria-controls="sc-sg" aria-expanded="false">Size guide</button>'
+        '</div>'
+        '</div>'
+        f'<script type="application/json" class="cap-data">{data}</script>'
+        '</div>'
+    )
+
+# S-Class published capacity: 4 guests, 2 medium cases. Occupiable seats:
+# front-guest + rear bench x3 (the chauffeur seat is drawn dashed, never counted).
+SCLASS_CAP = {
+    "name": "Mercedes-Benz S-Class",
+    "scenarios": [
+        {"id": "two-rear", "title": "Two, in the rear",
+         "desc": "The executive standard — two guests across the rear, the centre seat left free.",
+         "occupied": ["rear-1", "rear-3"]},
+        {"id": "three-rear", "title": "Three, in the rear",
+         "desc": "All three rear seats taken; the front stays clear for extra luggage.",
+         "occupied": ["rear-1", "rear-2", "rear-3"]},
+        {"id": "four", "title": "Four guests",
+         "desc": "One beside the chauffeur, three across the rear bench — the full four.",
+         "occupied": ["front-guest", "rear-1", "rear-2", "rear-3"]},
+    ],
+    "default_scenario": "two-rear",
+    "luggage": [
+        {"id": "2m", "label": "2 medium", "cases": ["M", "M"]},
+        {"id": "1m2s", "label": "1 medium + 2 cabin", "cases": ["M", "S", "S"]},
+        {"id": "4s", "label": "4 cabin", "cases": ["S", "S", "S", "S"]},
+    ],
+    "default_combo": "2m",
+    "honesty": "These are the layouts we actually run. Your booking is confirmed to this exact car and configuration — never a smaller one.",
+}
+
 SC_HERO_IMG = ("hero-2025.webp", "Mercedes Benz S Class, exterior")
 SC_HERO_TAGLINE = "It is recognised before it stops."
 # Four supporting cabin shots sit in a 2x2 grid beside the primary interior image. No hotspots on these.
@@ -2581,30 +2681,10 @@ sc_body = header("fleet.html") + f"""
   <div class="sc-am__grid" role="list">{sc_amenities_html}</div>
 </section>
 
-<section class="sc-paper" id="on-paper">
+<section class="sc-paper sc-cap" id="on-paper">
   <div class="sc-paper__wrap">
-    <div class="sc-paper__head">
-      <span class="lbl">On paper</span>
-      <h2>The plain facts.</h2>
-    </div>
-    <article class="card">
-      <div class="rows">
-        <div class="row"><span class="k">Passengers</span>
-          <span class="v">
-            <span class="vmain">Up to 4</span>
-            <button type="button" class="sc-mt" aria-haspopup="dialog" aria-controls="sc-sd" aria-expanded="false">Seating detail</button>
-          </span>
-        </div>
-        <div class="row"><span class="k">Luggage</span>
-          <span class="v">
-            <span class="vmain">Up to 2 medium suitcases</span>
-            <button type="button" class="sc-mt" aria-haspopup="dialog" aria-controls="sc-sg" aria-expanded="false">Size guide</button>
-          </span>
-        </div>
-        <div class="row"><span class="k">Suited to</span><span class="v"><span class="vmain">Executive travel</span></span></div>
-      </div>
-      <p>The Mercedes&#8209;Benz S&#8209;Class is the reference point for chauffeur travel in Dubai. Reclining rear seats, a hushed cabin, independent rear&#8209;zone climate and discreet charging at every seat. Suited to airport arrivals from DXB or DWC, board meetings across the DIFC, Downtown and Dubai Marina, and any journey where the room you arrive in should feel like the room you left.</p>
-    </article>
+    {capacity_module(SCLASS_CAP)}
+    <p class="sc-cap__note">The Mercedes&#8209;Benz S&#8209;Class is the reference point for chauffeur travel in Dubai. Reclining rear seats, a hushed cabin, independent rear&#8209;zone climate and discreet charging at every seat. Suited to airport arrivals from DXB or DWC, board meetings across the DIFC, Downtown and Dubai Marina, and any journey where the room you arrive in should feel like the room you left.</p>
   </div>
 </section>
 
@@ -2771,6 +2851,7 @@ sc_body = header("fleet.html") + f"""
   }});
 }})();
 </script>
+<script src="/assets/capacity.js?v={V}" defer></script>
 """ + FOOTER + "</body></html>"
 
 # Place the page at /fleet/s-class. Inject <base href="/"> immediately before <title>
@@ -2780,7 +2861,12 @@ sc_head = head("Mercedes S-Class Chauffeur in Dubai | UMC Dubai",
                "Chauffeur driven Mercedes-Benz S-Class in Dubai and across the UAE: reclining rear seats, hushed cabin, vetted UMC chauffeur. Reserve in minutes.",
                "fleet/s-class",
                f'<link rel="stylesheet" href="/assets/s-class.css?v={V}">'
-               + vehicle_service_schema("Mercedes-Benz S-Class", "https://umcdubai.ae/fleet/s-class"))
+               + vehicle_service_schema("Mercedes-Benz S-Class", "https://umcdubai.ae/fleet/s-class")
+               + '<script type="application/ld+json">' + json.dumps({
+                   "@context": "https://schema.org", "@type": "Car",
+                   "name": "Mercedes-Benz S-Class",
+                   "vehicleSeatingCapacity": {"@type": "QuantitativeValue", "value": 4, "unitText": "passengers"},
+                 }, separators=(",", ":")) + '</script>')
 sc_head = sc_head.replace('<title>', '<base href="/">\n<title>', 1)
 (SITE/"fleet").mkdir(parents=True, exist_ok=True)
 (SITE/"fleet"/"s-class.html").write_text(sc_head + sc_body)
