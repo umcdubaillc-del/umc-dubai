@@ -502,6 +502,10 @@ CORP_FAQS = [
   "Yes, coordinated multi-vehicle movements, investor roadshows and delegation logistics are planned to the minute with a single point of contact."),
  ("How quickly can an account be operational?",
   "Typically within 48 hours of receiving your company details."),
+ ("Do you issue VAT-compliant invoices?",
+  "Yes. UMC is VAT-registered, and every invoice carries our Tax Registration Number (TRN) alongside a clear 5 percent VAT breakdown. Corporate accounts receive consolidated monthly invoicing with a line for each journey and cost-centre references on request, suitable for your finance team's reconciliation and expense records."),
+ ("How are chauffeurs vetted?",
+  "Every chauffeur holds a valid UAE licence and a clean driving record, and is trained to our standards of presentation, discretion and route knowledge before carrying a corporate guest. All speak English, and Arabic-speaking chauffeurs can be arranged on request. The same standard applies to every booking."),
 ]
 
 COUNTRIES_PREF = [("AE","971"),("SA","966"),("QA","974"),("KW","965"),("BH","973"),("OM","968"),
@@ -1199,11 +1203,19 @@ EMIRATES = [
     "local": "Dubai has two airports and the meeting point differs at each. At Dubai International (DXB), your chauffeur waits in the arrivals hall of your terminal &mdash; Terminal 3 for Emirates and flydubai, Terminal 1 for most other international carriers, Terminal 2 on the Deira side for regional flights &mdash; with a name board, just past the baggage hall. At Al Maktoum (DWC) in Dubai South, a single arrivals hall keeps the meet simple. Drive times set expectations: from DXB, Downtown and DIFC are typically around 15 minutes outside peak, Business Bay a little less, and Dubai Marina, Palm Jumeirah or JBR closer to 30&ndash;35. From DWC, the Marina and Palm sit nearer than the Downtown core. The route&rsquo;s Salik toll gates &mdash; Airport Tunnel, Al Garhoud, Al Safa on the Marina run &mdash; are already in your fixed rate, so nothing is added afterwards. Dubai&rsquo;s long-haul flights from Europe and the Americas often land before dawn; the chauffeur is there for a 3 a.m. arrival exactly as for a midday one, tracking the flight so an early or delayed landing simply moves the pick-up.",
     "seo_title": "Dubai Airport Transfer (DXB & DWC) | UMC Dubai",
     "seo_meta": "Chauffeur driven Dubai airport transfers from DXB and Al Maktoum (DWC). Meet & greet at arrivals, live flight tracking.",
-    "faqs_extra": [
-      ("Which Dubai airports do you cover?",
-       "Both of Dubai's airports: Dubai International (DXB) and Al Maktoum International (DWC), at any hour of the day or night."),
+    "faqs": [
+      ("How does the meet &amp; greet work at DXB and DWC?",
+       "Your chauffeur waits in the arrivals hall of your terminal with a name board, just past the baggage hall. At Dubai International this is Terminal 1, 2 or 3 depending on your carrier; at Al Maktoum a single arrivals hall keeps it simple. Your luggage is taken and you are walked to the car."),
+      ("What happens if my flight into Dubai is delayed?",
+       "We track your flight from departure, so a delay or an early landing simply moves the pick-up. Dubai's long-haul arrivals often land before dawn, and the chauffeur is there for a 3 a.m. landing exactly as for a midday one, with no charge for the changed time."),
+      ("Which terminal will my chauffeur meet me at?",
+       "At Dubai International, Terminal 3 serves Emirates and flydubai, Terminal 1 most other international carriers, and Terminal 2 on the Deira side regional flights. Your chauffeur waits in the arrivals hall of the correct terminal with a name board. At Al Maktoum in Dubai South, one arrivals hall covers every flight."),
+      ("How long is the drive from the airport into the city?",
+       "From Dubai International, Downtown and DIFC are typically around 15 minutes outside peak, Business Bay a little less, and Dubai Marina, Palm Jumeirah or JBR closer to 30 to 35. From Al Maktoum the Marina and Palm sit nearer than the Downtown core. The Salik tolls on the route are already in your fixed rate."),
       ("Where in Dubai will you take me?",
-       "Across the city: DIFC, Downtown, Dubai Marina, Palm Jumeirah, Business Bay and any other Dubai address you provide."),
+       "Across the city: DIFC, Downtown, Dubai Marina, Palm Jumeirah, Business Bay and any other Dubai address you provide. The route between them, the Salik gates and parking are held by the chauffeur, and the full fare is quoted before you confirm."),
+      ("Which Dubai airports do you cover?",
+       "Both of Dubai's airports: Dubai International (DXB) and Al Maktoum International (DWC) in Dubai South, at any hour of the day or night. Tell us your terminal and flight number when you book and the meeting point is set to match your arrival."),
     ],
   },
   {
@@ -1216,11 +1228,19 @@ EMIRATES = [
     "local": "Abu Dhabi&rsquo;s arrivals now run through the single Terminal A at Zayed International (AUH), opened at the end of 2023; it is a long, modern building, and your chauffeur waits in the arrivals hall past baggage with a name board while the flight is tracked from departure. Drive times depend on where the capital takes you: Yas Island sits close to the airport, typically 15&ndash;20 minutes; Saadiyat, Al Maryah and Al Reem islands and the Corniche are usually 30&ndash;35 minutes across the Sheikh Khalifa or Sheikh Zayed bridges. Note that Abu Dhabi does not use Salik &mdash; the emirate&rsquo;s Darb toll applies on the island bridges during weekday peak hours, and like fuel and parking it is already inside your fixed rate. Arrivals here skew to government, corporate and diplomatic visits, and to Etihad&rsquo;s long-haul flights that land early in the morning; a pre-dawn landing is handled exactly as a daytime one. Many guests also ask to be met at DXB and driven down to the capital, which runs as a single booking.",
     "seo_title": "Abu Dhabi Airport Transfer (AUH) | UMC Dubai",
     "seo_meta": "Chauffeur driven Abu Dhabi airport transfers from Zayed International (AUH). Meet & greet at arrivals, live flight tracking.",
-    "faqs_extra": [
-      ("Which Abu Dhabi airports do you cover?",
-       "We cover Zayed International Airport (AUH), the capital's principal airport."),
+    "faqs": [
+      ("How does the meet &amp; greet work at Zayed International?",
+       "Arrivals at Zayed International now run through the single Terminal A. Your chauffeur waits in the arrivals hall past baggage reclaim with a name board, assists with your luggage and walks you to the car. It is a long, modern building, so the name board is the simplest way to find each other."),
+      ("What if my flight into Abu Dhabi is delayed?",
+       "The flight is tracked from departure, so a delay moves the booking with it. Etihad's long-haul services often land early in the morning, and a pre-dawn arrival is handled exactly as a daytime one. The chauffeur is waiting when you clear, with no charge for the changed landing time."),
+      ("Where exactly will my chauffeur meet me at AUH?",
+       "Zayed International opened its single Terminal A at the end of 2023, and every arrival now passes through it. Your chauffeur waits in the arrivals hall just past baggage with a name board showing your name, and takes your luggage from there to the car."),
+      ("How long is the drive from the airport into the capital?",
+       "Yas Island sits close to the airport, typically 15 to 20 minutes. Saadiyat, Al Maryah and Al Reem islands and the Corniche are usually 30 to 35 minutes across the Sheikh Khalifa or Sheikh Zayed bridges. Abu Dhabi's Darb toll on the island bridges is already inside your fixed rate."),
       ("Where in Abu Dhabi will you take me?",
-       "Across the capital: the Corniche, Al Maryah and Al Reem islands, Yas Island, Saadiyat, the central business district, and any other Abu Dhabi address you provide."),
+       "Across the capital: the Corniche, Al Maryah and Al Reem islands, Yas Island, Saadiyat, the central business district and any other Abu Dhabi address you provide. Many arrivals here are government, corporate or diplomatic, and the route and parking are held by the chauffeur throughout."),
+      ("Can you meet me at DXB and drive me to Abu Dhabi instead?",
+       "Yes. Many guests land at Dubai International and are driven down to the capital, which runs as a single booking on one quote. The chauffeur meets you at DXB arrivals, and the roughly 90-minute run down the E11, with its Salik and Darb tolls, is priced into the fixed rate."),
     ],
   },
   {
@@ -1233,11 +1253,19 @@ EMIRATES = [
     "local": "Sharjah International (SHJ) is a single-terminal airport and a busy one &mdash; it is the home base of Air Arabia, so arrivals are frequent and often at unsocial hours. Your chauffeur meets you in the arrivals hall with a name board and takes the luggage. The detail that shapes every Sharjah transfer is the Dubai&ndash;Sharjah corridor: the emirate itself is quick to reach &mdash; Al Majaz, Al Qasba and the Heritage area are usually within 15&ndash;20 minutes &mdash; but journeys continuing into Dubai cross one of the region&rsquo;s heaviest commuter routes on Al Ittihad Road (E11), so we time the run to avoid the worst of the morning and evening peaks. Onward trips north to Ajman, Umm Al Quwain and Ras Al Khaimah are straightforward and often quicker than the Dubai leg. Air Arabia&rsquo;s schedule brings many late-night and early-morning landings; the flight is tracked and the chauffeur waits regardless of the hour, so a 2 a.m. arrival is met as calmly as a midday one.",
     "seo_title": "Sharjah Airport Transfer (SHJ) | UMC Dubai",
     "seo_meta": "Chauffeur driven Sharjah airport transfers from SHJ. Meet & greet at arrivals, onward into Dubai and the northern emirates, flight tracking included.",
-    "faqs_extra": [
-      ("Which Sharjah airports do you cover?",
-       "We cover Sharjah International Airport (SHJ), and routinely carry on into Dubai and the northern emirates from there."),
+    "faqs": [
+      ("How does the meet &amp; greet work at Sharjah International?",
+       "Sharjah International is a single-terminal airport, so the meet is straightforward. Your chauffeur waits in the arrivals hall with a name board, takes your luggage and walks you to the car. As the home base of Air Arabia the airport is busy at all hours, and the name board keeps the reception simple."),
+      ("What if my Sharjah flight lands late at night?",
+       "Air Arabia's schedule brings many late-night and early-morning landings, and the flight is tracked from departure so the pick-up follows the actual arrival. A 2 a.m. landing is met as calmly as a midday one, and the changed time carries no extra charge."),
+      ("Where will my chauffeur meet me at SHJ?",
+       "Sharjah International has one terminal, so there is no terminal to confuse. Your chauffeur waits in the arrivals hall with a name board showing your name, just past the baggage hall, and takes your luggage from there to the car at the kerb."),
+      ("How long is the drive from Sharjah into Dubai?",
+       "Within Sharjah, Al Majaz, Al Qasba and the Heritage area are usually 15 to 20 minutes. Journeys continuing into Dubai cross the Al Ittihad Road (E11) commuter corridor, among the region's heaviest, so we time the run around the morning and evening peaks rather than through them."),
       ("Where in Sharjah will you take me?",
-       "Across the emirate: the Heritage and Arts areas, Al Majaz, Al Qasba, and onward to Dubai and the northern emirates when the journey continues."),
+       "Across the emirate: the Heritage and Arts areas, Al Majaz, Al Qasba, and onward to Dubai and the northern emirates when the journey continues. Onward legs north to Ajman, Umm Al Quwain and Ras Al Khaimah are straightforward and fold into the same booking."),
+      ("Can you collect me from Dubai's airports for a Sharjah address?",
+       "Yes. If you land at Dubai International or Al Maktoum instead of Sharjah, we meet you there and drive you on to any Sharjah address as a single booking. We time the Dubai to Sharjah crossing around the peak-hour traffic on the E11 so the run stays calm."),
     ],
   },
   {
@@ -1250,11 +1278,19 @@ EMIRATES = [
     "local": "Ras Al Khaimah International (RKT) is a small, calm airport, and the walk from the aircraft to the arrivals hall is short &mdash; your chauffeur is waiting with a name board by the time you reach it. Most arrivals here are heading to the coast: the beachfront resorts and Al Marjan Island are typically around 20&ndash;25 minutes away, the city centre nearer 15. The mountain road up Jebel Jais is the exception &mdash; it climbs in long switchbacks and rewards an unhurried pace, so allow closer to 45 minutes to an hour to the summit viewpoints. Ras Al Khaimah has no Salik gates; the drive is toll-free and, like fuel and parking, priced into the fixed rate. Many guests arrive on charter or resort flights, and just as many prefer to land at Dubai&rsquo;s airports and be driven up the E311 &mdash; around 60 to 75 minutes &mdash; which we run as one booking. Night arrivals are simple here: the road north is quiet after dark, and the flight is tracked so the pick-up follows the actual landing.",
     "seo_title": "Ras Al Khaimah Airport Transfer (RKT) | UMC Dubai",
     "seo_meta": "Chauffeur driven Ras Al Khaimah airport transfers from RKT. Meet & greet at arrivals, on to the resorts and Jebel Jais, flight tracking included.",
-    "faqs_extra": [
-      ("Which Ras Al Khaimah airports do you cover?",
-       "We cover Ras Al Khaimah International Airport (RKT). We also carry guests up from Dubai's airports to Ras Al Khaimah when the flight lands there instead."),
+    "faqs": [
+      ("How does the meet &amp; greet work at Ras Al Khaimah International?",
+       "Ras Al Khaimah International is a small, calm airport and the walk from the aircraft to arrivals is short. Your chauffeur is already waiting with a name board by the time you reach the hall, takes your luggage and walks you to the car. There is rarely a crowd to navigate."),
+      ("What if my flight into RAK arrives late?",
+       "The flight is tracked from departure, so the pick-up follows the actual landing. The road north is quiet after dark, which keeps a night arrival simple, and the chauffeur waits regardless of the hour. A delayed or early landing carries no extra charge."),
+      ("Where will my chauffeur meet me at RKT?",
+       "Ras Al Khaimah International has a single, compact terminal. Your chauffeur waits in the arrivals hall with a name board showing your name, and because the airport is small the walk from the aircraft is short and the reception quick, with your luggage taken to the car at the kerb."),
+      ("How long is the drive from the airport to the resorts?",
+       "Most arrivals head to the coast: the beachfront resorts and Al Marjan Island are typically 20 to 25 minutes away, the city centre nearer 15. The summit road up Jebel Jais is the exception, climbing in long switchbacks, so allow closer to 45 minutes to an hour to the viewpoints."),
       ("Where in Ras Al Khaimah will you take me?",
-       "Across the emirate: the beachfront resorts, Al Marjan Island, and Jebel Jais, alongside any other Ras Al Khaimah address you provide."),
+       "Across the emirate: the beachfront resorts, Al Marjan Island and Jebel Jais, alongside any other Ras Al Khaimah address you provide. The drive is toll-free, with fuel and parking already inside the fixed rate, and the full fare is quoted before you confirm."),
+      ("Can you drive me up from Dubai's airports to Ras Al Khaimah?",
+       "Yes. Many guests prefer to land at Dubai International or Al Maktoum and be driven up the E311, around 60 to 75 minutes, which we run as one booking. The chauffeur meets you at the Dubai terminal and the toll and fuel are priced into the fixed rate."),
     ],
   },
   {
@@ -1267,17 +1303,25 @@ EMIRATES = [
     "local": "Al Ain International (AAN) is a small regional airport with a short, uncomplicated arrival &mdash; your chauffeur meets you in the arrivals hall with a name board and there is rarely a crowd to navigate. The garden city itself is close: the centre, the oases and the heritage sites are usually within 15&ndash;20 minutes, while the summit road up Jebel Hafeet &mdash; one of the region&rsquo;s great drives &mdash; is around 30 minutes and best taken slowly. Because scheduled flights into AAN are limited, many guests reach Al Ain by road instead, and we cover both approaches: the E66 from Dubai and the E22 from Abu Dhabi each run about 90 minutes to two hours, planned as a single booking. Al Ain sits inland with calm, open roads and no Salik gates, so the drive is toll-free and unhurried by nature. When a flight does land late, it is tracked from departure and the chauffeur waits for the actual arrival, so an evening landing is met with the same care as a midday one.",
     "seo_title": "Al Ain Airport Transfer (AAN) | UMC Dubai",
     "seo_meta": "Chauffeur driven Al Ain airport transfers from AAN. Meet & greet at arrivals, on into the garden city, oases and Jebel Hafeet. Flight tracking included.",
-    "faqs_extra": [
-      ("Which Al Ain airports do you cover?",
-       "We cover Al Ain International Airport (AAN). Many guests also travel to Al Ain by car from Dubai or Abu Dhabi, and we cover that route too."),
+    "faqs": [
+      ("How does the meet &amp; greet work at Al Ain International?",
+       "Al Ain International is a small regional airport with a short, uncomplicated arrival. Your chauffeur meets you in the arrivals hall with a name board, takes your luggage and walks you to the car. There is rarely a crowd to navigate, so the reception is calm and quick."),
+      ("What if my flight into Al Ain is delayed?",
+       "The flight is tracked from departure and the chauffeur waits for the actual arrival, so an evening landing is met with the same care as a midday one. Scheduled flights into Al Ain are limited, and whatever the hour a delayed or early landing carries no extra charge."),
+      ("Where will my chauffeur meet me at AAN?",
+       "Al Ain International is a small, single-terminal airport, so the arrival is uncomplicated. Your chauffeur meets you in the arrivals hall with a name board showing your name, past the baggage hall, and takes your luggage to the car. There is rarely a crowd, so you are on the road quickly."),
+      ("How long is the drive from the airport into the garden city?",
+       "The garden city is close: the centre, the oases and the heritage sites are usually within 15 to 20 minutes. The summit road up Jebel Hafeet, one of the region's great drives, is around 30 minutes and best taken slowly. The inland roads are calm and toll-free."),
       ("Where in Al Ain will you take me?",
-       "Across the garden city: the oases, Jebel Hafeet, the heritage sites, and the green inland streets, alongside any other Al Ain address you provide."),
+       "Across the garden city: the oases, Jebel Hafeet, Al Jahili Fort, the heritage sites and the green inland streets, alongside any other Al Ain address you provide. The inland roads carry no Salik gates, so the drive is toll-free and the full fare is quoted before you confirm."),
+      ("Can you drive me to Al Ain from Dubai or Abu Dhabi instead?",
+       "Yes. Because scheduled flights into Al Ain are limited, many guests reach the city by road, and we cover both approaches: the E66 from Dubai and the E22 from Abu Dhabi each run about 90 minutes to two hours, planned as a single booking on one quote."),
     ],
   },
 ]
 
 def render_emirate_airport_page(em):
-    faqs = COMMON_AIRPORT_FAQS + em["faqs_extra"]
+    faqs = em["faqs"]
     cap = capsule("Airport transfers in " + em['name'] + " with UMC Dubai: a vetted chauffeur tracks your flight, meets you in the arrivals hall with a name board, and drives you to your door in a maintained luxury car. Rates are all-inclusive flat fees &mdash; fuel, Salik tolls and parking covered &mdash; quoted and confirmed before you book, with no meter and no surge.")
     _links = [vlink(k) for k in em.get("cars", [])]
     _cars_sentence = (", ".join(_links[:-1]) + " and " + _links[-1]) if len(_links) >= 2 else (_links[0] if _links else "")
@@ -1389,6 +1433,18 @@ RENT_EMIRATES = [
     "seo_meta": "Rent a luxury car with a professional chauffeur in Dubai, by the half day, full day or airport transfer. All-inclusive: fuel, Salik, parking.",
     "closing": "Dubai, on your schedule.",
     "local": "A chauffeur-held day in Dubai usually means several stops with dead time between them &mdash; a DIFC meeting, lunch in Downtown, a showing in the Marina, an evening on the Palm &mdash; and the point of the service is that the car simply moves with you while you work or rest. The chauffeur holds the parking, the Salik gates and the route between Business Bay, Jumeirah and the outer districts, so the only decision left to you is where to be next.",
+    "faqs": [
+      ("How is chauffeur hire priced in Dubai?",
+       "Hire is priced by block: a half day of five hours, a full day of ten hours, or a single airport transfer. Each rate is all-inclusive of the chauffeur, fuel, Salik, parking and unlimited city mileage, and is agreed before you confirm. The price you are quoted is the price you pay, with no meter."),
+      ("What is the minimum booking?",
+       "The shortest chauffeur-at-disposal block is five hours. For a single point-to-point journey, an airport transfer is the better fit and is priced on its own. If your day runs beyond the block you reserved, it extends by the hour, agreed with our desk before the time is added."),
+      ("Which parts of Dubai does the service cover?",
+       "The whole city: DIFC, Downtown, Business Bay, Jumeirah, Dubai Marina, Palm Jumeirah and the outer districts. The chauffeur holds the parking, the Salik gates and the route between stops, so a day of several appointments moves as one booking without you managing the logistics between them."),
+      ("How do I choose the right vehicle?",
+       "For one or two travelling, an E-Class or Lexus ES is the usual choice; the S-Class or BMW 7 Series suit a corporate day; a V-Class or Escalade carries a family with luggage, and a Sprinter or coach a larger group. Tell our desk the party size and we will advise."),
+      ("How far in advance should I book?",
+       "A day or two ahead is comfortable and secures your preferred vehicle. We also take same-day and overnight requests through the 24-hour concierge desk, subject to availability. For a specific car or an early-morning start, a little more notice gives the widest choice of fleet."),
+    ],
   },
   {
     "slug": "abu-dhabi", "name": "Abu Dhabi",
@@ -1401,6 +1457,18 @@ RENT_EMIRATES = [
     "seo_meta": "A private chauffeur in Abu Dhabi by the half day, full day or airport transfer. Late-model luxury vehicles, all-inclusive rates, 24/7.",
     "closing": "Abu Dhabi, on your timing.",
     "local": "An hourly chauffeur suits the capital&rsquo;s geography, where the distances between Yas Island, Saadiyat, the Corniche and the Grand Mosque are longer than they look and parking near the ministries and island developments is tightly managed. The car waits while you move between meetings or sights; the Darb toll on the island bridges, fuel and parking are already in the rate. Late returns to Dubai after a dinner or a full day are a routine part of the same booking.",
+    "faqs": [
+      ("How is a chauffeur day priced in Abu Dhabi?",
+       "By block: a half day of five hours, a full day of ten hours, or a single transfer from Zayed International. Each rate includes the chauffeur, fuel, the Darb toll on the island bridges, parking and mileage, and is agreed before you confirm. Nothing is metered and nothing is added afterwards."),
+      ("What is the minimum hire in the capital?",
+       "Five hours is the shortest at-disposal block. Given the distances between Yas Island, Saadiyat, the Corniche and the Grand Mosque, a half or full day usually suits the capital better than a single journey. If the day runs long, it extends by the hour, agreed with our desk beforehand."),
+      ("Which areas of Abu Dhabi are covered?",
+       "Across the capital: the Corniche, Al Maryah and Al Reem islands, Yas Island, Saadiyat, the Grand Mosque and the ministry district. Parking near the islands and ministries is tightly managed, and the chauffeur holds it while you move between meetings or sights, so no part of the logistics falls to you."),
+      ("Which vehicle suits a day in Abu Dhabi?",
+       "For government, embassy or corporate programmes the S-Class or BMW 7 Series present well; an E-Class suits one or two travelling; a V-Class carries a family or a small delegation with luggage. For a larger group a Sprinter works. Tell our desk the programme and party size and we will advise."),
+      ("Can the chauffeur bring me back to Dubai the same night?",
+       "Yes. A late return to Dubai after a dinner or a full day in the capital is a routine part of the same booking. The chauffeur waits at your last stop and drives you back, with the waiting time and the return leg agreed up front on one all-inclusive quote."),
+    ],
   },
   {
     "slug": "sharjah", "name": "Sharjah",
@@ -1413,6 +1481,18 @@ RENT_EMIRATES = [
     "seo_meta": "A private chauffeur in Sharjah by the half day or full day. Late-model luxury vehicles, all-inclusive rates, onward connections to Dubai.",
     "closing": "Sharjah, calmly driven.",
     "local": "In Sharjah the hourly car earns its place on the corridor as much as in the emirate itself: a morning across Al Majaz, Al Qasba and the university and cultural districts, then an unhurried run into Dubai timed around the Al Ittihad Road peaks rather than through them. The chauffeur holds the schedule so the border traffic that shapes every Sharjah day becomes the driver&rsquo;s problem, not yours, and onward hops to Ajman or the northern emirates fold into the same booking.",
+    "faqs": [
+      ("How is chauffeur hire priced in Sharjah?",
+       "By block: a half day of five hours, a full day of ten hours, or a single transfer. Each rate includes the chauffeur, fuel, Salik, parking and mileage, and is agreed before you confirm. Onward connections into Dubai or the northern emirates fold into the same booking rather than being charged as a second trip."),
+      ("What is the minimum booking in Sharjah?",
+       "Five hours is the shortest at-disposal block. For a single point-to-point run an airport or inter-emirate transfer is the better fit. If the day extends beyond the hours you reserved, it continues by the hour, agreed with our desk before the additional time is added to the booking."),
+      ("Which parts of Sharjah does the service cover?",
+       "Across the emirate: Al Majaz, Al Qasba, the Heritage and cultural districts, the university city and the corporate addresses. Because so many Sharjah days involve the Dubai corridor, the chauffeur times the Al Ittihad Road crossing around the peaks, so the border traffic becomes the driver's task rather than yours."),
+      ("How do I choose the vehicle for Sharjah?",
+       "For one or two an E-Class or Lexus ES is the usual choice; a V-Class or Escalade carries a family with luggage; the S-Class or BMW 7 Series suit a corporate or official day. A Sprinter or coach handles a larger group. Tell our desk the party size and we will advise."),
+      ("Can the chauffeur continue on to Dubai or the northern emirates?",
+       "Yes. A morning across Sharjah and an afternoon in Dubai, Ajman or Ras Al Khaimah run as one booking. The chauffeur holds the schedule and times the corridor crossings, so onward hops fold into the same block of hours without a second arrangement or a separate quote."),
+    ],
   },
   {
     "slug": "rak", "name": "Ras Al Khaimah",
@@ -1425,6 +1505,18 @@ RENT_EMIRATES = [
     "seo_meta": "A private chauffeur in Ras Al Khaimah by the half day or full day. Resort transfers to Jebel Jais and Al Marjan, all-inclusive rates.",
     "closing": "Ras Al Khaimah, on your terms.",
     "local": "A held car changes the rhythm of a Ras Al Khaimah day, where the good places sit far apart: a morning at Al Marjan Island or the beachfront, an afternoon climb up Jebel Jais, a heritage stop inland. Rather than drive the mountain switchbacks yourself and hunt for parking at the resorts, the chauffeur handles both and waits at each stop. The drive is toll-free, and transfers between the resorts and any address in the emirate run within the same block of hours.",
+    "faqs": [
+      ("How is chauffeur hire priced in Ras Al Khaimah?",
+       "By block: a half day of five hours, a full day of ten hours, or a single airport transfer. Each rate is all-inclusive of the chauffeur, fuel, parking and mileage, and is agreed before you confirm. The emirate is toll-free, so no Salik or Darb charge is added, and the quote is the full amount."),
+      ("What is the minimum hire?",
+       "Five hours is the shortest at-disposal block, and it suits Ras Al Khaimah well, where the resorts, the coast and Jebel Jais sit far apart. For a single journey an airport transfer is priced on its own. If the day runs long, it extends by the hour, agreed with our desk beforehand."),
+      ("Which parts of the emirate does the service cover?",
+       "Across Ras Al Khaimah: Al Marjan Island, the beachfront resorts, the city centre, the inland heritage sites and the summit road up Jebel Jais. The chauffeur drives the mountain switchbacks and holds the parking at each resort, so the day works without the navigation or the return climb falling to you."),
+      ("Which vehicle suits a day in Ras Al Khaimah?",
+       "For the mountain road and the resorts an Escalade or V-Class gives space and an easy ride; an E-Class or Lexus ES suits one or two travelling; a Sprinter or coach carries a group or a wedding party. Tell our desk the plan and party size and we will advise the fit."),
+      ("How far ahead should I book?",
+       "A day or two of notice is comfortable and secures your preferred vehicle, particularly for a resort transfer or the Jebel Jais drive at the weekend. Same-day requests are taken through the 24-hour desk, subject to availability, though a specific car is easier to guarantee with a little more notice."),
+    ],
   },
   {
     "slug": "al-ain", "name": "Al Ain",
@@ -1437,6 +1529,18 @@ RENT_EMIRATES = [
     "seo_meta": "A private chauffeur in Al Ain by the half day or full day. Oases, Jebel Hafeet and heritage circuits, all-inclusive rates, a maintained luxury fleet.",
     "closing": "Al Ain, taken slowly.",
     "local": "Al Ain rewards a slow, held day more than most: the oases, Al Jahili Fort, the camel market and the Jebel Hafeet summit road are spread across the garden city and its edges, and none of them reward a rushed schedule. The chauffeur keeps the car with you between them, so a heritage morning and a mountain afternoon sit comfortably in one booking. The inland roads are calm and toll-free, and the return leg to Dubai or Abu Dhabi is planned into the same day.",
+    "faqs": [
+      ("How is a chauffeur day priced in Al Ain?",
+       "By block: a half day of five hours, a full day of ten hours, or a single transfer. Each rate includes the chauffeur, fuel, parking and mileage, and is agreed before you confirm. Al Ain's inland roads are toll-free, so nothing is added for Salik, and the quote is the full amount you pay."),
+      ("What is the minimum hire in Al Ain?",
+       "Five hours is the shortest at-disposal block, and the garden city rewards it: the oases, the heritage sites and Jebel Hafeet are spread out and suit an unhurried, held day rather than a single run. If the day extends, it continues by the hour, agreed with our desk before the time is added."),
+      ("Which parts of Al Ain does the service cover?",
+       "Across the garden city and its edges: the oases, Al Jahili Fort, the camel market, the heritage sites and the Jebel Hafeet summit road. The chauffeur keeps the car with you between them, so a heritage morning and a mountain afternoon sit comfortably in one booking on calm, toll-free roads."),
+      ("Which vehicle suits a day in Al Ain?",
+       "For one or two an E-Class or Lexus ES is the usual choice; a V-Class or Escalade carries a family with luggage in comfort on the Jebel Hafeet climb; a Sprinter or coach suits a group or a university programme. Tell our desk the party size and we will advise the fit."),
+      ("Can the chauffeur drive me back to Dubai or Abu Dhabi?",
+       "Yes. The return leg to Dubai on the E66 or to Abu Dhabi on the E22, each about 90 minutes to two hours, is planned into the same day rather than booked separately. The chauffeur waits for your last stop and drives you back on one all-inclusive quote agreed before you set out."),
+    ],
   },
   {
     "slug": "umm-al-quwain", "name": "Umm Al Quwain",
@@ -1449,6 +1553,18 @@ RENT_EMIRATES = [
     "seo_meta": "A private chauffeur in Umm Al Quwain, for a half day or a full day. Lagoons and resort transfers, with all-inclusive rates and a maintained luxury fleet.",
     "closing": "Umm Al Quwain, quietly handled.",
     "local": "Umm Al Quwain asks little of a schedule, which is exactly why a held car suits it: the corniche, the old town, the mangroves and lagoons and the resort strip are quiet and close together, with none of the parking pressure of the larger emirates. The chauffeur keeps the day loose &mdash; a lagoon morning, a long lunch, an unhurried drive back &mdash; and onward connections to Sharjah, Ajman or Ras Al Khaimah are handled in the same booking without a second arrangement.",
+    "faqs": [
+      ("How is chauffeur hire priced in Umm Al Quwain?",
+       "By block: a half day of five hours, a full day of ten hours, or a single transfer. Each rate is all-inclusive of the chauffeur, fuel, parking and mileage, and is agreed before you confirm. The emirate is quiet and toll-free, so nothing is metered and nothing is added after the quote."),
+      ("What is the minimum booking?",
+       "Five hours is the shortest at-disposal block, and it suits the emirate's unhurried pace, where the corniche, the old town and the lagoons sit close together. For a single point-to-point run an inter-emirate transfer is the better fit. If the day runs long, it extends by the hour, agreed with our desk beforehand."),
+      ("Which parts of Umm Al Quwain does the service cover?",
+       "Across the emirate: the corniche, the old town, the mangroves and lagoons and the resort strip. Parking pressure is light compared with the larger emirates, and the chauffeur keeps the day loose, so a lagoon morning, a long lunch and an unhurried drive back sit easily in one booking."),
+      ("Which vehicle should I choose?",
+       "For one or two an E-Class or Lexus ES suits the quiet roads; a V-Class or Escalade carries a family with luggage; a Sprinter or coach handles a group heading to the lagoons or a resort. Tell our desk the party size and the plan and we will advise the right fit."),
+      ("Can onward trips to other emirates be included?",
+       "Yes. Umm Al Quwain sits within easy reach of Sharjah, Ajman and Ras Al Khaimah, and onward connections are handled in the same booking without a second arrangement. The chauffeur holds the schedule across the day, so a visit here and a run on to a neighbouring emirate share one quote agreed up front."),
+    ],
   },
 ]
 
@@ -1551,6 +1667,13 @@ def render_rentacar_page(em):
 {JL}
 <section class="sec">
   <div class="wrap">
+    <div class="shead rv"><span class="lbl">Good to know</span><h2>Chauffeur hire questions</h2></div>
+    <div class="faq rv">{faq_details(em["faqs"])}</div>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap">
     <div class="shead rv"><span class="lbl">Also available in</span><h2>Across the UAE.</h2></div>
     <ul class="emirate-xlinks rv">
       {other_links}
@@ -1570,7 +1693,8 @@ def render_rentacar_page(em):
         head(em["seo_title"], em["seo_meta"],
              f"rent-a-car-with-driver/{em['slug']}/",
              rentacar_schema(em)
-             + webpage_ld(f"https://umcdubai.ae/rent-a-car-with-driver/{em['slug']}/", em["seo_title"])) + body
+             + webpage_ld(f"https://umcdubai.ae/rent-a-car-with-driver/{em['slug']}/", em["seo_title"])
+             + faq_schema(em["faqs"])) + body
     )
 
 for _em in RENT_EMIRATES:
@@ -2178,6 +2302,12 @@ IE_FAQS = [
   "Yes. For services rendered outside Dubai an additional fee applies depending on type of vehicle. Your quote states the full amount before you confirm."),
  ("Can the chauffeur wait and bring me back the same day?",
   "Yes. Many clients book a return or keep the car at their disposal for the day. Tell our concierge your plans and we will hold the car for you."),
+ ("How long does the Dubai to Abu Dhabi transfer take?",
+  "Outside peak hours the drive is typically around 90 minutes down the E11, covering roughly 140 kilometres. The capital's morning inbound and evening outbound flows can add time, so meetings are best planned with a margin. The route's Salik gates and Abu Dhabi's Darb toll are already inside your fixed quote."),
+ ("How is a return journey with waiting time priced?",
+  "A round trip runs as a single booking in both directions rather than two separate transfers. The chauffeur waits at the destination for a meeting, a lunch or a full day and drives you back, and the waiting time and the return leg are agreed up front, so one all-inclusive quote covers the whole day."),
+ ("Which emirates do you cover?",
+  "All seven: Dubai, Abu Dhabi, Sharjah, Ajman, Umm Al Quwain, Ras Al Khaimah and Fujairah, in either direction between any two. One car and one chauffeur handle the whole journey door to door, on a fixed all-inclusive quote covering fuel, tolls and parking, agreed and confirmed before departure."),
 ]
 ie_body = header("inter-emirate.html") + f"""
 <section class="phero">
