@@ -93,6 +93,16 @@ def responsive_img(rel_path, css_class, alt, sizes_attr, loading="lazy", extra_a
     result = ensure_image_variants(abs_src)
     # Root-absolute so srcset works from any page depth (e.g. /airport-transfers/dubai).
     plain_src = f'/assets/fleet/{rel_path}?v={FV}'
+    # P-1: always carry intrinsic width/height (kills the Lighthouse "explicit
+    # dimensions" flag + reserves the aspect ratio so images can't shift layout),
+    # unless the caller already set width in extra_attrs (e.g. the fleet cards).
+    if 'width=' not in extra_attrs:
+        try:
+            from PIL import Image
+            with Image.open(abs_src) as _im:
+                extra_attrs = f' width="{_im.size[0]}" height="{_im.size[1]}"' + extra_attrs
+        except Exception:
+            pass
     if not result:
         return f'<img class="{css_class}" src="{plain_src}" alt="{alt}" loading="{loading}"{extra_attrs}>'
     variants, nat_w = result
@@ -279,10 +289,13 @@ def head(title, desc, canon, extra=""):
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#F6F1E7">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://maps.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
+<!-- P-1: self-hosted fonts (was the render-blocking Google Fonts CDN request +
+     its short-cache assets). @font-face lives in style.css with font-display:swap;
+     preload the two critical woff2 so heading/body text paints without a font
+     round-trip. crossorigin is required to match the CORS font fetch. -->
+<link rel="preload" href="/assets/fonts/outfit-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/marcellus-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/assets/style.css?v={V}">
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 {ld_organization}
@@ -777,7 +790,8 @@ document.addEventListener("DOMContentLoaded", function(){
  head("Luxury Chauffeur Service in Dubai & the UAE | UMC Dubai",
       "UMC Dubai — the UAE's luxury chauffeur service. Airport transfers, corporate & private drivers. One fixed, all-inclusive rate. Rated 5★, 24/7.",
       "", ld_home + faq_schema(HOME_FAQS)
-          + '<link rel="preload" as="image" href="/assets/home/hero.webp" type="image/webp" fetchpriority="high">'
+          + '<link rel="preload" as="image" href="/assets/home/hero-mobile.webp" type="image/webp" media="(max-width:959px)" fetchpriority="high">'
+          + '<link rel="preload" as="image" href="/assets/home/hero.webp" type="image/webp" media="(min-width:960px)" fetchpriority="high">'
           + '<link rel="stylesheet" href="/assets/vendor/flatpickr.min.css?v={V}">') + index_body)
 
 # ---------- booking ----------
@@ -940,6 +954,18 @@ _WA_SVG = '<svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.86
 _CALL_SVG = '<svg viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:1.7"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>'
 _CHEV_SVG = '<svg viewBox="0 0 24 24" style="width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2;margin-left:.35rem;transition:transform .25s"><path d="M5 9l7 7 7-7"/></svg>'
 
+def _dims_attr(root_abs_url):
+    """' width="W" height="H"' for a root-absolute asset URL (e.g. a marque logo),
+    or '' if PIL/the file is unavailable. P-1: give hand-written <img> intrinsic
+    dims (correct aspect → no visual change, reserves layout, clears the flag)."""
+    try:
+        from PIL import Image
+        p = SITE / str(root_abs_url).lstrip('/').split('?')[0]
+        with Image.open(p) as im:
+            return f' width="{im.size[0]}" height="{im.size[1]}"'
+    except Exception:
+        return ''
+
 def _fleet_card_html(v):
     e = _fesc
     from_price = _from_rate(v)
@@ -954,7 +980,7 @@ def _fleet_card_html(v):
         extra_attrs=' width="1200" height="750" decoding="async"')
     vimg_cls = "vimg" + (" photo" if v["photo"] else "") + (" flip" if v["flip"] else "")
     title = f'<a href="{e(v["page"])}">{e(v["name"])}</a>' if v.get("page") else e(v["name"])
-    marque = f'<img class="marque" src="{e(v["marque"])}" alt="" loading="lazy">' if v.get("marque") else ""
+    marque = f'<img class="marque" src="{e(v["marque"])}" alt=""{_dims_attr(v["marque"])} loading="lazy">' if v.get("marque") else ""
     price_html = (f'<span class="from">From</span><b>{from_price}</b><span class="from">all-inclusive</span>'
                   if from_price else '<b style="font-size:1rem">Rates on request</b>')
     wa = _urlparse.quote(f'Hello UMC Dubai, I would like to reserve the {v["name"]}.', safe="")

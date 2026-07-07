@@ -1,5 +1,10 @@
 /* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 /* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v85. */
+/* P-1: self-hosted fonts (was Google Fonts CDN). Latin subset, OFL-licensed.
+   Outfit is a variable font covering 300–500; Marcellus is 400 only. Both are
+   font-display:swap so text paints immediately in the fallback then swaps. */
+@font-face{font-family:'Outfit';font-style:normal;font-weight:300 500;font-display:swap;src:url('/assets/fonts/outfit-var.woff2') format('woff2')}
+@font-face{font-family:'Marcellus';font-style:normal;font-weight:400;font-display:swap;src:url('/assets/fonts/marcellus-400.woff2') format('woff2')}
 :root{
   --bone:#F6F1E7; --bone-2:#EFE8D9; --card:#FBF8F1;
   --ink:#221B14; --ink-soft:#4A4136; --muted:#7A6F5F;
@@ -870,7 +875,10 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
   .hero2{min-height:380px;padding:2rem 0 2.4rem}
   /* image nudged up a little inside the same 380px frame (slight zoom for the
      vertical room to shift). */
-  .h2bg{height:380px;bottom:auto;background-size:auto 112%;background-position:center 78%}
+  /* P-1: mobile serves a 1280px hero (~104KB vs 291KB) — it's the LCP element
+     and sits under a heavy scrim here, so the smaller source is imperceptible
+     but roughly halves LCP on throttled mobile. Media matches the scoped preload. */
+  .h2bg{height:380px;bottom:auto;background-size:auto 112%;background-position:center 78%;background-image:image-set(url("/assets/home/hero-mobile.webp") type("image/webp"),url("/assets/home/hero-mobile.jpg") type("image/jpeg"))}
   /* black gradient at the bottom of the image so the space the lifted car
      vacates blends into darkness. */
   .h2scrim{height:380px;bottom:auto;background:linear-gradient(180deg,rgba(20,15,9,.4) 0%,rgba(20,15,9,.5) 45%,rgba(12,8,4,.82) 78%,rgba(4,3,1,.97) 100%)}
