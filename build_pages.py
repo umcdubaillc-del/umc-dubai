@@ -908,8 +908,13 @@ def _fesc(s):
     s = "" if s is None else str(s)
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
+# RATES-1: this is the server-rendered SNAPSHOT of the dropdown emirate list —
+# fleet-data.js hydrates the live set (and prices) from GET /api/fleet-rates on
+# load. Keep this in step with the D1 seed / admin so there's no flash of a stale
+# list before hydration. Umm Al Quwain, Ajman and Fujairah render on request.
 FLEET_EMIRATES = [("dubai","Dubai"),("abu-dhabi","Abu Dhabi"),("sharjah","Sharjah"),
-                  ("rak","Ras Al Khaimah"),("al-ain","Al Ain"),("umm-al-quwain","Umm Al Quwain")]
+                  ("rak","Ras Al Khaimah"),("al-ain","Al Ain"),("umm-al-quwain","Umm Al Quwain"),
+                  ("ajman","Ajman"),("fujairah","Fujairah")]
 
 # Fields mirror DEFAULT_FLEET; ra/r5/r10 are the DUBAI (default) rates.
 FLEET_VEHICLES = [

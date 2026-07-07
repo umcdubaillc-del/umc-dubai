@@ -2,20 +2,25 @@
 /* UMC Dubai,fleet data + renderer (single source of truth) */
 const UMC_FLEET_KEY = "umc_fleet";
 
-/* v56: per-emirate × per-vehicle rates [airport, 5h, 10h] in AED, all-inclusive.
-   Sourced verbatim from umcdubai.ae live pricing. Sprinter & King Long are
-   quote-only on every emirate, so they're omitted here and fall back to the
-   vehicle's own null rates (renders as "On request"). Fujairah has no live
-   prices on source, so it's omitted (would-be invented numbers blocked). */
-const UMC_EMIRATES = [
+/* RATES-1: per-emirate × per-vehicle rates [airport, 5h, 10h] in AED, all-inclusive.
+   These constants are now only the BAKED FALLBACK / instant-paint snapshot — the
+   live source of truth is D1, served by GET /api/fleet-rates and applied by
+   umcHydrateRates() below (car cards refresh to D1 truth on load). Keep this
+   snapshot in step with the D1 seed at each deploy so there's no flash of stale
+   prices before hydration. Umm Al Quwain, Ajman and Fujairah are on request
+   (no baked rates); Sprinter & Luxury Coach are on request on every emirate.
+   UMC_EMIRATES / UMC_RATES are `let` so hydration can replace them wholesale. */
+let UMC_EMIRATES = [
   ["dubai", "Dubai"],
   ["abu-dhabi", "Abu Dhabi"],
   ["sharjah", "Sharjah"],
   ["rak", "Ras Al Khaimah"],
   ["al-ain", "Al Ain"],
-  ["umm-al-quwain", "Umm Al Quwain"]
+  ["umm-al-quwain", "Umm Al Quwain"],
+  ["ajman", "Ajman"],
+  ["fujairah", "Fujairah"]
 ];
-const UMC_RATES = {
+let UMC_RATES = {
   "dubai": {
     "bmw-7":             [600, 1300, 2000],
     "mb-s-class":        [850, 1800, 2400],
@@ -60,15 +65,6 @@ const UMC_RATES = {
     "lexus-es":          [500,  850, 1150],
     "mb-e-class":        [650, 1350, 1800],
     "cadillac-escalade": [1200, 2000, 2600]
-  },
-  "umm-al-quwain": {
-    "bmw-7":             [850, 1600, 2300],
-    "mb-s-class":        [1300, 2050, 2650],
-    "gmc-yukon-xl":      [800, 1200, 1700],
-    "mb-v-class":        [700, 1200, 1600],
-    "lexus-es":          [600,  950, 1250],
-    "mb-e-class":        [650, 1450, 1900],
-    "cadillac-escalade": [1300, 2050, 2650]
   }
 };
 function umcRatesFor(vid, em){
@@ -178,6 +174,86 @@ function umcRowMates(card){
   );
 }
 
+/* RATES-1 hydration — the car cards paint instantly from the baked snapshot
+   above, then this replaces it with live D1 truth (GET /api/fleet-rates) and
+   re-syncs every rendered card's prices + emirate dropdown. A fetch failure is
+   silent: the baked snapshot stands. */
+function umcApplyLiveRates(data){
+  if(!data) return;
+  if(Array.isArray(data.emirates) && data.emirates.length){
+    UMC_EMIRATES = data.emirates.map(e=>[e.slug, e.label]);
+  }
+  if(data.rates && typeof data.rates === "object"){
+    const next = {};
+    for(const vid in data.rates){
+      const byEm = data.rates[vid];
+      for(const em in byEm){
+        const r = byEm[em] || {};
+        if(!next[em]) next[em] = {};
+        next[em][vid] = [
+          (r.airport==null   ? null : Number(r.airport)),
+          (r.five_hour==null ? null : Number(r.five_hour)),
+          (r.ten_hour==null  ? null : Number(r.ten_hour))
+        ];
+      }
+    }
+    UMC_RATES = next;
+  }
+}
+// Set a card's three rate rows + the "From" headline for a given emirate.
+// No rate for this vehicle × emirate → "Rates on request" (NOT the vehicle's
+// baked Dubai defaults): that's what makes Umm Al Quwain / Ajman / Fujairah and
+// any future unpriced emirate read as on request for the otherwise-priced cars.
+function umcApplyRatesToCard(card, em){
+  if(!card) return;
+  const vid = card.dataset.vid;
+  const ovr = umcRatesFor(vid, em);
+  const rates = ovr ? ovr : {ra:null, r5:null, r10:null};
+  const setR = (k, val)=>{ const b = card.querySelector('.r[data-rate="'+k+'"] b'); if(b) b.textContent = fmtRate(val); };
+  setR("ra", rates.ra); setR("r5", rates.r5); setR("r10", rates.r10);
+  const xs = [rates.ra, rates.r5, rates.r10].filter(n=>n!==null && n!==undefined && n!=="");
+  const priceEl = card.querySelector(".vprice");
+  if(priceEl){
+    if(xs.length){
+      const min = Math.min(...xs.map(Number));
+      priceEl.innerHTML = '<span class="from">From</span><b>AED ' + min.toLocaleString() + '</b><span class="from">all-inclusive</span>';
+    } else {
+      priceEl.innerHTML = '<b style="font-size:1rem">Rates on request</b>';
+    }
+  }
+}
+// Rebuild a card's emirate <select> to the (possibly live) UMC_EMIRATES,
+// preserving the current choice when it still exists. Returns the emirate in use.
+// The <select> element itself is kept, so its change listener survives.
+function umcRebuildCardSelect(card){
+  const sel = card.querySelector(".em-select");
+  if(!sel) return null;
+  const cur = sel.value;
+  const has = UMC_EMIRATES.some(p=>p[0]===cur);
+  const use = has ? cur : ((UMC_EMIRATES[0] && UMC_EMIRATES[0][0]) || cur);
+  sel.innerHTML = UMC_EMIRATES.map(p=>
+    `<option value="${esc(p[0])}"${p[0]===use?" selected":""}>${esc(p[1])}</option>`
+  ).join("");
+  return use;
+}
+function umcResyncCards(root){
+  (root || document).querySelectorAll(".vcard").forEach(card=>{
+    const use = umcRebuildCardSelect(card);
+    if(use) umcApplyRatesToCard(card, use);
+  });
+}
+let _umcRatesData = null, _umcRatesPromise = null;
+function umcHydrateRates(){
+  if(_umcRatesData){ umcResyncCards(document); return; }
+  if(!_umcRatesPromise){
+    _umcRatesPromise = fetch("/api/fleet-rates", { headers:{ Accept:"application/json" } })
+      .then(r=>r.ok ? r.json() : null)
+      .then(d=>{ if(d){ _umcRatesData = d; umcApplyLiveRates(d); } })
+      .catch(()=>{});
+  }
+  _umcRatesPromise.then(()=>{ if(_umcRatesData) umcResyncCards(document); });
+}
+
 function renderFleet(el, opts){
   if(!el) return;
   opts = opts || {};
@@ -191,7 +267,11 @@ function renderFleet(el, opts){
   if(opts.limit) fleet = fleet.slice(0, opts.limit);
   el.innerHTML = fleet.map(v=>{
     const ovr = umcRatesFor(v.id, defaultEm);
-    const rv = ovr ? {ra:ovr.ra, r5:ovr.r5, r10:ovr.r10, name:v.name, seats:v.seats, luggage:v.luggage, category:v.category, page:v.page, marque:v.marque, img:v.img, photo:v.photo, flipImg:v.flipImg, id:v.id} : v;
+    // No rate for this vehicle × default emirate → on request (null rates), never
+    // the vehicle's baked Dubai defaults. Keeps UAQ/Ajman/Fujairah (and any future
+    // unpriced emirate) on request from first paint, before hydration runs.
+    const rr = ovr ? {ra:ovr.ra, r5:ovr.r5, r10:ovr.r10} : {ra:null, r5:null, r10:null};
+    const rv = {ra:rr.ra, r5:rr.r5, r10:rr.r10, name:v.name, seats:v.seats, luggage:v.luggage, category:v.category, page:v.page, marque:v.marque, img:v.img, photo:v.photo, flipImg:v.flipImg, id:v.id};
     const from = fromRate(rv);
     const bk = "/booking?vehicle=" + encodeURIComponent(v.id);
     const opts = UMC_EMIRATES.map(p =>
@@ -238,31 +318,12 @@ function renderFleet(el, opts){
     });
   });
   // v59: dropdown selector (was pill bar). Same data, cleaner control.
+  // RATES-1: rate application is shared with the live-hydration re-sync.
   el.querySelectorAll(".em-select").forEach(sel=>{
     sel.addEventListener("change", (ev)=>{
       ev.stopPropagation();
       const card = sel.closest(".vcard");
-      if(!card) return;
-      const em = sel.value;
-      const vid = card.dataset.vid;
-      const baseV = getFleet().find(x=>x.id===vid) || {ra:null,r5:null,r10:null};
-      const ovr = umcRatesFor(vid, em);
-      const rates = ovr ? ovr : {ra:baseV.ra, r5:baseV.r5, r10:baseV.r10};
-      const setR = (k, val)=>{
-        const b = card.querySelector('.r[data-rate="'+k+'"] b');
-        if(b) b.textContent = fmtRate(val);
-      };
-      setR("ra", rates.ra); setR("r5", rates.r5); setR("r10", rates.r10);
-      const xs = [rates.ra, rates.r5, rates.r10].filter(n=>n!==null && n!==undefined && n!=="");
-      const priceEl = card.querySelector(".vprice");
-      if(priceEl){
-        if(xs.length){
-          const min = Math.min(...xs.map(Number));
-          priceEl.innerHTML = '<span class="from">From</span><b>AED ' + min.toLocaleString() + '</b><span class="from">all-inclusive</span>';
-        } else {
-          priceEl.innerHTML = '<b style="font-size:1rem">Rates on request</b>';
-        }
-      }
+      if(card) umcApplyRatesToCard(card, sel.value);
     });
     // Stop label clicks bubbling to vtoggle when the user opens the select.
     const lbl = sel.closest(".em-switch");
@@ -270,4 +331,6 @@ function renderFleet(el, opts){
   });
   if(window.umcObserve) el.querySelectorAll(".rv").forEach(n=>window.umcObserve(n));
   else el.querySelectorAll(".rv").forEach(n=>n.classList.add("in"));
+  // RATES-1: fetch live D1 prices once and re-sync every card on the page.
+  umcHydrateRates();
 }

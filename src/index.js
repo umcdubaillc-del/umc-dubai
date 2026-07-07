@@ -1,6 +1,6 @@
 /* (c) UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 
-import { handleAdmin } from "./admin.js";
+import { handleAdmin, handleFleetRatesPublic } from "./admin.js";
 
 // Cloudflare Worker (with static assets) — entry point.
 //
@@ -97,12 +97,20 @@ export default {
       }
       return handleLead(request, env, ctx);
     }
+    // Public, no-auth live fleet pricing the site hydrates car cards from
+    // (RATES-1). Cached 60s in handleFleetRatesPublic. Returns early so the
+    // asset-cache rewrite below never touches it.
+    if (url.pathname === "/api/fleet-rates") {
+      return handleFleetRatesPublic(env);
+    }
+
     if (url.pathname === "/admin/billing" ||
         url.pathname.startsWith("/admin/billing/") ||
         url.pathname.startsWith("/admin/api/billing") ||
         url.pathname.startsWith("/admin/api/links") ||
         url.pathname.startsWith("/admin/api/bank-details") ||
         url.pathname.startsWith("/admin/api/rate-card") ||
+        url.pathname.startsWith("/admin/api/fleet-rates") ||
         url.pathname.startsWith("/admin/api/payments") ||
         url.pathname === "/admin/api/sales" ||
         url.pathname === "/admin/api/sync-nomod" ||

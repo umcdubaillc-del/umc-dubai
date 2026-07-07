@@ -2835,6 +2835,216 @@ async function handleSales(url, env) {
 //     charges issued from the Nomod app.
 //   * The Nomod API key bound to NOMOD_API_KEY must have read scope on
 //     /v1/charges (transactions). Verify in Nomod Settings -> Apps & APIs.
+// ============================================================ Section C: Fleet prices (RATES-1)
+// Live, admin-editable car-card pricing — replaces the baked constants that used
+// to require a code edit + deploy per price change. Two tables under BILLING_DB:
+//   fleet_emirates  — the rate-dropdown emirate list (ordered, add / remove / rename)
+//   fleet_rates     — per vehicle × emirate [airport, five_hour, ten_hour] in AED;
+//                     any column NULL (or a missing row) = "Rates on request".
+// The public GET /api/fleet-rates (handleFleetRatesPublic, routed in src/index.js)
+// hydrates the site cards in real time; the admin "Fleet prices" tab writes here.
+// Canonical schema + day-one seed: migrations/0008_fleet_rates.sql.
+
+// Editor rows — mirrors DEFAULT_FLEET / FLEET_VEHICLES order (incl. the two
+// always-on-request group vehicles so the owner can price them later).
+const FLEET_PRICE_VEHICLES = [
+  { slug:"mb-s-class",        name:"Mercedes Benz S Class" },
+  { slug:"bmw-7",             name:"BMW 7 Series" },
+  { slug:"cadillac-escalade", name:"Cadillac Escalade" },
+  { slug:"gmc-yukon-xl",      name:"GMC Yukon Elevation XL" },
+  { slug:"mb-e-class",        name:"Mercedes Benz E Class" },
+  { slug:"lexus-es",          name:"Lexus ES" },
+  { slug:"mb-v-class",        name:"Mercedes Benz V Class" },
+  { slug:"mb-sprinter",       name:"Mercedes Benz Sprinter" },
+  { slug:"luxury-coach",      name:"Luxury Coach" }
+];
+// [slug, label, position] — Ajman + Fujairah added; UAQ present (all three seed
+// on-request). Priced emirates: dubai / abu-dhabi / sharjah / rak / al-ain.
+const FLEET_EMIRATES_SEED = [
+  ["dubai","Dubai",1],["abu-dhabi","Abu Dhabi",2],["sharjah","Sharjah",3],
+  ["rak","Ras Al Khaimah",4],["al-ain","Al Ain",5],["umm-al-quwain","Umm Al Quwain",6],
+  ["ajman","Ajman",7],["fujairah","Fujairah",8]
+];
+// [vehicle_slug, emirate_slug, airport, five_hour, ten_hour] — verbatim from the
+// baked UMC_RATES so day one matches live exactly.
+const FLEET_RATES_SEED = [
+  ["bmw-7","dubai",600,1300,2000],["mb-s-class","dubai",850,1800,2400],["gmc-yukon-xl","dubai",550,900,1400],
+  ["mb-v-class","dubai",500,1000,1400],["lexus-es","dubai",350,700,1000],["mb-e-class","dubai",400,1150,1600],
+  ["cadillac-escalade","dubai",850,1800,2400],
+  ["bmw-7","abu-dhabi",800,1500,2200],["mb-s-class","abu-dhabi",1300,2000,2600],["gmc-yukon-xl","abu-dhabi",750,1100,1600],
+  ["mb-v-class","abu-dhabi",650,1150,1550],["lexus-es","abu-dhabi",500,850,1150],["mb-e-class","abu-dhabi",650,1350,1800],
+  ["cadillac-escalade","abu-dhabi",1200,2000,2600],
+  ["bmw-7","sharjah",800,1500,2200],["mb-s-class","sharjah",1050,1900,2500],["gmc-yukon-xl","sharjah",750,1100,1600],
+  ["mb-v-class","sharjah",550,1050,1450],["lexus-es","sharjah",450,800,1100],["mb-e-class","sharjah",600,1300,1750],
+  ["cadillac-escalade","sharjah",1050,1900,2500],
+  ["bmw-7","rak",800,1500,2200],["mb-s-class","rak",1300,2000,2600],["gmc-yukon-xl","rak",750,1100,1600],
+  ["mb-v-class","rak",700,1200,1600],["lexus-es","rak",550,900,1200],["mb-e-class","rak",600,1350,1800],
+  ["cadillac-escalade","rak",1200,2000,2600],
+  ["bmw-7","al-ain",800,1500,2200],["mb-s-class","al-ain",1300,2000,2600],["gmc-yukon-xl","al-ain",750,1100,1600],
+  ["mb-v-class","al-ain",700,1200,1600],["lexus-es","al-ain",500,850,1150],["mb-e-class","al-ain",650,1350,1800],
+  ["cadillac-escalade","al-ain",1200,2000,2600]
+];
+
+const FLEET_RATES_SCHEMA_DONE = new WeakSet();
+async function ensureFleetRatesSchema(env) {
+  if (FLEET_RATES_SCHEMA_DONE.has(env)) return;
+  const db = env.BILLING_DB;
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS fleet_emirates (
+       slug TEXT PRIMARY KEY, label TEXT NOT NULL,
+       position INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1,
+       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+     )`
+  ).run();
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS fleet_rates (
+       vehicle_slug TEXT NOT NULL, emirate_slug TEXT NOT NULL,
+       airport INTEGER, five_hour INTEGER, ten_hour INTEGER,
+       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       PRIMARY KEY (vehicle_slug, emirate_slug)
+     )`
+  ).run();
+  // Seed once, on first init only (empty emirates table). Never re-adds an
+  // emirate the owner later removed, nor overwrites an edited price.
+  const seeded = await db.prepare("SELECT 1 FROM fleet_emirates LIMIT 1").first();
+  if (!seeded) {
+    const now = new Date().toISOString();
+    const stmts = [];
+    for (const [slug, label, pos] of FLEET_EMIRATES_SEED)
+      stmts.push(db.prepare(
+        "INSERT OR IGNORE INTO fleet_emirates (slug,label,position,active,updated_at) VALUES (?,?,?,1,?)"
+      ).bind(slug, label, pos, now));
+    for (const [v, e, a, f, t] of FLEET_RATES_SEED)
+      stmts.push(db.prepare(
+        "INSERT OR IGNORE INTO fleet_rates (vehicle_slug,emirate_slug,airport,five_hour,ten_hour,updated_at) VALUES (?,?,?,?,?,?)"
+      ).bind(v, e, a, f, t, now));
+    await db.batch(stmts);
+  }
+  FLEET_RATES_SCHEMA_DONE.add(env);
+}
+
+// Normalize a stored rate cell: null-safe integer.
+function fleetRateNum(v) {
+  if (v == null || v === "") return null;
+  const n = Number(String(v).replace(/[^0-9.]/g, ""));
+  return isNaN(n) ? null : Math.round(n);
+}
+function fleetSlugify(s) {
+  return String(s == null ? "" : s).trim().toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+// Shared read: emirates + full rates map. `activeOnly` for the public site.
+async function fleetRatesData(env, activeOnly) {
+  await ensureFleetRatesSchema(env);
+  const db = env.BILLING_DB;
+  const emSql = activeOnly
+    ? "SELECT slug,label,position,active FROM fleet_emirates WHERE active=1 ORDER BY position, slug"
+    : "SELECT slug,label,position,active FROM fleet_emirates ORDER BY position, slug";
+  const ems = (await db.prepare(emSql).all()).results || [];
+  const rows = (await db.prepare(
+    "SELECT vehicle_slug,emirate_slug,airport,five_hour,ten_hour,updated_at FROM fleet_rates"
+  ).all()).results || [];
+  const rates = {};
+  let maxUpd = "";
+  for (const r of rows) {
+    if (!rates[r.vehicle_slug]) rates[r.vehicle_slug] = {};
+    rates[r.vehicle_slug][r.emirate_slug] = {
+      airport: r.airport == null ? null : Number(r.airport),
+      five_hour: r.five_hour == null ? null : Number(r.five_hour),
+      ten_hour: r.ten_hour == null ? null : Number(r.ten_hour)
+    };
+    if (r.updated_at && r.updated_at > maxUpd) maxUpd = r.updated_at;
+  }
+  return { ems, rates, maxUpd };
+}
+
+// PUBLIC, no auth — the site hydrates car cards from this. Cached 60s (RATES-1).
+export async function handleFleetRatesPublic(env) {
+  if (!env.BILLING_DB) return json({ emirates: [], rates: {}, updated_at: null });
+  const { ems, rates, maxUpd } = await fleetRatesData(env, true);
+  const body = {
+    emirates: ems.map(e => ({ slug: e.slug, label: e.label })),
+    rates,
+    updated_at: maxUpd || null
+  };
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=60" }
+  });
+}
+
+// GET /admin/api/fleet-rates — editor payload (all emirates incl. inactive; full grid).
+async function handleGetFleetPrices(env) {
+  const { ems, rates } = await fleetRatesData(env, false);
+  return json({
+    ok: true,
+    vehicles: FLEET_PRICE_VEHICLES,
+    emirates: ems.map(e => ({ slug: e.slug, label: e.label, position: e.position, active: e.active ? 1 : 0 })),
+    rates
+  });
+}
+
+// POST /admin/api/fleet-rates — upsert a set of cells. Body: {rates:[{vehicle_slug,
+// emirate_slug,airport,five_hour,ten_hour}]}. Blank/invalid → NULL (= on request).
+async function handleSaveFleetPrices(request, env) {
+  await ensureFleetRatesSchema(env);
+  let body = {};
+  try { body = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
+  const list = Array.isArray(body.rates) ? body.rates : [];
+  const db = env.BILLING_DB;
+  const now = new Date().toISOString();
+  const stmts = [];
+  for (const r of list) {
+    const vs = String(r.vehicle_slug || "").trim();
+    const es = String(r.emirate_slug || "").trim();
+    if (!vs || !es) continue;
+    stmts.push(db.prepare(
+      `INSERT INTO fleet_rates (vehicle_slug,emirate_slug,airport,five_hour,ten_hour,updated_at)
+         VALUES (?,?,?,?,?,?)
+       ON CONFLICT(vehicle_slug,emirate_slug) DO UPDATE SET
+         airport=excluded.airport, five_hour=excluded.five_hour,
+         ten_hour=excluded.ten_hour, updated_at=excluded.updated_at`
+    ).bind(vs, es, fleetRateNum(r.airport), fleetRateNum(r.five_hour), fleetRateNum(r.ten_hour), now));
+  }
+  if (stmts.length) await db.batch(stmts);
+  return json({ ok: true, saved: stmts.length });
+}
+
+// POST /admin/api/fleet-rates/emirates — full-list replace (add / remove / reorder /
+// rename / active toggle). Body: {emirates:[{slug,label,active}]} in display order.
+async function handleSaveFleetEmirates(request, env) {
+  await ensureFleetRatesSchema(env);
+  let body = {};
+  try { body = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
+  const list = Array.isArray(body.emirates) ? body.emirates : [];
+  const clean = [];
+  const seen = new Set();
+  for (let i = 0; i < list.length; i++) {
+    const e = list[i] || {};
+    const slug = fleetSlugify(e.slug || e.label);
+    const label = String(e.label || "").trim();
+    if (!slug || !label || seen.has(slug)) continue;
+    seen.add(slug);
+    clean.push({ slug, label, position: i + 1, active: (e.active === 0 || e.active === false) ? 0 : 1 });
+  }
+  if (!clean.length) return json({ ok: false, error: "at least one emirate is required" }, 400);
+  const db = env.BILLING_DB;
+  const now = new Date().toISOString();
+  // slugs are sanitized to [a-z0-9-] so the IN-list is injection-safe.
+  const keep = clean.map(e => `'${e.slug}'`).join(",");
+  const stmts = [db.prepare(`DELETE FROM fleet_emirates WHERE slug NOT IN (${keep})`)];
+  for (const e of clean) {
+    stmts.push(db.prepare(
+      `INSERT INTO fleet_emirates (slug,label,position,active,updated_at) VALUES (?,?,?,?,?)
+       ON CONFLICT(slug) DO UPDATE SET label=excluded.label, position=excluded.position,
+         active=excluded.active, updated_at=excluded.updated_at`
+    ).bind(e.slug, e.label, e.position, e.active, now));
+  }
+  await db.batch(stmts);
+  return json({ ok: true, emirates: clean });
+}
+
 // ============================================================ Section A: Bank details
 // Single-row (id=1) settings table holding the beneficiary account. Editable in
 // the admin; the "Download bank details PDF" action renders the A4 portrait doc.
@@ -3991,6 +4201,17 @@ export async function handleAdmin(request, env) {
     if (path === "/admin/api/rate-card" && method === "GET") return handleGetRateCard(env);
     if (path === "/admin/api/rate-card" && method === "POST") return handleSaveRateCard(request, env);
     if (path === "/admin/api/rate-card/pdf" && method === "GET") return handleRateCardPdf(request, env);
+    return json({ ok: false, error: "not found" }, 404);
+  }
+
+  // Section C — live fleet prices (car-card rates + emirate dropdown).
+  if (path.startsWith("/admin/api/fleet-rates")) {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    if (path === "/admin/api/fleet-rates" && method === "GET") return handleGetFleetPrices(env);
+    if (path === "/admin/api/fleet-rates" && method === "POST") return handleSaveFleetPrices(request, env);
+    if (path === "/admin/api/fleet-rates/emirates" && method === "POST") return handleSaveFleetEmirates(request, env);
     return json({ ok: false, error: "not found" }, 404);
   }
 
@@ -5601,6 +5822,70 @@ function appShellHTML() {
   </div>
 </section><!-- /#tab-ratecard -->
 
+<!-- Section C — Fleet prices (RATES-1). The live car-card pricing the site
+     hydrates from GET /api/fleet-rates. Pick an emirate, tap any rate to edit;
+     a blank cell publishes as "Rates on request". Manage the dropdown emirate
+     list (add / remove / reorder / rename / hide) below the grid. -->
+<style>
+  #tab-fleetprices .fp-wrap{padding:1.5rem;max-width:900px}
+  #tab-fleetprices .fp-note{background:#FBF8F1;border:1px solid rgba(199,91,18,.30);border-left:3px solid var(--amber,#C75B12);border-radius:8px;padding:.6rem .85rem;margin:.2rem 0 1.1rem;font-size:.82rem;color:var(--ink-soft,#4A4136)}
+  #tab-fleetprices .fp-emtabs{display:flex;flex-wrap:wrap;gap:.4rem;margin:.2rem 0 1.1rem}
+  #tab-fleetprices .fp-emtab{border:1px solid rgba(34,27,20,.16);background:var(--card,#FBF8F1);border-radius:999px;padding:.42rem .9rem;font:inherit;font-size:.82rem;cursor:pointer;color:var(--ink-soft,#4A4136);display:inline-flex;align-items:center;gap:.4rem}
+  #tab-fleetprices .fp-emtab.on{background:var(--ink,#221B14);color:#fff;border-color:var(--ink,#221B14)}
+  #tab-fleetprices .fp-emtab .fp-dim{opacity:.55;font-size:.7rem}
+  #tab-fleetprices .fp-scroll{overflow-x:auto}
+  #tab-fleetprices .fp-grid{width:100%;border-collapse:collapse;font-size:.86rem}
+  #tab-fleetprices .fp-grid th,#tab-fleetprices .fp-grid td{padding:.45rem .5rem;border-bottom:1px solid rgba(34,27,20,.10);vertical-align:middle}
+  #tab-fleetprices .fp-grid thead th{font-weight:500;color:var(--muted,#7A6F5F);font-size:.72rem;letter-spacing:.03em;text-align:left}
+  #tab-fleetprices .fp-grid td.fp-veh{min-width:180px;color:var(--ink,#221B14)}
+  #tab-fleetprices .fp-cell{min-width:96px}
+  #tab-fleetprices .fp-cell input{width:100%;font:inherit;text-align:center;border:1px solid rgba(34,27,20,.12);border-radius:6px;padding:.36rem .3rem;background:#fff;color:var(--ink,#221B14)}
+  #tab-fleetprices .fp-cell input::placeholder{color:rgba(122,111,95,.55)}
+  #tab-fleetprices .fp-cell input:focus{outline:2px solid rgba(199,91,18,.32);border-color:var(--amber,#C75B12)}
+  #tab-fleetprices .fp-aed{color:var(--muted,#7A6F5F);font-size:.7rem;padding-right:.15rem}
+  #tab-fleetprices .fp-em{margin-top:2rem;border-top:1px solid rgba(34,27,20,.10);padding-top:1.3rem}
+  #tab-fleetprices .fp-emrow{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;padding:.4rem 0;border-bottom:1px solid rgba(34,27,20,.07)}
+  #tab-fleetprices .fp-emrow input.fp-emlabel{font:inherit;font-size:.85rem;border:1px solid rgba(34,27,20,.14);border-radius:6px;padding:.34rem .5rem;background:#fff;color:var(--ink,#221B14);min-width:160px}
+  #tab-fleetprices .fp-emrow .fp-emslug{font-size:.7rem;color:var(--muted,#7A6F5F);font-family:ui-monospace,Menlo,monospace}
+  #tab-fleetprices .fp-emrow .fp-emact{font-size:.76rem;color:var(--ink-soft,#4A4136);display:inline-flex;align-items:center;gap:.3rem}
+  #tab-fleetprices .fp-emrow .fp-emctrls{margin-left:auto;white-space:nowrap}
+  #tab-fleetprices .fp-emrow .fp-emctrls button{border:0;background:transparent;cursor:pointer;font-size:.9rem;color:var(--muted,#7A6F5F);padding:.2rem .32rem;border-radius:5px;line-height:1}
+  #tab-fleetprices .fp-emrow .fp-emctrls button:hover{background:rgba(34,27,20,.06);color:var(--ink,#221B14)}
+  @media (max-width:620px){ #tab-fleetprices .fp-wrap{padding:1rem} }
+  @media (max-width:760px){ #tab-fleetprices .fp-cell input,#tab-fleetprices .fp-emrow input.fp-emlabel{font-size:16px} }
+</style>
+<section id="tab-fleetprices" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnMore" hidden>
+  <div class="wrap fp-wrap">
+    <div style="margin:1.2rem 0 .5rem">
+      <h2 style="font-family:Marcellus,Georgia,serif;font-size:1.5rem;margin:0 0 .3rem">Fleet prices</h2>
+      <p class="hist-sub" style="margin:0">The live car-card rates on the website — the &ldquo;From&rdquo; price and the per-emirate <b>Airport / 5&nbsp;hours / 10&nbsp;hours</b> figures. Pick an emirate, tap any rate to edit. A blank cell shows as <b>Rates on request</b>.</p>
+    </div>
+    <div class="fp-note">Changes are live on the site immediately. Visitors see updated prices within about a minute (existing page views refresh on reload).</div>
+    <div class="fp-emtabs" id="fpEmTabs" role="tablist" aria-label="Choose emirate to edit"></div>
+    <div class="fp-scroll">
+      <table class="fp-grid">
+        <thead><tr><th class="fp-veh">Vehicle</th><th>Airport transfer</th><th>5 hours at disposal</th><th>10 hours at disposal</th></tr></thead>
+        <tbody id="fpBody"></tbody>
+      </table>
+    </div>
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1.1rem">
+      <button type="button" class="btn btn-ink" id="fpSave">Save prices</button>
+    </div>
+    <div id="fpStatus" class="hist-sub" style="margin-top:.7rem" aria-live="polite"></div>
+
+    <div class="fp-em">
+      <h3 style="font-family:Marcellus,Georgia,serif;font-size:1.15rem;margin:0 0 .3rem">Emirates in the dropdown</h3>
+      <p class="hist-sub" style="margin:0 0 .8rem">Rename, reorder, hide, add or remove the emirates shown in the car-card rate dropdown. Removing an emirate hides it from the site; its stored prices are kept.</p>
+      <div id="fpEmList"></div>
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1rem">
+        <button type="button" class="btn btn-small btn-ghost" id="fpEmAdd">+ Add emirate</button>
+        <button type="button" class="btn btn-ink" id="fpEmSave">Save emirates</button>
+      </div>
+      <div id="fpEmStatus" class="hist-sub" style="margin-top:.7rem" aria-live="polite"></div>
+    </div>
+  </div>
+</section><!-- /#tab-fleetprices -->
+
 <!-- Calendar — agenda view of our OWN jobs data (GET /admin/api/jobs). This page
      never queries Google; the Google Calendar sync remains one-way sync-out only.
      Days are listed vertically from the anchor date forward; cancelled jobs hide
@@ -6853,7 +7138,7 @@ const PAGE_SCRIPT = `<script>
     // v61: include "payments" — was missing in v60, which is why activating
     // the tab moved the underline but never un-hid #tab-payments.
     // v84: include "sales".
-    ["leads","create","documents","links","sales","fleet","bank","ratecard","calendar"].forEach(function(n){
+    ["leads","create","documents","links","sales","fleet","fleetprices","bank","ratecard","calendar"].forEach(function(n){
       const el = document.getElementById("tab-" + n);
       if(!el) return;
       const on = n === name;
@@ -6865,6 +7150,7 @@ const PAGE_SCRIPT = `<script>
     if(name === "links") loadLinks();
     if(name === "sales") loadSales();
     if(name === "fleet") loadFleet();
+    if(name === "fleetprices") loadFleetPrices();
     if(name === "bank") loadBank();
     if(name === "ratecard") loadRateCard();
     if(name === "calendar") loadCalendar();
@@ -7223,6 +7509,138 @@ const PAGE_SCRIPT = `<script>
     var vf = rcState.valid_from || "";
     var url = "/admin/api/rate-card/pdf" + (vf ? ("?valid_from=" + encodeURIComponent(vf)) : "");
     window.open(url, "_blank", "noopener");
+  }
+
+  // ── Section C — Fleet prices (live car-card rates) ─────────────────────────
+  // Full grid held client-side in fpState; pick an emirate, edit the 3 rates per
+  // vehicle, Save posts every cell. The dropdown emirate list is managed in a
+  // separate working copy (fpEmEdit) saved to /admin/api/fleet-rates/emirates.
+  // No backslashes in this block — it lives inside the PAGE_SCRIPT template.
+  var fpState = null;   // { vehicles, emirates, rates, cur }
+  var fpEmEdit = null;  // working copy of the emirate list for the manager
+  function fpStatus(m){ var s = $("fpStatus"); if(s) s.textContent = m || ""; }
+  function fpEmStatus(m){ var s = $("fpEmStatus"); if(s) s.textContent = m || ""; }
+  async function loadFleetPrices(){
+    bindFleetPricesOnce();
+    try{
+      var j = await (await fetch("/admin/api/fleet-rates")).json();
+      if(!(j && j.ok)){ fpStatus("Load failed."); return; }
+      fpState = { vehicles: j.vehicles || [], emirates: j.emirates || [], rates: j.rates || {}, cur: null };
+      var active = fpState.emirates.filter(function(e){ return e.active; });
+      fpState.cur = (active[0] || fpState.emirates[0] || {}).slug || null;
+      fpEmEdit = fpState.emirates.map(function(e){ return { slug:e.slug, label:e.label, active: e.active ? 1 : 0 }; });
+      fpRenderEmTabs(); fpRenderGrid(); fpRenderEmManager();
+      fpStatus(""); fpEmStatus("");
+    }catch(e){ fpStatus("Load failed."); }
+  }
+  function fpCell(vid, em){
+    var r = (fpState.rates[vid] && fpState.rates[vid][em]) || null;
+    return r || { airport:null, five_hour:null, ten_hour:null };
+  }
+  function fpRenderEmTabs(){
+    var host = $("fpEmTabs"); if(!host || !fpState) return;
+    host.innerHTML = fpState.emirates.map(function(e){
+      var on = e.slug === fpState.cur ? " on" : "";
+      var dim = e.active ? "" : ' <span class="fp-dim">hidden</span>';
+      return '<button type="button" class="fp-emtab' + on + '" data-fpem="' + esc(e.slug) + '">' + esc(e.label) + dim + '</button>';
+    }).join("");
+  }
+  function fpRenderGrid(){
+    var body = $("fpBody"); if(!body || !fpState) return;
+    var em = fpState.cur;
+    body.innerHTML = fpState.vehicles.map(function(v){
+      var c = fpCell(v.slug, em);
+      function inp(key){
+        var val = (c[key] == null || c[key] === "") ? "" : c[key];
+        return '<td class="fp-cell"><span class="fp-aed">AED</span><input data-fpv="' + esc(v.slug) + '" data-fpk="' + key + '" type="text" inputmode="numeric" pattern="[0-9]*" value="' + val + '" placeholder="on request"></td>';
+      }
+      return '<tr><td class="fp-veh">' + esc(v.name) + '</td>' + inp("airport") + inp("five_hour") + inp("ten_hour") + '</tr>';
+    }).join("");
+  }
+  function fpRenderEmManager(){
+    var host = $("fpEmList"); if(!host || !fpEmEdit) return;
+    host.innerHTML = fpEmEdit.map(function(e, i){
+      var chk = e.active ? " checked" : "";
+      var slug = e.slug ? ('<span class="fp-emslug">/' + esc(e.slug) + '</span>') : '<span class="fp-emslug">new</span>';
+      return '<div class="fp-emrow" data-emrow="' + i + '">'
+        + '<input class="fp-emlabel" data-emi="' + i + '" type="text" value="' + esc(e.label) + '" placeholder="Emirate name" aria-label="Emirate name">'
+        + slug
+        + '<label class="fp-emact"><input type="checkbox" data-ematoggle="' + i + '"' + chk + '> Shown</label>'
+        + '<span class="fp-emctrls">'
+        + '<button type="button" data-emmove="' + i + '_up" title="Move up" aria-label="Move up">&#9650;</button>'
+        + '<button type="button" data-emmove="' + i + '_down" title="Move down" aria-label="Move down">&#9660;</button>'
+        + '<button type="button" data-emdel="' + i + '" title="Remove" aria-label="Remove">&times;</button>'
+        + '</span></div>';
+    }).join("");
+  }
+  function fpEmMove(i, dir){
+    var j = dir === "up" ? i - 1 : i + 1;
+    if(j < 0 || j >= fpEmEdit.length) return;
+    var tmp = fpEmEdit[i]; fpEmEdit[i] = fpEmEdit[j]; fpEmEdit[j] = tmp;
+    fpRenderEmManager();
+  }
+  function bindFleetPricesOnce(){
+    var root = document.getElementById("tab-fleetprices");
+    if(!root || root._fpBound) return; root._fpBound = true;
+    root.addEventListener("click", function(e){
+      var tab = e.target.closest("[data-fpem]");
+      if(tab){ if(fpState){ fpState.cur = tab.getAttribute("data-fpem"); fpRenderEmTabs(); fpRenderGrid(); } return; }
+      var mv = e.target.closest("[data-emmove]");
+      if(mv){ var m = mv.getAttribute("data-emmove").split("_"); fpEmMove(Number(m[0]), m[1]); return; }
+      var del = e.target.closest("[data-emdel]");
+      if(del){ fpEmEdit.splice(Number(del.getAttribute("data-emdel")), 1); if(!fpEmEdit.length) fpEmEdit.push({ slug:"", label:"", active:1 }); fpRenderEmManager(); return; }
+    });
+    root.addEventListener("input", function(e){
+      var t = e.target;
+      var v = t.getAttribute && t.getAttribute("data-fpv");
+      if(v != null && fpState){
+        var key = t.getAttribute("data-fpk");
+        var raw = String(t.value).replace(/[^0-9.]/g, ""); var n = Number(raw);
+        if(!fpState.rates[v]) fpState.rates[v] = {};
+        if(!fpState.rates[v][fpState.cur]) fpState.rates[v][fpState.cur] = { airport:null, five_hour:null, ten_hour:null };
+        fpState.rates[v][fpState.cur][key] = (raw === "" || isNaN(n)) ? null : Math.round(n);
+        return;
+      }
+      var emi = t.getAttribute && t.getAttribute("data-emi");
+      if(emi != null && fpEmEdit){ fpEmEdit[Number(emi)].label = t.value; return; }
+    });
+    root.addEventListener("change", function(e){
+      var tg = e.target.getAttribute && e.target.getAttribute("data-ematoggle");
+      if(tg != null && fpEmEdit){ fpEmEdit[Number(tg)].active = e.target.checked ? 1 : 0; }
+    });
+    var addBtn = $("fpEmAdd");
+    if(addBtn) addBtn.addEventListener("click", function(){ if(!fpEmEdit) fpEmEdit = []; fpEmEdit.push({ slug:"", label:"", active:1 }); fpRenderEmManager(); });
+    var saveBtn = $("fpSave"); if(saveBtn) saveBtn.addEventListener("click", fpSavePrices);
+    var emSaveBtn = $("fpEmSave"); if(emSaveBtn) emSaveBtn.addEventListener("click", fpSaveEmirates);
+  }
+  function fpSavePrices(){
+    if(!fpState) return;
+    var rows = [];
+    for(var vi = 0; vi < fpState.vehicles.length; vi++){
+      var vid = fpState.vehicles[vi].slug;
+      var byEm = fpState.rates[vid] || {};
+      for(var ei = 0; ei < fpState.emirates.length; ei++){
+        var em = fpState.emirates[ei].slug;
+        var c = byEm[em] || { airport:null, five_hour:null, ten_hour:null };
+        rows.push({ vehicle_slug:vid, emirate_slug:em, airport:c.airport, five_hour:c.five_hour, ten_hour:c.ten_hour });
+      }
+    }
+    var btn = $("fpSave"); if(btn) btn.disabled = true; fpStatus("Saving …");
+    fetch("/admin/api/fleet-rates", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ rates: rows }) })
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if(btn) btn.disabled = false; if(j && j.ok){ fpStatus("Saved — live on the site."); if(typeof showToast === "function") showToast("Fleet prices saved."); } else { fpStatus("Save failed: " + ((j && j.error) || "")); } })
+      .catch(function(e){ if(btn) btn.disabled = false; fpStatus("Save failed — " + (e.message || e)); });
+  }
+  function fpSaveEmirates(){
+    if(!fpEmEdit) return;
+    var list = fpEmEdit.filter(function(e){ return String(e.label || "").trim(); })
+                       .map(function(e){ return { slug:e.slug || "", label:e.label, active:e.active ? 1 : 0 }; });
+    if(!list.length){ fpEmStatus("Add at least one emirate."); return; }
+    var btn = $("fpEmSave"); if(btn) btn.disabled = true; fpEmStatus("Saving …");
+    fetch("/admin/api/fleet-rates/emirates", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ emirates: list }) })
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if(btn) btn.disabled = false; if(j && j.ok){ fpEmStatus("Saved — live on the site."); if(typeof showToast === "function") showToast("Emirates updated."); loadFleetPrices(); } else { fpEmStatus("Save failed: " + ((j && j.error) || "")); } })
+      .catch(function(e){ if(btn) btn.disabled = false; fpEmStatus("Save failed — " + (e.message || e)); });
   }
 
   // ── Jobs (Dispatch Phase 2) client UI ──────────────────────────────────────
@@ -9214,6 +9632,7 @@ const PAGE_SCRIPT = `<script>
   var MORE_TABS = [
     { id: "sales", label: "Sales" },
     { id: "fleet", label: "Fleet" },
+    { id: "fleetprices", label: "Fleet prices" },
     { id: "bank",  label: "Bank details" },
     { id: "ratecard", label: "B2B Rate Card" }
   ];
