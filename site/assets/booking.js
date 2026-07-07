@@ -35,11 +35,17 @@ function trackLead(formId, service){
   const $ = id => document.getElementById(id);
   const params = new URLSearchParams(location.search);
   const PHONE = "971586497861";
-  const AIRPORT_RX = new RegExp("\\b(airport|dxb|dwc|auh|shj|rkt|al maktoum|maktoum international|zayed international|abu dhabi international|sharjah international|ras al khaimah international|al ain international)\\b","i");
+  // FAQ-2-REV C: airport detection token set — MIRRORED with the server's
+  // LEAD_AIRPORT_RX in src/admin.js. Keep the two token lists in step (no drift).
+  const AIRPORT_RX = new RegExp("\\b(airport|terminal|arrivals|departures|dxb|dwc|auh|shj|rkt|dubai international|al maktoum|maktoum international|zayed international|abu dhabi international|sharjah international|ras al khaimah international|al ain international)\\b","i");
+  // DXB Terminal 3 is board-free (the chauffeur confirms the meeting point on
+  // WhatsApp), so the Welcome-sign field is suppressed when the PICKUP is T3.
+  // Word-bounded so "DXB Terminal 3 Parking" / "DXB T3" match but "part3" won't.
+  const T3_RX = new RegExp("\\bterminal 3\\b|\\bt3\\b","i");
 
   const state = { service: params.get("mode")==="hourly" ? "hourly5" : "p2p", days:2,
                   from:"", to:"", km:null, mins:null, vehicle:null, fromIsAirport:false, toIsAirport:false,
-                  pickupEmirate:"", earliestMin:null };
+                  fromIsT3:false, pickupEmirate:"", earliestMin:null };
 
   // prefill from homepage
   if(params.get("from")) $("kFrom").value = params.get("from");
@@ -47,6 +53,11 @@ function trackLead(formId, service){
   if(params.get("hours")==="10 hours") state.service = "hourly10";
   if((params.get("hours")||"").indexOf("Multi")===0) state.service = "fullday";
   if(state.service==="p2p" && AIRPORT_RX.test((params.get("from")||"") + " " + (params.get("to")||""))) state.service = "airport";
+  // Seed the airport flags from any prefilled values so the conditional fields
+  // reflect a handed-off airport pickup even before Maps/typing (sign follows T3).
+  state.fromIsAirport = AIRPORT_RX.test($("kFrom").value||"");
+  state.toIsAirport   = AIRPORT_RX.test($("kTo").value||"");
+  state.fromIsT3      = T3_RX.test($("kFrom").value||"");
 
   // segmented Transfer / By the hour (consistent with homepage)
   const seg = document.querySelectorAll("#bkSeg button");
@@ -70,12 +81,16 @@ function trackLead(formId, service){
 
   function syncConditional(){
     const isAirport = state.fromIsAirport || state.toIsAirport;
+    // Flight number: airport in EITHER direction (unchanged).
     $("rowFlight").classList.toggle("hide", !isAirport);
     var iF=$("incFlight"), iW=$("incWait"), iM=$("incMeetTxt");
     if(iF) iF.classList.toggle("hide", !isAirport);
     if(iW) iW.classList.toggle("hide", !isAirport);
     if(iM) iM.textContent = isAirport ? "Met by your chauffeur" : "Professional chauffeur";
-    $("rowSign").classList.toggle("hide", !isAirport);
+    // Welcome sign: only when the PICKUP is an airport (a drop-off never needs a
+    // sign) AND the pickup is not DXB Terminal 3 (T3 greetings are board-free).
+    const showSign = state.fromIsAirport && !state.fromIsT3;
+    $("rowSign").classList.toggle("hide", !showSign);
     const hourly = state.service.startsWith("hourly")||state.service==="fullday";
     $("rowTo").classList.toggle("hide", hourly);
     $("kTo").required = !hourly;
@@ -140,6 +155,7 @@ function trackLead(formId, service){
   ["kFrom","kTo"].forEach(id=>$(id).addEventListener("input", function(){
       state.fromIsAirport = AIRPORT_RX.test($("kFrom").value||"");
       state.toIsAirport = AIRPORT_RX.test($("kTo").value||"");
+      state.fromIsT3 = T3_RX.test($("kFrom").value||"");
       const hourly = state.service.startsWith("hourly")||state.service==="fullday";
       if(!hourly) state.service = state.fromIsAirport ? "airport" : "p2p";
       syncConditional();
@@ -306,6 +322,7 @@ function trackLead(formId, service){
       if($("kFrom").value){
         state.from = $("kFrom").value;
         state.fromIsAirport = AIRPORT_RX.test(state.from);
+        state.fromIsT3 = T3_RX.test(state.from);
         if(state.fromIsAirport && state.service==="p2p") state.service = "airport";
         syncConditional();
       }
@@ -316,7 +333,7 @@ function trackLead(formId, service){
     const p = ac.getPlace(); if(!p || !p.geometry) return;
     const label = (p.name && p.formatted_address && !p.formatted_address.startsWith(p.name)) ? p.name + ", " + p.formatted_address : (p.formatted_address || p.name);
     const isAirport = (p.types||[]).includes("airport") || AIRPORT_RX.test(p.name||"");
-    if(which==="from"){ state.from = label; state.fromIsAirport = isAirport; if(state.service==="p2p" || state.service==="airport"){ state.service = isAirport ? "airport" : "p2p"; } state.pickupEmirate = emirateFromPlace(p); applyTimeRestriction(); }
+    if(which==="from"){ state.from = label; state.fromIsAirport = isAirport; state.fromIsT3 = T3_RX.test(label||""); if(state.service==="p2p" || state.service==="airport"){ state.service = isAirport ? "airport" : "p2p"; } state.pickupEmirate = emirateFromPlace(p); applyTimeRestriction(); }
     else { state.to = label; state.toIsAirport = isAirport; }
     syncConditional(); route();
   }

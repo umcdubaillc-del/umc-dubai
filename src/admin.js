@@ -3867,7 +3867,8 @@ async function handleEmailClient(id, env) {
 // of the "Josh Eckley" misclass: the old derivation read ONLY flight/sign/days
 // and ignored the pickup, so an airport pickup with no flight number fell
 // through to point-to-point. (Exported for scripts/test-lead-airport.mjs.)
-export const LEAD_AIRPORT_RX = /\b(airport|terminal|dxb|dwc|auh|shj|rkt|al maktoum|maktoum international|zayed international|abu dhabi international|sharjah international|ras al khaimah international|al ain international)\b/i;
+// FAQ-2-REV C: token set MIRRORED with booking.js AIRPORT_RX (keep in step).
+export const LEAD_AIRPORT_RX = /\b(airport|terminal|arrivals|departures|dxb|dwc|auh|shj|rkt|dubai international|al maktoum|maktoum international|zayed international|abu dhabi international|sharjah international|ras al khaimah international|al ain international)\b/i;
 export function leadIsAirportFields(pickup, destination) {
   const s = String(pickup == null ? "" : pickup) + " " + String(destination == null ? "" : destination);
   return LEAD_AIRPORT_RX.test(s);
@@ -10251,7 +10252,7 @@ const PAGE_SCRIPT = `<script>
   // as an airport transfer, even without a flight number / welcome sign. Mirrors
   // the server LEAD_AIRPORT_RX. Backslashes are DOUBLED for the PAGE_SCRIPT
   // template literal (emitted browser JS gets single-backslash word boundaries).
-  var LEAD_AIRPORT_RX = /\\b(airport|terminal|dxb|dwc|auh|shj|rkt|al maktoum|maktoum international|zayed international|abu dhabi international|sharjah international|ras al khaimah international|al ain international)\\b/i;
+  var LEAD_AIRPORT_RX = /\\b(airport|terminal|arrivals|departures|dxb|dwc|auh|shj|rkt|dubai international|al maktoum|maktoum international|zayed international|abu dhabi international|sharjah international|ras al khaimah international|al ain international)\\b/i;
   function leadIsAirport(x){ return LEAD_AIRPORT_RX.test(leadNz(x.pickup) + " " + leadNz(x.destination)); }
   function leadServiceLabel(x){
     if(leadNz(x.flight) || leadNz(x.sign) || leadIsAirport(x)) return "Airport Transfer";

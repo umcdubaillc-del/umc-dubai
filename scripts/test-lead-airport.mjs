@@ -37,5 +37,28 @@ check("hourly (days set, no airport)", deriveLeadServiceLabel({ pickup: "Hotel",
 // without the word boundary — ensure a plain non-airport string is negative.
 check("no false positive on 'Business Bay'", leadIsAirportFields("Business Bay", "JBR"), false);
 
+// FAQ-2-REV C — expanded token set + Maps-autocomplete vicinity strings.
+check("DXB Terminal 3 Parking (vicinity)", leadIsAirportFields("DXB Terminal 3 Parking", ""), true);
+check("Terminal 3 arrivals", leadIsAirportFields("Terminal 3 arrivals", ""), true);
+check("Airport - Arrivals suffix", leadIsAirportFields("Dubai International Airport - Arrivals", ""), true);
+check("departures token", leadIsAirportFields("DWC Departures", ""), true);
+check("dubai international (no 'airport' word)", leadIsAirportFields("Dubai International", "hotel"), true);
+check("airport as DROP-OFF (hotel -> DXB T1)",
+  deriveLeadServiceLabel({ pickup: "Grand Hyatt", destination: "DXB Terminal 1", flight: "", sign: "", days: "" }),
+  "Airport Transfer");
+
+// FAQ-2-REV C — Welcome-sign visibility rule (mirrors booking.js: the sign shows
+// only when the PICKUP is an airport AND not DXB Terminal 3). T3_RX mirrors
+// booking.js; the pickup-airport test reuses the shared server detection.
+const T3_RX = /\bterminal 3\b|\bt3\b/i;
+const wouldShowSign = (pickup) => leadIsAirportFields(pickup, "") && !T3_RX.test(pickup);
+check("sign: 'Abu Dhabi airport' pickup -> shown", wouldShowSign("Abu Dhabi airport"), true);
+check("sign: 'DXB Terminal 1' pickup -> shown", wouldShowSign("DXB Terminal 1"), true);
+check("sign: 'DXB Terminal 3' pickup -> hidden", wouldShowSign("DXB Terminal 3"), false);
+check("sign: 'DXB Terminal 3 Parking' pickup -> hidden", wouldShowSign("DXB Terminal 3 Parking"), false);
+check("sign: 'DXB T3' pickup -> hidden", wouldShowSign("DXB T3"), false);
+check("sign: 'Terminal 3 arrivals' pickup -> hidden", wouldShowSign("Terminal 3 arrivals"), false);
+check("sign: 'Grand Hyatt' pickup (airport is drop-off) -> hidden", wouldShowSign("Grand Hyatt"), false);
+
 if (failed) { console.error("\ntest-lead-airport: " + failed + " FAILED"); process.exit(1); }
 console.log("\ntest-lead-airport: all passed ✓");
