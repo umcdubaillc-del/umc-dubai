@@ -76,7 +76,7 @@ function umcRatesFor(vid, em){
 }
 
 const DEFAULT_FLEET = [
-  {id:"mb-s-class",marque:"/assets/marques/mercedes.png",name:"Mercedes Benz S Class",category:"Flagship Sedan",year:2024,seats:4,luggage:2,
+  {id:"mb-s-class",marque:"/assets/marques/mercedes.png",name:"Mercedes Benz S Class",category:"Flagship Sedan",year:2024,seats:3,luggage:2,
    r10:2400,r5:1800,ra:850,visible:true,page:"/fleet/s-class",
    /* TEMPORARY,replace with real UMC S-Class photography when supplied.
       flipImg flips the source horizontally so the car faces left, matching the

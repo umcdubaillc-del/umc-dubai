@@ -1,16 +1,22 @@
 /* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
-/* FLEET-UX-1-DESIGN — capacity module progressive enhancement.
-   SSR ships the full SVG + the default seating scenario already marked occupied;
-   this wires the SEATING | LUGGAGE tabs, the scenario cards, and the luggage
-   combination chips. The boot-case layout algorithm here is the single source of
-   truth for case geometry (no server mirror needed — the boot is empty in SSR and
-   only ever populated on the client when the Luggage tab is active). */
+/* CAP-2 — capacity module progressive enhancement.
+   SSR ships the full seat plan (viewBox 0 0 210 560) with the default scenario
+   already marked occupied. This wires the SEATING | LUGGAGE tabs, the scenario
+   cards (SEATING scope) and the luggage combination chips (LUGGAGE scope), and
+   animates a boot-zoom: on LUGGAGE the viewBox crops to the boot (~2.4x) and the
+   occupants dim; on SEATING it animates back to the full plan. Boot-case geometry
+   is the single source of truth here — the boot is empty in SSR and only ever
+   populated on the client when the Luggage tab is active. */
 (function(){
   "use strict";
   var SVGNS = "http://www.w3.org/2000/svg";
-  // Relative case footprints [w,h] in the 190x340 viewBox — S/M/L/XL read true.
-  var CASE = { S:[22,28], M:[28,34], L:[34,42], XL:[40,48] };
-  var BOOT = { cx:95, cy:282, maxW:106, gap:8 };
+  var RM = matchMedia("(prefers-reduced-motion:reduce)").matches;
+  // Case footprints [w,h] in the 210x560 viewBox — C/M/L/XL read true to scale.
+  var CASE = { C:[18,24], M:[28,36], L:[34,42], XL:[40,48] };
+  // Boot zone: cases centre on (105,509) between the inner walls (x44..166).
+  var BOOT = { cx:105, cy:509, maxW:118, gap:5 };
+  var FULL_VB = [0, 0, 210, 560];
+  var ZOOM = 2.4;
 
   function dims(s){ return CASE[s] || CASE.M; }
   // Pack case sizes into centred rows within the boot zone; return positioned rects.
@@ -58,6 +64,35 @@
     });
   }
 
+  // ---- boot zoom (viewBox animation) ----
+  function bootViewBox(){
+    var w = FULL_VB[2]/ZOOM, h = FULL_VB[3]/ZOOM;
+    var x = BOOT.cx - w/2, y = BOOT.cy - h/2;
+    x = Math.max(FULL_VB[0], Math.min(x, FULL_VB[0]+FULL_VB[2]-w));
+    y = Math.max(FULL_VB[1], Math.min(y, FULL_VB[1]+FULL_VB[3]-h));
+    return [x, y, w, h];
+  }
+  function readVB(svg){
+    var v = (svg.getAttribute("viewBox") || "").split(/[ ,]+/).map(Number);
+    return (v.length === 4 && v.every(function(n){ return !isNaN(n); })) ? v : FULL_VB.slice();
+  }
+  function setVB(svg, vb){ svg.setAttribute("viewBox", vb.join(" ")); }
+  function easeInOut(t){ return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2; }
+  function animateVB(svg, to){
+    var from = readVB(svg);
+    if(RM){ setVB(svg, to); return; }
+    // Cancel any in-flight animation for this svg.
+    if(svg._capRaf) cancelAnimationFrame(svg._capRaf);
+    var start = null, dur = 320;
+    function step(ts){
+      if(start === null) start = ts;
+      var t = Math.min(1, (ts-start)/dur), e = easeInOut(t);
+      setVB(svg, [0,1,2,3].map(function(i){ return from[i] + (to[i]-from[i])*e; }));
+      if(t < 1){ svg._capRaf = requestAnimationFrame(step); } else { svg._capRaf = 0; }
+    }
+    svg._capRaf = requestAnimationFrame(step);
+  }
+
   function initCard(card){
     var dataEl = card.querySelector(".cap-data");
     if(!dataEl) return;
@@ -66,9 +101,9 @@
     var boot = svg ? svg.querySelector(".boot-cases") : null;
     var seats = {};
     if(svg) svg.querySelectorAll(".seat").forEach(function(s){ seats[s.getAttribute("data-seat")] = s; });
-    // Current selection is held in closure vars — NOT as data-* on the card,
-    // which would make e.target.closest("[data-scen]") match the card for every
-    // child click and swallow the luggage-chip handler.
+    // Selection is held in closure vars — NOT as data-* on the card, which would
+    // make e.target.closest("[data-scen]") match the card for every child click
+    // and swallow the luggage-chip handler.
     var curScen = data.defaultScenario, curCombo = data.defaultCombo;
 
     function find(list, id){ for(var i=0;i<list.length;i++){ if(list[i].id===id) return list[i]; } return null; }
@@ -78,7 +113,7 @@
       Object.keys(seats).forEach(function(k){ seats[k].classList.toggle("occupied", sc.occupied.indexOf(k) >= 0); });
       card.querySelectorAll(".cap-scen").forEach(function(el){
         var on = el.getAttribute("data-scen")===id;
-        el.classList.toggle("on", on); el.setAttribute("aria-selected", on ? "true" : "false");
+        el.classList.toggle("on", on); el.setAttribute("aria-pressed", on ? "true" : "false");
       });
       curScen = id;
     }
@@ -99,8 +134,8 @@
         b.classList.toggle("on", on); b.setAttribute("aria-selected", on ? "true" : "false");
       });
       card.querySelectorAll(".cap-panel").forEach(function(p){ p.hidden = p.getAttribute("data-panel")!==tab; });
-      if(luggage){ applyCombo(curCombo); }
-      else { clear(boot); applyScenario(curScen); }
+      if(luggage){ applyCombo(curCombo); if(svg) animateVB(svg, bootViewBox()); }
+      else { applyScenario(curScen); if(svg) animateVB(svg, FULL_VB.slice()); if(boot) clear(boot); }
     }
 
     card.addEventListener("click", function(e){
@@ -110,7 +145,7 @@
     });
   }
 
-  function boot(){ document.querySelectorAll("[data-cap]").forEach(initCard); }
-  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
-  else boot();
+  function start(){ document.querySelectorAll("[data-cap]").forEach(initCard); }
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
 })();

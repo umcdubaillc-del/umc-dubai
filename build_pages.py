@@ -934,7 +934,7 @@ FLEET_EMIRATES = [("dubai","Dubai"),("abu-dhabi","Abu Dhabi"),("sharjah","Sharja
 
 # Fields mirror DEFAULT_FLEET; ra/r5/r10 are the DUBAI (default) rates.
 FLEET_VEHICLES = [
-  {"id":"mb-s-class","name":"Mercedes Benz S Class","category":"Flagship Sedan","seats":4,"luggage":2,"page":"/fleet/s-class","marque":"/assets/marques/mercedes.png","img":"/assets/fleet/s-class/card.webp","photo":True,"flip":True,"ra":850,"r5":1800,"r10":2400},
+  {"id":"mb-s-class","name":"Mercedes Benz S Class","category":"Flagship Sedan","seats":3,"luggage":2,"page":"/fleet/s-class","marque":"/assets/marques/mercedes.png","img":"/assets/fleet/s-class/card.webp","photo":True,"flip":True,"ra":850,"r5":1800,"r10":2400},
   {"id":"bmw-7","name":"BMW 7 Series","category":"Flagship Sedan","seats":4,"luggage":2,"page":"/fleet/bmw-7-series","marque":"/assets/marques/bmw.png","img":"/assets/fleet/bmw-7/card.png","photo":True,"flip":False,"ra":600,"r5":1300,"r10":2000},
   {"id":"cadillac-escalade","name":"Cadillac Escalade","category":"Luxury SUV","seats":6,"luggage":4,"page":"/fleet/cadillac-escalade","marque":"/assets/marques/cadillac.jpg","img":"/assets/fleet/cadillac-escalade/cadillac-escalade.jpg","photo":False,"flip":False,"ra":850,"r5":1800,"r10":2400},
   {"id":"gmc-yukon-xl","name":"GMC Yukon Elevation XL","category":"Executive SUV","seats":6,"luggage":5,"page":"/fleet/gmc-yukon-xl","marque":"/assets/marques/gmc.png","img":"/assets/fleet/gmc-yukon-xl/gmc-yukon-xl.png","photo":False,"flip":False,"ra":550,"r5":900,"r10":1400},
@@ -2430,40 +2430,93 @@ notfound = header("index.html").replace('class="on"','') + f"""
 # safe to drop into an f-string page body via {capacity_module(cfg)} — the braces
 # in the embedded JSON are a value, not re-parsed by the outer f-string.
 # ============================================================
-def _cap_seat(seat_id, x, y, w, h, rx, occupied):
+# CAP-2 DRAWING v2 — true W223 plan proportions (1:2.67), viewBox 0 0 210 560,
+# nose-up. Body path is a drafted outline (not the old sketch). Seats share one
+# anatomy; the chauffeur seat and the centre-rear armrest are decorative (never
+# counted). SSR ships the full plan + the default scenario occupied; capacity.js
+# enhances tabs/scenarios/chips and animates the boot zoom.
+_CAP_BODY = ("M105 10 C 72 10 50 20 44 40 C 38 60 35 92 34 122 L 31 240 L 31 340 "
+             "C 31 420 33 470 40 505 C 46 535 70 552 105 552 C 140 552 164 535 170 505 "
+             "C 177 470 179 420 179 340 L 179 240 L 176 122 C 175 92 172 60 166 40 "
+             "C 160 20 138 10 105 10 Z")
+
+# One seat = headrest 16x7 + backrest 34x11 + cushion 34x26 (2px gaps), about a
+# vertical centre-line cx with the headrest at `top`. State-capable: gains .occupied.
+def _cap_seat(seat_id, cx, top, occupied):
     occ = " occupied" if seat_id in occupied else ""
-    return f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{rx}" class="seat{occ}" data-seat="{seat_id}"/>'
+    return (
+        f'<g class="seat{occ}" data-seat="{seat_id}">'
+        f'<rect x="{cx-8}" y="{top}" width="16" height="7" rx="3"/>'
+        f'<rect x="{cx-17}" y="{top+9}" width="34" height="11" rx="4"/>'
+        f'<rect x="{cx-17}" y="{top+22}" width="34" height="26" rx="7"/>'
+        '</g>'
+    )
+
+# The chauffeur seat: same anatomy, dashed, with a steering wheel ahead of it.
+# Never state-capable, never counted.
+def _cap_driver(cx, top):
+    return (
+        '<g class="cap-driver">'
+        f'<rect x="{cx-8}" y="{top}" width="16" height="7" rx="3"/>'
+        f'<rect x="{cx-17}" y="{top+9}" width="34" height="11" rx="4"/>'
+        f'<rect x="{cx-17}" y="{top+22}" width="34" height="26" rx="7"/>'
+        '</g>'
+        f'<g class="cap-wheel"><circle cx="{cx}" cy="{top-15}" r="9"/>'
+        f'<line x1="{cx}" y1="{top-21}" x2="{cx}" y2="{top-9}"/></g>'
+    )
+
+# Centre-rear armrest: narrow rounded rect + two cupholders. Never amber, never counted.
+def _cap_armrest(cx, top):
+    return (
+        '<g class="cap-armrest">'
+        f'<rect x="{cx-7}" y="{top}" width="14" height="34" rx="6"/>'
+        f'<circle cx="{cx}" cy="{top+11}" r="3"/>'
+        f'<circle cx="{cx}" cy="{top+24}" r="3"/>'
+        '</g>'
+    )
 
 def capacity_module(cfg):
     occ = next(s["occupied"] for s in cfg["scenarios"] if s["id"] == cfg["default_scenario"])
-    seats_svg = (
-        _cap_seat("front-guest", 102, 88, 38, 46, 9, occ)
-        + _cap_seat("rear-1", 46, 168, 30, 46, 8, occ)
-        + _cap_seat("rear-2", 80, 168, 30, 46, 8, occ)
-        + _cap_seat("rear-3", 114, 168, 30, 46, 8, occ)
+    # Front row: chauffeur left (LHD), guest right. Rear row: two seats + centre armrest.
+    occupants = (
+        _cap_driver(74, 150)
+        + _cap_seat("front-guest", 136, 150, occ)
+        + _cap_seat("rear-l", 74, 302, occ)
+        + _cap_armrest(105, 308)
+        + _cap_seat("rear-r", 136, 302, occ)
     )
     svg = (
-        f'<svg class="cap-svg" viewBox="0 0 190 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Top-down seating plan of the {cfg["name"]}">'
-        '<rect x="6" y="52" width="14" height="34" rx="6" fill="none" stroke="#221B14" stroke-width="1.4" opacity="0.45"/>'
-        '<rect x="170" y="52" width="14" height="34" rx="6" fill="none" stroke="#221B14" stroke-width="1.4" opacity="0.45"/>'
-        '<rect x="6" y="238" width="14" height="34" rx="6" fill="none" stroke="#221B14" stroke-width="1.4" opacity="0.45"/>'
-        '<rect x="170" y="238" width="14" height="34" rx="6" fill="none" stroke="#221B14" stroke-width="1.4" opacity="0.45"/>'
-        '<path d="M 38 30 Q 38 8 95 8 Q 152 8 152 30 L 155 250 Q 155 332 95 332 Q 35 332 35 250 Z" fill="#FBF8F1" stroke="#221B14" stroke-width="1.7"/>'
-        '<path d="M 46 74 Q 95 60 144 74" fill="none" stroke="#221B14" stroke-width="1" opacity="0.35"/>'
-        '<path d="M 44 268 Q 95 280 146 268" fill="none" stroke="#221B14" stroke-width="1" opacity="0.35"/>'
-        '<rect x="50" y="88" width="38" height="46" rx="9" fill="none" stroke="#221B14" stroke-width="1.5" stroke-dasharray="3 3"/>'
-        '<circle cx="69" cy="104" r="8" fill="none" stroke="#221B14" stroke-width="1.4"/>'
-        '<line x1="69" y1="98" x2="69" y2="110" stroke="#221B14" stroke-width="1.2"/>'
-        f'{seats_svg}'
-        '<line x1="42" y1="240" x2="148" y2="240" stroke="#221B14" stroke-width="1" opacity="0.3"/>'
+        f'<svg class="cap-svg" viewBox="0 0 210 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Top-down plan of the {cfg["name"]}: seats and boot">'
+        '<g class="cap-wheels" fill="none" stroke="#221B14" stroke-width="1.4" opacity="0.45">'
+        '<rect x="20" y="64" width="13" height="40" rx="5"/><rect x="177" y="64" width="13" height="40" rx="5"/>'
+        '<rect x="20" y="430" width="13" height="40" rx="5"/><rect x="177" y="430" width="13" height="40" rx="5"/>'
+        '</g>'
+        '<g class="cap-mirror" fill="#FBF8F1" stroke="#221B14" stroke-width="1.4">'
+        '<path d="M36 150 Q16 148 19 159 Q29 161 37 157 Z"/>'
+        '<path d="M174 150 Q194 148 191 159 Q181 161 173 157 Z"/>'
+        '</g>'
+        f'<path class="cap-body" d="{_CAP_BODY}" fill="#FBF8F1" stroke="#221B14" stroke-width="1.7"/>'
+        '<rect x="52" y="168" width="106" height="228" rx="26" fill="none" stroke="#221B14" stroke-width="1" opacity="0.18"/>'
+        '<path d="M52 170 Q105 132 158 170 Q105 152 52 170 Z" fill="rgba(34,27,20,.05)" stroke="#221B14" stroke-width="1" stroke-opacity="0.35"/>'
+        '<path d="M52 396 Q105 434 158 396 Q105 414 52 396 Z" fill="rgba(34,27,20,.05)" stroke="#221B14" stroke-width="1" stroke-opacity="0.35"/>'
+        '<g fill="none" stroke="#221B14" stroke-width="1" opacity="0.15"><path d="M60 152 Q80 92 96 46"/><path d="M150 152 Q130 92 114 46"/></g>'
+        '<path d="M46 472 Q105 482 164 472" fill="none" stroke="#221B14" stroke-width="1.1" opacity="0.18"/>'
+        '<g fill="none" stroke="#221B14" stroke-width="1.1" opacity="0.18"><line x1="34" y1="252" x2="46" y2="252"/><line x1="176" y1="252" x2="164" y2="252"/><line x1="34" y1="348" x2="46" y2="348"/><line x1="176" y1="348" x2="164" y2="348"/></g>'
+        f'<g class="cap-occupants">{occupants}</g>'
+        '<line x1="44" y1="478" x2="166" y2="478" stroke="#221B14" stroke-width="1" opacity="0.16"/>'
         '<g class="boot-cases"></g>'
-        '<text x="95" y="326" font-size="8" fill="#7A6F5F" text-anchor="middle" letter-spacing="2" font-family="ui-monospace,Menlo,monospace">BOOT</text>'
+        '<text x="105" y="548" font-size="9" fill="#7A6F5F" text-anchor="middle" letter-spacing="3" font-family="ui-monospace,Menlo,monospace">BOOT</text>'
         '</svg>'
     )
+    chev = ('<svg class="cap-scen__chev" viewBox="0 0 24 24" aria-hidden="true">'
+            '<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" '
+            'stroke-linecap="round" stroke-linejoin="round"/></svg>')
+    # SEATING scope: scenario cards only (aria-pressed toggle + chevron affordance).
     scen_cards = "".join(
         f'<button type="button" class="cap-scen{" on" if s["id"]==cfg["default_scenario"] else ""}" '
-        f'data-scen="{s["id"]}" role="tab" aria-selected="{"true" if s["id"]==cfg["default_scenario"] else "false"}">'
-        f'<span class="cap-scen__t">{s["title"]}</span><span class="cap-scen__d">{s["desc"]}</span></button>'
+        f'data-scen="{s["id"]}" aria-pressed="{"true" if s["id"]==cfg["default_scenario"] else "false"}">'
+        f'<span class="cap-scen__txt"><span class="cap-scen__t">{s["title"]}</span>'
+        f'<span class="cap-scen__d">{s["desc"]}</span></span>{chev}</button>'
         for s in cfg["scenarios"]
     )
     chips = "".join(
@@ -2487,34 +2540,35 @@ def capacity_module(cfg):
         '<div class="cap-left">'
         f'<div class="cap-panel" data-panel="seating">{scen_cards}</div>'
         f'<div class="cap-panel" data-panel="luggage" hidden><div class="cap-chips">{chips}</div></div>'
+        '</div>'
+        '</div>'
+        '<div class="cap-foot">'
         f'<p class="cap-honesty">{cfg["honesty"]}</p>'
         '<button type="button" class="cap-size sc-mt" aria-haspopup="dialog" aria-controls="sc-sg" aria-expanded="false">Size guide</button>'
-        '</div>'
         '</div>'
         f'<script type="application/json" class="cap-data">{data}</script>'
         '</div>'
     )
 
-# S-Class published capacity: 4 guests, 2 medium cases. Occupiable seats:
-# front-guest + rear bench x3 (the chauffeur seat is drawn dashed, never counted).
+# CAP-2 SEDAN STANDARD (owner ruling): the S-Class publishes UP TO 3 GUESTS.
+# Occupiable seats: rear-l + rear-r (rear bench) + front-guest. The centre-rear
+# position is an ARMREST (never counted); the chauffeur seat is drawn dashed.
 SCLASS_CAP = {
     "name": "Mercedes-Benz S-Class",
     "scenarios": [
         {"id": "two-rear", "title": "Two, in the rear",
-         "desc": "The executive standard — two guests across the rear, the centre seat left free.",
-         "occupied": ["rear-1", "rear-3"]},
-        {"id": "three-rear", "title": "Three, in the rear",
-         "desc": "All three rear seats taken; the front stays clear for extra luggage.",
-         "occupied": ["rear-1", "rear-2", "rear-3"]},
-        {"id": "four", "title": "Four guests",
-         "desc": "One beside the chauffeur, three across the rear bench — the full four.",
-         "occupied": ["front-guest", "rear-1", "rear-2", "rear-3"]},
+         "desc": "The executive standard — two guests across the rear, the centre left free.",
+         "occupied": ["rear-l", "rear-r"]},
+        {"id": "three", "title": "Three — two rear, one in front",
+         "desc": "Two across the rear, the third in the front guest seat beside the chauffeur.",
+         "occupied": ["rear-l", "rear-r", "front-guest"]},
     ],
     "default_scenario": "two-rear",
+    # Luggage nomenclature C/M/L/XL (dimensions defined in the Size guide modal).
     "luggage": [
         {"id": "2m", "label": "2 medium", "cases": ["M", "M"]},
-        {"id": "1m2s", "label": "1 medium + 2 cabin", "cases": ["M", "S", "S"]},
-        {"id": "4s", "label": "4 cabin", "cases": ["S", "S", "S", "S"]},
+        {"id": "1m2c", "label": "1 medium + 2 cabin", "cases": ["M", "C", "C"]},
+        {"id": "4c", "label": "4 cabin", "cases": ["C", "C", "C", "C"]},
     ],
     "default_combo": "2m",
     "honesty": "These are the layouts we actually run. Your booking is confirmed to this exact car and configuration — never a smaller one.",
@@ -2684,7 +2738,6 @@ sc_body = header("fleet.html") + f"""
 <section class="sc-paper sc-cap" id="on-paper">
   <div class="sc-paper__wrap">
     {capacity_module(SCLASS_CAP)}
-    <p class="sc-cap__note">The Mercedes&#8209;Benz S&#8209;Class is the reference point for chauffeur travel in Dubai. Reclining rear seats, a hushed cabin, independent rear&#8209;zone climate and discreet charging at every seat. Suited to airport arrivals from DXB or DWC, board meetings across the DIFC, Downtown and Dubai Marina, and any journey where the room you arrive in should feel like the room you left.</p>
   </div>
 </section>
 
@@ -2694,25 +2747,13 @@ sc_body = header("fleet.html") + f"""
   <div class="sc-modal__panel" tabindex="-1">
     <button type="button" class="sc-modal__close" aria-label="Close" data-modal-close>&times;</button>
     <span class="lbl">Size guide</span>
-    <h3 id="sc-sg-title">Medium suitcase (M)</h3>
-    <p>Roughly a standard check-in case, for example an Away Medium, Globe-Trotter Check-In Medium, or Rimowa Check-In.</p>
-    <dl class="sc-modal__rows">
-      <div><dt>Each, approximately</dt><dd>66 &times; 44 &times; 27 cm</dd></div>
-      <div><dt>In the boot</dt><dd>Two cases of this size</dd></div>
-    </dl>
-  </div>
-</div>
-
-<!-- Seating detail modal, same pattern. -->
-<div class="sc-modal" id="sc-sd" role="dialog" aria-modal="true" aria-labelledby="sc-sd-title" hidden>
-  <div class="sc-modal__backdrop" data-modal-close></div>
-  <div class="sc-modal__panel" tabindex="-1">
-    <button type="button" class="sc-modal__close" aria-label="Close" data-modal-close>&times;</button>
-    <span class="lbl">Seating detail</span>
-    <h3 id="sc-sd-title">Who sits where</h3>
+    <h3 id="sc-sg-title">Luggage sizes</h3>
+    <p>The letters on the boot plan map to four case sizes. Dimensions are approximate; a case a little over the size still fits.</p>
     <dl class="sc-modal__rows sc-modal__rows--stack">
-      <div><dt>Two travelling</dt><dd>The rear bench gives each guest a full seat, with generous legroom.</dd></div>
-      <div><dt>Three travelling</dt><dd>Two across the rear, the third in the front beside the chauffeur.</dd></div>
+      <div><dt>C &mdash; Cabin</dt><dd>About 55 &times; 40 &times; 23 cm. A carry-on, for example an Away Carry-On or Rimowa Cabin.</dd></div>
+      <div><dt>M &mdash; Medium</dt><dd>About 66 &times; 44 &times; 27 cm. A standard check-in, for example an Away Medium, Globe-Trotter Check-In Medium, or Rimowa Check-In. Two fit the S-Class boot.</dd></div>
+      <div><dt>L &mdash; Large</dt><dd>About 75 &times; 50 &times; 30 cm. A large check-in, for example an Away Large or Rimowa Check-In L.</dd></div>
+      <div><dt>XL &mdash; Extra-large</dt><dd>About 81 &times; 55 &times; 34 cm. An extended-trip case, for example an Away The Large or Rimowa Trunk.</dd></div>
     </dl>
   </div>
 </div>
@@ -2865,7 +2906,7 @@ sc_head = head("Mercedes S-Class Chauffeur in Dubai | UMC Dubai",
                + '<script type="application/ld+json">' + json.dumps({
                    "@context": "https://schema.org", "@type": "Car",
                    "name": "Mercedes-Benz S-Class",
-                   "vehicleSeatingCapacity": {"@type": "QuantitativeValue", "value": 4, "unitText": "passengers"},
+                   "vehicleSeatingCapacity": {"@type": "QuantitativeValue", "value": 3, "unitText": "passengers"},
                  }, separators=(",", ":")) + '</script>')
 sc_head = sc_head.replace('<title>', '<base href="/">\n<title>', 1)
 (SITE/"fleet").mkdir(parents=True, exist_ok=True)
