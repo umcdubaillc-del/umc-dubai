@@ -2430,82 +2430,91 @@ notfound = header("index.html").replace('class="on"','') + f"""
 # safe to drop into an f-string page body via {capacity_module(cfg)} — the braces
 # in the embedded JSON are a value, not re-parsed by the outer f-string.
 # ============================================================
-# CAP-2 DRAWING v2 — true W223 plan proportions (1:2.67), viewBox 0 0 210 560,
-# nose-up. Body path is a drafted outline (not the old sketch). Seats share one
-# anatomy; the chauffeur seat and the centre-rear armrest are decorative (never
-# counted). SSR ships the full plan + the default scenario occupied; capacity.js
-# enhances tabs/scenarios/chips and animates the boot zoom.
-_CAP_BODY = ("M105 10 C 72 10 50 20 44 40 C 38 60 35 92 34 122 L 31 240 L 31 340 "
-             "C 31 420 33 470 40 505 C 46 535 70 552 105 552 C 140 552 164 535 170 505 "
-             "C 177 470 179 420 179 340 L 179 240 L 176 122 C 175 92 172 60 166 40 "
-             "C 160 20 138 10 105 10 Z")
+# CAP-2 ADDENDUM — geometry traced from the owner-approved vectors in
+# design/capacity/ (umc-sedan-outline.svg + umc-capacity-glyphs.svg). The raster
+# preview PNGs are NEVER shipped or referenced. viewBox 0 0 228 560, nose-up. Seat /
+# armrest / case glyph anatomy is taken verbatim from the glyph sheet; seat states
+# are driven by CSS (.seat / .seat.occupied). NO boot zoom — one static camera; the
+# Luggage view dims the occupants and renders amber cases in the rear deck (capacity.js).
+#
+# Outline inlined verbatim from design/capacity/umc-sedan-outline.svg so the page is
+# SSR-complete. design/ is the source of truth — keep the two in sync.
+_CAP_OUTLINE = (
+    '<g class="cap-outline" fill="none" stroke="#4A4136" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'
+    '<path d="M114 8 C 92 8 76 11 66 17 C 48 27 34 34 26 44 C 19 52 16 62 15 76 L 15 200 C 15 218 14 226 14 236 L 14 448 C 14 466 15 476 17 486 C 19 500 22 510 26 522 C 31 536 44 548 66 551 C 82 554 98 554 114 554 C 130 554 146 554 162 551 C 184 548 197 536 202 522 C 206 510 209 500 211 486 C 213 476 214 466 214 448 L 214 236 C 214 226 213 218 213 200 L 213 76 C 212 62 209 52 202 44 C 194 34 180 27 162 17 C 152 11 136 8 114 8 Z"/>'
+    '<path d="M14 218 C 6 214 2 216 2 220 C 2 225 8 227 15 223" stroke-width="1.3"/>'
+    '<path d="M214 218 C 222 214 226 216 226 220 C 226 225 220 227 213 223" stroke-width="1.3"/>'
+    '</g>'
+    '<g fill="rgba(34,27,20,0.05)" stroke="#4A4136" stroke-width="1" stroke-opacity="0.45">'
+    '<path d="M32 176 Q 114 168 196 176 L 188 226 Q 114 220 40 226 Z"/>'
+    '<path d="M44 432 Q 114 426 184 432 L 198 484 Q 114 492 30 484 Z"/>'
+    '<rect x="22" y="238" width="17" height="92" rx="5"/>'
+    '<rect x="22" y="338" width="17" height="110" rx="5"/>'
+    '<rect x="189" y="238" width="17" height="92" rx="5"/>'
+    '<rect x="189" y="338" width="17" height="110" rx="5"/>'
+    '</g>'
+    '<g fill="none" stroke="#4A4136">'
+    '<rect x="42" y="236" width="144" height="214" rx="24" stroke-width="1" stroke-opacity="0.16"/>'
+    '<path d="M42 170 C 37 118 42 68 55 34" stroke-width="1" stroke-opacity="0.15"/>'
+    '<path d="M186 170 C 191 118 186 68 173 34" stroke-width="1" stroke-opacity="0.15"/>'
+    '<path d="M36 500 Q 114 508 192 500" stroke-width="1" stroke-opacity="0.16"/>'
+    '<line x1="22" y1="331" x2="39" y2="336" stroke-width="1.6" stroke-opacity="0.6"/>'
+    '<line x1="206" y1="331" x2="189" y2="336" stroke-width="1.6" stroke-opacity="0.6"/>'
+    '</g>'
+)
 
-# One seat = headrest 16x7 + backrest 34x11 + cushion 34x26 (2px gaps), about a
-# vertical centre-line cx with the headrest at `top`. State-capable: gains .occupied.
+# Seat glyph anatomy (from umc-capacity-glyphs.svg), about a vertical centre-line cx
+# with the headrest top at `top`: headrest 16x6.5 + backrest 32x10 + cushion 32x25
+# + two bolster lines. Total span cx-16..cx+16, top..top+47. Colours/states via CSS.
+def _cap_seat_shape(cx, top):
+    return (
+        f'<rect x="{cx-8}" y="{top}" width="16" height="6.5" rx="3"/>'
+        f'<rect x="{cx-16}" y="{top+9}" width="32" height="10" rx="4.5"/>'
+        f'<rect x="{cx-16}" y="{top+22}" width="32" height="25" rx="7"/>'
+        f'<line x1="{cx-9}" y1="{top+26}" x2="{cx-9}" y2="{top+43}"/>'
+        f'<line x1="{cx+9}" y1="{top+26}" x2="{cx+9}" y2="{top+43}"/>'
+    )
+
 def _cap_seat(seat_id, cx, top, occupied):
     occ = " occupied" if seat_id in occupied else ""
-    return (
-        f'<g class="seat{occ}" data-seat="{seat_id}">'
-        f'<rect x="{cx-8}" y="{top}" width="16" height="7" rx="3"/>'
-        f'<rect x="{cx-17}" y="{top+9}" width="34" height="11" rx="4"/>'
-        f'<rect x="{cx-17}" y="{top+22}" width="34" height="26" rx="7"/>'
-        '</g>'
-    )
+    return f'<g class="seat{occ}" data-seat="{seat_id}">{_cap_seat_shape(cx, top)}</g>'
 
-# The chauffeur seat: same anatomy, dashed, with a steering wheel ahead of it.
-# Never state-capable, never counted.
+# Chauffeur seat: same anatomy, dashed (CSS), with a steering-wheel glyph ahead of it
+# (shipped convention). Never state-capable, never counted.
 def _cap_driver(cx, top):
     return (
-        '<g class="cap-driver">'
-        f'<rect x="{cx-8}" y="{top}" width="16" height="7" rx="3"/>'
-        f'<rect x="{cx-17}" y="{top+9}" width="34" height="11" rx="4"/>'
-        f'<rect x="{cx-17}" y="{top+22}" width="34" height="26" rx="7"/>'
-        '</g>'
-        f'<g class="cap-wheel"><circle cx="{cx}" cy="{top-15}" r="9"/>'
-        f'<line x1="{cx}" y1="{top-21}" x2="{cx}" y2="{top-9}"/></g>'
+        f'<g class="cap-driver">{_cap_seat_shape(cx, top)}</g>'
+        f'<g class="cap-wheel"><circle cx="{cx}" cy="{top-11}" r="7"/>'
+        f'<line x1="{cx}" y1="{top-16}" x2="{cx}" y2="{top-6}"/></g>'
     )
 
-# Centre-rear armrest: narrow rounded rect + two cupholders. Never amber, never counted.
+# Centre-rear armrest glyph (15x30 + two cupholders). Never amber, never counted.
 def _cap_armrest(cx, top):
     return (
         '<g class="cap-armrest">'
-        f'<rect x="{cx-7}" y="{top}" width="14" height="34" rx="6"/>'
-        f'<circle cx="{cx}" cy="{top+11}" r="3"/>'
-        f'<circle cx="{cx}" cy="{top+24}" r="3"/>'
+        f'<rect x="{cx-7.5}" y="{top}" width="15" height="30" rx="5"/>'
+        f'<circle cx="{cx}" cy="{top+9}" r="2.6"/>'
+        f'<circle cx="{cx}" cy="{top+20}" r="2.6"/>'
         '</g>'
     )
 
 def capacity_module(cfg):
     occ = next(s["occupied"] for s in cfg["scenarios"] if s["id"] == cfg["default_scenario"])
-    # Front row: chauffeur left (LHD), guest right. Rear row: two seats + centre armrest.
+    # Cabin seats inside the traced outline: front row y246-293 (chauffeur left +
+    # steering glyph, guest right); rear pair y356-403 with the armrest centred.
     occupants = (
-        _cap_driver(74, 150)
-        + _cap_seat("front-guest", 136, 150, occ)
-        + _cap_seat("rear-l", 74, 302, occ)
-        + _cap_armrest(105, 308)
-        + _cap_seat("rear-r", 136, 302, occ)
+        _cap_driver(80, 246)
+        + _cap_seat("front-guest", 148, 246, occ)
+        + _cap_seat("rear-l", 80, 356, occ)
+        + _cap_armrest(114, 365)
+        + _cap_seat("rear-r", 148, 356, occ)
     )
     svg = (
-        f'<svg class="cap-svg" viewBox="0 0 210 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Top-down plan of the {cfg["name"]}: seats and boot">'
-        '<g class="cap-wheels" fill="none" stroke="#221B14" stroke-width="1.4" opacity="0.45">'
-        '<rect x="20" y="64" width="13" height="40" rx="5"/><rect x="177" y="64" width="13" height="40" rx="5"/>'
-        '<rect x="20" y="430" width="13" height="40" rx="5"/><rect x="177" y="430" width="13" height="40" rx="5"/>'
-        '</g>'
-        '<g class="cap-mirror" fill="#FBF8F1" stroke="#221B14" stroke-width="1.4">'
-        '<path d="M36 150 Q16 148 19 159 Q29 161 37 157 Z"/>'
-        '<path d="M174 150 Q194 148 191 159 Q181 161 173 157 Z"/>'
-        '</g>'
-        f'<path class="cap-body" d="{_CAP_BODY}" fill="#FBF8F1" stroke="#221B14" stroke-width="1.7"/>'
-        '<rect x="52" y="168" width="106" height="228" rx="26" fill="none" stroke="#221B14" stroke-width="1" opacity="0.18"/>'
-        '<path d="M52 170 Q105 132 158 170 Q105 152 52 170 Z" fill="rgba(34,27,20,.05)" stroke="#221B14" stroke-width="1" stroke-opacity="0.35"/>'
-        '<path d="M52 396 Q105 434 158 396 Q105 414 52 396 Z" fill="rgba(34,27,20,.05)" stroke="#221B14" stroke-width="1" stroke-opacity="0.35"/>'
-        '<g fill="none" stroke="#221B14" stroke-width="1" opacity="0.15"><path d="M60 152 Q80 92 96 46"/><path d="M150 152 Q130 92 114 46"/></g>'
-        '<path d="M46 472 Q105 482 164 472" fill="none" stroke="#221B14" stroke-width="1.1" opacity="0.18"/>'
-        '<g fill="none" stroke="#221B14" stroke-width="1.1" opacity="0.18"><line x1="34" y1="252" x2="46" y2="252"/><line x1="176" y1="252" x2="164" y2="252"/><line x1="34" y1="348" x2="46" y2="348"/><line x1="176" y1="348" x2="164" y2="348"/></g>'
+        f'<svg class="cap-svg" viewBox="0 0 228 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Top-down plan of the {cfg["name"]}: seats and boot">'
+        f'{_CAP_OUTLINE}'
         f'<g class="cap-occupants">{occupants}</g>'
-        '<line x1="44" y1="478" x2="166" y2="478" stroke="#221B14" stroke-width="1" opacity="0.16"/>'
         '<g class="boot-cases"></g>'
-        '<text x="105" y="548" font-size="9" fill="#7A6F5F" text-anchor="middle" letter-spacing="3" font-family="ui-monospace,Menlo,monospace">BOOT</text>'
+        '<text x="114" y="550" font-size="9" fill="#7A6F5F" text-anchor="middle" letter-spacing="3" font-family="ui-monospace,Menlo,monospace">BOOT</text>'
         '</svg>'
     )
     chev = ('<svg class="cap-scen__chev" viewBox="0 0 24 24" aria-hidden="true">'
