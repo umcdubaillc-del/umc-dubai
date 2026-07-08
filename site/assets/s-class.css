@@ -329,3 +329,23 @@ body.sc-no-scroll{overflow:hidden}
   .cap-svg{height:360px}
 }
 @media (prefers-reduced-motion:reduce){.cap-svg .seat rect,.cap-occupants{transition:none}}
+/* CAP-3 photographic seating: static-camera media + cross-fade + captain/bench toggle */
+.cap-media{position:relative}
+.cap-media__seating{position:relative;border-radius:12px;overflow:hidden;background:var(--card,#FBF8F1);border:1px solid var(--hair,rgba(34,27,20,.08))}
+.cap-media__seating>picture{display:block}
+.cap-photo{display:block;width:100%;height:auto}
+.cap-photo-layer{position:absolute;inset:0;opacity:0;transition:opacity .2s ease}
+.cap-photo-layer.is-in{opacity:1}
+.cap-photo-layer .cap-photo{width:100%;height:100%;object-fit:cover}
+.cap-media__luggage{display:flex;justify-content:center}
+.cap-media__luggage[hidden]{display:none}
+.cap-controls{display:flex;flex-direction:column;gap:.9rem}
+.cap-rows{display:flex;flex-direction:column;gap:.55rem}
+.cap-seg{display:flex;gap:.4rem;background:var(--bone-2,#EFE8D9);border-radius:999px;padding:.25rem}
+.cap-seg__btn{flex:1 1 0;min-height:0;background:none;border:0;border-radius:999px;padding:.5rem .6rem;font-family:var(--sans,'Outfit',system-ui,sans-serif);font-weight:500;font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted,#7A6F5F);cursor:pointer;transition:.18s}
+.cap-seg__btn.on{background:var(--ink,#221B14);color:#fff}
+@media (min-width:720px){
+  .cap-card--photo .cap-media{order:2;flex:0 0 auto;width:400px}
+  .cap-card--photo .cap-controls{order:1;flex:1 1 auto;min-width:0}
+}
+@media (prefers-reduced-motion:reduce){.cap-photo-layer{transition:none}}

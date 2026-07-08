@@ -935,9 +935,9 @@ FLEET_EMIRATES = [("dubai","Dubai"),("abu-dhabi","Abu Dhabi"),("sharjah","Sharja
 # Fields mirror DEFAULT_FLEET; ra/r5/r10 are the DUBAI (default) rates.
 FLEET_VEHICLES = [
   {"id":"mb-s-class","name":"Mercedes Benz S Class","category":"Flagship Sedan","seats":3,"luggage":2,"page":"/fleet/s-class","marque":"/assets/marques/mercedes.png","img":"/assets/fleet/s-class/card.webp","photo":True,"flip":True,"ra":850,"r5":1800,"r10":2400},
-  {"id":"bmw-7","name":"BMW 7 Series","category":"Flagship Sedan","seats":4,"luggage":2,"page":"/fleet/bmw-7-series","marque":"/assets/marques/bmw.png","img":"/assets/fleet/bmw-7/card.png","photo":True,"flip":False,"ra":600,"r5":1300,"r10":2000},
+  {"id":"bmw-7","name":"BMW 7 Series","category":"Flagship Sedan","seats":3,"luggage":2,"page":"/fleet/bmw-7-series","marque":"/assets/marques/bmw.png","img":"/assets/fleet/bmw-7/card.png","photo":True,"flip":False,"ra":600,"r5":1300,"r10":2000},
   {"id":"cadillac-escalade","name":"Cadillac Escalade","category":"Luxury SUV","seats":6,"luggage":4,"page":"/fleet/cadillac-escalade","marque":"/assets/marques/cadillac.jpg","img":"/assets/fleet/cadillac-escalade/cadillac-escalade.jpg","photo":False,"flip":False,"ra":850,"r5":1800,"r10":2400},
-  {"id":"gmc-yukon-xl","name":"GMC Yukon Elevation XL","category":"Executive SUV","seats":6,"luggage":5,"page":"/fleet/gmc-yukon-xl","marque":"/assets/marques/gmc.png","img":"/assets/fleet/gmc-yukon-xl/gmc-yukon-xl.png","photo":False,"flip":False,"ra":550,"r5":900,"r10":1400},
+  {"id":"gmc-yukon-xl","name":"GMC Yukon Elevation XL","category":"Executive SUV","seats":7,"luggage":5,"page":"/fleet/gmc-yukon-xl","marque":"/assets/marques/gmc.png","img":"/assets/fleet/gmc-yukon-xl/gmc-yukon-xl.png","photo":False,"flip":False,"ra":550,"r5":900,"r10":1400},
   {"id":"mb-e-class","name":"Mercedes Benz E Class","category":"Business Sedan","seats":4,"luggage":2,"page":"/fleet/e-class","marque":"/assets/marques/mercedes.png","img":"/assets/fleet/e-class/card.png","photo":True,"flip":False,"ra":400,"r5":1150,"r10":1600},
   {"id":"lexus-es","name":"Lexus ES","category":"Business Sedan","seats":4,"luggage":2,"page":"/fleet/lexus-es","marque":"/assets/marques/lexus.jpg","img":"/assets/fleet/lexus-es/lexus-es.png","photo":False,"flip":False,"ra":350,"r5":700,"r10":1000},
   {"id":"mb-v-class","name":"Mercedes Benz V Class","category":"Luxury Van","seats":7,"luggage":5,"page":"/fleet/v-class","marque":"/assets/marques/mercedes.png","img":"/assets/fleet/v-class/v-class.png","photo":False,"flip":False,"ra":500,"r5":1000,"r10":1400},
@@ -2498,89 +2498,251 @@ def _cap_armrest(cx, top):
         '</g>'
     )
 
-def capacity_module(cfg):
-    occ = next(s["occupied"] for s in cfg["scenarios"] if s["id"] == cfg["default_scenario"])
-    # Cabin seats inside the traced outline: front row y246-293 (chauffeur left +
-    # steering glyph, guest right); rear pair y356-403 with the armrest centred.
+# The traced-outline boot SVG — used ONLY by the S-Class LUGGAGE tab now (seating is
+# photographic, per CAP-3). Occupants are drawn as context and dim under .mode-luggage;
+# capacity.js renders the amber cases into .boot-cases. Vectors live in design/capacity/.
+def _cap_luggage_svg(occupied):
     occupants = (
         _cap_driver(80, 246)
-        + _cap_seat("front-guest", 148, 246, occ)
-        + _cap_seat("rear-l", 80, 356, occ)
+        + _cap_seat("front-guest", 148, 246, occupied)
+        + _cap_seat("rear-l", 80, 356, occupied)
         + _cap_armrest(114, 365)
-        + _cap_seat("rear-r", 148, 356, occ)
+        + _cap_seat("rear-r", 148, 356, occupied)
     )
-    svg = (
-        f'<svg class="cap-svg" viewBox="0 0 228 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Top-down plan of the {cfg["name"]}: seats and boot">'
+    return (
+        '<svg class="cap-svg" viewBox="0 0 228 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Boot plan: luggage in the rear deck">'
         f'{_CAP_OUTLINE}'
         f'<g class="cap-occupants">{occupants}</g>'
         '<g class="boot-cases"></g>'
         '<text x="114" y="550" font-size="9" fill="#7A6F5F" text-anchor="middle" letter-spacing="3" font-family="ui-monospace,Menlo,monospace">BOOT</text>'
         '</svg>'
     )
-    chev = ('<svg class="cap-scen__chev" viewBox="0 0 24 24" aria-hidden="true">'
-            '<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" '
-            'stroke-linecap="round" stroke-linejoin="round"/></svg>')
-    # SEATING scope: scenario cards only (aria-pressed toggle + chevron affordance).
-    scen_cards = "".join(
-        f'<button type="button" class="cap-scen{" on" if s["id"]==cfg["default_scenario"] else ""}" '
-        f'data-scen="{s["id"]}" aria-pressed="{"true" if s["id"]==cfg["default_scenario"] else "false"}">'
-        f'<span class="cap-scen__txt"><span class="cap-scen__t">{s["title"]}</span>'
-        f'<span class="cap-scen__d">{s["desc"]}</span></span>{chev}</button>'
-        for s in cfg["scenarios"]
-    )
-    chips = "".join(
-        f'<button type="button" class="cap-chip{" on" if c["id"]==cfg["default_combo"] else ""}" '
-        f'data-combo="{c["id"]}" aria-pressed="{"true" if c["id"]==cfg["default_combo"] else "false"}">{c["label"]}</button>'
-        for c in cfg["luggage"]
-    )
-    data = json.dumps({
-        "scenarios": cfg["scenarios"], "luggage": cfg["luggage"],
-        "defaultScenario": cfg["default_scenario"], "defaultCombo": cfg["default_combo"],
-    }, separators=(",", ":"))
+
+# ============================================================
+# CAP-3 — SEATING CAPACITY v3: owner-rendered scenario IMAGES (Wheely-grade).
+# SEATING is now a photographic seatmap per scenario; the SEATING selector rows swap
+# the image (cross-fade in capacity.js, static camera). Delivery assets live under
+# /assets/seatmaps/ (640/1024/1600 WebP + PNG fallback), masters in design/capacity/
+# seatmaps/ (never shipped). LUGGAGE (S-Class only) keeps the boot SVG tab.
+# ============================================================
+SEATMAP_SIZES = "(max-width:720px) 92vw, 380px"
+SEATMAP_WIDTHS = (640, 1024, 1600)
+
+def _seatmap_dims(base):
+    # Ratio-lock CLS from the delivery PNG fallback's real dimensions.
+    from PIL import Image
+    with Image.open(SITE / "assets" / "seatmaps" / f"{base}.png") as im:
+        return im.size
+
+def seatmap_picture(base, alt):
+    # SSR default scenario <picture> with explicit width/height (CLS 0 stands).
+    w, h = _seatmap_dims(base)
+    srcset = ", ".join(f"/assets/seatmaps/{base}-{x}.webp {x}w" for x in SEATMAP_WIDTHS)
     return (
-        '<div class="cap-card" data-cap>'
+        '<picture>'
+        f'<source type="image/webp" srcset="{srcset}" sizes="{SEATMAP_SIZES}">'
+        f'<img class="cap-photo" src="/assets/seatmaps/{base}.png" width="{w}" height="{h}" '
+        f'alt="{alt}" decoding="async" fetchpriority="high">'
+        '</picture>'
+    )
+
+_CAP_CHEV = ('<svg class="cap-scen__chev" viewBox="0 0 24 24" aria-hidden="true">'
+             '<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" '
+             'stroke-linecap="round" stroke-linejoin="round"/></svg>')
+
+def _cap_scen_row(cid, s, checked):
+    return (
+        f'<button type="button" class="cap-scen{" on" if checked else ""}" role="radio" '
+        f'aria-checked="{"true" if checked else "false"}" data-config="{cid}" data-scen="{s["id"]}">'
+        f'<span class="cap-scen__txt"><span class="cap-scen__t">{s["title"]}</span>'
+        f'<span class="cap-scen__d">{s["desc"]}</span></span>{_CAP_CHEV}</button>'
+    )
+
+def capacity_v3(cfg):
+    configs = cfg["configs"]
+    dc = next(c for c in configs if c["id"] == cfg["default_config"])
+    dscen = next(s for s in dc["scenarios"] if s["id"] == dc["default"])
+    has_toggle = len(configs) > 1
+    has_luggage = "luggage" in cfg
+
+    default_pic = seatmap_picture(dscen["base"], dscen["alt"])
+
+    seg_html = ""
+    if has_toggle:
+        seg_html = ('<div class="cap-seg" role="radiogroup" aria-label="Seat configuration">'
+            + "".join(
+                f'<button type="button" class="cap-seg__btn{" on" if c["id"]==cfg["default_config"] else ""}" '
+                f'role="radio" aria-checked="{"true" if c["id"]==cfg["default_config"] else "false"}" '
+                f'data-config="{c["id"]}">{c["label"]}</button>'
+                for c in configs)
+            + '</div>')
+
+    rows_html = "".join(_cap_scen_row(dc["id"], s, s["id"] == dc["default"]) for s in dc["scenarios"])
+
+    tabs = '<button type="button" class="cap-tab on" data-tab="seating" role="tab" aria-selected="true">Seating</button>'
+    luggage_media = luggage_panel = foot_size = ""
+    if has_luggage:
+        lug = cfg["luggage"]
+        tabs += '<button type="button" class="cap-tab" data-tab="luggage" role="tab" aria-selected="false">Luggage</button>'
+        luggage_media = f'<div class="cap-media__luggage" data-media="luggage" hidden>{_cap_luggage_svg(lug["svg_occupied"])}</div>'
+        chips = "".join(
+            f'<button type="button" class="cap-chip{" on" if c["id"]==lug["default_combo"] else ""}" '
+            f'data-combo="{c["id"]}" aria-pressed="{"true" if c["id"]==lug["default_combo"] else "false"}">{c["label"]}</button>'
+            for c in lug["combos"])
+        luggage_panel = f'<div class="cap-panel" data-panel="luggage" hidden><div class="cap-chips">{chips}</div></div>'
+        foot_size = '<button type="button" class="cap-size sc-mt" aria-haspopup="dialog" aria-controls="sc-sg" aria-expanded="false">Size guide</button>'
+
+    data_obj = {
+        "defaultConfig": cfg["default_config"],
+        "hasLuggage": has_luggage,
+        "sizes": SEATMAP_SIZES,
+        "widths": list(SEATMAP_WIDTHS),
+        "configs": [
+            {"id": c["id"], "label": c.get("label"), "default": c["default"],
+             "scenarios": [
+                 dict({"id": s["id"], "title": s["title"], "desc": s["desc"],
+                       "base": f'/assets/seatmaps/{s["base"]}', "alt": s["alt"]},
+                      **dict(zip(("w", "h"), _seatmap_dims(s["base"]))))
+                 for s in c["scenarios"]]}
+            for c in configs],
+    }
+    if has_luggage:
+        data_obj["luggage"] = {"defaultCombo": cfg["luggage"]["default_combo"], "combos": cfg["luggage"]["combos"]}
+    data = json.dumps(data_obj, separators=(",", ":"))
+
+    return (
+        '<div class="cap-card cap-card--photo" data-cap>'
         f'<div class="cap-head"><span class="cap-eyebrow">Capacity</span><h2 class="cap-name">{cfg["name"]}</h2></div>'
-        '<div class="cap-tabs" role="tablist" aria-label="Capacity view">'
-        '<button type="button" class="cap-tab on" data-tab="seating" role="tab" aria-selected="true">Seating</button>'
-        '<button type="button" class="cap-tab" data-tab="luggage" role="tab" aria-selected="false">Luggage</button>'
-        '</div>'
+        f'<div class="cap-tabs" role="tablist" aria-label="Capacity view">{tabs}</div>'
         '<div class="cap-body">'
-        f'<div class="cap-right">{svg}</div>'
-        '<div class="cap-left">'
-        f'<div class="cap-panel" data-panel="seating">{scen_cards}</div>'
-        f'<div class="cap-panel" data-panel="luggage" hidden><div class="cap-chips">{chips}</div></div>'
+        '<div class="cap-media">'
+        f'<div class="cap-media__seating" data-media="seating">{default_pic}</div>'
+        f'{luggage_media}'
+        '</div>'
+        '<div class="cap-controls">'
+        f'<div class="cap-panel" data-panel="seating">{seg_html}'
+        f'<div class="cap-rows" role="radiogroup" aria-label="Seating scenario">{rows_html}</div></div>'
+        f'{luggage_panel}'
         '</div>'
         '</div>'
-        '<div class="cap-foot">'
-        f'<p class="cap-honesty">{cfg["honesty"]}</p>'
-        '<button type="button" class="cap-size sc-mt" aria-haspopup="dialog" aria-controls="sc-sg" aria-expanded="false">Size guide</button>'
-        '</div>'
+        f'<div class="cap-foot"><p class="cap-honesty">{cfg["honesty"]}</p>{foot_size}</div>'
         f'<script type="application/json" class="cap-data">{data}</script>'
         '</div>'
     )
 
-# CAP-2 SEDAN STANDARD (owner ruling): the S-Class publishes UP TO 3 GUESTS.
-# Occupiable seats: rear-l + rear-r (rear bench) + front-guest. The centre-rear
-# position is an ARMREST (never counted); the chauffeur seat is drawn dashed.
-SCLASS_CAP = {
-    "name": "Mercedes-Benz S-Class",
-    "scenarios": [
-        {"id": "two-rear", "title": "Two, in the rear",
-         "desc": "The executive standard — two guests across the rear, the centre left free.",
-         "occupied": ["rear-l", "rear-r"]},
-        {"id": "three", "title": "Three — two rear, one in front",
+# Car seating-capacity JSON-LD (published max), added to module-bearing pages.
+def vehicle_seating_schema(name, n):
+    return '<script type="application/ld+json">' + json.dumps({
+        "@context": "https://schema.org", "@type": "Car", "name": name,
+        "vehicleSeatingCapacity": {"@type": "QuantitativeValue", "value": n, "unitText": "passengers"},
+    }, separators=(",", ":")) + '</script>'
+
+# CAP-3 seatmap configs (owner-verified file→scenario mapping). Occupied counts were
+# confirmed by inspecting each render; the highlighted-seat count equals the scenario
+# number. Empty base renders were excluded. Sedan standard: S-Class + BMW 7 publish
+# up to 3. Front guest seat is the +1 across the SUV/van scenarios.
+_HONEST_CAR = "These are the layouts we actually run. Your booking is confirmed to this exact car and configuration — never a smaller one."
+_HONEST_VEH = "These are the layouts we actually run. Your booking is confirmed to this exact vehicle and configuration — never a smaller one."
+
+SCLASS_V3 = {
+    "name": "Mercedes-Benz S-Class", "default_config": "default",
+    "configs": [{"id": "default", "label": None, "default": "2", "scenarios": [
+        {"id": "2", "title": "Two, in the rear",
+         "desc": "The executive standard — two guests across the rear, the centre armrest down.",
+         "base": "s-class-seats-2",
+         "alt": "Mercedes-Benz S-Class seating plan, two passengers: both rear seats occupied with the centre armrest down; chauffeur at front left."},
+        {"id": "3", "title": "Three",
          "desc": "Two across the rear, the third in the front guest seat beside the chauffeur.",
-         "occupied": ["rear-l", "rear-r", "front-guest"]},
-    ],
-    "default_scenario": "two-rear",
-    # Luggage nomenclature C/M/L/XL (dimensions defined in the Size guide modal).
-    "luggage": [
+         "base": "s-class-seats-3",
+         "alt": "Mercedes-Benz S-Class seating plan, three passengers: two rear seats and the front guest seat occupied; chauffeur at front left."},
+    ]}],
+    "luggage": {"default_combo": "2m", "svg_occupied": ["rear-l", "rear-r"], "combos": [
         {"id": "2m", "label": "2 medium", "cases": ["M", "M"]},
         {"id": "1m2c", "label": "1 medium + 2 cabin", "cases": ["M", "C", "C"]},
         {"id": "4c", "label": "4 cabin", "cases": ["C", "C", "C", "C"]},
+    ]},
+    "honesty": _HONEST_CAR,
+}
+
+BMW7_V3 = {
+    "name": "BMW 7 Series", "default_config": "default",
+    "configs": [{"id": "default", "label": None, "default": "2", "scenarios": [
+        {"id": "2", "title": "Two, in the rear",
+         "desc": "The executive standard — two guests across the rear, the centre left free.",
+         "base": "bmw-7-series-seats-2",
+         "alt": "BMW 7 Series seating plan, two passengers: both rear seats occupied; chauffeur at front left."},
+        {"id": "3", "title": "Three",
+         "desc": "Two across the rear, the third in the front guest seat beside the chauffeur.",
+         "base": "bmw-7-series-seats-3",
+         "alt": "BMW 7 Series seating plan, three passengers: two rear seats and the front guest seat occupied; chauffeur at front left."},
+    ]}],
+    "honesty": _HONEST_CAR,
+}
+
+VCLASS_V3 = {
+    "name": "Mercedes-Benz V-Class", "default_config": "default",
+    "configs": [{"id": "default", "label": None, "default": "6", "scenarios": [
+        {"id": "6", "title": "Six",
+         "desc": "Two rows of three across the cabin; the front guest seat left free.",
+         "base": "v-class-seats-6",
+         "alt": "Mercedes-Benz V-Class seating plan, six passengers: two rear rows of three occupied, front guest seat free; chauffeur at front left."},
+        {"id": "7", "title": "Seven",
+         "desc": "The full cabin — two rows of three — plus the front guest seat.",
+         "base": "v-class-seats-7",
+         "alt": "Mercedes-Benz V-Class seating plan, seven passengers: two rear rows of three plus the front guest seat occupied; chauffeur at front left."},
+    ]}],
+    "honesty": _HONEST_VEH,
+}
+
+YUKON_V3 = {
+    "name": "GMC Yukon XL", "default_config": "captain",
+    "configs": [
+        {"id": "captain", "label": "Captain seats", "default": "5", "scenarios": [
+            {"id": "5", "title": "Five",
+             "desc": "Second-row captain’s chairs and the rear bench; the front guest seat left free.",
+             "base": "gmc-yukon-xl-seats-captain-5",
+             "alt": "GMC Yukon XL seating plan, captain configuration, five passengers: two second-row captain’s chairs and three across the rear bench; front guest seat free; chauffeur at front left."},
+            {"id": "6", "title": "Six",
+             "desc": "Captain’s chairs and rear bench, plus the front guest seat.",
+             "base": "gmc-yukon-xl-seats-captain-6",
+             "alt": "GMC Yukon XL seating plan, captain configuration, six passengers: two second-row captain’s chairs, three across the rear bench, and the front guest seat; chauffeur at front left."},
+        ]},
+        {"id": "bench", "label": "Bench seats", "default": "6", "scenarios": [
+            {"id": "6", "title": "Six",
+             "desc": "Two rear bench rows of three; the front guest seat left free.",
+             "base": "gmc-yukon-xl-seats-bench-6",
+             "alt": "GMC Yukon XL seating plan, bench configuration, six passengers: two rear rows of three; front guest seat free; chauffeur at front left."},
+            {"id": "7", "title": "Seven",
+             "desc": "Two rear bench rows of three, plus the front guest seat.",
+             "base": "gmc-yukon-xl-seats-bench-7",
+             "alt": "GMC Yukon XL seating plan, bench configuration, seven passengers: two rear rows of three plus the front guest seat; chauffeur at front left."},
+        ]},
     ],
-    "default_combo": "2m",
-    "honesty": "These are the layouts we actually run. Your booking is confirmed to this exact car and configuration — never a smaller one.",
+    "honesty": _HONEST_VEH,
+}
+
+ESCALADE_V3 = {
+    "name": "Cadillac Escalade", "default_config": "default",
+    "configs": [{"id": "default", "label": None, "default": "5", "scenarios": [
+        {"id": "5", "title": "Five",
+         "desc": "Second-row captain’s chairs and the rear bench; the front guest seat left free.",
+         "base": "cadillac-escalade-seats-captain-5",
+         "alt": "Cadillac Escalade seating plan, five passengers: two second-row captain’s chairs and three across the rear bench; front guest seat free; chauffeur at front left."},
+        {"id": "6", "title": "Six",
+         "desc": "Captain’s chairs and rear bench, plus the front guest seat.",
+         "base": "cadillac-escalade-seats-captain-6",
+         "alt": "Cadillac Escalade seating plan, six passengers: two second-row captain’s chairs, three across the rear bench, and the front guest seat; chauffeur at front left."},
+    ]}],
+    "honesty": _HONEST_VEH,
+}
+
+# Fleet-page cars that receive the seatmap module (keyed by FLEET_PAGES_DRAFT id),
+# with the published-max used for the Car seating JSON-LD. S-Class is separate.
+SEATMAP_MODULES = {
+    "bmw-7": (BMW7_V3, 3),
+    "mb-v-class": (VCLASS_V3, 7),
+    "gmc-yukon-xl": (YUKON_V3, 7),
+    "cadillac-escalade": (ESCALADE_V3, 6),
 }
 
 SC_HERO_IMG = ("hero-2025.webp", "Mercedes Benz S Class, exterior")
@@ -2746,7 +2908,7 @@ sc_body = header("fleet.html") + f"""
 
 <section class="sc-paper sc-cap" id="on-paper">
   <div class="sc-paper__wrap">
-    {capacity_module(SCLASS_CAP)}
+    {capacity_v3(SCLASS_V3)}
   </div>
 </section>
 
@@ -2931,13 +3093,13 @@ ALL_CARS = {
     "name": "Mercedes Benz S Class", "marque": "Mercedes Benz", "category": "Flagship Sedan",
     "page": "fleet/s-class", "strap": "The reference standard.",
     "ac_body": "The reference point for executive travel in Dubai, reclining rear seats, a hushed cabin.",
-    "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the S Class",
+    "pax": 3, "luggage": "2 medium", "reserve_label": "Reserve the S Class",
   },
   "bmw-7": {
     "name": "BMW 7 Series", "marque": "Bayerische Motoren Werke", "category": "Flagship Sedan",
     "page": "fleet/bmw-7-series", "strap": "Composure, engineered.",
     "ac_body": "An equally composed flagship sedan for clients who prefer the seven to the star.",
-    "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the 7 Series",
+    "pax": 3, "luggage": "2 medium", "reserve_label": "Reserve the 7 Series",
   },
   "mb-e-class": {
     "name": "Mercedes Benz E Class", "marque": "Mercedes Benz", "category": "Business Sedan",
@@ -2955,13 +3117,13 @@ ALL_CARS = {
     "name": "Cadillac Escalade", "marque": "Cadillac", "category": "Luxury SUV",
     "page": "fleet/cadillac-escalade", "strap": "Arrival, with presence.",
     "ac_body": "Full-size American SUV, presence at the kerb, room for the party and the luggage.",
-    "pax": 7, "luggage": "4 large", "reserve_label": "Reserve the Escalade",
+    "pax": 6, "luggage": "4 large", "reserve_label": "Reserve the Escalade",
   },
   "gmc-yukon-xl": {
     "name": "GMC Yukon Elevation XL", "marque": "GMC", "category": "Executive SUV",
     "page": "fleet/gmc-yukon-xl", "strap": "Space, without compromise.",
     "ac_body": "Long-wheelbase SUV for the full car and the full boot.",
-    "pax": 6, "luggage": "5 large", "reserve_label": "Reserve the Yukon XL",
+    "pax": 7, "luggage": "5 large", "reserve_label": "Reserve the Yukon XL",
   },
   "mb-v-class": {
     "name": "Mercedes Benz V Class", "marque": "Mercedes Benz", "category": "Luxury Van",
@@ -3395,6 +3557,15 @@ def render_fleet_page_body(car):
     ac_html = "".join(render_acard(ALL_CARS[other]) for other in car["also_consider"])
     chauffeur_heading = car.get("chauffeur_heading", "Held to one standard.")
     cta_label = info["reserve_label"]
+    # CAP-3: seatmap capacity module (seating-only) for cars with owner-rendered images.
+    cap_section = ""
+    if cid in SEATMAP_MODULES:
+        _v3, _maxpax = SEATMAP_MODULES[cid]
+        cap_section = (
+            '<section class="sc-paper sc-cap" id="capacity"><div class="sc-paper__wrap">'
+            + capacity_v3(_v3) + '</div></section>'
+            + vehicle_seating_schema(name, _maxpax)
+        )
     # v73-E: optional interior section + optional "Configurations" CTA section.
     # Sprinter has no_interior=True (sized in several layouts, a single gallery
     # oversells one); King Long keeps the gallery AND adds the CTA.
@@ -3471,6 +3642,7 @@ def render_fleet_page_body(car):
   <div class="sc-am__grid" role="list">{am_html}</div>
 </section>
 
+{cap_section}
 <section class="sc-paper" id="on-paper">
   <div class="sc-paper__wrap">
     <div class="sc-paper__head">
@@ -3630,7 +3802,7 @@ def render_fleet_page_body(car):
   }});
 }})();
 </script>
-""" + FOOTER + "</body></html>"
+""" + (f'<script src="/assets/capacity.js?v={V}" defer></script>' if cid in SEATMAP_MODULES else "") + FOOTER + "</body></html>"
 
 # Write the 7 draft fleet pages.
 for car in FLEET_PAGES_DRAFT:

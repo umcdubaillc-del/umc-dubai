@@ -83,7 +83,7 @@ const DEFAULT_FLEET = [
       other fleet cards. */
    img:"/assets/fleet/s-class/card.webp",photo:true,flipImg:true,
    desc:"The reference point for executive travel. Reclining rear seats, supreme quiet."},
-  {id:"bmw-7",marque:"/assets/marques/bmw.png",name:"BMW 7 Series",category:"Flagship Sedan",year:2024,seats:4,luggage:2,
+  {id:"bmw-7",marque:"/assets/marques/bmw.png",name:"BMW 7 Series",category:"Flagship Sedan",year:2024,seats:3,luggage:2,
    r10:2000,r5:1300,ra:600,visible:true,page:"/fleet/bmw-7-series",
    /* TEMPORARY,replace with real UMC BMW 7 Series photography when supplied. */
    img:"/assets/fleet/bmw-7/card.png",photo:true,
@@ -92,7 +92,7 @@ const DEFAULT_FLEET = [
    r10:2400,r5:1800,ra:850,visible:true,page:"/fleet/cadillac-escalade",
    img:"/assets/fleet/cadillac-escalade/cadillac-escalade.jpg",
    desc:"Seven seats of unmistakable American luxury."},
-  {id:"gmc-yukon-xl",marque:"/assets/marques/gmc.png",name:"GMC Yukon Elevation XL",category:"Executive SUV",year:2025,seats:6,luggage:5,
+  {id:"gmc-yukon-xl",marque:"/assets/marques/gmc.png",name:"GMC Yukon Elevation XL",category:"Executive SUV",year:2025,seats:7,luggage:5,
    r10:1400,r5:900,ra:550,visible:true,page:"/fleet/gmc-yukon-xl",
    img:"/assets/fleet/gmc-yukon-xl/gmc-yukon-xl.png",
    desc:"Generous space for passengers and luggage alike."},
