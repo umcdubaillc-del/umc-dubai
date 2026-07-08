@@ -349,3 +349,12 @@ body.sc-no-scroll{overflow:hidden}
   .cap-card--photo .cap-controls{order:1;flex:1 1 auto;min-width:0}
 }
 @media (prefers-reduced-motion:reduce){.cap-photo-layer{transition:none}}
+/* CAP-4: section eyebrows (Seating / Boot space) + BOOT SPACE block */
+.cap-eyebrow--sec{display:block;margin:0 0 .75rem}
+.cap-boot{margin-top:1.7rem;padding-top:1.5rem;border-top:1px solid var(--hair,rgba(34,27,20,.14))}
+.cap-boot__rows{display:flex;flex-direction:column}
+.cap-boot__row{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:12.5px;letter-spacing:.01em;color:var(--ink-soft,#4A4136);padding:.72rem 0;border-bottom:1px solid var(--hair,rgba(34,27,20,.08))}
+.cap-boot__row:first-child{padding-top:0}
+.cap-boot__row:last-child{border-bottom:0}
+.cap-boot__foot{display:flex;flex-direction:column;gap:.6rem;align-items:flex-start;margin-top:1.1rem}
+.cap-boot__foot .cap-honesty{margin:0;max-width:60ch}

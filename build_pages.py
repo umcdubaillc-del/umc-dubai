@@ -2498,26 +2498,9 @@ def _cap_armrest(cx, top):
         '</g>'
     )
 
-# The traced-outline boot SVG — used ONLY by the S-Class LUGGAGE tab now (seating is
-# photographic, per CAP-3). Occupants are drawn as context and dim under .mode-luggage;
-# capacity.js renders the amber cases into .boot-cases. Vectors live in design/capacity/.
-def _cap_luggage_svg(occupied):
-    occupants = (
-        _cap_driver(80, 246)
-        + _cap_seat("front-guest", 148, 246, occupied)
-        + _cap_seat("rear-l", 80, 356, occupied)
-        + _cap_armrest(114, 365)
-        + _cap_seat("rear-r", 148, 356, occupied)
-    )
-    return (
-        '<svg class="cap-svg" viewBox="0 0 228 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Boot plan: luggage in the rear deck">'
-        f'{_CAP_OUTLINE}'
-        f'<g class="cap-occupants">{occupants}</g>'
-        '<g class="boot-cases"></g>'
-        '<text x="114" y="550" font-size="9" fill="#7A6F5F" text-anchor="middle" letter-spacing="3" font-family="ui-monospace,Menlo,monospace">BOOT</text>'
-        '</svg>'
-    )
-
+# CAP-4: the boot/luggage SVG tab is removed. Luggage is now the institutional-text
+# BOOT SPACE section (see _cap_boot_section). The traced-outline glyph helpers above
+# and the vectors in design/capacity/ are retained but no longer rendered.
 # ============================================================
 # CAP-3 — SEATING CAPACITY v3: owner-rendered scenario IMAGES (Wheely-grade).
 # SEATING is now a photographic seatmap per scenario; the SEATING selector rows swap
@@ -2558,13 +2541,45 @@ def _cap_scen_row(cid, s, checked):
         f'<span class="cap-scen__d">{s["desc"]}</span></span>{_CAP_CHEV}</button>'
     )
 
+# Shared Size guide modal (Small/Medium/Large/Extra Large) — matches the BOOT SPACE
+# combo vocabulary exactly. Medium stays 66x44x27. Used on all five module pages.
+SIZE_GUIDE_SMLXL = (
+    '<div class="sc-modal" id="sc-sg" role="dialog" aria-modal="true" aria-labelledby="sc-sg-title" hidden>'
+    '<div class="sc-modal__backdrop" data-modal-close></div>'
+    '<div class="sc-modal__panel" tabindex="-1">'
+    '<button type="button" class="sc-modal__close" aria-label="Close" data-modal-close>&times;</button>'
+    '<span class="lbl">Size guide</span>'
+    '<h3 id="sc-sg-title">Luggage sizes</h3>'
+    '<p>The combinations above use four case sizes. Dimensions are approximate; a case a little over still fits.</p>'
+    '<dl class="sc-modal__rows sc-modal__rows--stack">'
+    '<div><dt>Small (S)</dt><dd>About 55 &times; 40 &times; 23 cm. A carry-on, for example an Away The Carry-On or Globe-Trotter Carry-On.</dd></div>'
+    '<div><dt>Medium (M)</dt><dd>About 66 &times; 44 &times; 27 cm. A standard check-in, for example an Away Medium, Globe-Trotter Check-In Medium, or Rimowa Check-In.</dd></div>'
+    '<div><dt>Large (L)</dt><dd>About 75 &times; 50 &times; 30 cm. A large check-in, for example an Away Large or Rimowa Check-In L.</dd></div>'
+    '<div><dt>Extra Large (XL)</dt><dd>About 81 &times; 55 &times; 34 cm. An extended-trip case, for example an Away The Large or Rimowa Trunk.</dd></div>'
+    '</dl>'
+    '</div></div>'
+)
+
+# BOOT SPACE section — institutional text form (replaces the luggage tab). Hairline-
+# separated combination rows, then Size guide trigger + the single site-wide honesty line.
+def _cap_boot_section(cfg):
+    rows = "".join(f'<div class="cap-boot__row">{r}</div>' for r in cfg["boot_rows"])
+    return (
+        '<div class="cap-boot">'
+        '<span class="cap-eyebrow cap-eyebrow--sec">Boot space</span>'
+        f'<div class="cap-boot__rows">{rows}</div>'
+        '<div class="cap-boot__foot">'
+        '<button type="button" class="cap-size sc-mt" aria-haspopup="dialog" aria-controls="sc-sg" aria-expanded="false">Size guide</button>'
+        f'<p class="cap-honesty">{cfg["honesty"]}</p>'
+        '</div>'
+        '</div>'
+    )
+
 def capacity_v3(cfg):
     configs = cfg["configs"]
     dc = next(c for c in configs if c["id"] == cfg["default_config"])
     dscen = next(s for s in dc["scenarios"] if s["id"] == dc["default"])
     has_toggle = len(configs) > 1
-    has_luggage = "luggage" in cfg
-
     default_pic = seatmap_picture(dscen["base"], dscen["alt"])
 
     seg_html = ""
@@ -2579,22 +2594,8 @@ def capacity_v3(cfg):
 
     rows_html = "".join(_cap_scen_row(dc["id"], s, s["id"] == dc["default"]) for s in dc["scenarios"])
 
-    tabs = '<button type="button" class="cap-tab on" data-tab="seating" role="tab" aria-selected="true">Seating</button>'
-    luggage_media = luggage_panel = foot_size = ""
-    if has_luggage:
-        lug = cfg["luggage"]
-        tabs += '<button type="button" class="cap-tab" data-tab="luggage" role="tab" aria-selected="false">Luggage</button>'
-        luggage_media = f'<div class="cap-media__luggage" data-media="luggage" hidden>{_cap_luggage_svg(lug["svg_occupied"])}</div>'
-        chips = "".join(
-            f'<button type="button" class="cap-chip{" on" if c["id"]==lug["default_combo"] else ""}" '
-            f'data-combo="{c["id"]}" aria-pressed="{"true" if c["id"]==lug["default_combo"] else "false"}">{c["label"]}</button>'
-            for c in lug["combos"])
-        luggage_panel = f'<div class="cap-panel" data-panel="luggage" hidden><div class="cap-chips">{chips}</div></div>'
-        foot_size = '<button type="button" class="cap-size sc-mt" aria-haspopup="dialog" aria-controls="sc-sg" aria-expanded="false">Size guide</button>'
-
     data_obj = {
         "defaultConfig": cfg["default_config"],
-        "hasLuggage": has_luggage,
         "sizes": SEATMAP_SIZES,
         "widths": list(SEATMAP_WIDTHS),
         "configs": [
@@ -2606,26 +2607,24 @@ def capacity_v3(cfg):
                  for s in c["scenarios"]]}
             for c in configs],
     }
-    if has_luggage:
-        data_obj["luggage"] = {"defaultCombo": cfg["luggage"]["default_combo"], "combos": cfg["luggage"]["combos"]}
     data = json.dumps(data_obj, separators=(",", ":"))
 
+    # No tab chrome — a single vestigial "Seating" tab reads as noise. Instead the card
+    # carries two labelled sections (Seating, Boot space) under the CAPACITY eyebrow.
     return (
         '<div class="cap-card cap-card--photo" data-cap>'
         f'<div class="cap-head"><span class="cap-eyebrow">Capacity</span><h2 class="cap-name">{cfg["name"]}</h2></div>'
-        f'<div class="cap-tabs" role="tablist" aria-label="Capacity view">{tabs}</div>'
+        '<div class="cap-seating">'
+        '<span class="cap-eyebrow cap-eyebrow--sec">Seating</span>'
         '<div class="cap-body">'
-        '<div class="cap-media">'
-        f'<div class="cap-media__seating" data-media="seating">{default_pic}</div>'
-        f'{luggage_media}'
-        '</div>'
+        f'<div class="cap-media"><div class="cap-media__seating" data-media="seating">{default_pic}</div></div>'
         '<div class="cap-controls">'
         f'<div class="cap-panel" data-panel="seating">{seg_html}'
         f'<div class="cap-rows" role="radiogroup" aria-label="Seating scenario">{rows_html}</div></div>'
-        f'{luggage_panel}'
         '</div>'
         '</div>'
-        f'<div class="cap-foot"><p class="cap-honesty">{cfg["honesty"]}</p>{foot_size}</div>'
+        '</div>'
+        f'{_cap_boot_section(cfg)}'
         f'<script type="application/json" class="cap-data">{data}</script>'
         '</div>'
     )
@@ -2656,11 +2655,7 @@ SCLASS_V3 = {
          "base": "s-class-seats-3",
          "alt": "Mercedes-Benz S-Class seating plan, three passengers: two rear seats and the front guest seat occupied; chauffeur at front left."},
     ]}],
-    "luggage": {"default_combo": "2m", "svg_occupied": ["rear-l", "rear-r"], "combos": [
-        {"id": "2m", "label": "2 medium", "cases": ["M", "M"]},
-        {"id": "1m2c", "label": "1 medium + 2 cabin", "cases": ["M", "C", "C"]},
-        {"id": "4c", "label": "4 cabin", "cases": ["C", "C", "C", "C"]},
-    ]},
+    "boot_rows": ["1 &times; Medium, 2 &times; Small", "1 &times; Large, 1 &times; Medium", "1 &times; Extra Large, 1 &times; Small"],
     "honesty": _HONEST_CAR,
 }
 
@@ -2676,6 +2671,7 @@ BMW7_V3 = {
          "base": "bmw-7-series-seats-3",
          "alt": "BMW 7 Series seating plan, three passengers: two rear seats and the front guest seat occupied; chauffeur at front left."},
     ]}],
+    "boot_rows": ["1 &times; Medium, 2 &times; Small", "1 &times; Large, 1 &times; Medium", "1 &times; Extra Large, 1 &times; Small"],
     "honesty": _HONEST_CAR,
 }
 
@@ -2691,7 +2687,8 @@ VCLASS_V3 = {
          "base": "v-class-seats-7",
          "alt": "Mercedes-Benz V-Class seating plan, seven passengers: two rear rows of three plus the front guest seat occupied; chauffeur at front left."},
     ]}],
-    "honesty": _HONEST_VEH,
+    "boot_rows": ["3 &times; Extra Large, 4 &times; Small", "3 &times; Extra Large, 4 &times; Medium", "3 &times; Large, 4 &times; Medium"],
+    "honesty": _HONEST_CAR,
 }
 
 YUKON_V3 = {
@@ -2718,7 +2715,8 @@ YUKON_V3 = {
              "alt": "GMC Yukon XL seating plan, bench configuration, seven passengers: two rear rows of three plus the front guest seat; chauffeur at front left."},
         ]},
     ],
-    "honesty": _HONEST_VEH,
+    "boot_rows": ["1 &times; Extra Large, 1 &times; Large, 1 &times; Medium", "2 &times; Large, 1 &times; Medium", "1 &times; Large, 1 &times; Medium, 2 &times; Small"],
+    "honesty": _HONEST_CAR,
 }
 
 ESCALADE_V3 = {
@@ -2733,7 +2731,8 @@ ESCALADE_V3 = {
          "base": "cadillac-escalade-seats-captain-6",
          "alt": "Cadillac Escalade seating plan, six passengers: two second-row captain’s chairs, three across the rear bench, and the front guest seat; chauffeur at front left."},
     ]}],
-    "honesty": _HONEST_VEH,
+    "boot_rows": ["1 &times; Extra Large, 1 &times; Large, 1 &times; Medium", "2 &times; Large, 1 &times; Medium", "1 &times; Large, 1 &times; Medium, 2 &times; Small"],
+    "honesty": _HONEST_CAR,
 }
 
 # Fleet-page cars that receive the seatmap module (keyed by FLEET_PAGES_DRAFT id),
@@ -2912,22 +2911,8 @@ sc_body = header("fleet.html") + f"""
   </div>
 </section>
 
-<!-- Size guide modal, centered, scrim backdrop, focus-trapped. -->
-<div class="sc-modal" id="sc-sg" role="dialog" aria-modal="true" aria-labelledby="sc-sg-title" hidden>
-  <div class="sc-modal__backdrop" data-modal-close></div>
-  <div class="sc-modal__panel" tabindex="-1">
-    <button type="button" class="sc-modal__close" aria-label="Close" data-modal-close>&times;</button>
-    <span class="lbl">Size guide</span>
-    <h3 id="sc-sg-title">Luggage sizes</h3>
-    <p>The letters on the boot plan map to four case sizes. Dimensions are approximate; a case a little over the size still fits.</p>
-    <dl class="sc-modal__rows sc-modal__rows--stack">
-      <div><dt>C &mdash; Cabin</dt><dd>About 55 &times; 40 &times; 23 cm. A carry-on, for example an Away Carry-On or Rimowa Cabin.</dd></div>
-      <div><dt>M &mdash; Medium</dt><dd>About 66 &times; 44 &times; 27 cm. A standard check-in, for example an Away Medium, Globe-Trotter Check-In Medium, or Rimowa Check-In. Two fit the S-Class boot.</dd></div>
-      <div><dt>L &mdash; Large</dt><dd>About 75 &times; 50 &times; 30 cm. A large check-in, for example an Away Large or Rimowa Check-In L.</dd></div>
-      <div><dt>XL &mdash; Extra-large</dt><dd>About 81 &times; 55 &times; 34 cm. An extended-trip case, for example an Away The Large or Rimowa Trunk.</dd></div>
-    </dl>
-  </div>
-</div>
+<!-- Size guide modal (shared Small/Medium/Large/Extra Large vocabulary). -->
+{SIZE_GUIDE_SMLXL}
 
 <section class="sc-chau">
   <div class="sc-chau__wrap">
@@ -3566,6 +3551,20 @@ def render_fleet_page_body(car):
             + capacity_v3(_v3) + '</div></section>'
             + vehicle_seating_schema(name, _maxpax)
         )
+    # Module cars use the shared Small/Medium/Large/Extra Large size guide (matches the
+    # BOOT SPACE combos); other cars keep their luggage-kind modal.
+    if cid in SEATMAP_MODULES:
+        sg_modal = SIZE_GUIDE_SMLXL
+    else:
+        sg_modal = (
+            '<div class="sc-modal" id="sc-sg" role="dialog" aria-modal="true" aria-labelledby="sc-sg-title" hidden>'
+            '<div class="sc-modal__backdrop" data-modal-close></div>'
+            '<div class="sc-modal__panel" tabindex="-1">'
+            '<button type="button" class="sc-modal__close" aria-label="Close" data-modal-close>&times;</button>'
+            '<span class="lbl">Size guide</span>'
+            f'<h3 id="sc-sg-title">{sg_title}</h3><p>{sg_intro}</p>{sg_body_html}'
+            '</div></div>'
+        )
     # v73-E: optional interior section + optional "Configurations" CTA section.
     # Sprinter has no_interior=True (sized in several layouts, a single gallery
     # oversells one); King Long keeps the gallery AND adds the CTA.
@@ -3671,16 +3670,7 @@ def render_fleet_page_body(car):
   </div>
 </section>
 
-<div class="sc-modal" id="sc-sg" role="dialog" aria-modal="true" aria-labelledby="sc-sg-title" hidden>
-  <div class="sc-modal__backdrop" data-modal-close></div>
-  <div class="sc-modal__panel" tabindex="-1">
-    <button type="button" class="sc-modal__close" aria-label="Close" data-modal-close>&times;</button>
-    <span class="lbl">Size guide</span>
-    <h3 id="sc-sg-title">{sg_title}</h3>
-    <p>{sg_intro}</p>
-    {sg_body_html}
-  </div>
-</div>
+{sg_modal}
 
 <div class="sc-modal" id="sc-sd" role="dialog" aria-modal="true" aria-labelledby="sc-sd-title" hidden>
   <div class="sc-modal__backdrop" data-modal-close></div>
