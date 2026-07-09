@@ -2421,86 +2421,13 @@ notfound = header("index.html").replace('class="on"','') + f"""
 # ---------- fleet / s-class (flagship model page; template for the other 7 cars) ----------
 # Single static hero image (no rotation, no dots).
 # ============================================================
-# FLEET-UX-1-DESIGN — reusable capacity module (top-down seat map + luggage).
-# Emits the bone card: eyebrow + Marcellus name, SEATING | LUGGAGE tabs, scenario
-# cards + the exact reference SVG diagram, luggage combination chips, honesty line
-# and a Size guide link (opens the existing sc-sg modal via the shared .sc-mt JS).
-# SSR renders the full SVG + the default seating scenario occupied; capacity.js
-# enhances the tabs / scenarios / luggage chips. Returns a plain string, so it is
-# safe to drop into an f-string page body via {capacity_module(cfg)} — the braces
-# in the embedded JSON are a value, not re-parsed by the outer f-string.
-# ============================================================
-# CAP-2 ADDENDUM — geometry traced from the owner-approved vectors in
-# design/capacity/ (umc-sedan-outline.svg + umc-capacity-glyphs.svg). The raster
-# preview PNGs are NEVER shipped or referenced. viewBox 0 0 228 560, nose-up. Seat /
-# armrest / case glyph anatomy is taken verbatim from the glyph sheet; seat states
-# are driven by CSS (.seat / .seat.occupied). NO boot zoom — one static camera; the
-# Luggage view dims the occupants and renders amber cases in the rear deck (capacity.js).
-#
-# Outline inlined verbatim from design/capacity/umc-sedan-outline.svg so the page is
-# SSR-complete. design/ is the source of truth — keep the two in sync.
-_CAP_OUTLINE = (
-    '<g class="cap-outline" fill="none" stroke="#4A4136" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'
-    '<path d="M114 8 C 92 8 76 11 66 17 C 48 27 34 34 26 44 C 19 52 16 62 15 76 L 15 200 C 15 218 14 226 14 236 L 14 448 C 14 466 15 476 17 486 C 19 500 22 510 26 522 C 31 536 44 548 66 551 C 82 554 98 554 114 554 C 130 554 146 554 162 551 C 184 548 197 536 202 522 C 206 510 209 500 211 486 C 213 476 214 466 214 448 L 214 236 C 214 226 213 218 213 200 L 213 76 C 212 62 209 52 202 44 C 194 34 180 27 162 17 C 152 11 136 8 114 8 Z"/>'
-    '<path d="M14 218 C 6 214 2 216 2 220 C 2 225 8 227 15 223" stroke-width="1.3"/>'
-    '<path d="M214 218 C 222 214 226 216 226 220 C 226 225 220 227 213 223" stroke-width="1.3"/>'
-    '</g>'
-    '<g fill="rgba(34,27,20,0.05)" stroke="#4A4136" stroke-width="1" stroke-opacity="0.45">'
-    '<path d="M32 176 Q 114 168 196 176 L 188 226 Q 114 220 40 226 Z"/>'
-    '<path d="M44 432 Q 114 426 184 432 L 198 484 Q 114 492 30 484 Z"/>'
-    '<rect x="22" y="238" width="17" height="92" rx="5"/>'
-    '<rect x="22" y="338" width="17" height="110" rx="5"/>'
-    '<rect x="189" y="238" width="17" height="92" rx="5"/>'
-    '<rect x="189" y="338" width="17" height="110" rx="5"/>'
-    '</g>'
-    '<g fill="none" stroke="#4A4136">'
-    '<rect x="42" y="236" width="144" height="214" rx="24" stroke-width="1" stroke-opacity="0.16"/>'
-    '<path d="M42 170 C 37 118 42 68 55 34" stroke-width="1" stroke-opacity="0.15"/>'
-    '<path d="M186 170 C 191 118 186 68 173 34" stroke-width="1" stroke-opacity="0.15"/>'
-    '<path d="M36 500 Q 114 508 192 500" stroke-width="1" stroke-opacity="0.16"/>'
-    '<line x1="22" y1="331" x2="39" y2="336" stroke-width="1.6" stroke-opacity="0.6"/>'
-    '<line x1="206" y1="331" x2="189" y2="336" stroke-width="1.6" stroke-opacity="0.6"/>'
-    '</g>'
-)
-
-# Seat glyph anatomy (from umc-capacity-glyphs.svg), about a vertical centre-line cx
-# with the headrest top at `top`: headrest 16x6.5 + backrest 32x10 + cushion 32x25
-# + two bolster lines. Total span cx-16..cx+16, top..top+47. Colours/states via CSS.
-def _cap_seat_shape(cx, top):
-    return (
-        f'<rect x="{cx-8}" y="{top}" width="16" height="6.5" rx="3"/>'
-        f'<rect x="{cx-16}" y="{top+9}" width="32" height="10" rx="4.5"/>'
-        f'<rect x="{cx-16}" y="{top+22}" width="32" height="25" rx="7"/>'
-        f'<line x1="{cx-9}" y1="{top+26}" x2="{cx-9}" y2="{top+43}"/>'
-        f'<line x1="{cx+9}" y1="{top+26}" x2="{cx+9}" y2="{top+43}"/>'
-    )
-
-def _cap_seat(seat_id, cx, top, occupied):
-    occ = " occupied" if seat_id in occupied else ""
-    return f'<g class="seat{occ}" data-seat="{seat_id}">{_cap_seat_shape(cx, top)}</g>'
-
-# Chauffeur seat: same anatomy, dashed (CSS), with a steering-wheel glyph ahead of it
-# (shipped convention). Never state-capable, never counted.
-def _cap_driver(cx, top):
-    return (
-        f'<g class="cap-driver">{_cap_seat_shape(cx, top)}</g>'
-        f'<g class="cap-wheel"><circle cx="{cx}" cy="{top-11}" r="7"/>'
-        f'<line x1="{cx}" y1="{top-16}" x2="{cx}" y2="{top-6}"/></g>'
-    )
-
-# Centre-rear armrest glyph (15x30 + two cupholders). Never amber, never counted.
-def _cap_armrest(cx, top):
-    return (
-        '<g class="cap-armrest">'
-        f'<rect x="{cx-7.5}" y="{top}" width="15" height="30" rx="5"/>'
-        f'<circle cx="{cx}" cy="{top+9}" r="2.6"/>'
-        f'<circle cx="{cx}" cy="{top+20}" r="2.6"/>'
-        '</g>'
-    )
-
-# CAP-4: the boot/luggage SVG tab is removed. Luggage is now the institutional-text
-# BOOT SPACE section (see _cap_boot_section). The traced-outline glyph helpers above
-# and the vectors in design/capacity/ are retained but no longer rendered.
+# HOUSE-1 — the Addendum-2 traced-outline SVG capacity machinery is RETIRED. The
+# CAP-3/CAP-5 image pivot replaced its seating use (photographic seatmaps) and its
+# boot use (the text BOOT SPACE section), so the pending geometry swap is cancelled —
+# nothing rendered the inlined sedan outline or the seat/driver/armrest glyph helpers
+# any longer, and they have been removed (confirmed unused before deletion). The vector
+# sources stay in design/capacity/ as archived design references (see the README there);
+# they are not live geometry.
 # ============================================================
 # CAP-3 — SEATING CAPACITY v3: owner-rendered scenario IMAGES (Wheely-grade).
 # SEATING is now a photographic seatmap per scenario; the SEATING selector rows swap
