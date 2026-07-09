@@ -564,6 +564,18 @@ label.req::after{content:" *";color:#B3402A;font-weight:500}
 /* included panel */
 .bk-inc-title{font-size:.66rem;font-weight:500;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);padding:1.2rem .2rem .6rem}
 
+/* BOOK-P1.8: custom Places autocomplete dropdown (own list, branded, type icons). */
+.ac-wrap{position:relative}
+.ac-drop{position:absolute;left:0;right:0;top:100%;z-index:40;margin-top:.35rem;background:var(--card,#FBF8F1);border:1px solid var(--line,rgba(34,27,20,.18));border-radius:10px;box-shadow:0 18px 40px -18px rgba(34,27,20,.42);max-height:320px;overflow:hidden auto}
+.ac-item{display:grid;grid-template-columns:22px 1fr;align-items:center;gap:.7rem;padding:.6rem .85rem;cursor:pointer;border-top:1px solid var(--hair,rgba(34,27,20,.06))}
+.ac-item:first-child{border-top:0}
+.ac-item.on,.ac-item:hover{background:var(--bone-2,#EFE8D9)}
+.ac-ic{display:flex;align-items:center;justify-content:center}
+.ac-ic svg{width:18px;height:18px;stroke:var(--muted,#7A6F5F);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.ac-tx{min-width:0}
+.ac-main{display:block;font-size:.9rem;color:var(--ink,#221B14);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ac-sec{display:block;font-size:.76rem;color:var(--muted,#7A6F5F);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
 /* contact: direct lines */
 .dl{display:grid;gap:1.05rem}
 .dl .row .k{display:block;font-size:.62rem;font-weight:500;letter-spacing:.24em;text-transform:uppercase;color:var(--muted);margin-bottom:.2rem}
