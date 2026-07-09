@@ -388,9 +388,13 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,su
 .bk-car .m{font-size:.78rem;color:var(--muted)}
 .bk-car:hover{border-color:var(--line);transform:translateY(-2px)}
 .bk-car.sel{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber)}
-.bk-inc{display:flex;flex-wrap:wrap;gap:.9rem 1.4rem;padding:1.1rem .2rem .2rem;font-size:.82rem;color:var(--ink-soft)}
-.bk-inc span{display:inline-flex;align-items:center;gap:.45rem}
-.bk-inc svg{width:16px;height:16px;stroke:var(--amber-deep);fill:none;stroke-width:1.6}
+/* BOOK-P1.6: "Included in every journey" as an institutional list — a fixed icon column,
+   even row rhythm with hairline rules, footer-weight icons (ink-soft, 1.6 stroke, round joins).
+   Two columns on desktop, one on phone. */
+.bk-inc{display:grid;grid-template-columns:1fr 1fr;column-gap:1.6rem;row-gap:0;padding:.4rem 0 .2rem;font-size:.85rem;color:var(--ink-soft)}
+.bk-inc span{display:grid;grid-template-columns:22px 1fr;align-items:center;gap:.7rem;padding:.62rem .1rem;line-height:1.35;border-top:1px solid var(--hair)}
+.bk-inc svg{width:19px;height:19px;stroke:var(--ink-soft);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;justify-self:center}
+@media (max-width:560px){ .bk-inc{grid-template-columns:1fr} }
 .bk-summary{font-size:.92rem;color:var(--ink-soft);border-top:1px solid var(--hair);margin-top:1rem;padding-top:1rem;line-height:1.9}
 .bk-summary b{font-weight:500;color:var(--ink)}
 .hide{display:none!important}
@@ -559,8 +563,6 @@ label.req::after{content:" *";color:#B3402A;font-weight:500}
 
 /* included panel */
 .bk-inc-title{font-size:.66rem;font-weight:500;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);padding:1.2rem .2rem .6rem}
-.bk-inc{padding-top:.2rem}
-.bk-inc svg{width:17px;height:17px}
 
 /* contact: direct lines */
 .dl{display:grid;gap:1.05rem}
