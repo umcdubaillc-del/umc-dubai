@@ -83,9 +83,9 @@ function trackLead(formId, service){
     const isAirport = state.fromIsAirport || state.toIsAirport;
     // Flight number: airport in EITHER direction (unchanged).
     $("rowFlight").classList.toggle("hide", !isAirport);
-    var iF=$("incFlight"), iW=$("incWait"), iM=$("incMeetTxt");
-    if(iF) iF.classList.toggle("hide", !isAirport);
-    if(iW) iW.classList.toggle("hide", !isAirport);
+    // "Flight tracking on airport pickups" is now a permanent inclusion (BOOK-P2 §4),
+    // so it is no longer toggled here — only the chauffeur label still adapts.
+    var iM=$("incMeetTxt");
     if(iM) iM.textContent = isAirport ? "Met by your chauffeur" : "Professional chauffeur";
     // Welcome sign: only when the PICKUP is an airport (a drop-off never needs a
     // sign) AND the pickup is not DXB Terminal 3 (T3 greetings are board-free).
@@ -299,20 +299,6 @@ function trackLead(formId, service){
   // .value to the prediction description, so the airport-token + Terminal-3 text detection (which
   // reads the input value) keeps working unchanged, then fetch details for the emirate/geometry.
   let map, dirSvc, dirRen, acSvc, placesSvc, acSession;
-  function acEsc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
-  const AC_ICONS = {
-    airport: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.8 19.2 16 11l3.5-3.5c1-1 1-2.5 0-3s-2.5-1-3 0L13 8 4.8 6.2c-.4-.1-.7.4-.4.7l3.9 4.2-2.2 2.2-1.9-.3-.9.9 2.4 1.5L8 18.4l.9-.9-.3-1.9 2.2-2.2 4.2 3.9c.3.3.8 0 .7-.4z"/></svg>',
-    lodging: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20v-8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8M3 14h18M4 20v-2M20 20v-2M7 10V8.4A1.4 1.4 0 0 1 8.4 7h3.2A1.4 1.4 0 0 1 13 8.4V10"/></svg>',
-    establishment: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4.5A1.5 1.5 0 0 1 7.5 3h6A1.5 1.5 0 0 1 15 4.5V21M15 10h2.5A1.5 1.5 0 0 1 19 11.5V21M4 21h16M9 7h3M9 11h3M9 15h3"/></svg>',
-    pin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6-5.7-6-10a6 6 0 1 1 12 0c0 4.3-6 10-6 10z"/><circle cx="12" cy="11" r="2.3"/></svg>'
-  };
-  function acIconFor(types){
-    types = types || [];
-    if(types.indexOf("airport") >= 0) return AC_ICONS.airport;
-    if(types.indexOf("lodging") >= 0) return AC_ICONS.lodging;
-    if(types.indexOf("establishment") >= 0) return AC_ICONS.establishment;
-    return AC_ICONS.pin;
-  }
   window.umcMapsInit = function(){
     try{
       const BRAND_MAP = [
@@ -334,8 +320,8 @@ function trackLead(formId, service){
       acSvc = new google.maps.places.AutocompleteService();
       placesSvc = new google.maps.places.PlacesService(map);
       acSession = new google.maps.places.AutocompleteSessionToken();
-      attachAutocomplete($("kFrom"), "from");
-      attachAutocomplete($("kTo"), "to");
+      attachAc($("kFrom"), "from");
+      attachAc($("kTo"), "to");
       if($("kFrom").value){
         state.from = $("kFrom").value;
         state.fromIsAirport = AIRPORT_RX.test(state.from);
@@ -347,73 +333,23 @@ function trackLead(formId, service){
     }catch(e){ $("map").innerHTML = '<p style="padding:1rem;font-size:.85rem;color:#7A6F5F">Map preview unavailable, your reservation still works.</p>'; }
   };
 
-  function attachAutocomplete(input, which){
-    if(!input || !acSvc) return;
-    const wrap = input.closest(".f") || input.parentNode;
-    wrap.classList.add("ac-wrap");
-    const drop = document.createElement("div");
-    drop.className = "ac-drop"; drop.setAttribute("role","listbox"); drop.id = "acdrop-"+which; drop.hidden = true;
-    wrap.appendChild(drop);
-    input.setAttribute("role","combobox");
-    input.setAttribute("aria-autocomplete","list");
-    input.setAttribute("aria-expanded","false");
-    input.setAttribute("aria-controls", drop.id);
-    let preds = [], active = -1, tmr = null;
-
-    function close(){ drop.hidden = true; drop.innerHTML = ""; preds = []; active = -1; input.setAttribute("aria-expanded","false"); input.removeAttribute("aria-activedescendant"); }
-    function setActive(i){
-      const items = drop.querySelectorAll(".ac-item");
-      active = i;
-      items.forEach(function(el, idx){ el.classList.toggle("on", idx===i); el.setAttribute("aria-selected", idx===i?"true":"false"); });
-      if(i>=0 && items[i]){ input.setAttribute("aria-activedescendant", items[i].id); items[i].scrollIntoView({block:"nearest"}); }
-      else input.removeAttribute("aria-activedescendant");
-    }
-    function render(){
-      if(!preds.length){ close(); return; }
-      drop.innerHTML = preds.map(function(p, i){
-        const m = p.structured_formatting || {};
-        const main = acEsc(m.main_text || p.description);
-        const sec = m.secondary_text ? '<span class="ac-sec">'+acEsc(m.secondary_text)+'</span>' : '';
-        return '<div class="ac-item" role="option" aria-selected="false" id="acopt-'+which+'-'+i+'" data-i="'+i+'">'
-          + '<span class="ac-ic">'+acIconFor(p.types)+'</span>'
-          + '<span class="ac-tx"><span class="ac-main">'+main+'</span>'+sec+'</span></div>';
-      }).join("");
-      drop.hidden = false;
-      input.setAttribute("aria-expanded","true");
-      setActive(-1);
-    }
-    function query(){
-      const val = (input.value||"").trim();
-      if(val.length < 2){ close(); return; }
-      acSvc.getPlacePredictions(
-        { input: val, componentRestrictions:{country:"ae"}, sessionToken: acSession },
-        function(res, status){
-          if(status !== google.maps.places.PlacesServiceStatus.OK || !res || !res.length){ close(); return; }
-          preds = res.slice(0, 6); render();
-        });
-    }
-    function choose(i){
-      const p = preds[i]; if(!p) return;
-      input.value = p.description;            // full text -> airport/T3 detection + directions read this
-      close();
-      placesSvc.getDetails(
-        { placeId: p.place_id, fields:["formatted_address","name","types","geometry","address_components"], sessionToken: acSession },
-        function(place, status){
-          acSession = new google.maps.places.AutocompleteSessionToken();   // end the billed session
-          const ok = status === google.maps.places.PlacesServiceStatus.OK && place;
-          onPlaceResolved(ok ? place : { name:p.description, formatted_address:p.description, types:p.types||[] }, which, p);
-        });
-    }
-    input.addEventListener("input", function(){ if(tmr) clearTimeout(tmr); tmr = setTimeout(query, 160); });
-    input.addEventListener("keydown", function(e){
-      if(drop.hidden){ if(e.key==="ArrowDown") query(); return; }
-      if(e.key==="ArrowDown"){ e.preventDefault(); setActive(Math.min(active+1, preds.length-1)); }
-      else if(e.key==="ArrowUp"){ e.preventDefault(); setActive(active<=0 ? preds.length-1 : active-1); }
-      else if(e.key==="Enter" && active>=0){ e.preventDefault(); choose(active); }
-      else if(e.key==="Escape"){ close(); }
+  // BOOK-P1.8 / ICONS-2.1: the dropdown, icon set and keyboard/ARIA live in the
+  // shared window.umcAutocomplete module (site/assets/autocomplete.js), used by
+  // the homepage hero form too. Here we bind it with the booking-specific wiring:
+  // one rotating session token and a getDetails lookup whose place feeds
+  // onPlaceResolved (emirate + geometry + directions).
+  function attachAc(input, which){
+    if(!input || !acSvc || !window.umcAutocomplete) return;
+    window.umcAutocomplete.attach(input, {
+      service: acSvc, placesService: placesSvc, country:"ae", which: which,
+      getSession: function(){ return acSession; },
+      newSession: function(){ return new google.maps.places.AutocompleteSessionToken(); },
+      onSession: function(t){ acSession = t; },
+      detailFields: ["formatted_address","name","types","geometry","address_components"],
+      onSelect: function(p, place){
+        onPlaceResolved(place || { name:p.description, formatted_address:p.description, types:p.types||[] }, which, p);
+      }
     });
-    drop.addEventListener("mousedown", function(e){ const it = e.target.closest(".ac-item"); if(it){ e.preventDefault(); choose(parseInt(it.getAttribute("data-i"),10)); } });
-    input.addEventListener("blur", function(){ setTimeout(close, 150); });   // let a click register first
   }
 
   // Apply a resolved place (from getDetails) — same effect the widget's place_changed had.

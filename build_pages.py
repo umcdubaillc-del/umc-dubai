@@ -166,7 +166,7 @@ def _compute_v():
     import hashlib, pathlib
     h = hashlib.md5()
     for rel in ("assets/style.css","assets/s-class.css","assets/main.js",
-                "assets/booking.js","assets/fleet-data.js","assets/capacity.js",
+                "assets/booking.js","assets/autocomplete.js","assets/fleet-data.js","assets/capacity.js",
                 "assets/vendor/flatpickr.min.css","assets/vendor/flatpickr.min.js"):
         p = SITE / rel
         if p.exists(): h.update(p.read_bytes())
@@ -777,7 +777,8 @@ index_body = header("index.html") + f"""
   </div>
 </section>
 """ + FOOTER + """
-<script src="/assets/vendor/flatpickr.min.js?v={V}"></script>
+<script src="/assets/vendor/flatpickr.min.js?v=""" + V + """"></script>
+<script src="/assets/autocomplete.js?v=""" + V + """"></script>
 <script async src="https://maps.googleapis.com/maps/api/js?key=""" + MAPS_KEY + """&libraries=places&callback=umcHomeMaps"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function(){
@@ -794,7 +795,7 @@ document.addEventListener("DOMContentLoaded", function(){
       "", ld_home + faq_schema(HOME_FAQS)
           + '<link rel="preload" as="image" href="/assets/home/hero-mobile.webp" type="image/webp" media="(max-width:959px)" fetchpriority="high">'
           + '<link rel="preload" as="image" href="/assets/home/hero.webp" type="image/webp" media="(min-width:960px)" fetchpriority="high">'
-          + '<link rel="stylesheet" href="/assets/vendor/flatpickr.min.css?v={V}">') + index_body)
+          + '<link rel="stylesheet" href="/assets/vendor/flatpickr.min.css?v=' + V + '">') + index_body)
 
 # ---------- booking ----------
 booking_body = header("booking.html") + f"""
@@ -842,7 +843,7 @@ booking_body = header("booking.html") + f"""
           <div class="bk-inc-title">Included in every journey</div>
           <div class="bk-inc" aria-label="Included in every journey">
             <span><svg viewBox="0 0 24 24"><circle cx="12" cy="9.4" r="3"/><path d="M5.4 21c.6-3.6 3-5.5 6.6-5.5s6 1.9 6.6 5.5"/><path d="M9.5 5.5h5l-.6-1.6a.9.9 0 0 0-.8-.6h-2.2a.9.9 0 0 0-.8.6z"/><path d="M7.5 5.5h9"/></svg><i id="incMeetTxt" style="font-style:normal">Professional chauffeur</i></span>
-            <span id="incFlight" class="hide"><svg viewBox="0 0 24 24"><path d="M21.5 4.6c.8-.8.6-2-.5-2.1-.9-.1-1.9.2-2.6.9l-3.5 3.4-9.3-2.4a1 1 0 0 0-1 .3l-.8.9 7.4 4.5-3.3 3.4-2.7-.4-.9.9 3 1.9 1.9 3 .9-.9-.4-2.7 3.4-3.3 4.5 7.4.9-.8a1 1 0 0 0 .3-1l-2.4-9.3z"/></svg>Live flight tracking</span>
+            <span><svg viewBox="0 0 24 24"><path d="M21.5 4.6c.8-.8.6-2-.5-2.1-.9-.1-1.9.2-2.6.9l-3.5 3.4-9.3-2.4a1 1 0 0 0-1 .3l-.8.9 7.4 4.5-3.3 3.4-2.7-.4-.9.9 3 1.9 1.9 3 .9-.9-.4-2.7 3.4-3.3 4.5 7.4.9-.8a1 1 0 0 0 .3-1l-2.4-9.3z"/></svg>Flight tracking on airport pickups</span>
             <span><svg viewBox="0 0 24 24"><path d="M10.2 2.5h3.6M12 2.5v3.4M9.6 9.2c-.7.8-1.1 1.7-1.1 2.8V19a2 2 0 0 0 2 2h3a2 2 0 0 0 2-2v-7c0-1.1-.4-2-1.1-2.8l-.9-1V5.9h-3v2.3z"/><path d="M8.5 13.5h7"/></svg>Bottled water</span>
             <span><svg viewBox="0 0 24 24"><path d="M13 2.5L5.5 13H11l-1 8.5L17.5 11H12z"/></svg>Device chargers</span>
             <span><svg viewBox="0 0 24 24"><rect x="4" y="9" width="16" height="11" rx="2"/><path d="M8 9c0-4 8-4 8 0M10 13c.8 1 3.2 1 4 0"/></svg>Tissues</span>
@@ -895,6 +896,7 @@ booking_body = header("booking.html") + f"""
 </section>
 """ + TERMS_DLG + FOOTER + f"""
 <script src="/assets/vendor/flatpickr.min.js?v={V}"></script>
+<script src="/assets/autocomplete.js?v={V}"></script>
 <script src="/assets/booking.js?v={V}"></script>
 <script async src="https://maps.googleapis.com/maps/api/js?key={MAPS_KEY}&libraries=places&callback=umcMapsInit"></script>
 </body>

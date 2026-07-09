@@ -289,13 +289,29 @@ document.addEventListener('click', function(e){
   }catch(e2){}
 });
 
-// homepage: Google Places on the hero form
+// homepage: Google Places on the hero form (ICONS-2.1). Uses the SAME shared
+// dropdown as the booking form (window.umcAutocomplete) — branded type icons,
+// session tokens, keyboard/ARIA — instead of the plain google Autocomplete
+// widget. The hero form only needs the chosen text (it hands off to /booking
+// via ?from=&to=), so it runs predictions-only (no getDetails); on select the
+// full prediction description is written to the field, so the booking page's
+// airport-token + Terminal-3 detection reads the same value it always did.
 window.umcHomeMaps = function(){
   try{
-    const opts = {componentRestrictions:{country:"ae"}, fields:["formatted_address","name"]};
+    if(!window.umcAutocomplete) return;
+    const svc = new google.maps.places.AutocompleteService();
+    let session = new google.maps.places.AutocompleteSessionToken();
     ["bFrom","bTo"].forEach(id=>{
       const el = document.getElementById(id);
-      if(el) new google.maps.places.Autocomplete(el, opts);
+      if(!el) return;
+      window.umcAutocomplete.attach(el, {
+        service: svc, country:"ae", which:id,
+        getSession: function(){ return session; },
+        newSession: function(){ return new google.maps.places.AutocompleteSessionToken(); },
+        onSession: function(t){ session = t; },
+        detailFields: null,
+        onSelect: function(){}
+      });
     });
   }catch(e){}
 };
