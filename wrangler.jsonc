@@ -13,13 +13,18 @@
     { "pattern": "umcdubai.ae", "custom_domain": true },
     { "pattern": "www.umcdubai.ae", "custom_domain": true }
   ],
-  // TEMPORARY: keep the *.workers.dev URL live alongside the custom domains.
-  // The Nomod payment webhook (/admin/webhooks/nomod) still points at
-  // umc-dubai.umcdubaillc.workers.dev and MUST keep resolving until Nomod's
-  // dashboard is repointed to the umcdubai.ae URL. Disabling workers_dev is a
-  // later DELIBERATE step, never a silent side effect of adding routes (which
-  // is what auto-disabled it during the cutover and 404'd the webhook host).
-  "workers_dev": true,
+  // HOUSE-1 C — workers.dev RETIREMENT (deliberate disable, now staged).
+  // The *.workers.dev URL (umc-dubai.umcdubaillc.workers.dev) was kept live
+  // alongside the custom domains only until three things were confirmed, IN ORDER:
+  //   1. admin bookmarked on the umcdubai.ae origin,
+  //   2. iPhone PWA reinstalled from umcdubai.ae,
+  //   3. one real Nomod payment webhook (/admin/webhooks/nomod) notification
+  //      confirmed arriving on the production domain (Nomod dashboard repointed
+  //      off the workers.dev host — otherwise this flip 404s that webhook).
+  // Once all three hold, deploy this. Disabling workers_dev must stay a DELIBERATE
+  // step, never a silent side effect of adding routes (that auto-disable during the
+  // cutover 404'd the webhook host once already).
+  "workers_dev": false,
   "observability": {
     "enabled": true
   },
