@@ -28,6 +28,10 @@ import { emailEsc, emailRows, emailWordmark, CLIENT_EMAIL_RX } from "./index.js"
 
 const COOKIE_NAME = "umc_admin";
 const SESSION_SUFFIX = ":umc-billing-v1";
+const ADMIN_USERNAME = "umcdubaiadmin";      // public credential id (not a secret), paired with the password
+// SEC-1: one generic sign-in failure — same message & status for a wrong password AND a lockout,
+// so an attacker can't tell whether they've tripped the limiter.
+const AUTH_FAIL_MSG = "Sign-in failed. Check your details and try again.";
 const SCHEMA_DONE = new WeakSet(); // per-Worker-instance: skip CREATE on subsequent calls
 let _schemaInflight = null;
 
@@ -50,6 +54,17 @@ function html(s, status = 200, extraHeaders = {}) {
 async function sha256Hex(s) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// SEC-1: constant-time string compare — no early-exit on the first differing byte, so response
+// timing can't be used to recover the secret. Inputs here are fixed-length SHA-256 hex (64 chars),
+// but the length term keeps it safe for any input. Returns a boolean.
+function timingSafeEq(a, b) {
+  a = String(a == null ? "" : a); b = String(b == null ? "" : b);
+  const len = Math.max(a.length, b.length);
+  let out = a.length ^ b.length;
+  for (let i = 0; i < len; i++) out |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  return out === 0;
 }
 
 function readCookie(request, name) {
@@ -510,16 +525,21 @@ async function nextNumber(env, type) {
 
 // ============================================================ route handlers
 
-// ── v88: brute-force protection for the admin login ─────────────────────
-// Self-contained D1 rate limiter (no new bindings — reuses BILLING_DB).
-// Sliding window over the last LOGIN_WINDOW_MIN minutes:
-//   per-IP : LOGIN_MAX_PER_IP failures  -> 429 lockout
-//   global : LOGIN_MAX_GLOBAL failures  -> 429 backstop (IP-rotation guard)
-// A correct password clears that IP's failures. Fails OPEN: if D1 is
-// unavailable the login still works.
-const LOGIN_WINDOW_MIN = 15;
-const LOGIN_MAX_PER_IP  = 5;
-const LOGIN_MAX_GLOBAL  = 60;
+// ── SEC-1: brute-force protection for the admin login ───────────────────
+// Self-contained D1 guard (no new bindings — reuses BILLING_DB). Tracks failures per key, where
+// a key is the client IP AND a per-session id (a short-lived cookie set on the first attempt):
+//   - after AUTH_MAX_FAILS failures inside AUTH_WINDOW_MS, the key is LOCKED.
+//   - lock duration is AUTH_BASE_LOCK_MS and DOUBLES on each repeat lockout (exponential backoff),
+//     capped at AUTH_MAX_LOCK_MS. `strikes` persists until a successful login clears the key.
+//   - a request is blocked if EITHER its IP or its session key is locked.
+// During a lockout the login returns the SAME generic failure as a wrong password (no distinction),
+// and the password is NOT even checked. Lockout events are logged. Fails OPEN: if D1 is unavailable
+// the limiter is skipped so a database outage can't lock the owner out (the password check still runs).
+const AUTH_WINDOW_MS    = 15 * 60000;         // count failures within this sliding window
+const AUTH_MAX_FAILS    = 5;                  // lock after this many failures in the window
+const AUTH_BASE_LOCK_MS = 15 * 60000;         // first lockout = 15 min; doubles each repeat
+const AUTH_MAX_LOCK_MS  = 24 * 3600000;       // backoff cap = 24 h
+const LOGIN_SID_COOKIE  = "umc_login_sid";
 
 function authClientIp(request) {
   return request.headers.get("CF-Connecting-IP")
@@ -527,73 +547,107 @@ function authClientIp(request) {
       || "unknown";
 }
 
-async function ensureAuthAttempts(env) {
+async function ensureAuthGuard(env) {
   await env.BILLING_DB.prepare(
-    `CREATE TABLE IF NOT EXISTS auth_attempts (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
-       ip TEXT,
-       attempted_at TEXT NOT NULL
+    `CREATE TABLE IF NOT EXISTS auth_guard (
+       id TEXT PRIMARY KEY,
+       fails INTEGER NOT NULL DEFAULT 0,
+       strikes INTEGER NOT NULL DEFAULT 0,
+       window_start TEXT,
+       locked_until TEXT,
+       updated_at TEXT NOT NULL
      )`
   ).run();
 }
 
-async function loginRateCheck(env, ip) {
-  await ensureAuthAttempts(env);
-  const sinceIso = new Date(Date.now() - LOGIN_WINDOW_MIN * 60000).toISOString();
-  await env.BILLING_DB.prepare(`DELETE FROM auth_attempts WHERE attempted_at < ?`).bind(sinceIso).run();
-  const row = await env.BILLING_DB.prepare(
-    `SELECT COUNT(*) AS total,
-            SUM(CASE WHEN ip = ? THEN 1 ELSE 0 END) AS mine
-       FROM auth_attempts
-      WHERE attempted_at >= ?`
-  ).bind(ip, sinceIso).first();
-  const mine  = Number((row && row.mine)  || 0);
-  const total = Number((row && row.total) || 0);
-  if (mine >= LOGIN_MAX_PER_IP || total >= LOGIN_MAX_GLOBAL) {
-    return { blocked: true, retryAfterSec: LOGIN_WINDOW_MIN * 60 };
+// The guard keys for this request: the IP and (if present) the per-session cookie. Also returns a
+// Set-Cookie header to establish the session id when the client doesn't have one yet.
+function authGuardKeys(request) {
+  const ip = authClientIp(request);
+  let sid = readCookie(request, LOGIN_SID_COOKIE);
+  let setCookie = null;
+  if (!sid) {
+    sid = crypto.randomUUID();
+    setCookie = `${LOGIN_SID_COOKIE}=${sid}; Path=/admin; HttpOnly; Secure; SameSite=Lax; Max-Age=3600`;
   }
-  return { blocked: false, retryAfterSec: 0 };
+  return { keys: ["ip:" + ip, "sid:" + sid], ip, setCookie };
 }
 
-async function recordLoginFailure(env, ip) {
-  await env.BILLING_DB.prepare(
-    `INSERT INTO auth_attempts (ip, attempted_at) VALUES (?, ?)`
-  ).bind(ip, new Date().toISOString()).run();
+async function authGuardLocked(env, keys) {
+  await ensureAuthGuard(env);
+  const now = Date.now();
+  for (const k of keys) {
+    const row = await env.BILLING_DB.prepare(`SELECT locked_until FROM auth_guard WHERE id = ?`).bind(k).first();
+    if (row && row.locked_until && Date.parse(row.locked_until) > now) return true;
+  }
+  return false;
 }
 
-async function clearLoginFailures(env, ip) {
-  await env.BILLING_DB.prepare(`DELETE FROM auth_attempts WHERE ip = ?`).bind(ip).run();
+async function authGuardRecordFailure(env, keys, ipForLog) {
+  await ensureAuthGuard(env);
+  const now = Date.now(), nowIso = new Date(now).toISOString();
+  for (const k of keys) {
+    const row = await env.BILLING_DB.prepare(
+      `SELECT fails, strikes, window_start FROM auth_guard WHERE id = ?`
+    ).bind(k).first();
+    let fails   = row ? Number(row.fails)   || 0 : 0;
+    let strikes = row ? Number(row.strikes) || 0 : 0;
+    let windowStart = (row && row.window_start) ? Date.parse(row.window_start) : now;
+    if (now - windowStart > AUTH_WINDOW_MS) { fails = 0; windowStart = now; }  // stale window -> reset counter (keep strikes)
+    fails += 1;
+    let lockedUntil = null;
+    if (fails >= AUTH_MAX_FAILS) {
+      strikes += 1;
+      const lockMs = Math.min(AUTH_BASE_LOCK_MS * Math.pow(2, strikes - 1), AUTH_MAX_LOCK_MS);
+      lockedUntil = new Date(now + lockMs).toISOString();
+      fails = 0; windowStart = now;
+      console.warn(`[admin-auth] LOCKOUT key=${k} strikes=${strikes} lock_min=${Math.round(lockMs/60000)} until=${lockedUntil} ip=${ipForLog}`);
+    }
+    await env.BILLING_DB.prepare(
+      `INSERT INTO auth_guard (id, fails, strikes, window_start, locked_until, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET fails=excluded.fails, strikes=excluded.strikes,
+         window_start=excluded.window_start, locked_until=excluded.locked_until, updated_at=excluded.updated_at`
+    ).bind(k, fails, strikes, new Date(windowStart).toISOString(), lockedUntil, nowIso).run();
+  }
+}
+
+async function authGuardRecordSuccess(env, keys) {
+  await ensureAuthGuard(env);
+  for (const k of keys) {
+    await env.BILLING_DB.prepare(`DELETE FROM auth_guard WHERE id = ?`).bind(k).run();   // legit login clears fails + strikes
+  }
 }
 
 async function handleLogin(request, env) {
+  const { keys, ip, setCookie } = authGuardKeys(request);
+  const sidHeader = setCookie ? { "Set-Cookie": setCookie } : {};
+  const fail = (status) => json({ ok: false, error: AUTH_FAIL_MSG }, status, sidHeader);
+
   let body;
-  try { body = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
-  const pwd = String((body && body.password) || "");
-  // Fixed identifier for the username+password credential pair — NOT a secret;
-  // it only exists so iOS/Safari can save the login as a proper pair. The
-  // password check below is unchanged; the username is an extra exact match.
-  const uname = String((body && body.username) || "");
+  try { body = await request.json(); } catch { return fail(400); }
+  const pwd   = String((body && body.password) || "");
+  const uname = String((body && body.username) || "");   // public credential id (lets Safari save the pair)
   if (!env.ADMIN_PASSWORD) return json({ ok: false, error: "admin password not configured on this worker" }, 503);
 
-  // v88 — brute-force gate (before any password hashing). Fails open.
-  const ip = authClientIp(request);
+  // SEC-1 — brute-force gate. Runs BEFORE the password is checked; a locked key returns the exact
+  // same generic failure as a wrong password (no "locked" vs "wrong" distinction). Fails open.
   if (env.BILLING_DB) {
-    try {
-      const rl = await loginRateCheck(env, ip);
-      if (rl.blocked) {
-        return json({ ok: false, error: "too many attempts, please wait and try again" }, 429,
-          { "Retry-After": String(rl.retryAfterSec) });
-      }
-    } catch (e) { /* limiter unavailable -> allow attempt through */ }
+    try { if (await authGuardLocked(env, keys)) return fail(401); }
+    catch (e) { /* limiter unavailable -> fail open, still enforce the password below */ }
   }
 
-  const supplied = await sha256Hex(pwd + SESSION_SUFFIX);
-  const expected = await expectedSession(env);
-  if (supplied !== expected || uname !== "umcdubaiadmin") {
-    if (env.BILLING_DB) { try { await recordLoginFailure(env, ip); } catch (e) {} }
-    return json({ ok: false, error: "invalid password" }, 401);
+  // Constant-time credential check (bitwise & so the username term never short-circuits the
+  // password term). The password is the secret; the username is hashed only to normalise length.
+  const supplied      = await sha256Hex(pwd + SESSION_SUFFIX);
+  const expected      = await expectedSession(env);
+  const unameSupplied = await sha256Hex(uname);
+  const unameExpected = await sha256Hex(ADMIN_USERNAME);
+  const ok = (timingSafeEq(supplied, expected) ? 1 : 0) & (timingSafeEq(unameSupplied, unameExpected) ? 1 : 0);
+  if (!ok) {
+    if (env.BILLING_DB) { try { await authGuardRecordFailure(env, keys, ip); } catch (e) {} }
+    return fail(401);
   }
-  if (env.BILLING_DB) { try { await clearLoginFailures(env, ip); } catch (e) {} }
+  if (env.BILLING_DB) { try { await authGuardRecordSuccess(env, keys); } catch (e) {} }
 
   // v57: "Stay logged in" opt-in -> 30-day persistent cookie. Otherwise session-only.
   const stay = !!(body && body.stayLoggedIn);
