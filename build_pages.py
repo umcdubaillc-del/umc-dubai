@@ -2927,7 +2927,7 @@ sc_body = header("fleet.html") + f"""
       <div class="strap">The same standard, a different marque.</div>
       <p>An equally composed flagship sedan for clients who prefer the seven to the star. Identical seating, identical luggage, identical chauffeur.</p>
       <div class="stats">
-        <div class="it"><span class="k">Passengers</span><span class="v">Up to 4</span></div>
+        <div class="it"><span class="k">Passengers</span><span class="v">Up to 3</span></div>
         <div class="it"><span class="k">Luggage</span><span class="v">2 medium</span></div>
       </div>
       <a class="btn-line" href="/fleet/bmw-7-series">Reserve the 7 Series</a>
