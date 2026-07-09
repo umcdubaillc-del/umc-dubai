@@ -5,8 +5,10 @@
    shares one base render, so it CROSS-FADES seamlessly; a CONFIG toggle (captain<->bench) is
    two different renders, so it FADES THROUGH GROUND (old out to the bone panel, then new in —
    never both visible) to avoid morphing mismatched bodies. Both instant under reduced-motion.
-   Non-default images are prefetched after init. BOOT SPACE is a text section whose combo rows
-   are accordion disclosures (one dimension line per size); JS only flips aria-expanded. */
+   CAP-7.2: every scenario image is preloaded up front (warm()) and a swap begins only after the
+   incoming image has loaded, so the first switch is flicker-free on a cold cache (decode() is
+   fired best-effort but never gates — it can hang in some engines). BOOT SPACE is a text section
+   whose combo rows are accordion disclosures (one dimension line per size); JS flips aria only. */
 (function(){
   "use strict";
   var RM = matchMedia("(prefers-reduced-motion:reduce)").matches;
@@ -42,11 +44,47 @@
       while(seatingMedia.firstChild) seatingMedia.removeChild(seatingMedia.firstChild);
       seatingMedia.appendChild(np);
     }
+    // The current on-screen picture. If a prior transition was interrupted (rapid toggling) and
+    // left in-flight layers, collapse to the most recent one so every swap starts from a single
+    // clean picture — no orphan accumulation.
+    function currentPicture(){
+      var ps = seatingMedia.querySelectorAll("picture");
+      for(var i=0;i<ps.length-1;i++){ if(ps[i].parentNode) ps[i].parentNode.removeChild(ps[i]); }
+      return ps.length ? ps[ps.length-1] : null;
+    }
+    // CAP-7.2 preload: warm (load) every scenario up front and gate each swap (in selectScen) on
+    // that load, so a swap begins only once the incoming frame is in cache — flicker-free even on
+    // a cold cache. preloadWidth() replicates the browser's srcset pick for our `sizes`, so we
+    // warm the SAME variant the <picture> will display → the insert is a cache hit → no flash.
+    // (We warm a PLAIN Image, not a srcset one: an off-DOM srcset image can't resolve `sizes`.)
+    var decoded = {};      // base -> Promise (resolves when the picked variant is decoded)
+    var selectToken = 0;   // guards rapid clicks — only the latest applies
+    function preloadWidth(){
+      var slotCss = (window.innerWidth <= 720) ? window.innerWidth * 0.92 : 800;   // mirrors data.sizes
+      var need = slotCss * (window.devicePixelRatio || 1);
+      for(var i=0;i<data.widths.length;i++){ if(data.widths[i] >= need) return data.widths[i]; }
+      return data.widths[data.widths.length-1];
+    }
+    // Gate on the load event (universally reliable) and fire decode() best-effort (non-blocking):
+    // decode() resolves off the paint path in real browsers but can hang in some engines, so it
+    // must never gate the swap. Once loaded, the exact variant is in cache → the <picture> insert
+    // paints without a flash.
+    function warm(sc){
+      if(decoded[sc.base]) return decoded[sc.base];
+      var im = new Image();
+      decoded[sc.base] = new Promise(function(res){
+        var done = function(){ if(im.decode){ try { im.decode().then(function(){}, function(){}); } catch(e){} } res(im); };
+        im.onload = done; im.onerror = function(){ res(im); };
+        im.src = sc.base+"-"+preloadWidth()+".webp";
+        if(im.complete) done();
+      });
+      return decoded[sc.base];
+    }
     // WITHIN-config scenario switch (captain 5<->6, bench 6<->7): same base render, so a
     // direct cross-fade is seamless — old and new briefly overlap while the new fades in.
     function crossfade(sc){
       if(!seatingMedia) return;
-      var old = seatingMedia.querySelector("picture");
+      var old = currentPicture();
       var np = newPicture(sc);
       if(RM || !old){ swapInstant(np); return; }
       np.className = "cap-photo-layer";
@@ -62,23 +100,22 @@
     }
     // CONFIG toggle (captain<->bench): the two configs are DIFFERENT renders, so a cross-fade
     // would morph two mismatched bodies (visible wobble). Instead fade the old body out to the
-    // bone panel, THEN fade the new one in — the two are never on screen together. The outgoing
-    // picture stays in flow (at opacity 0) until the incoming one is in flow, so height holds.
+    // bone panel, THEN fade the new one in — the two are never on screen together. The box has a
+    // fixed aspect-ratio (CAP-7.3) so height holds regardless of which render is current.
     function fadeThroughGround(sc){
       if(!seatingMedia) return;
-      var old = seatingMedia.querySelector("picture");
+      var old = currentPicture();
       if(RM || !old){ swapInstant(newPicture(sc)); return; }
-      old.classList.add("cap-photo-out");      // phase 1: fade out to the ground
+      var np = newPicture(sc);
+      np.className = "cap-photo-layer cap-photo-layer--ground";  // absolute, opacity 0
+      seatingMedia.appendChild(np);            // appended now (invisible) so it is ready to reveal
+      old.classList.add("cap-photo-out");      // phase 1: fade the old body out to the ground
       void old.offsetWidth;
-      var swapped = false;
       var phase2 = function(){
-        if(swapped) return; swapped = true;
+        if(phase2.done) return; phase2.done = true;
         old.removeEventListener("transitionend", phase2);
-        var np = newPicture(sc);
-        np.className = "cap-photo-layer cap-photo-layer--ground";  // absolute, opacity 0
-        seatingMedia.appendChild(np);          // old (opacity 0) still holds the height
         void np.offsetWidth;
-        np.classList.add("is-in");             // phase 2: fade in over the ground
+        np.classList.add("is-in");             // phase 2: fade the new body in over the ground
         var fin = function(){
           if(fin.done) return; fin.done = true;
           if(old && old.parentNode) old.parentNode.removeChild(old);
@@ -88,7 +125,7 @@
         setTimeout(fin, 260);
       };
       old.addEventListener("transitionend", phase2);
-      setTimeout(phase2, 150);                 // fallback ≈ fade-out duration
+      setTimeout(phase2, 170);                 // fallback ≈ fade-out duration
     }
     function markRows(cid, sid){
       card.querySelectorAll(".cap-rows .cap-scen").forEach(function(el){
@@ -99,9 +136,14 @@
     function selectScen(cid, sid, transition){
       var sc = scenById(cfgById(cid), sid);
       curConfig = cid;
-      if(transition==="ground") fadeThroughGround(sc);
-      else if(transition==="cross") crossfade(sc);
-      markRows(cid, sid);
+      markRows(cid, sid);                  // reflect the selection immediately (snappy)
+      if(!transition) return;
+      var token = ++selectToken;
+      warm(sc).then(function(){            // swap only once the incoming variant is loaded+decoded
+        if(token !== selectToken) return; // a newer selection superseded this one
+        if(transition==="ground") fadeThroughGround(sc);
+        else crossfade(sc);
+      });
     }
     function switchConfig(cid){
       if(cid===curConfig || !rowsWrap) return;
@@ -129,13 +171,11 @@
       var boot = e.target.closest(".cap-boot__row"); if(boot && card.contains(boot)){ toggleBoot(boot); return; }
     });
 
-    // prefetch non-default seating images (1024w webp) once idle
-    var pf = []; var dcfg = cfgById(data.defaultConfig);
-    configs.forEach(function(c){ c.scenarios.forEach(function(s){
-      if(!(c.id===data.defaultConfig && s.id===dcfg.default)) pf.push(s.base+"-1024.webp");
-    }); });
-    function prefetch(){ pf.forEach(function(u){ var im=new Image(); im.src=u; }); }
-    if("requestIdleCallback" in window) requestIdleCallback(prefetch); else setTimeout(prefetch, 700);
+    // CAP-7.2: warm (load + decode) EVERY scenario for this card right after init, so the very
+    // first switch is seamless. Swaps also await warm(sc) individually, so correctness holds
+    // even if a click lands before this finishes.
+    function warmAll(){ configs.forEach(function(c){ c.scenarios.forEach(warm); }); }
+    if("requestIdleCallback" in window) requestIdleCallback(warmAll); else setTimeout(warmAll, 200);
   }
 
   function start(){ document.querySelectorAll("[data-cap]").forEach(initCard); }

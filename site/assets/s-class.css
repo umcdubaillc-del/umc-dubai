@@ -303,19 +303,22 @@ body.sc-no-scroll{overflow:hidden}
 }
 /* CAP-3 photographic seating: static-camera media + cross-fade + captain/bench toggle */
 .cap-media{position:relative}
+/* CAP-7.3: the seating box is a FIXED-aspect frame — its aspect-ratio is set inline from the
+   default scenario's render. Every scenario picture is absolutely positioned inside it and the
+   image uses object-fit:contain, so a config toggle to a DIFFERENT-aspect render (Yukon captain
+   4:3 vs bench ~1.83:1, now shipped as-is with no canvas normalization) never resizes the box —
+   CLS 0 — and letterboxes into the card bg. All pictures absolute means the box height comes
+   from aspect-ratio, not from whichever image is current. */
 .cap-media__seating{position:relative;border-radius:12px;overflow:hidden;background:var(--card,#FBF8F1);border:1px solid var(--hair,rgba(34,27,20,.08))}
-.cap-media__seating>picture{display:block}
-/* CAP-6 fade-through-ground: the in-flow base picture fades its opacity (down to the bone
-   panel) on a config toggle. Scoped :not(.cap-photo-layer) so it never overrides the layer
-   timing below. */
+.cap-media__seating>picture{position:absolute;inset:0;display:block}
+/* base (non-layer) picture fades to the ground on a config toggle */
 .cap-media__seating>picture:not(.cap-photo-layer){transition:opacity .13s ease}
 .cap-media__seating>picture.cap-photo-out{opacity:0}
-.cap-photo{display:block;width:100%;height:auto}
-.cap-photo-layer{position:absolute;inset:0;opacity:0;transition:opacity .2s ease}
+.cap-photo{display:block;width:100%;height:100%;object-fit:contain}
+.cap-photo-layer{opacity:0;transition:opacity .2s ease}
 .cap-photo-layer.is-in{opacity:1}
 /* faster fade-in for the ground swap (config toggle) than the within-config cross-fade */
 .cap-photo-layer.cap-photo-layer--ground{transition:opacity .13s ease}
-.cap-photo-layer .cap-photo{width:100%;height:100%;object-fit:cover}
 .cap-media__luggage{display:flex;justify-content:center}
 .cap-media__luggage[hidden]{display:none}
 .cap-controls{display:flex;flex-direction:column;gap:.9rem}

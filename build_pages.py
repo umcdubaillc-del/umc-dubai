@@ -938,8 +938,8 @@ FLEET_VEHICLES = [
   {"id":"bmw-7","name":"BMW 7 Series","category":"Flagship Sedan","seats":3,"luggage":2,"page":"/fleet/bmw-7-series","marque":"/assets/marques/bmw.png","img":"/assets/fleet/bmw-7/card.png","photo":True,"flip":False,"ra":600,"r5":1300,"r10":2000},
   {"id":"cadillac-escalade","name":"Cadillac Escalade","category":"Luxury SUV","seats":6,"luggage":4,"page":"/fleet/cadillac-escalade","marque":"/assets/marques/cadillac.jpg","img":"/assets/fleet/cadillac-escalade/cadillac-escalade.jpg","photo":False,"flip":False,"ra":850,"r5":1800,"r10":2400},
   {"id":"gmc-yukon-xl","name":"GMC Yukon Elevation XL","category":"Executive SUV","seats":7,"luggage":5,"page":"/fleet/gmc-yukon-xl","marque":"/assets/marques/gmc.png","img":"/assets/fleet/gmc-yukon-xl/gmc-yukon-xl.png","photo":False,"flip":False,"ra":550,"r5":900,"r10":1400},
-  {"id":"mb-e-class","name":"Mercedes Benz E Class","category":"Business Sedan","seats":4,"luggage":2,"page":"/fleet/e-class","marque":"/assets/marques/mercedes.png","img":"/assets/fleet/e-class/card.png","photo":True,"flip":False,"ra":400,"r5":1150,"r10":1600},
-  {"id":"lexus-es","name":"Lexus ES","category":"Business Sedan","seats":4,"luggage":2,"page":"/fleet/lexus-es","marque":"/assets/marques/lexus.jpg","img":"/assets/fleet/lexus-es/lexus-es.png","photo":False,"flip":False,"ra":350,"r5":700,"r10":1000},
+  {"id":"mb-e-class","name":"Mercedes Benz E Class","category":"Business Sedan","seats":3,"luggage":2,"page":"/fleet/e-class","marque":"/assets/marques/mercedes.png","img":"/assets/fleet/e-class/card.png","photo":True,"flip":False,"ra":400,"r5":1150,"r10":1600},
+  {"id":"lexus-es","name":"Lexus ES","category":"Business Sedan","seats":3,"luggage":2,"page":"/fleet/lexus-es","marque":"/assets/marques/lexus.jpg","img":"/assets/fleet/lexus-es/lexus-es.png","photo":False,"flip":False,"ra":350,"r5":700,"r10":1000},
   {"id":"mb-v-class","name":"Mercedes Benz V Class","category":"Luxury Van","seats":7,"luggage":5,"page":"/fleet/v-class","marque":"/assets/marques/mercedes.png","img":"/assets/fleet/v-class/v-class.png","photo":False,"flip":False,"ra":500,"r5":1000,"r10":1400},
   {"id":"mb-sprinter","name":"Mercedes Benz Sprinter","category":"Executive Van","seats":19,"luggage":10,"page":"/fleet/sprinter","marque":"/assets/marques/mercedes.png","img":"/assets/fleet/sprinter/sprinter.png","photo":False,"flip":False,"ra":None,"r5":None,"r10":None},
   {"id":"luxury-coach","name":"Luxury Coach","category":"Luxury Coach","seats":55,"luggage":30,"page":"/fleet/luxury-coach","marque":"/assets/marques/king-long.png","img":"/assets/fleet/king-long/king-long.png","photo":False,"flip":False,"ra":None,"r5":None,"r10":None},
@@ -2435,7 +2435,12 @@ notfound = header("index.html").replace('class="on"','') + f"""
 # /assets/seatmaps/ (640/1024/1600 WebP + PNG fallback), masters in design/capacity/
 # seatmaps/ (never shipped). LUGGAGE (S-Class only) keeps the boot SVG tab.
 # ============================================================
-SEATMAP_SIZES = "(max-width:720px) 92vw, 380px"
+# CAP-7.1: the seatmaps are line-art diagrams (thin strokes) rendered in a 400px desktop
+# box — ~1.6x density (the 640w the old "380px" hint selected) reads soft/pixelated. State
+# a larger desktop slot so the browser selects >=1024w on DPR1 (2.56x) and 1600w on DPR2+.
+# This is a resource-selection hint only; CSS still lays the image out at 100% of the 400px
+# media. rendered(400) x DPR <= delivered width holds through DPR3 (1200<=1600).
+SEATMAP_SIZES = "(max-width:720px) 92vw, 800px"
 SEATMAP_WIDTHS = (640, 1024, 1600)
 
 def _seatmap_dims(base):
@@ -2551,6 +2556,9 @@ def capacity_v3(cfg):
     dscen = next(s for s in dc["scenarios"] if s["id"] == dc["default"])
     has_toggle = len(configs) > 1
     default_pic = seatmap_picture(dscen["base"], dscen["alt"])
+    # CAP-7.3: lock the seating box to the default render's aspect so a config toggle to a
+    # different-aspect render (Yukon captain vs bench, shipped as-is) never resizes it (CLS 0).
+    _dw, _dh = _seatmap_dims(dscen["base"])
 
     seg_html = ""
     if has_toggle:
@@ -2587,7 +2595,7 @@ def capacity_v3(cfg):
         '<div class="cap-seating">'
         '<span class="cap-eyebrow cap-eyebrow--sec">Seating</span>'
         '<div class="cap-body">'
-        f'<div class="cap-media"><div class="cap-media__seating" data-media="seating">{default_pic}</div></div>'
+        f'<div class="cap-media"><div class="cap-media__seating" data-media="seating" style="aspect-ratio:{_dw}/{_dh}">{default_pic}</div></div>'
         '<div class="cap-controls">'
         f'<div class="cap-panel" data-panel="seating">{seg_html}'
         f'<div class="cap-rows" role="radiogroup" aria-label="Seating scenario">{rows_html}</div></div>'
@@ -2938,7 +2946,7 @@ sc_body = header("fleet.html") + f"""
       <div class="strap">The same standard, an everyday saloon.</div>
       <p>The business sedan of the range for daily executive travel. The same vetted chauffeur and the same care, in a lighter car for the everyday run.</p>
       <div class="stats">
-        <div class="it"><span class="k">Passengers</span><span class="v">Up to 4</span></div>
+        <div class="it"><span class="k">Passengers</span><span class="v">Up to 3</span></div>
         <div class="it"><span class="k">Luggage</span><span class="v">2 medium</span></div>
       </div>
       <a class="btn-line" href="/fleet/e-class">Reserve the E-Class</a>
@@ -3060,13 +3068,13 @@ ALL_CARS = {
     "name": "Mercedes Benz E Class", "marque": "Mercedes Benz", "category": "Business Sedan",
     "page": "fleet/e-class", "strap": "The quiet professional.",
     "ac_body": "The business saloon that moves people who matter, without announcing it.",
-    "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the E Class",
+    "pax": 3, "luggage": "2 medium", "reserve_label": "Reserve the E Class",
   },
   "lexus-es": {
     "name": "Lexus ES", "marque": "Lexus", "category": "Business Sedan",
     "page": "fleet/lexus-es", "strap": "Stillness, as standard.",
     "ac_body": "Japanese refinement and exceptional quiet, luxury as the absence of disturbance.",
-    "pax": 4, "luggage": "2 medium", "reserve_label": "Reserve the Lexus ES",
+    "pax": 3, "luggage": "2 medium", "reserve_label": "Reserve the Lexus ES",
   },
   "cadillac-escalade": {
     "name": "Cadillac Escalade", "marque": "Cadillac", "category": "Luxury SUV",
