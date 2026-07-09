@@ -2533,6 +2533,11 @@ _CAP_CHEV = ('<svg class="cap-scen__chev" viewBox="0 0 24 24" aria-hidden="true"
              '<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" '
              'stroke-linecap="round" stroke-linejoin="round"/></svg>')
 
+# Boot-row disclosure chevron (points right; rotates 90deg to point down on open).
+_CAP_BOOT_CHEV = ('<svg class="cap-boot__chev" viewBox="0 0 24 24" aria-hidden="true">'
+                  '<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" '
+                  'stroke-linecap="round" stroke-linejoin="round"/></svg>')
+
 def _cap_scen_row(cid, s, checked):
     return (
         f'<button type="button" class="cap-scen{" on" if checked else ""}" role="radio" '
@@ -2541,8 +2546,20 @@ def _cap_scen_row(cid, s, checked):
         f'<span class="cap-scen__d">{s["desc"]}</span></span>{_CAP_CHEV}</button>'
     )
 
-# Shared Size guide modal (Small/Medium/Large/Extra Large) — matches the BOOT SPACE
-# combo vocabulary exactly. Medium stays 66x44x27. Used on all five module pages.
+# Canonical luggage dimensions — the SINGLE source of truth for BOTH the Size guide modal
+# and the expandable Boot Space row panels. name -> (code, dims, example sentence). The
+# BOOT SPACE combos are written against these exact size names; do not hardcode a second
+# copy of the numbers anywhere else. Medium stays 66x44x27.
+LUGGAGE_SIZES = (
+    ("Small",       "S",  "55 &times; 40 &times; 23 cm", "A carry-on, for example an Away The Carry-On or Globe-Trotter Carry-On."),
+    ("Medium",      "M",  "66 &times; 44 &times; 27 cm", "A standard check-in, for example an Away Medium, Globe-Trotter Check-In Medium, or Rimowa Check-In."),
+    ("Large",       "L",  "75 &times; 50 &times; 30 cm", "A large check-in, for example an Away Large or Rimowa Check-In L."),
+    ("Extra Large", "XL", "81 &times; 55 &times; 34 cm", "An extended-trip case, for example an Away The Large or Rimowa Trunk."),
+)
+_LUGGAGE_DIMS = {name: dims for (name, _code, dims, _ex) in LUGGAGE_SIZES}
+
+# Shared Size guide modal (Small/Medium/Large/Extra Large) — built from LUGGAGE_SIZES so
+# it can never drift from the expandable Boot Space rows. Used on all five module pages.
 SIZE_GUIDE_SMLXL = (
     '<div class="sc-modal" id="sc-sg" role="dialog" aria-modal="true" aria-labelledby="sc-sg-title" hidden>'
     '<div class="sc-modal__backdrop" data-modal-close></div>'
@@ -2552,22 +2569,48 @@ SIZE_GUIDE_SMLXL = (
     '<h3 id="sc-sg-title">Luggage sizes</h3>'
     '<p>The combinations above use four case sizes. Dimensions are approximate; a case a little over still fits.</p>'
     '<dl class="sc-modal__rows sc-modal__rows--stack">'
-    '<div><dt>Small (S)</dt><dd>About 55 &times; 40 &times; 23 cm. A carry-on, for example an Away The Carry-On or Globe-Trotter Carry-On.</dd></div>'
-    '<div><dt>Medium (M)</dt><dd>About 66 &times; 44 &times; 27 cm. A standard check-in, for example an Away Medium, Globe-Trotter Check-In Medium, or Rimowa Check-In.</dd></div>'
-    '<div><dt>Large (L)</dt><dd>About 75 &times; 50 &times; 30 cm. A large check-in, for example an Away Large or Rimowa Check-In L.</dd></div>'
-    '<div><dt>Extra Large (XL)</dt><dd>About 81 &times; 55 &times; 34 cm. An extended-trip case, for example an Away The Large or Rimowa Trunk.</dd></div>'
-    '</dl>'
+    + "".join(
+        f'<div><dt>{name} ({code})</dt><dd>About {dims}. {ex}</dd></div>'
+        for (name, code, dims, ex) in LUGGAGE_SIZES)
+    + '</dl>'
     '</div></div>'
 )
 
-# BOOT SPACE section — institutional text form (replaces the luggage tab). Hairline-
-# separated combination rows, then Size guide trigger + the single site-wide honesty line.
+# The distinct case sizes named in a combo string ("3 &times; Extra Large, 4 &times; Small"),
+# in order of appearance, deduped — one line per size, no repetition per bag count. Parses
+# the size name as the text after the last "&times;" in each comma-separated clause.
+def _boot_row_sizes(row):
+    seen = []
+    for clause in row.split(","):
+        name = clause.split("&times;")[-1].strip()
+        if name and name not in seen:
+            seen.append(name)
+    return seen
+
+# BOOT SPACE section — hairline-separated combination rows, each a disclosure <button> that
+# expands (accordion) to one dimension line per size present, read from LUGGAGE_SIZES. Rows
+# + panels ship in SSR (panels CSS-collapsed, zero layout shift); capacity.js enhances.
 def _cap_boot_section(cfg):
-    rows = "".join(f'<div class="cap-boot__row">{r}</div>' for r in cfg["boot_rows"])
+    slug = _re.sub(r"[^a-z0-9]+", "-", cfg["name"].lower()).strip("-")
+    items = ""
+    for i, r in enumerate(cfg["boot_rows"]):
+        pid = f"boot-{slug}-{i}"
+        dims = "".join(
+            f'<div class="cap-boot__dim"><span class="cap-boot__sz">{name}</span>'
+            f'<span class="cap-boot__mm">{_LUGGAGE_DIMS[name]}</span></div>'
+            for name in _boot_row_sizes(r))
+        items += (
+            '<div class="cap-boot__item">'
+            f'<button type="button" class="cap-boot__row" id="{pid}-b" '
+            f'aria-expanded="false" aria-controls="{pid}">'
+            f'<span class="cap-boot__combo">{r}</span>{_CAP_BOOT_CHEV}</button>'
+            f'<div class="cap-boot__panel" id="{pid}" role="region" aria-labelledby="{pid}-b">'
+            f'<div class="cap-boot__dims">{dims}</div></div>'
+            '</div>')
     return (
         '<div class="cap-boot">'
         '<span class="cap-eyebrow cap-eyebrow--sec">Boot space</span>'
-        f'<div class="cap-boot__rows">{rows}</div>'
+        f'<div class="cap-boot__rows">{items}</div>'
         '<div class="cap-boot__foot">'
         '<button type="button" class="cap-size sc-mt" aria-haspopup="dialog" aria-controls="sc-sg" aria-expanded="false">Size guide</button>'
         f'<p class="cap-honesty">{cfg["honesty"]}</p>'

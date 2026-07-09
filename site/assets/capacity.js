@@ -1,9 +1,10 @@
 /* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
-/* CAP-4 — capacity module (photographic seating; no tabs, no boot SVG).
+/* CAP-4 / CAP-5-SIMPLE — capacity module (photographic seating; no tabs, no boot SVG).
    SEATING ships the default scenario <picture> in SSR; selecting a scenario row (or,
    on the Yukon, switching the captain/bench segmented toggle) cross-fades the image.
-   ONE STATIC CAMERA — no zoom. Non-default images are prefetched after init. Luggage
-   is now the institutional BOOT SPACE text section (no JS). */
+   ONE STATIC CAMERA — no zoom. Non-default images are prefetched after init. BOOT SPACE
+   is a text section whose combo rows are accordion disclosures (one dimension line per
+   size); JS only flips aria-expanded and enforces exclusivity — CSS drives the reveal. */
 (function(){
   "use strict";
   var RM = matchMedia("(prefers-reduced-motion:reduce)").matches;
@@ -71,9 +72,19 @@
       selectScen(cid, cfg.default, true);
     }
 
+    // Boot Space accordion: each combo row is a disclosure; opening one closes the others
+    // (one thing at a time). CSS drives the reveal off aria-expanded — JS only flips state.
+    var bootRows = card.querySelectorAll(".cap-boot__row");
+    function toggleBoot(btn){
+      var open = btn.getAttribute("aria-expanded")==="true";
+      for(var i=0;i<bootRows.length;i++){ if(bootRows[i]!==btn) bootRows[i].setAttribute("aria-expanded","false"); }
+      btn.setAttribute("aria-expanded", open ? "false" : "true");
+    }
+
     card.addEventListener("click", function(e){
       var seg = e.target.closest(".cap-seg__btn"); if(seg){ switchConfig(seg.getAttribute("data-config")); return; }
       var row = e.target.closest(".cap-scen");      if(row){ selectScen(row.getAttribute("data-config"), row.getAttribute("data-scen"), true); return; }
+      var boot = e.target.closest(".cap-boot__row"); if(boot && card.contains(boot)){ toggleBoot(boot); return; }
     });
 
     // prefetch non-default seating images (1024w webp) once idle
