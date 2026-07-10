@@ -1065,7 +1065,7 @@ fleet_body = header("fleet.html") + f"""
       <div class="ff-intro"><span class="lbl">Find your car</span><span class="ff-micro">Sized to your guests and luggage.</span></div>
       <div class="ff-controls">
         <span class="ff-step"><span class="ff-step__lbl">Guests</span><span class="ff-stepper" data-step="guests"><button type="button" class="ff-btn" data-dir="-1" aria-label="Fewer guests">&minus;</button><span class="ff-val" id="ffGuestsVal">1</span><button type="button" class="ff-btn" data-dir="1" aria-label="More guests">+</button></span></span>
-        <span class="ff-step"><span class="ff-step__lbl">Check-in</span><span class="ff-stepper" data-step="cases"><button type="button" class="ff-btn" data-dir="-1" aria-label="Fewer suitcases">&minus;</button><span class="ff-val" id="ffCasesVal">0</span><button type="button" class="ff-btn" data-dir="1" aria-label="More suitcases">+</button></span></span>
+        <span class="ff-step"><span class="ff-step__lbl">Luggage</span><span class="ff-stepper" data-step="cases"><button type="button" class="ff-btn" data-dir="-1" aria-label="Fewer suitcases">&minus;</button><span class="ff-val" id="ffCasesVal">0</span><button type="button" class="ff-btn" data-dir="1" aria-label="More suitcases">+</button></span></span>
         <span class="ff-status" id="ffStatus" role="status" aria-live="polite"></span>
         <button type="button" class="ff-reset" id="ffReset" hidden>Reset</button>
       </div>

@@ -44,14 +44,14 @@
     c.classList.remove("ff-unfit");
     drop(c, "ff-reason");
     ensure(c, "ff-chip").textContent =
-      "FITS · " + label(guests, GMAX) + " GUESTS · " + label(cases, CMAX) + " CHECK-IN";
+      "FITS · " + label(guests, GMAX) + " GUESTS · " + label(cases, CMAX) + " CASES";
   }
   function markUnfit(c) {
     c.classList.add("ff-unfit");
     drop(c, "ff-chip");
     ensure(c, "ff-reason").textContent = (fitG(c) < guests)
       ? "Seats " + fitG(c) + " — you need " + label(guests, GMAX)
-      : "Takes " + fitC(c) + " check-in — you have " + label(cases, CMAX);
+      : "Takes " + fitC(c) + " cases — you have " + label(cases, CMAX);
   }
   function clearCard(c) { c.classList.remove("ff-unfit"); drop(c, "ff-chip"); drop(c, "ff-reason"); }
 
