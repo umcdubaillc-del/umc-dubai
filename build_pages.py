@@ -2853,7 +2853,7 @@ sc_body = header("fleet.html") + f"""
 <section class="sc-hero" aria-label="Mercedes Benz S Class">
   <div class="sc-hero__stage">
     <!-- TEMPORARY hero image, replace with real UMC S Class photography. -->
-    {fleet_hero_img(f"s-class/{SC_HERO_IMG[0]}", SC_HERO_IMG[1], "50% 50%", "50% 50%")}
+    {fleet_hero_img(f"s-class/{SC_HERO_IMG[0]}", SC_HERO_IMG[1], "50% 50%", "30% 50%")}
     <h1 class="sc-hero__name">Mercedes Benz S Class</h1>
   </div>
   <div class="sc-hero__caps">
@@ -3206,8 +3206,10 @@ FLEET_PAGES_DRAFT = [
    # v73-C: hero + interior primary wired. The 4 detail images on usnews.com
    # timed out repeatedly from this environment; they stay on placeholders
    # pending re-supply of alternative source URLs.
-   "hero_img":"lexus-es/hero.jpeg",
-   "hero_object_pos_mobile":"100% 50%",
+   "hero_img":"lexus-es/hero.webp",
+   "hero_object_pos":"50% 50%",
+   # HERO-2: new render, faces LEFT — low X pans the portrait mobile crop to the front.
+   "hero_object_pos_mobile":"18% 50%",
    "interior_primary":"lexus-es/interior.jpg",
    "interior_details":["lexus-es/detail-1.jpg","lexus-es/detail-2.png","lexus-es/detail-3.jpg","lexus-es/detail-4.jpg"],
    "interior_heading":"The cabin that asks nothing of you.",
@@ -3298,9 +3300,10 @@ FLEET_PAGES_DRAFT = [
    # a no-op, only Y crops. 50% 58% is the lock, both tyres fully visible
    # with ground beneath, van framed, roofline intact. Mobile container is
    # portrait so X matters and 50% centres the van.
-   "hero_img":"v-class/hero.jpg",
-   # v89: desktop crop now 50% 50% per calibrated values (was 50% 58%).
-   "hero_object_pos_mobile":"72% 58%",
+   "hero_img":"v-class/hero.webp",
+   # HERO-2: new render, van faces LEFT — low X centres the front on the mobile crop.
+   "hero_object_pos":"50% 50%",
+   "hero_object_pos_mobile":"16% 50%",
    "interior_primary":"v-class/interior.jpg",
    "interior_details":["v-class/detail-1.jpg","v-class/detail-2.jpg","v-class/detail-3.jpg","v-class/detail-4.jpg"],
    "interior_heading":"The shared cabin.",
