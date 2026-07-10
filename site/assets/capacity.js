@@ -14,10 +14,11 @@
   var RM = matchMedia("(prefers-reduced-motion:reduce)").matches;
 
   function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
-  function pictureHTML(sc, sizes, widths){
-    var srcset = widths.map(function(w){ return sc.base+"-"+w+".webp "+w+"w"; }).join(",");
+  function pictureHTML(sc, sizes, widths, ver){
+    var q = ver ? "?v="+ver : "";   // cache-bust: mirror the SSR ?v= so swapped seatmaps refetch
+    var srcset = widths.map(function(w){ return sc.base+"-"+w+".webp"+q+" "+w+"w"; }).join(",");
     return '<picture><source type="image/webp" srcset="'+srcset+'" sizes="'+esc(sizes)+'">'
-      + '<img class="cap-photo" src="'+sc.base+'.png" width="'+sc.w+'" height="'+sc.h+'" alt="'+esc(sc.alt)+'" decoding="async"></picture>';
+      + '<img class="cap-photo" src="'+sc.base+'.png'+q+'" width="'+sc.w+'" height="'+sc.h+'" alt="'+esc(sc.alt)+'" decoding="async"></picture>';
   }
 
   function initCard(card){
@@ -37,7 +38,7 @@
         + '<span class="cap-scen__txt"><span class="cap-scen__t">'+esc(s.title)+'</span><span class="cap-scen__d">'+esc(s.desc)+'</span></span>'+CHEV+'</button>';
     }
     function newPicture(sc){
-      var tmp = document.createElement("div"); tmp.innerHTML = pictureHTML(sc, data.sizes, data.widths);
+      var tmp = document.createElement("div"); tmp.innerHTML = pictureHTML(sc, data.sizes, data.widths, data.v);
       return tmp.firstChild;
     }
     function swapInstant(np){
@@ -75,7 +76,7 @@
       decoded[sc.base] = new Promise(function(res){
         var done = function(){ if(im.decode){ try { im.decode().then(function(){}, function(){}); } catch(e){} } res(im); };
         im.onload = done; im.onerror = function(){ res(im); };
-        im.src = sc.base+"-"+preloadWidth()+".webp";
+        im.src = sc.base+"-"+preloadWidth()+".webp"+(data.v?"?v="+data.v:"");
         if(im.complete) done();
       });
       return decoded[sc.base];

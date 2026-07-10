@@ -2445,6 +2445,21 @@ notfound = header("index.html").replace('class="on"','') + f"""
 SEATMAP_SIZES = "(max-width:720px) 92vw, 800px"
 SEATMAP_WIDTHS = (640, 1024, 1600)
 
+def _compute_seatmap_v():
+    """Content hash of the shipped seatmap files. Appended as ?v= to every
+    seatmap URL (SSR + the capacity.js config) so a swapped image — same
+    filename — defeats the browser's immutable /assets cache. Without this a
+    replaced seatmap keeps serving the stale cached copy on returning visitors
+    (the GMC bench images looked un-updated for exactly this reason)."""
+    import hashlib, pathlib
+    h = hashlib.md5()
+    base = pathlib.Path(__file__).resolve().parent / "site" / "assets" / "seatmaps"
+    if base.exists():
+        for p in sorted(base.glob("*")):
+            if p.is_file(): h.update(p.read_bytes())
+    return h.hexdigest()[:10]
+SMV = _compute_seatmap_v()
+
 def _seatmap_dims(base):
     # Ratio-lock CLS from the delivery PNG fallback's real dimensions.
     from PIL import Image
@@ -2454,11 +2469,11 @@ def _seatmap_dims(base):
 def seatmap_picture(base, alt):
     # SSR default scenario <picture> with explicit width/height (CLS 0 stands).
     w, h = _seatmap_dims(base)
-    srcset = ", ".join(f"/assets/seatmaps/{base}-{x}.webp {x}w" for x in SEATMAP_WIDTHS)
+    srcset = ", ".join(f"/assets/seatmaps/{base}-{x}.webp?v={SMV} {x}w" for x in SEATMAP_WIDTHS)
     return (
         '<picture>'
         f'<source type="image/webp" srcset="{srcset}" sizes="{SEATMAP_SIZES}">'
-        f'<img class="cap-photo" src="/assets/seatmaps/{base}.png" width="{w}" height="{h}" '
+        f'<img class="cap-photo" src="/assets/seatmaps/{base}.png?v={SMV}" width="{w}" height="{h}" '
         f'alt="{alt}" decoding="async" fetchpriority="high">'
         '</picture>'
     )
@@ -2578,6 +2593,7 @@ def capacity_v3(cfg):
         "defaultConfig": cfg["default_config"],
         "sizes": SEATMAP_SIZES,
         "widths": list(SEATMAP_WIDTHS),
+        "v": SMV,
         "configs": [
             {"id": c["id"], "label": c.get("label"), "default": c["default"],
              "scenarios": [
@@ -3216,7 +3232,10 @@ FLEET_PAGES_DRAFT = [
    # v73-C: real imagery wired in.
    "hero_img":"cadillac-escalade/hero.webp",
    "hero_object_pos":"50% 50%",
-   "hero_object_pos_mobile":"50% 50%",
+   # Mobile (<=600px) frame is portrait-ish (~440x380) so it crops the sides; the
+   # Escalade sits right-of-centre in the source, leaving the front grille jammed at
+   # the right edge at 50%. Shift the crop toward the front so it lands mid-frame.
+   "hero_object_pos_mobile":"70% 50%",
    "interior_primary":"cadillac-escalade/interior.jpg",
    "interior_details":["cadillac-escalade/detail-1.jpg","cadillac-escalade/detail-2.jpg","cadillac-escalade/detail-3.jpg","cadillac-escalade/detail-4.jpg"],
    "interior_heading":"Command, in the back.",
