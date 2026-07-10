@@ -43,8 +43,12 @@ function trackLead(formId, service){
   // Word-bounded so "DXB Terminal 3 Parking" / "DXB T3" match but "part3" won't.
   const T3_RX = new RegExp("\\bterminal 3\\b|\\bt3\\b","i");
 
+  // BOOK-P3 §F: vehicle preference is OPTIONAL. The default selection is the
+  // concierge, so the form is never blocked on picking a car; a ?vehicle= param
+  // (from a fleet page's "Reserve") still preselects a specific car below.
+  const CONCIERGE = "concierge";
   const state = { service: params.get("mode")==="hourly" ? "hourly5" : "p2p", days:2,
-                  from:"", to:"", km:null, mins:null, vehicle:null, fromIsAirport:false, toIsAirport:false,
+                  from:"", to:"", km:null, mins:null, vehicle:CONCIERGE, fromIsAirport:false, toIsAirport:false,
                   fromIsT3:false, pickupEmirate:"", earliestMin:null };
 
   // prefill from homepage
@@ -79,14 +83,22 @@ function trackLead(formId, service){
 
   const SERVICE_LABEL = {p2p:"Transfer", airport:"Airport transfer", hourly5:"By the hour, 5 hours", hourly10:"By the hour, 10 hours", fullday:"By the hour, multiple days"};
 
+  // BOOK-P3 §D: the sixth "Included in every journey" slot SWAPS (never hides) so
+  // the grid stays a clean 3x2 in every state. SSR renders the concierge default
+  // (booking opens non-airport); this flips to flight tracking when an airport is
+  // detected in the pickup OR destination. Icon markup mirrors the SSR span.
+  const INC_FLIGHT_HTML = '<svg viewBox="0 0 24 24"><path d="M21.5 4.6c.8-.8.6-2-.5-2.1-.9-.1-1.9.2-2.6.9l-3.5 3.4-9.3-2.4a1 1 0 0 0-1 .3l-.8.9 7.4 4.5-3.3 3.4-2.7-.4-.9.9 3 1.9 1.9 3 .9-.9-.4-2.7 3.4-3.3 4.5 7.4.9-.8a1 1 0 0 0 .3-1l-2.4-9.3z"/></svg>Flight tracking on airport pickups';
+  const INC_CONCIERGE_HTML = '<svg viewBox="0 0 24 24"><path d="M4 13v-1a8 8 0 0 1 16 0v1"/><rect x="2.4" y="12.6" width="3.8" height="6.4" rx="1.4"/><rect x="17.8" y="12.6" width="3.8" height="6.4" rx="1.4"/><path d="M20 19v.4a3 3 0 0 1-3 3h-3"/></svg>24/7 concierge support';
+
   function syncConditional(){
     const isAirport = state.fromIsAirport || state.toIsAirport;
     // Flight number: airport in EITHER direction (unchanged).
     $("rowFlight").classList.toggle("hide", !isAirport);
-    // "Flight tracking on airport pickups" is now a permanent inclusion (BOOK-P2 §4),
-    // so it is no longer toggled here — only the chauffeur label still adapts.
     var iM=$("incMeetTxt");
     if(iM) iM.textContent = isAirport ? "Met by your chauffeur" : "Professional chauffeur";
+    // BOOK-P3 §D: swap the sixth inclusion in place (never hide it).
+    var iS=$("incSwap");
+    if(iS) iS.innerHTML = isAirport ? INC_FLIGHT_HTML : INC_CONCIERGE_HTML;
     // Welcome sign: only when the PICKUP is an airport (a drop-off never needs a
     // sign) AND the pickup is not DXB Terminal 3 (T3 greetings are board-free).
     const showSign = state.fromIsAirport && !state.fromIsT3;
@@ -100,7 +112,14 @@ function trackLead(formId, service){
   function renderCars(){
     const el = $("carList");
     const fleet = getFleet().filter(v=>v.visible!==false);
-    el.innerHTML = fleet.map(v=>{
+    // BOOK-P3 §F: the default "Concierge recommends" tile leads the list, so the
+    // vehicle field is optional (no layout redesign — the chips idea stays parked).
+    const conciergeCard = `<div class="bk-car bk-car-concierge${state.vehicle===CONCIERGE?" sel":""}" data-id="${CONCIERGE}" role="button" tabindex="0" aria-pressed="${state.vehicle===CONCIERGE}">
+        <span class="bcimg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l1.9 3.9 4.3.6-3.1 3 .7 4.3-3.8-2-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg></span>
+        <div><span class="cat">No preference</span><h3>Concierge recommends</h3></div>
+        <div class="vcap2"><span>We match the car to your journey</span></div>
+      </div>`;
+    el.innerHTML = conciergeCard + fleet.map(v=>{
       return `<div class="bk-car${state.vehicle===v.id?" sel":""}" data-id="${v.id}" role="button" tabindex="0" aria-pressed="${state.vehicle===v.id}">
         <span class="bcimg"><img src="${v.img}" alt="" loading="lazy"></span>
         <div><span class="cat">${v.category}</span><h3>${v.name}</h3></div>
@@ -143,9 +162,10 @@ function trackLead(formId, service){
     if($("kTime").value) h += row("Time", $("kTime").value);
     if(state.km && !hourly) h += row("Route", `${state.km} km, about ${state.mins} min`);
     if(v) h += row("Vehicle", `<b>${v.name}</b>`);
+    else if(state.vehicle===CONCIERGE) h += row("Vehicle", `<b>Concierge recommends</b>`);
     $("bkSummary").innerHTML = h || '<div class="bp-empty">Your journey details appear here as you type.</div>';
     const tot = $("bpTotal");
-    if(v){
+    if(v || state.vehicle===CONCIERGE){
       tot.innerHTML = '<span class="k">Your quote</span><span class="v" style="font-size:.9rem">Confirmed by our team within minutes</span>';
       tot.classList.remove("hide");
     } else { tot.classList.add("hide"); }
@@ -405,6 +425,7 @@ function trackLead(formId, service){
     lines.push("Contact: " + contactBits.join(" · "));
     lines.push("Service: " + SERVICE_LABEL[state.service]);
     if(v) lines.push("Vehicle: " + v.name);
+    else if(state.vehicle===CONCIERGE) lines.push("Vehicle: Concierge to recommend");
     if(g("kFrom")) lines.push("Pickup: " + g("kFrom"));
     if(!hourly && g("kTo")) lines.push("Destination: " + g("kTo"));
     const dt = [g("kDate"), g("kTime")].filter(Boolean).join(" at ");
@@ -425,7 +446,7 @@ function trackLead(formId, service){
       name: g("kName"), phone: "+" + $("kCC").value + " " + phoneOut, email: g("kEmail"),
       service: SERVICE_LABEL[state.service], pickup: g("kFrom"), destination: hourly ? "" : g("kTo"),
       date: g("kDate"), time: g("kTime"),
-      vehicle: (v ? v.name : ""),
+      vehicle: (v ? v.name : (state.vehicle===CONCIERGE ? "Concierge recommends" : "")),
       days: state.service === "fullday" ? String(state.days) : "",
       flight: g("kFlight"), sign: g("kSign"), notes: g("kNotes"),
       page: location.pathname, ts: new Date().toISOString()

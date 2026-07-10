@@ -392,9 +392,14 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,su
    even row rhythm with hairline rules, footer-weight icons (ink-soft, 1.6 stroke, round joins).
    Two columns on desktop, one on phone. */
 .bk-inc{display:grid;grid-template-columns:1fr 1fr;column-gap:1.6rem;row-gap:0;padding:.4rem 0 .2rem;font-size:.85rem;color:var(--ink-soft)}
-.bk-inc span{display:grid;grid-template-columns:22px 1fr;align-items:center;gap:.7rem;padding:.62rem .1rem;line-height:1.35;border-top:1px solid var(--hair)}
-.bk-inc svg{width:19px;height:19px;stroke:var(--ink-soft);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;justify-self:center}
-@media (max-width:560px){ .bk-inc{grid-template-columns:1fr} }
+.bk-inc span{display:grid;grid-template-columns:22px 1fr;align-items:start;gap:.7rem;padding:.62rem .1rem;line-height:1.35;border-top:1px solid var(--hair)}
+/* BOOK-P3 §H: amber stroke restored (BOOK-P1 alignment/sizing kept). Icon is
+   top-aligned so the long "Flight tracking on airport pickups" wraps under the
+   text column while the glyph stays pinned to the first line. */
+.bk-inc svg{width:19px;height:19px;stroke:var(--amber);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;justify-self:center;align-self:start;margin-top:1px}
+/* BOOK-P3 amend: two columns at ALL widths (was 1-up on phone); tighten the
+   column gap on narrow screens so each half-width cell keeps its icon column. */
+@media (max-width:560px){ .bk-inc{column-gap:.8rem} .bk-inc span{grid-template-columns:20px 1fr;gap:.5rem} }
 .bk-summary{font-size:.92rem;color:var(--ink-soft);border-top:1px solid var(--hair);margin-top:1rem;padding-top:1rem;line-height:1.9}
 .bk-summary b{font-weight:500;color:var(--ink)}
 .hide{display:none!important}
@@ -499,14 +504,16 @@ dialog.terms li{margin-bottom:.8rem;font-size:.9rem;color:var(--ink-soft)}
 .payline .paypop{position:absolute;bottom:calc(100% + .55rem);right:-6px;width:max-content;max-width:280px;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:.75rem .95rem;box-shadow:0 14px 32px -22px rgba(34,27,20,.4);font-size:.78rem;line-height:1.55;color:var(--ink-soft);font-family:var(--sans);letter-spacing:normal;text-transform:none;font-weight:400;z-index:30;opacity:0;pointer-events:none;transform:translateY(3px);transition:opacity .18s ease,transform .18s ease}
 .payline .paywrap:hover .paypop,.payline .paywrap:focus-within .paypop,.payline .paywrap.is-open .paypop{opacity:1;pointer-events:auto;transform:translateY(0)}
 @media(prefers-reduced-motion:reduce){.payline .paypop,.payline .payplus{transition:none}}
-/* v92: mobile-only re-anchor. Desktop opens leftward from the button (right:-6px
-   + width:max-content/max-width:280px). At ~400px viewports the computed left
-   edge spills off-screen and the text clips. On phones we anchor to the button's
-   right edge and cap the width so the popover always fits the viewport.
-   Verified live at 402px: popover sits fully inside the viewport with both
-   sides padded. Vertical position (bottom offset) is unchanged. */
+/* BOOK-P3 amend: mobile re-anchor. Desktop opens leftward from the button. The
+   button sits mid-row (payline is left-aligned in the footer column), so anchoring
+   the popover to the button — right:0 OR left:0 — pushed one edge off-screen (the
+   v92 right:0 clipped the LEFT edge at ~330px). Fix: drop paywrap's positioning
+   context on phones so the popover resolves against the payline ROW and CENTER it
+   there, capped to the viewport. Always fully visible regardless of button offset. */
 @media (max-width:600px){
-  .payline .paypop{left:auto;right:0;width:min(280px,calc(100vw - 32px));max-width:none}
+  .payline{position:relative}
+  .payline .paywrap{position:static}
+  .payline .paypop{left:0;right:0;margin-inline:auto;width:min(280px,calc(100vw - 28px));max-width:none}
 }
 
 /* intl-tel-input: keep our minimal field */
@@ -560,6 +567,10 @@ label.req::after{content:" *";color:#B3402A;font-weight:500}
 .bk-car .vcap2{display:flex;flex-direction:column;gap:.3rem;text-align:right;flex:none}
 .bk-car .vcap2 span{display:inline-flex;align-items:center;justify-content:flex-end;gap:.4rem;font-size:.74rem;color:var(--muted);white-space:nowrap}
 .bk-car .vcap2 svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.6;order:-1}
+/* BOOK-P3 §F: default "Concierge recommends" tile — amber star, wrapping note. */
+.bk-car-concierge .bcimg{color:var(--amber)}
+.bk-car-concierge .bcimg svg{width:32px;height:32px}
+.bk-car-concierge .vcap2 span{white-space:normal;max-width:130px;text-align:right}
 
 /* included panel */
 .bk-inc-title{font-size:.66rem;font-weight:500;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);padding:1.2rem .2rem .6rem}
@@ -571,7 +582,9 @@ label.req::after{content:" *";color:#B3402A;font-weight:500}
 .ac-item:first-child{border-top:0}
 .ac-item.on,.ac-item:hover{background:var(--bone-2,#EFE8D9)}
 .ac-ic{display:flex;align-items:center;justify-content:center}
-.ac-ic svg{width:18px;height:18px;stroke:var(--muted,#7A6F5F);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+/* BOOK-P3 §G: icons were barely visible (muted, 1.5). Full-opacity ink-soft at
+   1.7, 18px, so plane/bed/building/pin all read at a glance and stay weight-matched. */
+.ac-ic svg{width:18px;height:18px;stroke:var(--ink-soft,#4A4136);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .ac-tx{min-width:0}
 .ac-main{display:block;font-size:.9rem;color:var(--ink,#221B14);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ac-sec{display:block;font-size:.76rem;color:var(--muted,#7A6F5F);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

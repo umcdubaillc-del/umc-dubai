@@ -843,7 +843,7 @@ booking_body = header("booking.html") + f"""
           <div class="bk-inc-title">Included in every journey</div>
           <div class="bk-inc" aria-label="Included in every journey">
             <span><svg viewBox="0 0 24 24"><circle cx="12" cy="9.4" r="3"/><path d="M5.4 21c.6-3.6 3-5.5 6.6-5.5s6 1.9 6.6 5.5"/><path d="M9.5 5.5h5l-.6-1.6a.9.9 0 0 0-.8-.6h-2.2a.9.9 0 0 0-.8.6z"/><path d="M7.5 5.5h9"/></svg><i id="incMeetTxt" style="font-style:normal">Professional chauffeur</i></span>
-            <span><svg viewBox="0 0 24 24"><path d="M21.5 4.6c.8-.8.6-2-.5-2.1-.9-.1-1.9.2-2.6.9l-3.5 3.4-9.3-2.4a1 1 0 0 0-1 .3l-.8.9 7.4 4.5-3.3 3.4-2.7-.4-.9.9 3 1.9 1.9 3 .9-.9-.4-2.7 3.4-3.3 4.5 7.4.9-.8a1 1 0 0 0 .3-1l-2.4-9.3z"/></svg>Flight tracking on airport pickups</span>
+            <span id="incSwap"><svg viewBox="0 0 24 24"><path d="M4 13v-1a8 8 0 0 1 16 0v1"/><rect x="2.4" y="12.6" width="3.8" height="6.4" rx="1.4"/><rect x="17.8" y="12.6" width="3.8" height="6.4" rx="1.4"/><path d="M20 19v.4a3 3 0 0 1-3 3h-3"/></svg>24/7 concierge support</span>
             <span><svg viewBox="0 0 24 24"><path d="M10.2 2.5h3.6M12 2.5v3.4M9.6 9.2c-.7.8-1.1 1.7-1.1 2.8V19a2 2 0 0 0 2 2h3a2 2 0 0 0 2-2v-7c0-1.1-.4-2-1.1-2.8l-.9-1V5.9h-3v2.3z"/><path d="M8.5 13.5h7"/></svg>Bottled water</span>
             <span><svg viewBox="0 0 24 24"><path d="M13 2.5L5.5 13H11l-1 8.5L17.5 11H12z"/></svg>Device chargers</span>
             <span><svg viewBox="0 0 24 24"><rect x="4" y="9" width="16" height="11" rx="2"/><path d="M8 9c0-4 8-4 8 0M10 13c.8 1 3.2 1 4 0"/></svg>Tissues</span>
@@ -2195,11 +2195,11 @@ contact_body = header("contact.html") + f"""
       <div class="bk-card" id="ctFormCard">
         <h2>Reservation request</h2>
         <div class="two">
-          <div class="f"><label class="req" for="cName">Full name</label><input id="cName" required></div>
+          <div class="f"><label class="req" for="cName">Full name</label><input id="cName" autocomplete="name" required></div>
           <div class="f"><label class="req" for="cPhone">Phone / WhatsApp</label>
             <div class="phonewrap">
               <span class="cc"><select id="cCC" aria-label="Country code">{CC_OPTIONS}</select></span>
-              <span class="num"><input id="cPhone" type="tel" inputmode="tel" required placeholder="5x xxx xxxx"></span>
+              <span class="num"><input id="cPhone" type="tel" inputmode="tel" autocomplete="tel" required placeholder="5x xxx xxxx"></span>
             </div><span class="fhint phone-err"></span></div>
         </div>
         <div class="f"><label class="req" for="cEmail">Email</label><input id="cEmail" type="email" autocomplete="email" required><span class="fhint">Enter a valid email address, e.g. name@domain.com</span></div>
@@ -2837,7 +2837,7 @@ sc_body = header("fleet.html") + f"""
 <section class="sc-hero" aria-label="Mercedes Benz S Class">
   <div class="sc-hero__stage">
     <!-- TEMPORARY hero image, replace with real UMC S Class photography. -->
-    {fleet_hero_img(f"s-class/{SC_HERO_IMG[0]}", SC_HERO_IMG[1], "50% 50%", "0% 50%")}
+    {fleet_hero_img(f"s-class/{SC_HERO_IMG[0]}", SC_HERO_IMG[1], "50% 50%", "50% 50%")}
     <h1 class="sc-hero__name">Mercedes Benz S Class</h1>
   </div>
   <div class="sc-hero__caps">
@@ -3215,7 +3215,8 @@ FLEET_PAGES_DRAFT = [
    "hero_sub":"The full-size SUV for those who travel with people, with luggage, or with the need to be seen arriving, and the room to do all three.",
    # v73-C: real imagery wired in.
    "hero_img":"cadillac-escalade/hero.webp",
-   "hero_object_pos_mobile":"0% 50%",
+   "hero_object_pos":"50% 50%",
+   "hero_object_pos_mobile":"50% 50%",
    "interior_primary":"cadillac-escalade/interior.jpg",
    "interior_details":["cadillac-escalade/detail-1.jpg","cadillac-escalade/detail-2.jpg","cadillac-escalade/detail-3.jpg","cadillac-escalade/detail-4.jpg"],
    "interior_heading":"Command, in the back.",

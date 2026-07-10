@@ -25,9 +25,10 @@
   // .ac-ic svg rule in style.css (fill:none; muted stroke; 1.5 weight).
   var ICONS = {
     plane: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.8 19.2 16 11l3.5-3.5c1-1 1-2.5 0-3s-2.5-1-3 0L13 8 4.8 6.2c-.4-.1-.7.4-.4.7l3.9 4.2-2.2 2.2-1.9-.3-.9.9 2.4 1.5L8 18.4l.9-.9-.3-1.9 2.2-2.2 4.2 3.9c.3.3.8 0 .7-.4z"/></svg>',
-    // Bed redrawn (ICONS-2 §3): legible at 16px — vertical headboard, a straight
-    // mattress line, a pillow hump by the headboard, and two short legs.
-    bed: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 14V7M5 14h13.5M7 14c0-1.3.9-2 2-2s2 .7 2 2M6.5 14v2.4M17 14v2.4"/></svg>',
+    // Bed v2 (BOOK-P3 §G): bolder + simpler to read at a glance — tall headboard,
+    // a mattress bar, a SOLID pillow block (inline fill beats the .ac-ic svg
+    // fill:none), and two short legs. Fills the box so it holds up at 18px.
+    bed: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 16.5V9M4 13h15.6a1 1 0 0 1 1 1v2.5M4 16.5h16.6M6.3 16.5v1.9M18 16.5v1.9"/><rect x="6" y="10.2" width="4.4" height="2.8" rx=".8" style="fill:currentColor;stroke-width:1"/></svg>',
     building: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4.5A1.5 1.5 0 0 1 7.5 3h6A1.5 1.5 0 0 1 15 4.5V21M15 10h2.5A1.5 1.5 0 0 1 19 11.5V21M4 21h16M9 7h3M9 11h3M9 15h3"/></svg>',
     pin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6-5.7-6-10a6 6 0 1 1 12 0c0 4.3-6 10-6 10z"/><circle cx="12" cy="11" r="2.3"/></svg>'
   };
