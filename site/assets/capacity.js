@@ -142,7 +142,12 @@
       var token = ++selectToken;
       warm(sc).then(function(){            // swap only once the incoming variant is loaded+decoded
         if(token !== selectToken) return; // a newer selection superseded this one
-        if(transition==="ground") fadeThroughGround(sc);
+        // Config toggle (captain<->bench): the current seatmap set shares ONE car
+        // body — only the seats differ (verified by pixel diff) — so the old
+        // morph-wobble that justified fadeThroughGround is gone. A preloaded INSTANT
+        // swap is seamless and truly instant: no fade-out-to-empty-panel flash, and
+        // (unlike a crossfade of two different seat shapes) no ghost double-exposure.
+        if(transition==="ground") swapInstant(newPicture(sc));
         else crossfade(sc);
       });
     }
@@ -176,7 +181,12 @@
     // first switch is seamless. Swaps also await warm(sc) individually, so correctness holds
     // even if a click lands before this finishes.
     function warmAll(){ configs.forEach(function(c){ c.scenarios.forEach(warm); }); }
-    if("requestIdleCallback" in window) requestIdleCallback(warmAll); else setTimeout(warmAll, 200);
+    // Preload + decode ALL four scenarios once the page has loaded (after the hero
+    // LCP, so it doesn't compete for bandwidth), so every captain/bench toggle hits
+    // cache and swaps instantly. Individual swaps still await warm(sc), so a click
+    // before this finishes is still correct — it just loads that one image on demand.
+    if(document.readyState === "complete") warmAll();
+    else window.addEventListener("load", warmAll);
   }
 
   function start(){ document.querySelectorAll("[data-cap]").forEach(initCard); }
