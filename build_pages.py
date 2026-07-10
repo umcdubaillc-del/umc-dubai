@@ -166,7 +166,7 @@ def _compute_v():
     import hashlib, pathlib
     h = hashlib.md5()
     for rel in ("assets/style.css","assets/s-class.css","assets/main.js",
-                "assets/booking.js","assets/autocomplete.js","assets/fleet-data.js","assets/capacity.js",
+                "assets/booking.js","assets/autocomplete.js","assets/fitfinder.js","assets/fleet-data.js","assets/capacity.js",
                 "assets/vendor/flatpickr.min.css","assets/vendor/flatpickr.min.js"):
         p = SITE / rel
         if p.exists(): h.update(p.read_bytes())
@@ -970,8 +970,14 @@ def _dims_attr(root_abs_url):
     except Exception:
         return ''
 
+FIT_BY_ID = {}   # FIND-1 per-vehicle (guests, cases); populated after the V3 configs.
 def _fleet_card_html(v):
     e = _fesc
+    # FIND-1 fit attrs. FIT_BY_ID is populated after the seatmap V3 configs (further
+    # down); the /fleet page is written only after that, so its cards carry the
+    # combo-derived values. The airport/rent SSR snapshots render earlier and fall
+    # back to the card figures — harmless, they don't host the fit-finder.
+    _fit = FIT_BY_ID.get(v["id"], (v["seats"], v["luggage"]))
     from_price = _from_rate(v)
     bk = "/booking?vehicle=" + _urlparse.quote(v["id"], safe="")
     ropts = "".join(
@@ -989,7 +995,7 @@ def _fleet_card_html(v):
                   if from_price else '<b style="font-size:1rem">Rates on request</b>')
     wa = _urlparse.quote(f'Hello UMC Dubai, I would like to reserve the {v["name"]}.', safe="")
     return (
-      f'<article class="vcard rv" data-cat="{e(v["category"])}" data-vid="{e(v["id"])}" data-vehicle="{e(v["name"])}">'
+      f'<article class="vcard rv" data-cat="{e(v["category"])}" data-vid="{e(v["id"])}" data-vehicle="{e(v["name"])}" data-fit-guests="{_fit[0]}" data-fit-cases="{_fit[1]}">'
       f'<div class="{vimg_cls}">{img}</div>'
       f'<div class="vbody">'
       f'<div class="vtitle"><h3>{title}</h3>{marque}</div>'
@@ -1055,6 +1061,32 @@ fleet_body = header("fleet.html") + f"""
 </section>
 <section class="sec" style="padding-top:2.4rem">
   <div class="wrap wide">
+    <div class="fitfinder" id="fitFinder" data-active="false">
+      <div class="ff-head"><span class="lbl">Find your car</span>
+        <p class="ff-micro">Tell us who and what is travelling &mdash; we&rsquo;ll show what fits.</p></div>
+      <div class="ff-controls">
+        <div class="ff-step">
+          <span class="ff-step__lbl">Guests</span>
+          <div class="ff-stepper" data-step="guests">
+            <button type="button" class="ff-btn" data-dir="-1" aria-label="Fewer guests">&minus;</button>
+            <span class="ff-val" id="ffGuestsVal">1</span>
+            <button type="button" class="ff-btn" data-dir="1" aria-label="More guests">+</button>
+          </div>
+        </div>
+        <div class="ff-step">
+          <span class="ff-step__lbl">Check-in suitcases</span>
+          <div class="ff-stepper" data-step="cases">
+            <button type="button" class="ff-btn" data-dir="-1" aria-label="Fewer suitcases">&minus;</button>
+            <span class="ff-val" id="ffCasesVal">0</span>
+            <button type="button" class="ff-btn" data-dir="1" aria-label="More suitcases">+</button>
+          </div>
+          <span class="ff-hint">Cabin bags ride in the cabin.</span>
+        </div>
+        <button type="button" class="ff-reset" id="ffReset" hidden>Reset</button>
+      </div>
+      <p class="ff-status" id="ffStatus" role="status" aria-live="polite"></p>
+      <p class="ff-concierge" id="ffConcierge" hidden>Travelling as a group? Our concierge will <a target="_blank" rel="noopener" href="{WA}">plan the vehicles</a>.</p>
+    </div>
     <div class="chips" id="fleetChips" role="tablist" aria-label="Filter fleet">
       <button class="on" data-cat="all">All</button>
       <button data-cat="sedan">Sedans</button>
@@ -1062,7 +1094,7 @@ fleet_body = header("fleet.html") + f"""
       <button data-cat="van">Vans</button>
       <button data-cat="coach">Coaches</button>
     </div>
-    <div class="fleet-grid" id="fleetAll">{fleet_grid_html()}</div>
+    <div class="fleet-grid" id="fleetAll">__FLEET_GRID__</div>
     <p class="center rv" style="margin-top:2.2rem">Beyond the standing fleet, a <a href="/fleet/rolls-royce">Rolls-Royce Ghost or Cullinan</a> is available by request for weddings and milestone arrivals.</p>
     <p class="muted center" style="font-size:.85rem;margin-top:1.2rem">Rates may vary in peak season. Your quote is confirmed before you book.</p>
   </div>
@@ -1107,9 +1139,15 @@ fleet_body = header("fleet.html") + f"""
       card.style.display=show?"":"none";
     });
   });});});</script>
+<script src="/assets/fitfinder.js?v=""" + V + """"></script>
 </body>
 </html>"""
-(SITE/"fleet.html").write_text(
+# FIND-1: the fit-finder needs the per-vehicle fit table (FIT_BY_ID), which is
+# derived from the seatmap V3 configs defined further down. fleet_body carries a
+# __FLEET_GRID__ placeholder; the page is rendered + written after FIT_BY_ID exists
+# (see the deferred write below the config block). Single source: no fit numbers
+# are hand-typed here.
+_FLEET_PAGE_HTML = (
  head("Luxury Fleet, Chauffeur-Driven Cars in Dubai | UMC Dubai",
       "The UMC Dubai fleet: Mercedes S-Class, BMW 7 Series, Cadillac Escalade, V-Class, Sprinter and coaches, all-inclusive chauffeur rates across the UAE.",
       "fleet", faq_schema(FLEET_FAQS)) + fleet_body)
@@ -2739,6 +2777,30 @@ SEATMAP_MODULES = {
     "gmc-yukon-xl": (YUKON_V3, 7),
     "cadillac-escalade": (ESCALADE_V3, 6),
 }
+
+# FIND-1: per-vehicle fit table, derived (SINGLE SOURCE) from the seatmap V3 configs
+# above + the fleet card figures — nothing hand-typed. guests = canonical pax (max
+# scenario count, else the card's published seats). cases = max CHECK-IN suitcases =
+# the highest count of Medium / Large / Extra Large items across the car's boot
+# combos (Small = cabin bag, excluded); cars without combos (E-Class, Lexus,
+# Sprinter, Coach) fall back to their card luggage figure. Emitted as data-fit-* by
+# _fleet_card_html; the /fleet page is written here now that FIT_BY_ID exists.
+import re as _re_fit
+_FIT_CFG = {"mb-s-class": SCLASS_V3, "bmw-7": BMW7_V3, "mb-v-class": VCLASS_V3,
+            "gmc-yukon-xl": YUKON_V3, "cadillac-escalade": ESCALADE_V3}
+def _fit_guests(cfg):
+    return max(int(s["id"]) for c in cfg["configs"] for s in c["scenarios"])
+def _fit_cases(boot_rows):
+    best = 0
+    for r in boot_rows:
+        n = sum(int(m.group(1)) for m in _re_fit.finditer(r"(\d+)\s*&times;\s*(?:Extra Large|Large|Medium)", r))
+        best = max(best, n)
+    return best
+for _fv in FLEET_VEHICLES:
+    _fcfg = _FIT_CFG.get(_fv["id"])
+    FIT_BY_ID[_fv["id"]] = ((_fit_guests(_fcfg), _fit_cases(_fcfg["boot_rows"])) if _fcfg
+                            else (_fv["seats"], _fv["luggage"]))
+(SITE/"fleet.html").write_text(_FLEET_PAGE_HTML.replace("__FLEET_GRID__", fleet_grid_html()))
 
 SC_HERO_IMG = ("hero-2025.webp", "Mercedes Benz S Class, exterior")
 SC_HERO_TAGLINE = "It is recognised before it stops."

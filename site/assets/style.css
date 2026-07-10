@@ -179,7 +179,32 @@ nav.mainnav .sub-toggle{display:none}
 /* fleet */
 .fleet-grid{display:grid;gap:1.4rem;grid-template-columns:1fr}
 @media(min-width:720px){.fleet-grid{grid-template-columns:1fr 1fr;gap:2rem}}
-.vcard{background:var(--card);border:1px solid var(--hair);border-radius:3px;overflow:hidden}
+.vcard{position:relative;background:var(--card);border:1px solid var(--hair);border-radius:3px;overflow:hidden}
+
+/* FIND-1: "Find your car" fit-finder */
+.fitfinder{background:var(--card);border:1px solid var(--hair);border-radius:6px;padding:1.3rem 1.4rem;margin-bottom:1.8rem}
+.fitfinder .ff-micro{font-size:.92rem;color:var(--muted);margin-top:.5rem;max-width:46ch}
+.ff-controls{display:flex;flex-wrap:wrap;align-items:flex-start;gap:1.6rem 2rem;margin-top:1.2rem}
+.ff-step{display:flex;flex-direction:column;gap:.5rem}
+.ff-step__lbl{font-size:.66rem;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+.ff-stepper{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:4px;background:var(--bone);width:max-content}
+.ff-btn{width:44px;height:44px;min-height:0;display:flex;align-items:center;justify-content:center;background:transparent;border:0;font-size:1.35rem;line-height:1;color:var(--ink-soft);cursor:pointer;transition:color .18s,background .18s;-webkit-appearance:none;appearance:none}
+.ff-btn:hover:not(:disabled),.ff-btn:focus-visible{color:var(--amber);background:var(--bone-2);outline:0}
+.ff-btn:disabled{color:var(--hair);cursor:default}
+.ff-val{min-width:52px;height:44px;display:flex;align-items:center;justify-content:center;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-variant-numeric:tabular-nums;font-size:1.05rem;color:var(--ink);border-left:1px solid var(--line);border-right:1px solid var(--line)}
+.fitfinder[data-active="true"] .ff-val{color:var(--amber)}
+.ff-hint{font-size:.76rem;color:var(--muted)}
+.ff-reset{align-self:flex-end;margin-bottom:.3rem;min-height:44px;background:transparent;border:0;padding:0 .2rem;font-size:.82rem;color:var(--muted);cursor:pointer;border-bottom:1px solid transparent;transition:color .18s,border-color .18s}
+.ff-reset:hover,.ff-reset:focus-visible{color:var(--ink);border-color:var(--amber);outline:0}
+.ff-status{margin-top:1rem;font-size:.82rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--amber)}
+.ff-status:empty{display:none}
+.ff-concierge{margin-top:.7rem;font-size:.9rem;color:var(--ink-soft)}
+.ff-concierge a{color:var(--amber);border-bottom:1px solid var(--amber)}
+/* per-card fit overlays (absolute so they never change card height → no reflow) */
+.ff-chip{position:absolute;top:.7rem;left:.7rem;z-index:3;display:inline-block;padding:.32rem .55rem;background:var(--amber);color:#fff;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:.6rem;font-weight:500;letter-spacing:.08em;border-radius:3px;box-shadow:0 6px 16px -8px rgba(167,75,12,.6)}
+.ff-reason{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:3;max-width:82%;text-align:center;padding:.5rem .8rem;background:var(--ink);color:var(--bone);font-size:.82rem;line-height:1.3;border-radius:4px;box-shadow:0 10px 26px -14px rgba(0,0,0,.5)}
+.vcard.ff-unfit .vimg,.vcard.ff-unfit .vbody{opacity:.4;filter:grayscale(1);transition:opacity .25s ease,filter .25s ease}
+@media(prefers-reduced-motion:reduce){.vcard.ff-unfit .vimg,.vcard.ff-unfit .vbody{transition:none}}
 /* fleet image presentation: uniform box + transparent feel via multiply blend (v13) */
 .vcard .vimg{aspect-ratio:16/10;display:flex;align-items:center;justify-content:center;background:transparent;overflow:hidden}
 /* v49: object-fit COVER so every card fills the 16:10 frame uniformly,
