@@ -1062,29 +1062,14 @@ fleet_body = header("fleet.html") + f"""
 <section class="sec" style="padding-top:2.4rem">
   <div class="wrap wide">
     <div class="fitfinder" id="fitFinder" data-active="false">
-      <div class="ff-head"><span class="lbl">Find your car</span>
-        <p class="ff-micro">Tell us who and what is travelling &mdash; we&rsquo;ll show what fits.</p></div>
+      <div class="ff-intro"><span class="lbl">Find your car</span><span class="ff-micro">Tell us who and what is travelling &mdash; we&rsquo;ll show what fits.</span></div>
       <div class="ff-controls">
-        <div class="ff-step">
-          <span class="ff-step__lbl">Guests</span>
-          <div class="ff-stepper" data-step="guests">
-            <button type="button" class="ff-btn" data-dir="-1" aria-label="Fewer guests">&minus;</button>
-            <span class="ff-val" id="ffGuestsVal">1</span>
-            <button type="button" class="ff-btn" data-dir="1" aria-label="More guests">+</button>
-          </div>
-        </div>
-        <div class="ff-step">
-          <span class="ff-step__lbl">Check-in suitcases</span>
-          <div class="ff-stepper" data-step="cases">
-            <button type="button" class="ff-btn" data-dir="-1" aria-label="Fewer suitcases">&minus;</button>
-            <span class="ff-val" id="ffCasesVal">0</span>
-            <button type="button" class="ff-btn" data-dir="1" aria-label="More suitcases">+</button>
-          </div>
-          <span class="ff-hint">Cabin bags ride in the cabin.</span>
-        </div>
+        <span class="ff-step"><span class="ff-step__lbl">Guests</span><span class="ff-stepper" data-step="guests"><button type="button" class="ff-btn" data-dir="-1" aria-label="Fewer guests">&minus;</button><span class="ff-val" id="ffGuestsVal">1</span><button type="button" class="ff-btn" data-dir="1" aria-label="More guests">+</button></span></span>
+        <span class="ff-step"><span class="ff-step__lbl">Check-in</span><span class="ff-stepper" data-step="cases"><button type="button" class="ff-btn" data-dir="-1" aria-label="Fewer suitcases">&minus;</button><span class="ff-val" id="ffCasesVal">0</span><button type="button" class="ff-btn" data-dir="1" aria-label="More suitcases">+</button></span></span>
+        <span class="ff-status" id="ffStatus" role="status" aria-live="polite"></span>
         <button type="button" class="ff-reset" id="ffReset" hidden>Reset</button>
       </div>
-      <p class="ff-status" id="ffStatus" role="status" aria-live="polite"></p>
+      <p class="ff-hint">Cabin bags ride in the cabin.</p>
       <p class="ff-concierge" id="ffConcierge" hidden>Travelling as a group? Our concierge will <a target="_blank" rel="noopener" href="{WA}">plan the vehicles</a>.</p>
     </div>
     <div class="chips" id="fleetChips" role="tablist" aria-label="Filter fleet">

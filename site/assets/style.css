@@ -181,24 +181,25 @@ nav.mainnav .sub-toggle{display:none}
 @media(min-width:720px){.fleet-grid{grid-template-columns:1fr 1fr;gap:2rem}}
 .vcard{position:relative;background:var(--card);border:1px solid var(--hair);border-radius:3px;overflow:hidden}
 
-/* FIND-1: "Find your car" fit-finder */
-.fitfinder{background:var(--card);border:1px solid var(--hair);border-radius:6px;padding:1.3rem 1.4rem;margin-bottom:1.8rem}
-.fitfinder .ff-micro{font-size:.92rem;color:var(--muted);margin-top:.5rem;max-width:46ch}
-.ff-controls{display:flex;flex-wrap:wrap;align-items:flex-start;gap:1.6rem 2rem;margin-top:1.2rem}
-.ff-step{display:flex;flex-direction:column;gap:.5rem}
-.ff-step__lbl{font-size:.66rem;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
-.ff-stepper{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:4px;background:var(--bone);width:max-content}
-.ff-btn{width:44px;height:44px;min-height:0;display:flex;align-items:center;justify-content:center;background:transparent;border:0;font-size:1.35rem;line-height:1;color:var(--ink-soft);cursor:pointer;transition:color .18s,background .18s;-webkit-appearance:none;appearance:none}
+/* FIND-1: "Find your car" — a slim filter BAR (hairline underline, no box) */
+.fitfinder{display:flex;flex-wrap:wrap;align-items:center;gap:.7rem 1.5rem;padding:.9rem 0 1rem;border-bottom:1px solid var(--hair);margin-bottom:1.6rem}
+.ff-intro{display:flex;flex-direction:column;gap:.15rem;margin-right:auto;padding-right:1rem}
+.ff-intro .ff-micro{font-size:.82rem;color:var(--muted)}
+.ff-controls{display:flex;flex-wrap:wrap;align-items:center;gap:.7rem 1.3rem}
+.ff-step{display:flex;align-items:center;gap:.55rem}
+.ff-step__lbl{font-size:.62rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+.ff-stepper{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;background:var(--bone)}
+.ff-btn{width:40px;height:44px;min-height:0;display:flex;align-items:center;justify-content:center;background:transparent;border:0;font-size:1.25rem;line-height:1;color:var(--ink-soft);cursor:pointer;border-radius:999px;transition:color .18s,background .18s;-webkit-appearance:none;appearance:none}
 .ff-btn:hover:not(:disabled),.ff-btn:focus-visible{color:var(--amber);background:var(--bone-2);outline:0}
 .ff-btn:disabled{color:var(--hair);cursor:default}
-.ff-val{min-width:52px;height:44px;display:flex;align-items:center;justify-content:center;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-variant-numeric:tabular-nums;font-size:1.05rem;color:var(--ink);border-left:1px solid var(--line);border-right:1px solid var(--line)}
+.ff-val{min-width:40px;height:44px;display:flex;align-items:center;justify-content:center;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-variant-numeric:tabular-nums;font-size:1rem;color:var(--ink)}
 .fitfinder[data-active="true"] .ff-val{color:var(--amber)}
-.ff-hint{font-size:.76rem;color:var(--muted)}
-.ff-reset{align-self:flex-end;margin-bottom:.3rem;min-height:44px;background:transparent;border:0;padding:0 .2rem;font-size:.82rem;color:var(--muted);cursor:pointer;border-bottom:1px solid transparent;transition:color .18s,border-color .18s}
-.ff-reset:hover,.ff-reset:focus-visible{color:var(--ink);border-color:var(--amber);outline:0}
-.ff-status{margin-top:1rem;font-size:.82rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--amber)}
+.ff-status{font-size:.7rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--amber);white-space:nowrap}
 .ff-status:empty{display:none}
-.ff-concierge{margin-top:.7rem;font-size:.9rem;color:var(--ink-soft)}
+.ff-reset{min-height:44px;background:transparent;border:0;padding:0 .2rem;font-size:.8rem;color:var(--muted);cursor:pointer;border-bottom:1px solid transparent;transition:color .18s,border-color .18s}
+.ff-reset:hover,.ff-reset:focus-visible{color:var(--ink);border-color:var(--amber);outline:0}
+.ff-hint{flex-basis:100%;font-size:.72rem;color:var(--muted);margin:0}
+.ff-concierge{flex-basis:100%;margin:.2rem 0 0;font-size:.88rem;color:var(--ink-soft)}
 .ff-concierge a{color:var(--amber);border-bottom:1px solid var(--amber)}
 /* per-card fit overlays (absolute so they never change card height → no reflow) */
 .ff-chip{position:absolute;top:.7rem;left:.7rem;z-index:3;display:inline-block;padding:.32rem .55rem;background:var(--amber);color:#fff;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:.6rem;font-weight:500;letter-spacing:.08em;border-radius:3px;box-shadow:0 6px 16px -8px rgba(167,75,12,.6)}
