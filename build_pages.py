@@ -3262,8 +3262,11 @@ FLEET_PAGES_DRAFT = [
    "tagline":"Space, without compromise.",
    "hero_sub":"The long-wheelbase SUV for the full car and the full boot, delegations, families, and the airport run that carries everything.",
    # v73-C: real imagery wired in.
-   "hero_img":"gmc-yukon-xl/hero.jpg",
-   "hero_object_pos_mobile":"10% 50%",
+   "hero_img":"gmc-yukon-xl/hero.webp",
+   "hero_object_pos":"50% 50%",
+   # Yukon faces LEFT (front grille on the left); the portrait mobile frame crops the
+   # sides, so a low X pans the crop toward the front to land the grille mid-frame.
+   "hero_object_pos_mobile":"15% 50%",
    "interior_primary":"gmc-yukon-xl/interior.jpg",
    "interior_details":["gmc-yukon-xl/detail-1.jpg","gmc-yukon-xl/detail-2.jpg","gmc-yukon-xl/detail-3.jpg","gmc-yukon-xl/detail-4.jpg"],
    "interior_heading":"Room for the whole party.",
