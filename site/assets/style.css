@@ -198,7 +198,6 @@ nav.mainnav .sub-toggle{display:none}
 .ff-status:empty{display:none}
 .ff-reset{min-height:44px;background:transparent;border:0;padding:0 .2rem;font-size:.8rem;color:var(--muted);cursor:pointer;border-bottom:1px solid transparent;transition:color .18s,border-color .18s}
 .ff-reset:hover,.ff-reset:focus-visible{color:var(--ink);border-color:var(--amber);outline:0}
-.ff-hint{flex-basis:100%;font-size:.72rem;color:var(--muted);margin:0}
 .ff-concierge{flex-basis:100%;margin:.2rem 0 0;font-size:.88rem;color:var(--ink-soft)}
 .ff-concierge a{color:var(--amber);border-bottom:1px solid var(--amber)}
 /* per-card fit overlays (absolute so they never change card height → no reflow) */

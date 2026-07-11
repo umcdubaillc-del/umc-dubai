@@ -1069,7 +1069,6 @@ fleet_body = header("fleet.html") + f"""
         <span class="ff-status" id="ffStatus" role="status" aria-live="polite"></span>
         <button type="button" class="ff-reset" id="ffReset" hidden>Reset</button>
       </div>
-      <p class="ff-hint">Checked suitcases only &mdash; carry-on bags travel in the cabin.</p>
       <p class="ff-concierge" id="ffConcierge" hidden>Travelling as a group? Our concierge will <a target="_blank" rel="noopener" href="{WA}">plan the vehicles</a>.</p>
     </div>
     <div class="chips" id="fleetChips" role="tablist" aria-label="Filter fleet">
