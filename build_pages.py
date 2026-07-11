@@ -2701,12 +2701,25 @@ def capacity_v3(cfg):
         '</div>'
     )
 
-# Car seating-capacity JSON-LD (published max), added to module-bearing pages.
-def vehicle_seating_schema(name, n):
-    return '<script type="application/ld+json">' + json.dumps({
-        "@context": "https://schema.org", "@type": "Car", "name": name,
-        "vehicleSeatingCapacity": {"@type": "QuantitativeValue", "value": n, "unitText": "passengers"},
-    }, separators=(",", ":")) + '</script>'
+# SCHEMA-2: one Car (Product subtype) node per fleet page — uniform across all 10.
+# The Car MUST carry a descriptive "name" (a missing name triggers Google's "Product
+# snippet missing name" flag); we use "<vehicle> — chauffeur-driven" so the entity is
+# unambiguously a chauffeured vehicle, not a car for sale. Also emits brand, image
+# (self-hosted card) and url. vehicleSeatingCapacity is added ONLY where the page
+# publishes an owner-verified guest figure. NO offers, and NEVER review/aggregateRating
+# — self-serving review markup is against Google's guidelines and our standing policy.
+def vehicle_product_schema(vehicle_name, brand, image_url, url, seating=None):
+    d = {
+        "@context": "https://schema.org", "@type": "Car",
+        "name": vehicle_name + " — chauffeur-driven",
+        "brand": {"@type": "Brand", "name": brand},
+        "url": url,
+    }
+    if image_url:
+        d["image"] = image_url
+    if seating is not None:
+        d["vehicleSeatingCapacity"] = {"@type": "QuantitativeValue", "value": seating, "unitText": "passengers"}
+    return '<script type="application/ld+json">' + json.dumps(d, separators=(",", ":")) + '</script>'
 
 # CAP-3 seatmap configs (owner-verified file→scenario mapping). Occupied counts were
 # confirmed by inspecting each render; the highlighted-seat count equals the scenario
@@ -3155,11 +3168,9 @@ sc_head = head("Mercedes S-Class Chauffeur in Dubai | UMC Dubai",
                "fleet/s-class",
                f'<link rel="stylesheet" href="/assets/s-class.css?v={V}">'
                + vehicle_service_schema("Mercedes-Benz S-Class", "https://umcdubai.ae/fleet/s-class")
-               + '<script type="application/ld+json">' + json.dumps({
-                   "@context": "https://schema.org", "@type": "Car",
-                   "name": "Mercedes-Benz S-Class",
-                   "vehicleSeatingCapacity": {"@type": "QuantitativeValue", "value": 3, "unitText": "passengers"},
-                 }, separators=(",", ":")) + '</script>')
+               + vehicle_product_schema("Mercedes-Benz S-Class", "Mercedes-Benz",
+                   OG_BASE + "/assets/fleet/s-class/card.webp",
+                   OG_BASE + "/fleet/s-class", seating=3))
 sc_head = sc_head.replace('<title>', '<base href="/">\n<title>', 1)
 (SITE/"fleet").mkdir(parents=True, exist_ok=True)
 (SITE/"fleet"/"s-class.html").write_text(sc_head + sc_body)
@@ -3243,6 +3254,20 @@ ALL_CARS = {
     "pax": 55, "luggage": "Group hold", "reserve_label": "Reserve a coach",
   },
 }
+
+# SCHEMA-2 lookups for the per-page Car node. Clean brand NAMES (ALL_CARS "marque" is
+# a display string — BMW's legal name, a Rolls tagline, "UMC" — unsuitable as a schema
+# Brand). Card-image map from the standing grid (rolls-royce is by-request, not in it —
+# it falls back to its page hero, else omits image). _VERIFIED_SEATING = pages with an
+# owner-verified guest figure (the 4 seatmap modules + S-Class) — only these get seating.
+_CAR_BRAND = {
+    "mb-s-class": "Mercedes-Benz", "bmw-7": "BMW", "mb-e-class": "Mercedes-Benz",
+    "lexus-es": "Lexus", "cadillac-escalade": "Cadillac", "gmc-yukon-xl": "GMC",
+    "mb-v-class": "Mercedes-Benz", "mb-sprinter": "Mercedes-Benz",
+    "rolls-royce": "Rolls-Royce", "luxury-coach": "King Long",
+}
+_CARD_IMG = {v["id"]: v["img"] for v in FLEET_VEHICLES}
+_VERIFIED_SEATING = set(SEATMAP_MODULES) | {"mb-s-class"}
 
 # DRAFT scaffolds, Usman + team to refine per-car.
 FLEET_PAGES_DRAFT = [
@@ -3652,10 +3677,12 @@ def render_fleet_page_body(car):
     cap_section = ""
     if cid in SEATMAP_MODULES:
         _v3, _maxpax = SEATMAP_MODULES[cid]
+        # SCHEMA-2: the Car (Product) node now emits once per page in the head for
+        # EVERY fleet car (see the FLEET_PAGES_DRAFT loop), so it is no longer added
+        # here — that kept it off the 5 non-capacity pages and duplicated it here.
         cap_section = (
             '<section class="sc-paper sc-cap" id="capacity"><div class="sc-paper__wrap">'
             + capacity_v3(_v3) + '</div></section>'
-            + vehicle_seating_schema(name, _maxpax)
         )
     # Module cars use the shared Small/Medium/Large/Extra Large size guide (matches the
     # BOOT SPACE combos); other cars keep their luggage-kind modal.
@@ -3902,14 +3929,23 @@ def render_fleet_page_body(car):
 
 # Write the 7 draft fleet pages.
 for car in FLEET_PAGES_DRAFT:
-    info = ALL_CARS[car["id"]]
+    cid = car["id"]
+    info = ALL_CARS[cid]
     slug = info["page"].split("/")[-1]
+    # image = the page's own fleet card (grid cars); rolls-royce is by-request with no
+    # card, so fall back to its page hero, else omit image entirely.
+    _img = _CARD_IMG.get(cid) or (("/assets/fleet/" + car["hero_img"]) if car.get("hero_img") else None)
     head_html = head(
         car["title_seo"],
         car["meta_seo"],
         info["page"],
         f'<link rel="stylesheet" href="/assets/s-class.css?v={V}">'
         + vehicle_service_schema(info["name"], "https://umcdubai.ae" + info["page"])
+        + vehicle_product_schema(
+            info["name"], _CAR_BRAND.get(cid, info["name"]),
+            (OG_BASE + _img) if _img else None,
+            OG_BASE + "/" + info["page"],
+            seating=(info["pax"] if cid in _VERIFIED_SEATING else None))
     )
     head_html = head_html.replace('<title>', '<base href="/">\n<title>', 1)
     (SITE/"fleet").mkdir(parents=True, exist_ok=True)
