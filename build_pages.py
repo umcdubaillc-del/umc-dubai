@@ -611,38 +611,55 @@ ld_home = '<script type="application/ld+json">'+json.dumps({
 # truncated at a natural sentence break with a trailing ellipsis (never mid-sentence,
 # never rewritten; whitespace after punctuation normalised only). Plain string (no
 # f-string) so the quote text can't collide with the homepage template's braces.
-REVIEWS_SECTION = """
+# REV-2: institutional review CAROUSEL (replaces the REV-1 CSS-columns masonry,
+# which read as broken — ragged/unbalanced columns + column-major order). One card
+# on phone / two on desktop; hairline arrow buttons + native touch swipe, driven by
+# the shared wireCarousel() in main.js (no autoplay). Each card: official Google "G"
+# + gold stars + Marcellus quote + attribution (name in ink, context tag in muted
+# mono). A centered amber "Review us on Google" CTA follows. Display + link only —
+# NO Review/AggregateRating schema (v107 policy). Content UNCHANGED from REV-1: the 5
+# owner-supplied verbatim quotes + approved truncations, newest first, order 1->5.
+_GOOGLE_G = ('<svg class="rev-g" viewBox="0 0 24 24" role="img" aria-label="Google">'
+  '<path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>'
+  '<path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>'
+  '<path fill="#FBBC05" d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.62z"/>'
+  '<path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>')
+_REV_STARS = '<div class="rev-stars" aria-hidden="true">&#9733;&#9733;&#9733;&#9733;&#9733;</div>'
+# (quote, name, context-tag) — verbatim + approved truncations; order preserved 1->5.
+_REVIEWS = [
+  ("I have been using UMC Dubai Luxury Chauffeur Service for my airport transfers since 2024, and the experience has always been outstanding. The team is highly professional, reliable, and consistently provides excellent customer service&hellip;",
+   "Hebah Alhammadi", "Airport transfers since 2024"),
+  ("Forgot my phone on one of the cars and had to phone them in order to get support. Was connected with Iqra and honestly I have never dealt with a more solutions oriented person in my life!&hellip;",
+   "Yousuf Ashraf", "Lost-item support"),
+  ("Perfect service, fully recommend!", "Christoph", ""),
+  ("I hired UMC to have my family driven from Dubai to Ras al Khaimah and back to Dubai. I am beyond satisfied with the quality of their service as the driver arrived 10 minutes early and was extremely professional. I felt very confident and safe with their service for my personal family travel. The driver helped adjusting my daughter's car seat and even helped with taking out and putting in the stroller while they were there&hellip;",
+   "Arsalah Arbab", "Dubai&ndash;Ras Al Khaimah family journey"),
+  ("UMC was incredibly punctual. They arrived well before the scheduled pickup time, ensuring a stress free start to my journey. Their professionalism was immediately evident, as they greeted me with warm smile and assisted with loading my luggage into vehicle.",
+   "Zeeshan", "Airport pickup"),
+]
+_rev_cards = "".join(
+  '<article class="rev-card">' + _GOOGLE_G + _REV_STARS
+  + '<blockquote class="rev-quote">' + q + '</blockquote>'
+  + '<div class="rev-by"><span class="rev-name">' + name + '</span>'
+  + (('<span class="rev-tag">' + tag + '</span>') if tag else '')
+  + '</div></article>'
+  for (q, name, tag) in _REVIEWS)
+REVIEWS_SECTION = ("""
 <section class="sec">
   <div class="wrap">
     <div class="shead rv">
       <span class="lbl">From our Google reviews</span>
       <h2><a class="rev-head" target="_blank" rel="noopener" href="https://maps.app.goo.gl/UdPJ9VDBtFegaeX56"><span class="rev-star" aria-hidden="true">&#9733;</span> 5.0 <span class="rev-sep" aria-hidden="true">&middot;</span> Google reviews</a></h2>
     </div>
-    <div class="rev-grid rv">
-      <figure class="rev-card">
-        <blockquote class="rev-quote">I have been using UMC Dubai Luxury Chauffeur Service for my airport transfers since 2024, and the experience has always been outstanding. The team is highly professional, reliable, and consistently provides excellent customer service&hellip;</blockquote>
-        <figcaption class="rev-by">Hebah Alhammadi <span>&middot; Airport transfers since 2024</span></figcaption>
-      </figure>
-      <figure class="rev-card">
-        <blockquote class="rev-quote">Forgot my phone on one of the cars and had to phone them in order to get support. Was connected with Iqra and honestly I have never dealt with a more solutions oriented person in my life!&hellip;</blockquote>
-        <figcaption class="rev-by">Yousuf Ashraf <span>&middot; Lost-item support</span></figcaption>
-      </figure>
-      <figure class="rev-card">
-        <blockquote class="rev-quote">Perfect service, fully recommend!</blockquote>
-        <figcaption class="rev-by">Christoph</figcaption>
-      </figure>
-      <figure class="rev-card">
-        <blockquote class="rev-quote">I hired UMC to have my family driven from Dubai to Ras al Khaimah and back to Dubai. I am beyond satisfied with the quality of their service as the driver arrived 10 minutes early and was extremely professional. I felt very confident and safe with their service for my personal family travel. The driver helped adjusting my daughter's car seat and even helped with taking out and putting in the stroller while they were there&hellip;</blockquote>
-        <figcaption class="rev-by">Arsalah Arbab <span>&middot; Dubai&ndash;Ras Al Khaimah family journey</span></figcaption>
-      </figure>
-      <figure class="rev-card">
-        <blockquote class="rev-quote">UMC was incredibly punctual. They arrived well before the scheduled pickup time, ensuring a stress free start to my journey. Their professionalism was immediately evident, as they greeted me with warm smile and assisted with loading my luggage into vehicle.</blockquote>
-        <figcaption class="rev-by">Zeeshan <span>&middot; Airport pickup</span></figcaption>
-      </figure>
+    <div class="rev-car rv" id="revCar" aria-label="Google reviews">""" + _rev_cards + """</div>
+    <div class="rev-nav rv">
+      <button type="button" class="rev-arrow" id="revPrev" aria-label="Previous reviews"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <button type="button" class="rev-arrow" id="revNext" aria-label="Next reviews"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
     </div>
+    <div class="rev-cta rv"><a class="btn btn-amber" target="_blank" rel="noopener" href="https://g.page/r/CWmHn8Au26KpEBM/review">Review us on Google</a></div>
   </div>
 </section>
-"""
+""")
 
 index_body = header("index.html") + f"""
 <section class="hero2" id="book">
@@ -5087,4 +5104,24 @@ for card in (SITE/"assets"/"fleet").glob("*/*"):
         var = card.with_name(f"card-1080{card.suffix}")
         if not var.exists():
             _shutil_variants.copy2(card, var)
+# FAV-1 / REV-2: head-asset sweep. Assert the full favicon <link> set AND the
+# absolute og:image are present on EVERY emitted page (fails the build if any page
+# drifts, like _assert_fleet_in_sync). Reports the page count.
+def _assert_head_assets():
+    import re as _re_head
+    need_icons = ('/favicon.ico', 'sizes="48x48"', 'sizes="96x96"',
+                  'sizes="192x192"', 'sizes="512x512"', 'apple-touch-icon')
+    og_re = _re_head.compile(r'<meta property="og:image" content="https://[^"]+/assets/og-image-v3\.png"')
+    pages = sorted(SITE.rglob("*.html"))
+    bad_icons = [p.relative_to(SITE).as_posix() for p in pages
+                 if not all(tok in p.read_text(errors="replace") for tok in need_icons)]
+    bad_og = [p.relative_to(SITE).as_posix() for p in pages
+              if not og_re.search(p.read_text(errors="replace"))]
+    if bad_icons:
+        raise SystemExit("FAV-1 icon sweep FAILED — full icon set missing on: " + ", ".join(bad_icons))
+    if bad_og:
+        raise SystemExit("og-image sweep FAILED — missing on: " + ", ".join(bad_og))
+    print(f"[assets] favicon icon set (ico+48/96/192/512+apple-touch) + og-image on all {len(pages)} pages")
+_assert_head_assets()
+
 print("all pages written")
