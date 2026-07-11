@@ -4492,10 +4492,32 @@ def render_article_schema(p):
     }
     return '<script type="application/ld+json">' + json.dumps(data, separators=(",", ":")) + '</script>'
 
-# v111 (SEO P3 — blog de-island): every post ends with a "Keep reading" block
-# of 2 contextual sibling posts + 1 relevant money page. Server-rendered links,
-# reusing the existing .lbl + .emirate-xlinks patterns. slug -> ([sib, sib], (money_href, money_label)).
-_POST_TITLE = {p["slug"]: p["title"] for p in BLOG_POSTS}
+# BLOG-1: the comparison article is rendered outside BLOG_POSTS but is a
+# first-class /blog/ article. This single record feeds the /blog/ index card AND
+# the shared Keep-reading component (title / description / href lookups below).
+COMPARISON_ARTICLE = {
+    "slug": "blacklane-alternative-dubai",
+    "href": "/blog/blacklane-alternative-dubai/",
+    "title": "Blacklane Alternative in Dubai",
+    "kicker": "Comparison",
+    "date": "2026-07-11",
+    "date_label": "11 July 2026",
+    "author": BLOG_AUTHOR_DEFAULT,
+    "excerpt": "An honest local comparison: an owned Dubai fleet with an exact-car guarantee against a global partner-dispatch platform.",
+}
+
+# Article lookup maps span BLOG_POSTS + the comparison page so a Keep-reading card
+# can resolve a title, a one-line description and an href for any article slug.
+ARTICLE_HREF  = {p["slug"]: "/" + p["slug"] + "/" for p in BLOG_POSTS}
+ARTICLE_TITLE = {p["slug"]: p["title"]   for p in BLOG_POSTS}
+ARTICLE_DESC  = {p["slug"]: p["excerpt"] for p in BLOG_POSTS}
+ARTICLE_HREF[COMPARISON_ARTICLE["slug"]]  = COMPARISON_ARTICLE["href"]
+ARTICLE_TITLE[COMPARISON_ARTICLE["slug"]] = COMPARISON_ARTICLE["title"]
+ARTICLE_DESC[COMPARISON_ARTICLE["slug"]]  = COMPARISON_ARTICLE["excerpt"]
+
+# BLOG-1 keep-reading: every article ends with the SAME component — eyebrow
+# "Keep reading" + 2 sibling-article hairline cards + an optional quiet money-page
+# link-row. slug -> ([sib_slug, sib_slug], (money_href, money_label)).
 BLOG_RELATED = {
   "what-actually-makes-a-luxury-chauffeur-service-in-dubai": (["safe-driver-service-dubai", "private-car-service-vs-uber"], ("/fleet", "See the fleet")),
   "guide-salik-dubai": (["private-car-service-vs-uber", "dubai-to-abu-dhabi-trip"], ("/airport-transfers", "Airport transfers")),
@@ -4509,17 +4531,39 @@ BLOG_RELATED = {
   "abu-dhabi-city-tour-private-driver": (["half-day-city-tour-dubai", "dubai-to-abu-dhabi-trip"], ("/rent-a-car-with-driver/abu-dhabi/", "Chauffeur in Abu Dhabi")),
   "half-day-city-tour-dubai": (["abu-dhabi-city-tour-private-driver", "dubai-shopping-with-driver"], ("/rent-a-car-with-driver/dubai/", "Chauffeur in Dubai")),
   "dubai-shopping-with-driver": (["dubai-date-night-ideas", "half-day-city-tour-dubai"], ("/fleet", "See the fleet")),
+  "blacklane-alternative-dubai": (["what-actually-makes-a-luxury-chauffeur-service-in-dubai", "private-car-service-vs-uber"], ("/fleet", "See the fleet")),
 }
-def render_related(slug):
+
+# BLOG-1: one shared end-of-article component for ALL articles. Hairline cards
+# (title + one-line description + chevron, full-card tap target) + an optional
+# quiet money-page link-row. Replaces the old .emirate-xlinks pill list and the
+# comparison page's bespoke "Related" block. Styling lives in .kr* (style.css).
+_KR_CHEVRON = ('<svg class="kr-chev" viewBox="0 0 24 24" aria-hidden="true">'
+               '<path d="M9 6l6 6-6 6"/></svg>')
+
+def render_keep_reading(slug):
     entry = BLOG_RELATED.get(slug)
     if not entry:
         return ""
-    sibs, (mhref, mlabel) = entry
-    lis = "".join(f'<li><a href="/{s}/">{_POST_TITLE.get(s, s)}</a></li>' for s in sibs)
-    lis += f'<li><a href="{mhref}">{mlabel}</a></li>'
-    return ('<div class="rv" style="margin-top:3rem;padding-top:1.8rem;border-top:1px solid rgba(34,27,20,.12)">'
-            '<span class="lbl">Keep reading</span>'
-            f'<ul class="emirate-xlinks" style="margin-top:1rem">{lis}</ul></div>')
+    sibs, money = entry
+    cards = []
+    for s in sibs:
+        href  = ARTICLE_HREF.get(s, "/" + s + "/")
+        title = ARTICLE_TITLE.get(s, s)
+        desc  = ARTICLE_DESC.get(s, "")
+        cards.append(
+            f'<a class="kr-card" href="{href}">'
+            f'<span class="kr-card__body">'
+            f'<span class="kr-card__title">{title}</span>'
+            f'<span class="kr-card__desc">{desc}</span></span>'
+            f'{_KR_CHEVRON}</a>')
+    more = ""
+    if money:
+        mhref, mlabel = money
+        more = f'<a class="kr-more" href="{mhref}">{mlabel}{_KR_CHEVRON}</a>'
+    return ('<nav class="kr rv" aria-label="Keep reading">'
+            '<span class="lbl kr__eyebrow">Keep reading</span>'
+            f'<div class="kr__cards">{"".join(cards)}</div>{more}</nav>')
 
 def render_post(p):
     """Render a single blog post at site/<slug>/index.html."""
@@ -4544,7 +4588,7 @@ def render_post(p):
   <div class="article-body">
     <div class="wrap article-wrap rv">
       {p['body']}
-      {render_related(p['slug'])}
+      {render_keep_reading(p['slug'])}
     </div>
   </div>
   <section class="closing band-dark article-closing">
@@ -4564,10 +4608,12 @@ def render_post(p):
     (out_dir / "index.html").write_text(head(p["title"], p["meta"], canon, head_extra) + body)
 
 def render_comparison_page():
-    """C-1: /journal/blacklane-alternative-dubai — a comparison article in the
-    Journal (article) template with a responsive comparison-table component.
-    Article + BreadcrumbList JSON-LD only (no Review/AggregateRating, per spec)."""
-    canon_path = "journal/blacklane-alternative-dubai/"   # trailing-slash canonical (dir/index.html)
+    """C-1 / BLOG-1: /blog/blacklane-alternative-dubai — a comparison article in
+    the Journal (article) template with a responsive comparison-table component.
+    Article + BreadcrumbList JSON-LD only (no Review/AggregateRating, per spec).
+    BLOG-1 moved it from /journal/ to /blog/ (the article-path standard); the old
+    path 301s via _redirects and the breadcrumb section label stays "Journal"."""
+    canon_path = "blog/blacklane-alternative-dubai/"   # trailing-slash canonical (dir/index.html)
     canon = "https://umcdubai.ae/" + canon_path
     title = "Blacklane Alternative in Dubai &mdash; UMC Dubai vs Blacklane"
     meta = ("Comparing Blacklane with UMC Dubai: owned fleet vs partner network, "
@@ -4641,7 +4687,8 @@ def render_comparison_page():
         ("Can I get an S-Class specifically, not &ldquo;S-Class or similar&rdquo;?",
          "Yes; that is the operating model. The exact car and configuration are confirmed at booking."),
         ("Does UMC cover other emirates?",
-         "Yes: inter-emirate transfers (Abu Dhabi, Sharjah, RAK and beyond) with the same terms."),
+         "Yes &mdash; <a href=\"/airport-transfers/dubai\">airport transfers</a> and inter-emirate "
+         "journeys (Abu Dhabi, Sharjah, RAK and beyond) run to the same terms."),
     ]
     faq_html = faq_details(faqs)
 
@@ -4678,14 +4725,7 @@ def render_comparison_page():
       <h2>Frequently asked questions</h2>
       {faq_html}
 
-      <div class="rv" style="margin-top:2.6rem;padding-top:1.8rem;border-top:1px solid rgba(34,27,20,.12)">
-        <span class="lbl">Related</span>
-        <ul class="emirate-xlinks" style="margin-top:1rem">
-          <li><a href="/airport-transfers/dubai">Airport transfers in Dubai</a></li>
-          <li><a href="/corporate">Corporate chauffeur accounts</a></li>
-          <li><a href="/fleet">See the fleet</a></li>
-        </ul>
-      </div>
+      {render_keep_reading("blacklane-alternative-dubai")}
     </div>
   </div>
   <section class="closing band-dark article-closing">
@@ -4700,13 +4740,24 @@ def render_comparison_page():
     </div>
   </section>
 """ + FOOTER + "</body></html>"
-    out_dir = SITE / "journal" / "blacklane-alternative-dubai"
+    out_dir = SITE / "blog" / "blacklane-alternative-dubai"
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "index.html").write_text(head(title, meta, canon_path, head_extra) + body)
 
 def render_blog_index():
     """List of all posts at /blog/."""
     cards = []
+    # BLOG-1: the comparison article (newest, 11 Jul 2026) leads the grid as a
+    # standard card, consistent with the BLOG_POSTS entries below.
+    _ca = COMPARISON_ARTICLE
+    cards.append(f"""
+      <article class="blog-card rv">
+        <span class="lbl">{_ca['kicker']}</span>
+        <h3><a href="{_ca['href']}">{_ca['title']}</a></h3>
+        <p class="blog-card-meta"><time datetime="{_ca['date']}">{_ca['date_label']}</time> &middot; {_ca['author']}</p>
+        <p>{_ca['excerpt']}</p>
+        <a class="btn-line" href="{_ca['href']}">Read</a>
+      </article>""")
     for p in BLOG_POSTS:
         cards.append(f"""
       <article class="blog-card rv">
@@ -4804,7 +4855,7 @@ _pages_slash = (
     ["",  # homepage = /
      "blog/",
      "rent-a-car-with-driver/",
-     "journal/blacklane-alternative-dubai/"]
+     "blog/blacklane-alternative-dubai/"]
     + [f"rent-a-car-with-driver/{em['slug']}/" for em in RENT_EMIRATES]
     + [p["slug"] + "/" for p in BLOG_POSTS]
 )
@@ -4841,6 +4892,10 @@ urls = "".join(f"<url><loc>https://umcdubai.ae/{p}</loc><lastmod>{_page_lastmod(
 """# v71,Phase E: remaining 25 legacy URLs (50 rules incl. non-slash forms).
 # These EXPLICIT rules go ABOVE every catch-all so they always win. Cloudflare
 # _redirects evaluates top to bottom, first match wins. Status 301 permanent.
+
+# BLOG-1: comparison article moved to the /blog/ path standard (both forms).
+/journal/blacklane-alternative-dubai/  /blog/blacklane-alternative-dubai/  301
+/journal/blacklane-alternative-dubai   /blog/blacklane-alternative-dubai/  301
 
 # Pages / services (9)
 /about-us/                             /about                            301

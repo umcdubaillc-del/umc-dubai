@@ -2,6 +2,10 @@
 # These EXPLICIT rules go ABOVE every catch-all so they always win. Cloudflare
 # _redirects evaluates top to bottom, first match wins. Status 301 permanent.
 
+# BLOG-1: comparison article moved to the /blog/ path standard (both forms).
+/journal/blacklane-alternative-dubai/  /blog/blacklane-alternative-dubai/  301
+/journal/blacklane-alternative-dubai   /blog/blacklane-alternative-dubai/  301
+
 # Pages / services (9)
 /about-us/                             /about                            301
 /about-us                              /about                            301
