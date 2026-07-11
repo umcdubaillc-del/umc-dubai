@@ -615,12 +615,30 @@ export async function renderRateCardPdf(data){
   const trading = (d.trading_as && String(d.trading_as).trim()) || "UMC Dubai";
   drawBrandFooter(page, f, stampImg, legal, trading);
 
-  // ===== HEADER — lockup left; eyebrow + valid-from + AED note right =====
+  // ===== HEADER — lockup left; eyebrow + optional personalization + valid-from + AED note right =====
   drawLockup(page, f, padX, padTop);
-  eyebrowRight(page, f, "CORPORATE RATE CARD", rightX, padTop + 2, {track:0.28});
+  const eyebrowY = padTop + 2;
+  eyebrowRight(page, f, "CORPORATE RATE CARD", rightX, eyebrowY, {track:0.28});
+  // RATE-2-LITE: optional personalization lines. Each is FULLY ABSENT when its
+  // field is empty — no label, no blank placeholder — so an empty form renders
+  // the generic card byte-for-byte: with both empty the stack stays exactly
+  // eyebrow → "VALID FROM …" → "ALL RATES IN AED" at their original y positions.
+  const lineStep = 10 * 1.7;              // original VALID FROM → AED vertical gap
+  let ry = eyebrowY + 9 + 12;             // original VALID FROM slot
+  const preparedFor = String(d.prepared_for||"").trim();
+  if (preparedFor) {
+    drawRight(page, "PREPARED FOR " + preparedFor.toUpperCase(), rightX, ry, f.mono, 10, C.inkSoft, {trackingEm:0.06});
+    ry += lineStep;
+  }
   const validFrom = String(d.valid_from||"").trim();
-  drawRight(page, "VALID FROM " + (validFrom ? fmtDate(validFrom).toUpperCase() : ""), rightX, padTop + 2 + 9 + 12, f.mono, 10, C.inkSoft, {trackingEm:0.06});
-  drawRight(page, "ALL RATES IN AED", rightX, padTop + 2 + 9 + 12 + 10*1.7, f.mono, 9, C.muted, {trackingEm:0.08});
+  drawRight(page, "VALID FROM " + (validFrom ? fmtDate(validFrom).toUpperCase() : ""), rightX, ry, f.mono, 10, C.inkSoft, {trackingEm:0.06});
+  ry += lineStep;
+  const validThrough = String(d.valid_through||"").trim();
+  if (validThrough) {
+    drawRight(page, "VALID THROUGH " + fmtDate(validThrough).toUpperCase(), rightX, ry, f.mono, 10, C.inkSoft, {trackingEm:0.06});
+    ry += lineStep;
+  }
+  drawRight(page, "ALL RATES IN AED", rightX, ry, f.mono, 9, C.muted, {trackingEm:0.08});
 
   // ===== GRID geometry — Route/Service (~31%) + 6 vehicle columns =====
   const routeWpx = contentWpx * 0.31;

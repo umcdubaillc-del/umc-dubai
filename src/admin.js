@@ -3324,11 +3324,26 @@ async function handleRateCardPdf(request, env) {
   const url = new URL(request.url);
   const override = url.searchParams.get("valid_from");
   const validFrom = (override && override.trim()) || card.valid_from || new Date().toISOString().slice(0, 10);
+  // RATE-2-LITE: per-generation personalization. Passed as query params, NEVER
+  // persisted — the standing card stays generic, so an empty request renders the
+  // current generic B2B card unchanged. A malformed / empty date is treated as absent.
+  const preparedFor  = (url.searchParams.get("prepared_for") || "").trim();
+  const vtRaw        = (url.searchParams.get("valid_through") || "").trim();
+  const validThrough = /^\d{4}-\d{2}-\d{2}$/.test(vtRaw) ? vtRaw : "";
   const { renderRateCardPdf } = await import("./pdf.js");
-  const bytes = await renderRateCardPdf(Object.assign({}, card, { valid_from: validFrom }));
+  const bytes = await renderRateCardPdf(Object.assign({}, card, {
+    valid_from: validFrom, prepared_for: preparedFor, valid_through: validThrough
+  }));
+  // Filename: umc-rate-card[-{client-slug}][-{valid-through}].pdf — each segment
+  // appears only when its field is present (fleetSlugify handles the client name).
+  const clientSlug = fleetSlugify(preparedFor);
+  const fname = "umc-rate-card"
+    + (clientSlug ? "-" + clientSlug : "")
+    + (validThrough ? "-" + validThrough : "")
+    + ".pdf";
   return new Response(bytes, { headers: {
     "Content-Type": "application/pdf",
-    "Content-Disposition": 'inline; filename="UMC-Corporate-Rate-Card.pdf"',
+    "Content-Disposition": 'inline; filename="' + fname + '"',
   }});
 }
 
@@ -5840,6 +5855,8 @@ function appShellHTML() {
     #tab-ratecard .rc-cell input,
     #tab-ratecard .rc-route input,
     #tab-ratecard #rcValidFrom,
+    #tab-ratecard #rcPreparedFor,
+    #tab-ratecard #rcValidThrough,
     #tab-ratecard #rcTerms{ font-size:16px; }
   }
 </style>
@@ -5869,6 +5886,14 @@ function appShellHTML() {
       <p class="hist-sub" style="margin:.4rem 0 0">One numbered clause per line. The lead words up to the first colon print bold on the PDF.</p>
     </div>
     <div id="rcWarn" class="rc-warn" hidden></div>
+    <div class="rc-personal" style="margin-top:1.4rem;padding-top:1.1rem;border-top:1px solid rgba(34,27,20,.10)">
+      <p class="lbl" style="margin:0 0 .5rem">Personalise this export <span style="color:var(--muted,#7A6F5F);font-weight:400;text-transform:none;letter-spacing:0">(optional — not saved; applies to this PDF only)</span></p>
+      <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-end">
+        <div class="field" style="margin:0;flex:1 1 240px"><label class="lbl" for="rcPreparedFor">Prepared for</label><input id="rcPreparedFor" type="text" autocomplete="off" placeholder="Client or company name" style="width:100%"></div>
+        <div class="field" style="margin:0"><label class="lbl" for="rcValidThrough">Valid through</label><input id="rcValidThrough" type="date" style="min-width:180px"></div>
+      </div>
+      <p class="hist-sub" style="margin:.5rem 0 0">Leave both blank to export the standard generic rate card. A filled field prints in the PDF header; an empty field is omitted entirely.</p>
+    </div>
     <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1.1rem">
       <button type="button" class="btn btn-ink" id="rcSave">Save</button>
       <button type="button" class="btn btn-ghost" id="rcExport">Save &amp; export PDF</button>
@@ -7562,7 +7587,13 @@ const PAGE_SCRIPT = `<script>
     }
     rcSetStatus("Exported — review the PDF opened in the new tab.");
     var vf = rcState.valid_from || "";
-    var url = "/admin/api/rate-card/pdf" + (vf ? ("?valid_from=" + encodeURIComponent(vf)) : "");
+    var pf = (($("rcPreparedFor") && $("rcPreparedFor").value) || "").trim();
+    var vt = (($("rcValidThrough") && $("rcValidThrough").value) || "").trim();
+    var params = [];
+    if(vf){ params.push("valid_from=" + encodeURIComponent(vf)); }
+    if(pf){ params.push("prepared_for=" + encodeURIComponent(pf)); }
+    if(vt){ params.push("valid_through=" + encodeURIComponent(vt)); }
+    var url = "/admin/api/rate-card/pdf" + (params.length ? ("?" + params.join("&")) : "");
     window.open(url, "_blank", "noopener");
   }
 
