@@ -1034,20 +1034,21 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 }
 
 /* testimonials,scroll-snap Google reviews carousel */
-.tcar{display:flex;gap:1.2rem;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scroll-behavior:smooth;scrollbar-width:none;-webkit-overflow-scrolling:touch}
-.tcar::-webkit-scrollbar{display:none}
-.tc{display:flex;flex-direction:column;scroll-snap-align:start;flex:0 0 100%;min-height:300px;background:var(--card);border:1px solid var(--line);border-radius:5px;padding:1.7rem 1.7rem 1.4rem}
-@media(min-width:640px){.tc{flex:0 0 calc((100% - 1.2rem)/2)}}
-@media(min-width:1000px){.tc{flex:0 0 calc((100% - 2.4rem)/3)}}
-.tstars{color:var(--amber);letter-spacing:.25em;margin-bottom:.8rem}
-.tc p{flex:1;font-family:var(--serif);font-size:1.05rem;line-height:1.65;color:var(--ink)}
-.tc footer{display:flex;justify-content:space-between;align-items:center;margin-top:1.1rem}
-.tc footer b{font-weight:500;font-size:.85rem}
-.gsrc{display:flex;align-items:center;gap:.4rem;font-size:.7rem;color:var(--muted)}
-.gsrc svg{width:14px;height:14px}
-.tnav{display:flex;gap:.6rem;justify-content:center;margin-top:1.1rem}
-.tnav button{width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--ink-soft);cursor:pointer;min-height:0}
-.tnav button:hover{border-color:var(--amber);color:var(--amber-deep)}
+/* REV-1: homepage Google-review citations. Institutional cards — FBF8F1 (--card),
+   hairline border, restrained Marcellus quote, muted mono attribution (name .
+   context). CSS columns (masonry) so the longest card never creates row-height
+   issues; 2 columns on desktop, single column on phone (clean at 330px). The
+   header links to the GBP profile; display + link only (no Review schema). */
+.rev-head{color:var(--ink);text-decoration:none;transition:color .2s ease}
+.rev-head:hover,.rev-head:focus-visible{color:var(--amber-deep);outline:0}
+.rev-head .rev-star{color:var(--amber)}
+.rev-head .rev-sep{color:var(--muted);margin:0 .12rem}
+.rev-grid{columns:2;column-gap:1.4rem;max-width:920px;margin:1.8rem auto 0}
+.rev-card{break-inside:avoid;-webkit-column-break-inside:avoid;margin:0 0 1.4rem;background:var(--card);border:1px solid var(--hair);border-radius:8px;padding:1.55rem 1.6rem 1.3rem}
+.rev-quote{margin:0;font-family:var(--serif);font-size:1.06rem;line-height:1.6;color:var(--ink)}
+.rev-by{margin:1rem 0 0;font-family:var(--mono);font-size:.72rem;letter-spacing:.02em;line-height:1.4;color:var(--ink-soft)}
+.rev-by span{color:var(--muted)}
+@media(max-width:640px){.rev-grid{columns:1}}
 
 /* institutional audit,a11y + motion */
 .skip{position:absolute;left:-999px;top:0;background:var(--ink);color:var(--bone);padding:.7rem 1.2rem;z-index:99}

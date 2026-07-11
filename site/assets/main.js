@@ -268,7 +268,6 @@ window.umcPhone = {
     if(p) p.addEventListener("click", () => snap(-1));
     if(n) n.addEventListener("click", () => snap(1));
   };
-  wireCarousel("tcar", ".tc", "tprev", "tnext");
   wireCarousel("svpCar", ".svp-row", "svprev", "svnext");
 
   // phone fields: live filtering + per-country length validation (booking + contact)
