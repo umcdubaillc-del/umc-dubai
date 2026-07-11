@@ -28,6 +28,15 @@
   "observability": {
     "enabled": true
   },
+  // REV-4: daily cron warms the Google-reviews cache (Places API New → D1
+  // reviews_cache). Registered on `wrangler deploy`. The scheduled() handler in
+  // src/index.js refetches and stores the merged JSON; /api/reviews serves it.
+  // 03:00 UTC = 07:00 Gulf time, a quiet hour. Needs the PLACES_API_KEY secret
+  // set (wrangler secret put PLACES_API_KEY) or the fetch no-ops and the cache
+  // stays curated-only.
+  "triggers": {
+    "crons": ["0 3 * * *"]
+  },
   // Plaintext vars — declared in the config so a deploy doesn't wipe what the dashboard
   // had set. SECRETS (RESEND_API_KEY, MC_API_KEY, SHEETS_WEBHOOK_URL) deliberately stay
   // in the Cloudflare dashboard as Secrets and MUST NOT be added here.

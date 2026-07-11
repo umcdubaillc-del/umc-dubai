@@ -270,8 +270,8 @@ window.umcPhone = {
   };
   wireCarousel("svpCar", ".svp-row", "svprev", "svnext");
   wireCarousel("revCar", ".rev-card", "revPrev", "revNext");
-  // REV-3A: reveal the "read the full review" link only on cards whose quote
-  // overflows the 7-line clamp. Re-check after web fonts load (line count shifts)
+  // REV-4: reveal the "Read more on Google" link only on cards whose quote
+  // overflows the 4-line clamp. Re-check after web fonts load (line count shifts)
   // and on resize, so it stays correct across breakpoints.
   var wireRevClamp = function(){
     document.querySelectorAll(".rev-card").forEach(function(card){
@@ -284,6 +284,66 @@ window.umcPhone = {
     if(document.fonts && document.fonts.ready){ document.fonts.ready.then(wireRevClamp); }
     var _revClampT;
     window.addEventListener("resize", function(){ clearTimeout(_revClampT); _revClampT = setTimeout(wireRevClamp, 150); });
+  }
+
+  // REV-4: hydrate the Google reviews. Fetch the merged set from /api/reviews
+  // (curated 5 first, then live API reviews; live rating for the header). On
+  // success we rebuild the whole track so curated cards pick up their real
+  // avatar + the API cards appear; on any failure the SSR-baked curated cards
+  // stay as-is. User-supplied text/name goes in via textContent (never innerHTML).
+  var REV_G = '<svg class="rev-g" viewBox="0 0 24 24" role="img" aria-label="Google">'
+    + '<path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>'
+    + '<path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>'
+    + '<path fill="#FBBC05" d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.62z"/>'
+    + '<path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>';
+  var REV_STARS = '<div class="rev-stars" aria-hidden="true">★★★★★</div>';
+  var REV_CHECK = '<svg class="rev-check" viewBox="0 0 24 24" role="img" aria-label="Verified">'
+    + '<path fill="#4285F4" d="M12 1.6l2.35 1.78 2.94-.2 1 2.78 2.78 1-.2 2.94L23.4 12l-1.73 2.3.2 2.94-2.78 1-1 2.78-2.94-.2L12 22.4l-2.35-1.78-2.94.2-1-2.78-2.78-1 .2-2.94L1.6 12l1.73-2.3-.2-2.94 2.78-1 1-2.78 2.94.2z"/>'
+    + '<path fill="#fff" d="M10.6 14.68l-2.28-2.28-1.2 1.2 3.48 3.48 6-6-1.2-1.2z"/></svg>';
+  var buildRevCard = function(c, gbp){
+    var art = document.createElement("article");
+    art.className = "rev-card";
+    art.innerHTML =
+      '<div class="rev-top">' + REV_G + REV_STARS + '</div>'
+      + '<blockquote class="rev-quote"></blockquote>'
+      + '<a class="rev-more" target="_blank" rel="noopener"></a>'
+      + '<footer class="rev-foot"><span class="rev-av" aria-hidden="true"></span>'
+      + '<span class="rev-id"><span class="rev-name"></span><span class="rev-2nd"></span></span></footer>';
+    art.querySelector(".rev-quote").textContent = c.text || "";
+    var more = art.querySelector(".rev-more");
+    more.href = gbp; more.textContent = "Read more on Google";
+    var av = art.querySelector(".rev-av");
+    av.textContent = ((c.author || "?").trim().charAt(0) || "?").toUpperCase();
+    if(c.photoUri){
+      var img = document.createElement("img");
+      img.loading = "lazy"; img.referrerPolicy = "no-referrer"; img.alt = "";
+      img.onerror = function(){ this.remove(); };
+      img.src = c.photoUri;
+      av.appendChild(img);
+    }
+    var nameEl = art.querySelector(".rev-name");
+    nameEl.appendChild(document.createTextNode(c.author || ""));
+    nameEl.insertAdjacentHTML("beforeend", REV_CHECK);
+    art.querySelector(".rev-2nd").textContent = c.curated ? (c.tag || "") : (c.relativeTime || "");
+    return art;
+  };
+  var revTrack = document.getElementById("revCar");
+  if(revTrack && window.fetch){
+    fetch("/api/reviews", {headers: {"Accept": "application/json"}})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){
+        if(!d || !Array.isArray(d.reviews) || !d.reviews.length) return;
+        var rt = document.getElementById("revRating");
+        if(rt && d.rating){ rt.textContent = (Math.round(d.rating * 10) / 10).toFixed(1); }
+        var gbp = d.gbpLink || "https://maps.app.goo.gl/UdPJ9VDBtFegaeX56";
+        var frag = document.createDocumentFragment();
+        d.reviews.forEach(function(c){ frag.appendChild(buildRevCard(c, gbp)); });
+        revTrack.innerHTML = "";
+        revTrack.appendChild(frag);
+        wireRevClamp();
+        if(document.fonts && document.fonts.ready){ document.fonts.ready.then(wireRevClamp); }
+      })
+      .catch(function(){ /* keep the SSR-baked curated cards */ });
   }
 
   // phone fields: live filtering + per-country length validation (booking + contact)

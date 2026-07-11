@@ -619,42 +619,66 @@ ld_home = '<script type="application/ld+json">'+json.dumps({
 # mono). A centered amber "Review us on Google" CTA follows. Display + link only —
 # NO Review/AggregateRating schema (v107 policy). Content UNCHANGED from REV-1: the 5
 # owner-supplied verbatim quotes + approved truncations, newest first, order 1->5.
+# REV-4: uniform review cards + Google auto-populate. Fixed-height cards (~300px)
+# in a 3/2/1 carousel; each card = header (Google G + gold stars) / 4-line-clamped
+# quote / footer pinned to the bottom (avatar-or-monogram + name + blue verified
+# check + muted mono second line). The five CURATED cards below are baked as the
+# SSR fallback; main.js hydrates the live rating and appends Google API cards from
+# /api/reviews (attaching real avatars + relative time where an API review matches
+# a curated author). NO Review/AggregateRating schema (v107 policy). The curated
+# copy is VERBATIM (owner-approved) and MUST stay in lockstep with CURATED_REVIEWS
+# in src/index.js — edit both together.
 _GOOGLE_G = ('<svg class="rev-g" viewBox="0 0 24 24" role="img" aria-label="Google">'
   '<path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>'
   '<path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>'
   '<path fill="#FBBC05" d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.62z"/>'
   '<path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>')
 _REV_STARS = '<div class="rev-stars" aria-hidden="true">&#9733;&#9733;&#9733;&#9733;&#9733;</div>'
-# (quote, name, context-tag) — verbatim + approved truncations; order preserved 1->5.
+# Google-style blue verified badge (star badge + white tick).
+_REV_CHECK = ('<svg class="rev-check" viewBox="0 0 24 24" role="img" aria-label="Verified">'
+  '<path fill="#4285F4" d="M12 1.6l2.35 1.78 2.94-.2 1 2.78 2.78 1-.2 2.94L23.4 12l-1.73 2.3.2 2.94-2.78 1-1 2.78-2.94-.2L12 22.4l-2.35-1.78-2.94.2-1-2.78-2.78-1 .2-2.94L1.6 12l1.73-2.3-.2-2.94 2.78-1 1-2.78 2.94.2z"/>'
+  '<path fill="#fff" d="M10.6 14.68l-2.28-2.28-1.2 1.2 3.48 3.48 6-6-1.2-1.2z"/></svg>')
+# GBP reviews deep-link — every "Read more on Google" link (mirrors src/index.js).
+_REV_GBP = "https://maps.app.goo.gl/UdPJ9VDBtFegaeX56"
+# (quote, name, context-tag) — VERBATIM (spelling never altered; whitespace after
+# punctuation normalised only). Order fixed 1->5, curated cards always lead.
 _REVIEWS = [
-  ("I have been using UMC Dubai Luxury Chauffeur Service for my airport transfers since 2024, and the experience has always been outstanding. The team is highly professional, reliable, and consistently provides excellent customer service&hellip;",
-   "Hebah Alhammadi", "Airport transfers since 2024"),
-  ("Forgot my phone on one of the cars and had to phone them in order to get support. Was connected with Iqra and honestly I have never dealt with a more solutions oriented person in my life!&hellip;",
-   "Yousuf Ashraf", "Lost-item support"),
-  ("Perfect service, fully recommend!", "Christoph", ""),
-  ("I hired UMC to have my family driven from Dubai to Ras al Khaimah and back to Dubai. I am beyond satisfied with the quality of their service as the driver arrived 10 minutes early and was extremely professional. I felt very confident and safe with their service for my personal family travel. The driver helped adjusting my daughter's car seat and even helped with taking out and putting in the stroller while they were there&hellip;",
+  ("Forgot my phone on one of the cars and had to phone them in order to get support. Was connected with Iqra and honestly I have never dealt with a more solutions oriented person in my life! Was provided with multiple different solutions that ended up resolving things extremely quickly. Iqra was insanely helpful throughout every step of the process. Can not describe just how insanely good the support was.",
+   "Nomad", "Lost-item support"),
+  ("I have been using UMC Dubai Luxury Chauffeur Service for my airport transfers since 2024, and the experience has always been outstanding. The team is highly professional, reliable, and consistently provides excellent customer service. What I appreciate the most is their flexibility and willingness to accommodate my needs, whether it's adjusting to my schedule or providing a larger vehicle when required. Their drivers are always punctual, and the vehicles are clean, comfortable, and well-maintained. I highly recommend UMC Dubai to anyone looking for a dependable and premium chauffeur service.",
+   "hebah alhammadi", "Airport transfers since 2024"),
+  ("In my opinion, UMC Dubai (Luxury Chauffeur Services &amp; Airport Transfers) is the only company I'll use from now on. Their service is truly second to none! From the moment you book, you're set up with a WhatsApp chat, making it incredibly easy to stay in touch. While we were here, we decided at the last minute to visit Abu Dhabi and Yas Island the following day. One simple WhatsApp message was all it took, and everything was arranged. The cars are immaculate, and every driver is professional, courteous, and of the highest standard. If you're looking for a reliable, luxury chauffeur service in Dubai, you won't go wrong with UMC Dubai. A well-deserved 5 stars ⭐⭐⭐⭐⭐ all the way. Highly recommended!",
+   "David Wilson", "Last-minute Abu Dhabi day trip"),
+  ("I hired UMC to have my family driven from Dubai to Ras al Khaimah and back to Dubai. I am beyond satisfied with the quality of their service as the driver arrived 10 minutes early and was extremely professional. I felt very confident and safe with their service for my personal family travel. The driver helped adjusting my daughter's car seat and even helped with taking out and putting in the stroller while they were there. The car was in premium condition and the driver drove very cautiously. I would recommend this service to anyone looking for a trusted car service in Dubai, I will be using them again in the future. Keep up the great service UMC!",
    "Arsalah Arbab", "Dubai&ndash;Ras Al Khaimah family journey"),
-  ("UMC was incredibly punctual. They arrived well before the scheduled pickup time, ensuring a stress free start to my journey. Their professionalism was immediately evident, as they greeted me with warm smile and assisted with loading my luggage into vehicle.",
-   "Zeeshan", "Airport pickup"),
+  ("Recently used UMC Dubai's luxury chauffeur service &amp; it exceeded my expectations. Professional, seamless booking, impeccable vehicle, and courteous chauffeur. Highly recommend for a top-notch experience in Dubai.",
+   "Aroosa Sajid", ""),
 ]
-# REV-3A: geometry. Cards top-align and size to content (min-height floor only);
-# quotes clamp at 7 lines (.rev-quote CSS). The "Read the full review" link is in
-# every card's DOM but hidden by default — main.js reveals it (adds .is-clamped)
-# only on cards whose quote actually overflows the 7-line clamp (responsive).
-_rev_cards = "".join(
-  '<article class="rev-card">' + _GOOGLE_G + _REV_STARS
-  + '<blockquote class="rev-quote">' + q + '</blockquote>'
-  + '<a class="rev-more" target="_blank" rel="noopener" href="https://maps.app.goo.gl/UdPJ9VDBtFegaeX56">Read the full review on Google</a>'
-  + '<div class="rev-by"><span class="rev-name">' + name + '</span>'
-  + (('<span class="rev-tag">' + tag + '</span>') if tag else '')
-  + '</div></article>'
-  for (q, name, tag) in _REVIEWS)
+def _rev_card(text, name, tag):
+    """One fixed-height review card. Footer pins to the bottom; the quote clamps
+    to 4 lines and main.js reveals .rev-more only when it overflows."""
+    initial = (name.strip()[:1] or "?").upper()
+    return (
+      '<article class="rev-card">'
+        '<div class="rev-top">' + _GOOGLE_G + _REV_STARS + '</div>'
+        '<blockquote class="rev-quote">' + text + '</blockquote>'
+        '<a class="rev-more" target="_blank" rel="noopener" href="' + _REV_GBP + '">Read more on Google</a>'
+        '<footer class="rev-foot">'
+          '<span class="rev-av" aria-hidden="true">' + initial + '</span>'
+          '<span class="rev-id">'
+            '<span class="rev-name">' + name + _REV_CHECK + '</span>'
+            '<span class="rev-2nd">' + (tag if tag else '') + '</span>'
+          '</span>'
+        '</footer>'
+      '</article>'
+    )
+_rev_cards = "".join(_rev_card(q, name, tag) for (q, name, tag) in _REVIEWS)
 REVIEWS_SECTION = ("""
 <section class="sec">
   <div class="wrap">
     <div class="shead rv">
       <span class="lbl">From our Google reviews</span>
-      <h2><a class="rev-head" target="_blank" rel="noopener" href="https://maps.app.goo.gl/UdPJ9VDBtFegaeX56"><span class="rev-star" aria-hidden="true">&#9733;</span> 5.0 <span class="rev-sep" aria-hidden="true">&middot;</span> Google reviews</a></h2>
+      <h2><a class="rev-head" target="_blank" rel="noopener" href=\"""" + _REV_GBP + """\"><span class="rev-star" aria-hidden="true">&#9733;</span> <span id="revRating">5.0</span> <span class="rev-sep" aria-hidden="true">&middot;</span> Google reviews</a></h2>
     </div>
     <div class="rev-car rv" id="revCar" aria-label="Google reviews">""" + _rev_cards + """</div>
     <div class="rev-nav rv">

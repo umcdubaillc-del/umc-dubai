@@ -104,6 +104,16 @@ export default {
       return handleFleetRatesPublic(env);
     }
 
+    // REV-4: public Google-reviews feed the homepage hydrates from. Returns the
+    // merged set (5 curated cards first, then live API reviews not already
+    // present) plus the live rating + userRatingCount for the header. Cached in
+    // D1 (reviews_cache); serves stale-while-revalidate and lazily warms an
+    // empty cache so the first visitor after a deploy still gets live data. The
+    // Google key never touches the client — only this same-origin JSON does.
+    if (url.pathname === "/api/reviews") {
+      return handleReviews(env, ctx);
+    }
+
     if (url.pathname === "/admin/billing" ||
         url.pathname.startsWith("/admin/billing/") ||
         url.pathname.startsWith("/admin/api/billing") ||
@@ -153,6 +163,13 @@ export default {
       headers.set("Cloudflare-CDN-Cache-Control", "no-store");
     }
     return new Response(assetResp.body, { status: assetResp.status, statusText: assetResp.statusText, headers });
+  },
+
+  // REV-4: daily cron (wrangler.jsonc triggers.crons) — refresh the reviews
+  // cache from the Places API. Failures are swallowed so a bad fetch never
+  // wipes the last-good cache; /api/reviews keeps serving what it has.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(refreshReviewsCache(env).catch(() => {}));
   }
 };
 
@@ -318,6 +335,145 @@ function clip(s, n) {
   s = String(s == null ? "" : s);
   return s.length > n ? s.slice(0, n) : s;
 }
+
+// ── REV-4: Google reviews ───────────────────────────────────────────────────
+// Google Business Profile Place ID (the UMC listing that owns the reviews).
+const REVIEWS_PLACE_ID = "ChIJ8RuhvjppIY4RaYefwC7boqk";
+// GBP reviews deep-link used for every "Read more on Google" link (new tab).
+const REVIEWS_GBP_LINK = "https://maps.app.goo.gl/UdPJ9VDBtFegaeX56";
+// The key is website-restricted, so server-side calls must present this Referer.
+const REVIEWS_REFERER = "https://umcdubai.ae/";
+// Re-fetch when the cached row is older than this (ms). The daily cron is the
+// primary refresh; this only matters for lazy warming between crons.
+const REVIEWS_TTL_MS = 24 * 60 * 60 * 1000;
+
+// Curated cards, verbatim (owner-approved). Order is fixed and always leads the
+// merged set. `text` is the FULL review — the card clamps to 4 lines in CSS and
+// reveals a "Read more on Google" link when it overflows. Kept in lockstep with
+// the SSR copy baked by build_pages.py (_REVIEWS): edit BOTH together.
+const CURATED_REVIEWS = [
+  { author: "Nomad", tag: "Lost-item support",
+    text: "Forgot my phone on one of the cars and had to phone them in order to get support. Was connected with Iqra and honestly I have never dealt with a more solutions oriented person in my life! Was provided with multiple different solutions that ended up resolving things extremely quickly. Iqra was insanely helpful throughout every step of the process. Can not describe just how insanely good the support was." },
+  { author: "hebah alhammadi", tag: "Airport transfers since 2024",
+    text: "I have been using UMC Dubai Luxury Chauffeur Service for my airport transfers since 2024, and the experience has always been outstanding. The team is highly professional, reliable, and consistently provides excellent customer service. What I appreciate the most is their flexibility and willingness to accommodate my needs, whether it's adjusting to my schedule or providing a larger vehicle when required. Their drivers are always punctual, and the vehicles are clean, comfortable, and well-maintained. I highly recommend UMC Dubai to anyone looking for a dependable and premium chauffeur service." },
+  { author: "David Wilson", tag: "Last-minute Abu Dhabi day trip",
+    text: "In my opinion, UMC Dubai (Luxury Chauffeur Services & Airport Transfers) is the only company I'll use from now on. Their service is truly second to none! From the moment you book, you're set up with a WhatsApp chat, making it incredibly easy to stay in touch. While we were here, we decided at the last minute to visit Abu Dhabi and Yas Island the following day. One simple WhatsApp message was all it took, and everything was arranged. The cars are immaculate, and every driver is professional, courteous, and of the highest standard. If you're looking for a reliable, luxury chauffeur service in Dubai, you won't go wrong with UMC Dubai. A well-deserved 5 stars ⭐⭐⭐⭐⭐ all the way. Highly recommended!" },
+  { author: "Arsalah Arbab", tag: "Dubai–Ras Al Khaimah family journey",
+    text: "I hired UMC to have my family driven from Dubai to Ras al Khaimah and back to Dubai. I am beyond satisfied with the quality of their service as the driver arrived 10 minutes early and was extremely professional. I felt very confident and safe with their service for my personal family travel. The driver helped adjusting my daughter's car seat and even helped with taking out and putting in the stroller while they were there. The car was in premium condition and the driver drove very cautiously. I would recommend this service to anyone looking for a trusted car service in Dubai, I will be using them again in the future. Keep up the great service UMC!" },
+  { author: "Aroosa Sajid", tag: "",
+    text: "Recently used UMC Dubai's luxury chauffeur service & it exceeded my expectations. Professional, seamless booking, impeccable vehicle, and courteous chauffeur. Highly recommend for a top-notch experience in Dubai." }
+];
+
+async function ensureReviewsSchema(env) {
+  await env.BILLING_DB.prepare(
+    `CREATE TABLE IF NOT EXISTS reviews_cache (
+       id INTEGER PRIMARY KEY CHECK (id = 1),
+       data TEXT NOT NULL,
+       fetched_at TEXT NOT NULL
+     )`
+  ).run();
+}
+
+// Fetch the Place, store the raw {rating,userRatingCount,reviews} in D1, return
+// it. No-ops (returns null) when the key is unset; throws on a bad HTTP status
+// so the caller can keep the last-good cache.
+async function refreshReviewsCache(env) {
+  if (!env.PLACES_API_KEY) return null;
+  const res = await fetch(
+    `https://places.googleapis.com/v1/places/${REVIEWS_PLACE_ID}`,
+    {
+      headers: {
+        "X-Goog-Api-Key": env.PLACES_API_KEY,
+        "X-Goog-FieldMask": "displayName,rating,userRatingCount,reviews",
+        // Website-restricted key: the referrer must be an allowed origin.
+        "Referer": REVIEWS_REFERER
+      }
+    }
+  );
+  if (!res.ok) throw new Error("places " + res.status + " " + clip(await res.text(), 300));
+  const raw = await res.json();
+  const data = {
+    rating: raw.rating || null,
+    userRatingCount: raw.userRatingCount || null,
+    reviews: Array.isArray(raw.reviews) ? raw.reviews : []
+  };
+  await ensureReviewsSchema(env);
+  await env.BILLING_DB.prepare(
+    `INSERT INTO reviews_cache (id, data, fetched_at) VALUES (1, ?1, ?2)
+       ON CONFLICT(id) DO UPDATE SET data = ?1, fetched_at = ?2`
+  ).bind(JSON.stringify(data), new Date().toISOString()).run();
+  return data;
+}
+
+// Build the client payload from cached raw Places data (or null → curated-only).
+// Curated 5 lead; API reviews whose author matches a curated author are dropped
+// (their photoUri + relative time are grafted onto the curated card instead);
+// remaining API reviews follow.
+function buildReviewsPayload(data) {
+  const curated = CURATED_REVIEWS.map((c) => ({
+    author: c.author, tag: c.tag, text: c.text,
+    curated: true, photoUri: "", relativeTime: ""
+  }));
+  const curatedByName = new Map(curated.map((c) => [c.author.trim().toLowerCase(), c]));
+  const apiReviews = (data && Array.isArray(data.reviews)) ? data.reviews : [];
+  const extra = [];
+  for (const r of apiReviews) {
+    const attr = r.authorAttribution || {};
+    const name = String(attr.displayName || "").trim();
+    if (!name) continue;
+    const text = (r.text && r.text.text) || (r.originalText && r.originalText.text) || "";
+    if (!text) continue;
+    const photoUri = attr.photoUri || "";
+    const relativeTime = r.relativePublishTimeDescription || "";
+    const match = curatedByName.get(name.toLowerCase());
+    if (match) {
+      // Graft live avatar + relative time onto the curated card (once).
+      if (photoUri && !match.photoUri) match.photoUri = photoUri;
+      if (relativeTime && !match.relativeTime) match.relativeTime = relativeTime;
+      continue;
+    }
+    extra.push({ author: name, tag: "", text, curated: false, photoUri, relativeTime });
+  }
+  return {
+    rating: (data && data.rating) || 5.0,
+    userRatingCount: (data && data.userRatingCount) || null,
+    gbpLink: REVIEWS_GBP_LINK,
+    reviews: curated.concat(extra)
+  };
+}
+
+async function handleReviews(env, ctx) {
+  let data = null;
+  try {
+    await ensureReviewsSchema(env);
+    const row = await env.BILLING_DB.prepare(
+      `SELECT data, fetched_at FROM reviews_cache WHERE id = 1`
+    ).first();
+    if (row && row.data) {
+      data = JSON.parse(row.data);
+      // Stale + key present → serve now, refresh in the background.
+      const age = Date.now() - Date.parse(row.fetched_at || 0);
+      if (env.PLACES_API_KEY && (!(age >= 0) || age > REVIEWS_TTL_MS)) {
+        ctx.waitUntil(refreshReviewsCache(env).catch(() => {}));
+      }
+    } else if (env.PLACES_API_KEY) {
+      // Empty cache → warm synchronously so the first visitor gets live data.
+      data = await refreshReviewsCache(env).catch(() => null);
+    }
+  } catch (e) {
+    data = data || null; // any D1/parse failure → curated-only
+  }
+  const payload = buildReviewsPayload(data);
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      // Short edge/browser cache; the daily cron does the real refresh.
+      "Cache-Control": "public, max-age=300"
+    }
+  });
+}
+// ── end REV-4 ───────────────────────────────────────────────────────────────
 
 // Shared escape for inlined email HTML.
 export function emailEsc(s) {

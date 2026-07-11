@@ -1045,32 +1045,37 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
 .rev-head:hover,.rev-head:focus-visible{color:var(--amber-deep);outline:0}
 .rev-head .rev-star{color:var(--amber)}
 .rev-head .rev-sep{color:var(--muted);margin:0 .12rem}
-/* REV-2: review carousel (replaces the REV-1 masonry). Horizontal scroll-snap
-   track — 1 card on phone, 2 on desktop — with hairline arrow buttons (wired by
-   wireCarousel in main.js) and native touch swipe; no autoplay. align-items:stretch
-   equalises card heights so the longest quote sets a clean uniform card. */
-/* REV-3A: top-aligned track (no stretch) — each card sizes to its content with a
-   modest min-height floor; attribution flows right after the quote. Long quotes
-   clamp at 7 lines and reveal a quiet "read full review" link (main.js). */
-.rev-car{display:flex;gap:1.4rem;align-items:flex-start;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scroll-behavior:smooth;scrollbar-width:none;-webkit-overflow-scrolling:touch;max-width:1040px;margin:1.8rem auto 0;padding:.4rem}
+/* REV-4: uniform review cards + Google auto-populate. Fixed-height cards in a
+   horizontal scroll-snap track — 1 card on phone, 2 on tablet, 3 on desktop —
+   with hairline arrow buttons (wired by wireCarousel in main.js) and native
+   touch swipe; no autoplay. Every card is the SAME height, so the footer row
+   (avatar + name + verified check + second line) pins to a common baseline
+   regardless of quote length. The 4-line quote clamp reveals a quiet
+   "Read more on Google" link only when it overflows (main.js .is-clamped). */
+.rev-car{display:flex;gap:1.4rem;align-items:stretch;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scroll-behavior:smooth;scrollbar-width:none;-webkit-overflow-scrolling:touch;max-width:1160px;margin:1.8rem auto 0;padding:.4rem}
 .rev-car::-webkit-scrollbar{display:none}
-/* min-height is a modest floor set BELOW every card's natural content height, so
-   it guards against a pathologically tiny card without ever padding a real one
-   into a void (the requested ~340 floor voided 4/5 cards — content is 187-411px).
-   Cards top-align and size to content; short cards (Christoph) render short. */
-.rev-card{scroll-snap-align:start;flex:0 0 100%;min-height:160px;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:1.7rem 1.7rem 1.5rem}
-@media(min-width:720px){.rev-card{flex:0 0 calc((100% - 1.4rem)/2)}}
-.rev-g{width:22px;height:22px;display:block;margin-bottom:.85rem}
-.rev-stars{color:#F4B400;letter-spacing:.14em;font-size:.92rem;line-height:1;margin-bottom:.9rem}
-.rev-quote{margin:0;font-family:var(--serif);font-size:1.06rem;line-height:1.62;color:var(--ink);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:7;line-clamp:7;overflow:hidden;max-height:calc(1.62em * 7)}
-.rev-more{display:none;align-items:center;gap:.35rem;margin:.9rem 0 0;font-family:var(--sans);font-size:.78rem;letter-spacing:.02em;color:var(--muted);text-decoration:none;transition:color .2s}
+/* Fixed equal height (~300px) is what guarantees uniform footers. Width basis
+   flips 1 -> 2 -> 3 per view; card lands in the ~350-380px band on desktop. */
+.rev-card{scroll-snap-align:start;flex:0 0 100%;height:300px;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--hair);border-radius:12px;padding:1.5rem 1.5rem 1.35rem;overflow:hidden}
+@media(min-width:560px){.rev-card{flex:0 0 calc((100% - 1.4rem)/2)}}
+@media(min-width:900px){.rev-card{flex:0 0 calc((100% - 2.8rem)/3)}}
+.rev-top{display:flex;align-items:center;gap:.7rem;margin-bottom:.8rem}
+.rev-g{width:20px;height:20px;display:block}
+.rev-stars{color:#F4B400;letter-spacing:.12em;font-size:.86rem;line-height:1}
+.rev-quote{margin:0;font-family:var(--serif);font-size:.99rem;line-height:1.55;color:var(--ink);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;line-clamp:4;overflow:hidden}
+.rev-more{display:none;align-items:center;gap:.3rem;margin:.6rem 0 0;font-family:var(--sans);font-size:.76rem;letter-spacing:.02em;color:var(--muted);text-decoration:none;transition:color .2s}
 .rev-more::after{content:"\2192";transition:transform .2s}
 .rev-more:hover,.rev-more:focus-visible{color:var(--amber-deep);outline:0}
 .rev-more:hover::after{transform:translateX(3px)}
 .rev-card.is-clamped .rev-more{display:inline-flex}
-.rev-by{margin:1.1rem 0 0}
-.rev-name{display:block;font-family:var(--sans);font-weight:500;font-size:.9rem;color:var(--ink)}
-.rev-tag{display:block;margin-top:.25rem;font-family:var(--mono);font-size:.72rem;letter-spacing:.02em;color:var(--muted)}
+/* Footer pinned to the bottom of the fixed-height card. */
+.rev-foot{margin-top:auto;padding-top:1.1rem;display:flex;align-items:center;gap:.7rem}
+.rev-av{position:relative;flex:0 0 auto;width:40px;height:40px;border-radius:50%;background:var(--bone-2);color:var(--ink-soft);font-family:var(--serif);font-size:1.05rem;line-height:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.rev-av img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%}
+.rev-id{min-width:0;display:flex;flex-direction:column;gap:.18rem}
+.rev-name{display:flex;align-items:center;gap:.3rem;font-family:var(--sans);font-weight:500;font-size:.9rem;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rev-check{flex:0 0 auto;width:14px;height:14px;display:block}
+.rev-2nd{font-family:var(--mono);font-size:.72rem;letter-spacing:.02em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:.9em}
 .rev-nav{display:flex;gap:.7rem;justify-content:center;margin-top:1.5rem}
 .rev-arrow{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--ink-soft);cursor:pointer;min-height:0;display:inline-flex;align-items:center;justify-content:center;transition:border-color .2s,color .2s}
 .rev-arrow:hover,.rev-arrow:focus-visible{border-color:var(--amber);color:var(--amber-deep);outline:0}
