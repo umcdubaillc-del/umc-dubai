@@ -134,8 +134,17 @@ export default {
     const isAssetPath = url.pathname.startsWith("/assets/");
     const isHtml = ctype.includes("text/html");
     const headers = new Headers(assetResp.headers);
+    // FAV-1: root icon assets (favicon.ico/.svg, favicon-NxN.png, apple-touch,
+    // manifest PWA icons). URLs are unhashed and the brand mark is stable, so a
+    // long cache (30d) — long-lived but still refreshable within a month, unlike
+    // the immutable year on hashed /assets/. Also pin the .ico media type to
+    // image/x-icon (Cloudflare otherwise labels it image/vnd.microsoft.icon).
+    const isIcon = /^\/(favicon\.ico|favicon\.svg|favicon-\d+x\d+\.png|apple-touch-icon\.png|icon-\d+\.png)$/.test(url.pathname);
     if (isAssetPath && !isHtml) {
       headers.set("Cache-Control", "public, max-age=31536000, immutable");
+    } else if (isIcon) {
+      headers.set("Cache-Control", "public, max-age=2592000");
+      if (url.pathname === "/favicon.ico") headers.set("Content-Type", "image/x-icon");
     } else if (isHtml) {
       // no-store so neither the browser nor Cloudflare's edge cache reuses
       // a stale HTML response after a deploy.
