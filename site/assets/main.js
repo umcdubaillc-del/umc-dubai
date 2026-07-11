@@ -270,6 +270,21 @@ window.umcPhone = {
   };
   wireCarousel("svpCar", ".svp-row", "svprev", "svnext");
   wireCarousel("revCar", ".rev-card", "revPrev", "revNext");
+  // REV-3A: reveal the "read the full review" link only on cards whose quote
+  // overflows the 7-line clamp. Re-check after web fonts load (line count shifts)
+  // and on resize, so it stays correct across breakpoints.
+  var wireRevClamp = function(){
+    document.querySelectorAll(".rev-card").forEach(function(card){
+      var q = card.querySelector(".rev-quote");
+      if(q) card.classList.toggle("is-clamped", q.scrollHeight - q.clientHeight > 2);
+    });
+  };
+  if(document.querySelector(".rev-quote")){
+    wireRevClamp();
+    if(document.fonts && document.fonts.ready){ document.fonts.ready.then(wireRevClamp); }
+    var _revClampT;
+    window.addEventListener("resize", function(){ clearTimeout(_revClampT); _revClampT = setTimeout(wireRevClamp, 150); });
+  }
 
   // phone fields: live filtering + per-country length validation (booking + contact)
   if(window.umcPhone){

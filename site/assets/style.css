@@ -1049,14 +1049,22 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
    track — 1 card on phone, 2 on desktop — with hairline arrow buttons (wired by
    wireCarousel in main.js) and native touch swipe; no autoplay. align-items:stretch
    equalises card heights so the longest quote sets a clean uniform card. */
-.rev-car{display:flex;gap:1.4rem;align-items:stretch;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scroll-behavior:smooth;scrollbar-width:none;-webkit-overflow-scrolling:touch;max-width:1040px;margin:1.8rem auto 0;padding:.4rem}
+/* REV-3A: top-aligned track (no stretch) — each card sizes to its content with a
+   modest min-height floor; attribution flows right after the quote. Long quotes
+   clamp at 7 lines and reveal a quiet "read full review" link (main.js). */
+.rev-car{display:flex;gap:1.4rem;align-items:flex-start;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scroll-behavior:smooth;scrollbar-width:none;-webkit-overflow-scrolling:touch;max-width:1040px;margin:1.8rem auto 0;padding:.4rem}
 .rev-car::-webkit-scrollbar{display:none}
-.rev-card{scroll-snap-align:start;flex:0 0 100%;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:1.7rem 1.7rem 1.5rem}
-@media(min-width:720px){.rev-card{flex:0 0 calc((100% - 1.4rem)/2)}}
+.rev-card{scroll-snap-align:start;flex:0 0 100%;min-height:300px;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:1.7rem 1.7rem 1.5rem}
+@media(min-width:720px){.rev-card{flex:0 0 calc((100% - 1.4rem)/2);min-height:340px}}
 .rev-g{width:22px;height:22px;display:block;margin-bottom:.85rem}
 .rev-stars{color:#F4B400;letter-spacing:.14em;font-size:.92rem;line-height:1;margin-bottom:.9rem}
-.rev-quote{flex:1 1 auto;margin:0;font-family:var(--serif);font-size:1.06rem;line-height:1.62;color:var(--ink)}
-.rev-by{margin:1.3rem 0 0}
+.rev-quote{margin:0;font-family:var(--serif);font-size:1.06rem;line-height:1.62;color:var(--ink);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:7;line-clamp:7;overflow:hidden;max-height:calc(1.62em * 7)}
+.rev-more{display:none;align-items:center;gap:.35rem;margin:.9rem 0 0;font-family:var(--sans);font-size:.78rem;letter-spacing:.02em;color:var(--muted);text-decoration:none;transition:color .2s}
+.rev-more::after{content:"\2192";transition:transform .2s}
+.rev-more:hover,.rev-more:focus-visible{color:var(--amber-deep);outline:0}
+.rev-more:hover::after{transform:translateX(3px)}
+.rev-card.is-clamped .rev-more{display:inline-flex}
+.rev-by{margin:1.1rem 0 0}
 .rev-name{display:block;font-family:var(--sans);font-weight:500;font-size:.9rem;color:var(--ink)}
 .rev-tag{display:block;margin-top:.25rem;font-family:var(--mono);font-size:.72rem;letter-spacing:.02em;color:var(--muted)}
 .rev-nav{display:flex;gap:.7rem;justify-content:center;margin-top:1.5rem}

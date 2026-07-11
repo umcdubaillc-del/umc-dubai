@@ -603,7 +603,7 @@ ld_home = '<script type="application/ld+json">'+json.dumps({
  "openingHoursSpecification":{"@type":"OpeningHoursSpecification","dayOfWeek":["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"],"opens":"00:00","closes":"23:59"},
  "priceRange":"AED 350–2400",
  "areaServed":["Dubai","Abu Dhabi","Sharjah","Ras Al Khaimah","Al Ain","Umm Al Quwain","Ajman","Fujairah"],
- "sameAs":["https://www.facebook.com/umcdubai","https://www.instagram.com/umcdubai"]})+'</script>'
+ "sameAs":["https://www.facebook.com/umcdubai","https://www.instagram.com/umcdubai","https://maps.app.goo.gl/UdPJ9VDBtFegaeX56"]})+'</script>'
 
 # REV-1: homepage Google-review citations (replaces the older carousel testimonials).
 # Display + link only — NO Review/AggregateRating schema (matches the v107 policy of
@@ -637,9 +637,14 @@ _REVIEWS = [
   ("UMC was incredibly punctual. They arrived well before the scheduled pickup time, ensuring a stress free start to my journey. Their professionalism was immediately evident, as they greeted me with warm smile and assisted with loading my luggage into vehicle.",
    "Zeeshan", "Airport pickup"),
 ]
+# REV-3A: geometry. Cards top-align and size to content (min-height floor only);
+# quotes clamp at 7 lines (.rev-quote CSS). The "Read the full review" link is in
+# every card's DOM but hidden by default — main.js reveals it (adds .is-clamped)
+# only on cards whose quote actually overflows the 7-line clamp (responsive).
 _rev_cards = "".join(
   '<article class="rev-card">' + _GOOGLE_G + _REV_STARS
   + '<blockquote class="rev-quote">' + q + '</blockquote>'
+  + '<a class="rev-more" target="_blank" rel="noopener" href="https://maps.app.goo.gl/UdPJ9VDBtFegaeX56">Read the full review on Google</a>'
   + '<div class="rev-by"><span class="rev-name">' + name + '</span>'
   + (('<span class="rev-tag">' + tag + '</span>') if tag else '')
   + '</div></article>'
