@@ -4563,6 +4563,147 @@ def render_post(p):
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "index.html").write_text(head(p["title"], p["meta"], canon, head_extra) + body)
 
+def render_comparison_page():
+    """C-1: /journal/blacklane-alternative-dubai — a comparison article in the
+    Journal (article) template with a responsive comparison-table component.
+    Article + BreadcrumbList JSON-LD only (no Review/AggregateRating, per spec)."""
+    canon_path = "journal/blacklane-alternative-dubai/"   # trailing-slash canonical (dir/index.html)
+    canon = "https://umcdubai.ae/" + canon_path
+    title = "Blacklane Alternative in Dubai &mdash; UMC Dubai vs Blacklane"
+    meta = ("Comparing Blacklane with UMC Dubai: owned fleet vs partner network, "
+            "exact-car guarantee, AED all-inclusive rates, and a 24/7 WhatsApp "
+            "concierge. An honest local comparison.")
+    published = modified = "2026-07-11"
+
+    # --- JSON-LD: Article + BreadcrumbList (deliberately NO Review/AggregateRating) ---
+    article_ld = '<script type="application/ld+json">' + json.dumps({
+        "@context": "https://schema.org", "@type": "Article",
+        "headline": "Choosing between Blacklane and UMC Dubai",
+        "description": meta,
+        "datePublished": published, "dateModified": modified,
+        "author": {"@id": ORG_ID}, "publisher": {"@id": ORG_ID},
+        "mainEntityOfPage": {"@type": "WebPage", "@id": canon},
+        "image": [f"{OG_BASE}/assets/og-image-v3.png"],
+    }, separators=(",", ":")) + '</script>'
+    breadcrumb_ld = '<script type="application/ld+json">' + json.dumps({
+        "@context": "https://schema.org", "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://umcdubai.ae/"},
+            {"@type": "ListItem", "position": 2, "name": "Journal", "item": "https://umcdubai.ae/blog/"},
+            {"@type": "ListItem", "position": 3, "name": "Blacklane Alternative in Dubai", "item": canon},
+        ],
+    }, separators=(",", ":")) + '</script>'
+    head_extra = article_ld + breadcrumb_ld
+
+    # --- comparison table rows: (aspect, UMC Dubai, Blacklane). Airport row is
+    #     deliberately identical — matching them there is the honesty that makes
+    #     the rest credible; both cells render the same string. ---
+    rows = [
+        ("Structure", "Local operator with an owned fleet",
+         "Global platform with partner-operated vehicles"),
+        ("Chauffeurs", "On UMC payroll, one house standard",
+         "Partner drivers, standards set by platform requirements"),
+        ("What you book", "An exact car and configuration, guaranteed",
+         "A vehicle class (&ldquo;or similar&rdquo;), assigned near pickup"),
+        ("Pricing", "All-inclusive AED quotes; VAT invoice from a Dubai licensee",
+         "Dynamic pricing by class and city; billed by platform"),
+        ("Airport pickup", "60 min complimentary wait, flight tracked",
+         "60 min complimentary wait, flight tracked"),
+        ("Booking &amp; support", "WhatsApp concierge, 24/7, one human thread",
+         "App and web, global support desk"),
+        ("Coverage", "Dubai and the UAE", "50+ countries"),
+        ("Transparency", "Trade licence published on site (1270934)",
+         "Platform terms per city"),
+    ]
+    row_html = "".join(
+        f'<tr><th scope="row">{aspect}</th>'
+        f'<td class="cmp-umc" data-label="UMC Dubai">{umc}</td>'
+        f'<td data-label="Blacklane">{bl}</td></tr>'
+        for aspect, umc, bl in rows)
+    table_html = (
+        '<div class="cmp-wrap">'
+        '<table class="cmp">'
+        '<caption class="cmp-sr">UMC Dubai compared with Blacklane across structure, '
+        'chauffeurs, booking, pricing, airport pickup, support, coverage and transparency.</caption>'
+        '<thead><tr><th scope="col"><span class="cmp-sr">Aspect</span></th>'
+        '<th scope="col" class="cmp-umc">UMC Dubai</th>'
+        '<th scope="col" class="cmp-other">Blacklane</th></tr></thead>'
+        f'<tbody>{row_html}</tbody></table></div>')
+
+    # --- FAQ: plain <details> accordion, same disclosure pattern as boot rows ---
+    faqs = [
+        ("Is UMC Dubai legitimate?",
+         "UMC IN BOUND TOUR OPERATOR LLC, Trade Licence 1270934, trading as UMC Dubai; "
+         "licence shown in the site footer; fleet and chauffeurs are company-operated in Dubai."),
+        ("Is UMC cheaper than Blacklane?",
+         "Comparable class-for-class; UMC quotes are all-inclusive in AED with no dynamic "
+         "surging &mdash; the concierge confirms the exact figure before you commit."),
+        ("Can I get an S-Class specifically, not &ldquo;S-Class or similar&rdquo;?",
+         "Yes; that is the operating model. The exact car and configuration are confirmed at booking."),
+        ("Does UMC cover other emirates?",
+         "Yes: inter-emirate transfers (Abu Dhabi, Sharjah, RAK and beyond) with the same terms."),
+    ]
+    faq_html = faq_details(faqs)
+
+    capsule_text = (
+        "UMC Dubai is a licensed Dubai chauffeur operator (Trade Licence 1270934) running "
+        "its own fleet with chauffeurs on company payroll. Blacklane is a global platform "
+        "dispatching partner vehicles by class. The practical difference: with UMC your "
+        "booking is confirmed to an exact car and configuration; with a platform you book "
+        "a vehicle class, fulfilled by a partner.")
+
+    body = header(canon_path) + f"""
+<article class="article">
+  <header class="article-hero">
+    <div class="wrap article-wrap">
+      <span class="lbl">Comparison</span>
+      <h1>Choosing between Blacklane and UMC Dubai</h1>
+      <p class="article-meta"><time datetime="{modified}">11 July 2026</time> &middot; Reviewed {REVIEWED_LABEL}</p>
+    </div>
+  </header>
+  <div class="article-body">
+    <div class="wrap article-wrap rv">
+      {capsule(capsule_text)}
+      <p class="lede">Blacklane is one of the most polished chauffeur platforms in the world, and if you need one account that works in 50+ countries, it is a fine choice.</p>
+      <p>This page is for the traveller deciding how to be driven in Dubai specifically &mdash; where the question changes from global coverage to what is actually waiting at the kerb. UMC Dubai is a local operator: our cars, our chauffeurs, one concierge line. Below is the honest comparison.</p>
+
+      <h2>How UMC Dubai and Blacklane compare</h2>
+      {table_html}
+
+      <h2>Which fits your trip</h2>
+      <p><b>When Blacklane fits.</b> Multi-country programmes needing one account and app everywhere; travellers who prefer platform booking.</p>
+      <p><b>When UMC fits.</b> Dubai-centred travel; guests who want the specific car they chose; <a href="/corporate">corporates</a> needing AED VAT invoicing and a single accountable operator; anyone who values one WhatsApp thread over a support queue.</p>
+      <p><b>The guarantee.</b> These are the layouts and cars we actually run. Your booking is confirmed to this exact car and configuration &mdash; never a smaller one. That sentence is on every <a href="/fleet">fleet</a> page, and it is the difference between an operator and a marketplace.</p>
+
+      <h2>Frequently asked questions</h2>
+      {faq_html}
+
+      <div class="rv" style="margin-top:2.6rem;padding-top:1.8rem;border-top:1px solid rgba(34,27,20,.12)">
+        <span class="lbl">Related</span>
+        <ul class="emirate-xlinks" style="margin-top:1rem">
+          <li><a href="/airport-transfers/dubai">Airport transfers in Dubai</a></li>
+          <li><a href="/corporate">Corporate chauffeur accounts</a></li>
+          <li><a href="/fleet">See the fleet</a></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <section class="closing band-dark article-closing">
+    <div class="wrap">
+      <span class="lbl">Concierge</span>
+      <h2 class="rv">Travelling in Dubai? Tell the concierge what you need.</h2>
+      <p class="lede rv" style="color:#D9D0C0;max-width:54ch;margin:0 auto 1.6rem">One WhatsApp thread, one accountable operator, and the exact car you choose &mdash; the concierge confirms every detail before you commit.</p>
+      <div class="btns rv">
+        <a class="btn btn-ink" href="/booking">Reserve your car</a>
+        <a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp the concierge</a>
+      </div>
+    </div>
+  </section>
+""" + FOOTER + "</body></html>"
+    out_dir = SITE / "journal" / "blacklane-alternative-dubai"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "index.html").write_text(head(title, meta, canon_path, head_extra) + body)
+
 def render_blog_index():
     """List of all posts at /blog/."""
     cards = []
@@ -4599,6 +4740,7 @@ def render_blog_index():
 
 for _p in BLOG_POSTS:
     render_post(_p)
+render_comparison_page()
 render_blog_index()
 
 # v72 (Phase F): sitemap rebuilt to match each page's CANONICAL exactly.
@@ -4661,7 +4803,8 @@ def _page_lastmod(p):
 _pages_slash = (
     ["",  # homepage = /
      "blog/",
-     "rent-a-car-with-driver/"]
+     "rent-a-car-with-driver/",
+     "journal/blacklane-alternative-dubai/"]
     + [f"rent-a-car-with-driver/{em['slug']}/" for em in RENT_EMIRATES]
     + [p["slug"] + "/" for p in BLOG_POSTS]
 )
