@@ -1054,8 +1054,12 @@ span.flatpickr-weekday{color:var(--muted);font-weight:500;font-size:.62rem;lette
    clamp at 7 lines and reveal a quiet "read full review" link (main.js). */
 .rev-car{display:flex;gap:1.4rem;align-items:flex-start;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scroll-behavior:smooth;scrollbar-width:none;-webkit-overflow-scrolling:touch;max-width:1040px;margin:1.8rem auto 0;padding:.4rem}
 .rev-car::-webkit-scrollbar{display:none}
-.rev-card{scroll-snap-align:start;flex:0 0 100%;min-height:300px;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:1.7rem 1.7rem 1.5rem}
-@media(min-width:720px){.rev-card{flex:0 0 calc((100% - 1.4rem)/2);min-height:340px}}
+/* min-height is a modest floor set BELOW every card's natural content height, so
+   it guards against a pathologically tiny card without ever padding a real one
+   into a void (the requested ~340 floor voided 4/5 cards — content is 187-411px).
+   Cards top-align and size to content; short cards (Christoph) render short. */
+.rev-card{scroll-snap-align:start;flex:0 0 100%;min-height:160px;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:1.7rem 1.7rem 1.5rem}
+@media(min-width:720px){.rev-card{flex:0 0 calc((100% - 1.4rem)/2)}}
 .rev-g{width:22px;height:22px;display:block;margin-bottom:.85rem}
 .rev-stars{color:#F4B400;letter-spacing:.14em;font-size:.92rem;line-height:1;margin-bottom:.9rem}
 .rev-quote{margin:0;font-family:var(--serif);font-size:1.06rem;line-height:1.62;color:var(--ink);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:7;line-clamp:7;overflow:hidden;max-height:calc(1.62em * 7)}
