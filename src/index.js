@@ -407,12 +407,14 @@ async function refreshReviewsCache(env) {
 
 // Build the client payload from cached raw Places data (or null → curated-only).
 // Curated 5 lead; API reviews whose author matches a curated author are dropped
-// (their photoUri + relative time are grafted onto the curated card instead);
-// remaining API reviews follow.
+// (their photoUri is grafted onto the curated card instead); remaining API
+// reviews follow. REV-4-AMEND: the relative-time line ("2 years ago" etc.) is
+// intentionally NOT emitted — the muted mono second line is curated-only (their
+// context tags). API cards carry avatar + name + verified check, nothing dated.
 function buildReviewsPayload(data) {
   const curated = CURATED_REVIEWS.map((c) => ({
     author: c.author, tag: c.tag, text: c.text,
-    curated: true, photoUri: "", relativeTime: ""
+    curated: true, photoUri: ""
   }));
   const curatedByName = new Map(curated.map((c) => [c.author.trim().toLowerCase(), c]));
   const apiReviews = (data && Array.isArray(data.reviews)) ? data.reviews : [];
@@ -424,15 +426,13 @@ function buildReviewsPayload(data) {
     const text = (r.text && r.text.text) || (r.originalText && r.originalText.text) || "";
     if (!text) continue;
     const photoUri = attr.photoUri || "";
-    const relativeTime = r.relativePublishTimeDescription || "";
     const match = curatedByName.get(name.toLowerCase());
     if (match) {
-      // Graft live avatar + relative time onto the curated card (once).
+      // Graft only the live avatar onto the curated card (once); no dated line.
       if (photoUri && !match.photoUri) match.photoUri = photoUri;
-      if (relativeTime && !match.relativeTime) match.relativeTime = relativeTime;
       continue;
     }
-    extra.push({ author: name, tag: "", text, curated: false, photoUri, relativeTime });
+    extra.push({ author: name, tag: "", text, curated: false, photoUri });
   }
   return {
     rating: (data && data.rating) || 5.0,

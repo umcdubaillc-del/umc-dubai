@@ -337,7 +337,12 @@ window.umcPhone = {
     var nameEl = art.querySelector(".rev-name");
     nameEl.appendChild(document.createTextNode(c.author || ""));
     nameEl.insertAdjacentHTML("beforeend", REV_CHECK);
-    art.querySelector(".rev-2nd").textContent = c.curated ? (c.tag || "") : (c.relativeTime || "");
+    // REV-4-AMEND: the muted mono second line renders ONLY for curated cards
+    // (their context tag). API cards show avatar + name + verified check and
+    // nothing dated — drop the node entirely so no relative-time can appear.
+    var second = art.querySelector(".rev-2nd");
+    if(c.curated){ second.textContent = c.tag || ""; }
+    else { second.remove(); }
     return art;
   };
   var revTrack = document.getElementById("revCar");
