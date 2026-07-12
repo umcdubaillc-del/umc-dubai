@@ -329,7 +329,11 @@ window.umcPhone = {
     av.textContent = ((c.author || "?").trim().charAt(0) || "?").toUpperCase();
     if(c.photoUri){
       var img = document.createElement("img");
-      img.loading = "lazy"; img.referrerPolicy = "no-referrer"; img.alt = "";
+      // Eager, not lazy: these avatars sit in a horizontally-scrolling track, and
+      // loading="lazy" never fires for cards parked off-screen to the right, so the
+      // Google avatars silently never loaded. They're tiny (128px, <=5 of them),
+      // so eager loading costs nothing. onerror still falls back to the monogram.
+      img.referrerPolicy = "no-referrer"; img.decoding = "async"; img.alt = "";
       img.onerror = function(){ this.remove(); };
       img.src = c.photoUri;
       av.appendChild(img);
