@@ -247,16 +247,29 @@ window.umcPhone = {
     if(!c) return;
     const p = document.getElementById(prevId);
     const n = document.getElementById(nextId);
-    let activeIndex = 0;
     let restoreTimer = null;
     const snap = (dir) => {
       const cards = c.querySelectorAll(cardSelector);
       const count = cards.length;
       if(!count) return;
-      activeIndex = ((activeIndex + dir) % count + count) % count;
-      const target = cards[activeIndex];
       const padLeft = parseFloat(getComputedStyle(c).paddingLeft) || 0;
-      const targetLeft = target.offsetLeft - c.offsetLeft - padLeft;
+      const maxScroll = c.scrollWidth - c.clientWidth;
+      const cur = c.scrollLeft;
+      const leftOf = (i) => Math.max(0, cards[i].offsetLeft - c.offsetLeft - padLeft);
+      // Derive the current index from the ACTUAL scroll position (not a drifting
+      // counter) so the arrows stay correct after a swipe, and so a click at the
+      // clamped end wraps to the first card in ONE press — the old activeIndex
+      // kept incrementing past cards that could no longer scroll (with N cards
+      // but only 3 in view, "next" from the end took 3 clicks to wrap).
+      let idx = 0, best = Infinity;
+      for(let i = 0; i < count; i++){ const d = Math.abs(leftOf(i) - cur); if(d < best){ best = d; idx = i; } }
+      let next;
+      if(dir > 0){
+        next = (cur >= maxScroll - 2 || idx + 1 >= count) ? 0 : idx + 1;   // at the end → first
+      } else {
+        next = (cur <= 2 || idx - 1 < 0) ? count - 1 : idx - 1;            // at the start → last page
+      }
+      const targetLeft = Math.min(leftOf(next), maxScroll);
       if(restoreTimer){ clearTimeout(restoreTimer); restoreTimer = null; }
       c.style.scrollSnapType = "none";
       c.scrollTo({left: Math.max(0, targetLeft), behavior: "smooth"});

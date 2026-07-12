@@ -685,7 +685,6 @@ REVIEWS_SECTION = ("""
       <button type="button" class="rev-arrow" id="revPrev" aria-label="Previous reviews"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
       <button type="button" class="rev-arrow" id="revNext" aria-label="Next reviews"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
     </div>
-    <div class="rev-cta rv"><a class="btn btn-amber" target="_blank" rel="noopener" href="https://g.page/r/CWmHn8Au26KpEBM/review">Review us on Google</a></div>
   </div>
 </section>
 """)
