@@ -43,6 +43,71 @@ export const WA_TEMPLATES = {
       },
       { type: "FOOTER", text: "UMC Dubai · umcdubai.ae" }
     ]
+  },
+
+  // WA-2 A.1 — team alert on a new booking request. Body only, no footer.
+  // {{1}} client name, {{2}} one-line summary, {{3}} prefilled wa.me quote link.
+  lead_alert: {
+    name: "lead_alert",
+    category: "UTILITY",
+    language: "en",
+    components: [
+      {
+        type: "BODY",
+        text:
+          "New booking request — {{1}}.\n" +
+          "{{2}}\n" +
+          "Summary emailed to the client. Respond here: {{3}}",
+        example: {
+          body_text: [[
+            "Sarah Wells",
+            "Mercedes S-Class · 12 Jun, 14:30 · DXB T3 → Downtown Dubai",
+            "https://wa.me/971500000000?text=Dear%20Sarah"
+          ]]
+        }
+      }
+    ]
+  },
+
+  // WA-2 A.2 — payment confirmation to the client (lead-centric, Nomod PAID webhook).
+  // {{1}} first name, {{2}} amount (AED), {{3}} bold booking summary.
+  payment_received: {
+    name: "payment_received",
+    category: "UTILITY",
+    language: "en",
+    components: [
+      {
+        type: "BODY",
+        text:
+          "Thank you, {{1}} — your payment of AED {{2}} has been received and your booking is confirmed.\n" +
+          "*{{3}}*\n" +
+          "Your concierge will share final arrangements right here.",
+        example: {
+          body_text: [["Sarah", "450", "Mercedes S-Class · 12 Jun, 14:30 · DXB T3 → Downtown Dubai"]]
+        }
+      },
+      { type: "FOOTER", text: "UMC Dubai · umcdubai.ae" }
+    ]
+  },
+
+  // WA-2 A.3 — flight-delay update to the client (flight watch).
+  // {{1}} first name, {{2}} flight code, {{3}} new local ETA.
+  flight_delay_update: {
+    name: "flight_delay_update",
+    category: "UTILITY",
+    language: "en",
+    components: [
+      {
+        type: "BODY",
+        text:
+          "Flight update, {{1}}: {{2}} is showing a delay — new estimated arrival {{3}}. " +
+          "We are tracking it and your chauffeur will adjust automatically. Nothing is needed from you.",
+        example: {
+          body_text: [["Sarah", "EK203", "18:45"]]
+        }
+      },
+      { type: "FOOTER", text: "UMC Dubai · umcdubai.ae" }
+    ]
   }
 };
 
