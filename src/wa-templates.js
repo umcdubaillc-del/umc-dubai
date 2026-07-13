@@ -109,6 +109,29 @@ export const WA_TEMPLATES = {
       },
       { type: "FOOTER", text: "UMC Dubai · umcdubai.ae" }
     ]
+  },
+
+  // WA-2 C — desktop quote send outside the 24h window (inside 24h goes free-form text).
+  // {{1}} first name, {{2}} summary line, {{3}} numeric amount. Body does not end on a variable.
+  booking_quote: {
+    name: "booking_quote",
+    category: "UTILITY",
+    language: "en",
+    components: [
+      {
+        type: "BODY",
+        text:
+          "Your quote is ready, {{1}}.\n\n" +
+          "*{{2}}*\n" +
+          "All-inclusive fare: *AED {{3}} +VAT*\n\n" +
+          "The rate includes your chauffeur, fuel, tolls, and standard waiting time. " +
+          "Reply here to confirm, and we will arrange everything.",
+        example: {
+          body_text: [["Sarah", "Mercedes S-Class · 12 Jun, 14:30 · DXB T3 → Downtown Dubai", "450"]]
+        }
+      },
+      { type: "FOOTER", text: "UMC Dubai · umcdubai.ae" }
+    ]
   }
 };
 
