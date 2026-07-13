@@ -43,7 +43,14 @@
   "vars": {
     "LEAD_EMAIL_TO": "contact@umcdubai.ae",
     "MC_DC": "us17",
-    "MC_LIST_ID": "ea9715492e"
+    "MC_LIST_ID": "ea9715492e",
+    // WA-0 spoof guard: pinned from the first real event + Dualhook connection
+    // page (phone_number_id cross-verified against a live wa_events payload).
+    // Not secret — plain identifiers. The webhook 403s any envelope whose
+    // entry[].id != WA_WABA_ID, or whose value.metadata.phone_number_id (when
+    // present) != WA_PHONE_NUMBER_ID.
+    "WA_WABA_ID": "313696945164986",
+    "WA_PHONE_NUMBER_ID": "343578442168997"
   },
   "assets": {
     "directory": "./site",

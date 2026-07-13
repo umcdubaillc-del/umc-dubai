@@ -961,16 +961,36 @@ async function handleWaWebhook(request, env, ctx, url) {
   // AMEND: once WA_WABA_ID / WA_PHONE_NUMBER_ID are pinned (after the first real
   // event), reject any envelope that doesn't match — a spoof guard on top of the
   // signature. Inert until the vars are set.
-  if (env.WA_WABA_ID || env.WA_PHONE_NUMBER_ID) {
-    const okMatch = entries.some((entry) => {
+  //
+  // Matched against the RAW delivered envelope: WABA id at entry[].id (top level),
+  // phone_number_id inside value.metadata. Two deliberate rules so we never drop
+  // legitimate traffic:
+  //   - EVERY entry's WABA id must match the pin (a mixed/spoofed entry fails).
+  //   - phone_number_id is checked ONLY when the change carries one. Message and
+  //     status events do; smb_app_state_sync / history events may not, and must
+  //     not be rejected merely for lacking it.
+  //   - An empty/entry-less body isn't validated here — it falls through to the
+  //     unknown-row path below rather than 403ing (avoids rejecting odd but
+  //     non-spoofed Meta posts).
+  if ((env.WA_WABA_ID || env.WA_PHONE_NUMBER_ID) && entries.length > 0) {
+    const okMatch = entries.every((entry) => {
       const wabaOk = !env.WA_WABA_ID || String(entry.id || "") === env.WA_WABA_ID;
       const changes = Array.isArray(entry.changes) ? entry.changes : [];
-      const phoneOk = !env.WA_PHONE_NUMBER_ID || changes.some(
-        (c) => c && c.value && c.value.metadata && c.value.metadata.phone_number_id === env.WA_PHONE_NUMBER_ID
-      );
+      const phoneOk = !env.WA_PHONE_NUMBER_ID || changes.every((c) => {
+        const pid = c && c.value && c.value.metadata && c.value.metadata.phone_number_id;
+        return !pid || pid === env.WA_PHONE_NUMBER_ID;
+      });
       return wabaOk && phoneOk;
     });
-    if (!okMatch) return new Response("forbidden", { status: 403 });
+    if (!okMatch) {
+      // Never silent: log the mismatch so a wrong pin is diagnosable in observability.
+      console.warn("WA guard reject " + JSON.stringify({
+        entryIds: entries.map((e) => e && e.id),
+        expectedWaba: env.WA_WABA_ID || null,
+        expectedPhone: env.WA_PHONE_NUMBER_ID || null
+      }));
+      return new Response("forbidden", { status: 403 });
+    }
   }
 
   // One row per change (the atomic webhook event). Empty/odd envelope → one
