@@ -193,8 +193,11 @@ export default {
 // legs fire, so a Sheets/Mailchimp/Resend outage can never lose a lead.
 // v93 — proof-of-consent text rendered on /booking and /contact, stored
 // verbatim on every lead so we can show exactly what the user agreed to.
-const MARKETING_CONSENT_TEXT =
-  "By submitting this form you agree to receive booking and marketing emails from UMC Dubai, and you may unsubscribe at any time.";
+// WA-1: the /booking consent line is BOOKING-CONTACT consent (contact about the
+// booking via WhatsApp / email / phone) — NOT marketing. Kept in lockstep with the
+// rendered line in build_pages.py. No marketing send may key off this consent.
+const BOOKING_CONSENT_TEXT =
+  "By submitting this form you agree to our Terms & Conditions and to be contacted about your booking via WhatsApp, email, or phone.";
 
 async function ensureLeadsSchema(env) {
   await env.BILLING_DB.prepare(
@@ -220,6 +223,9 @@ async function ensureLeadsSchema(env) {
     // Display-only VAT label per lead ('plus' => show "+VAT" suffix in the
     // admin Leads table; 'none' => plain amount). No calculation. Default none.
     "vat_mode TEXT DEFAULT 'none'",
+    // WA-1: 'yes' once a WhatsApp send to this lead is delivered/read; 'no' when Meta
+    // reports the recipient is not on WhatsApp (131026). NULL = unknown.
+    "whatsapp_reachable TEXT",
   ]) {
     try {
       await env.BILLING_DB.prepare(`ALTER TABLE leads ADD COLUMN ${col}`).run();
@@ -305,11 +311,14 @@ async function handleLead(request, env, ctx) {
   // v89 — durable local write FIRST (fail-open: a D1 error is logged, never
   // blocks delivery or the response).
   // v93 — proof-of-consent columns stamped on every lead.
+  let leadId = null;
   if (env.BILLING_DB) {
     try {
       await ensureLeadsSchema(env);
       const consentAt = new Date().toISOString();
-      await env.BILLING_DB.prepare(
+      // WA-1: marketing_consent = 0 — the booking form grants booking-contact consent
+      // only, not marketing. consent_text stores the exact booking-contact wording.
+      const ins = await env.BILLING_DB.prepare(
         `INSERT INTO leads
           (created_at, source, name, phone, email, service, pickup, destination,
            date, time, vehicle, days, flight, sign, notes, page, client_ts, payload_json,
@@ -320,8 +329,9 @@ async function handleLead(request, env, ctx) {
         payload.email, payload.service, payload.pickup, payload.destination,
         payload.date, payload.time, payload.vehicle, payload.days, payload.flight,
         payload.sign, payload.notes, payload.page, payload.ts, JSON.stringify(payload),
-        1, MARKETING_CONSENT_TEXT, consentAt, payload.verified
+        0, BOOKING_CONSENT_TEXT, consentAt, payload.verified
       ).run();
+      leadId = ins && ins.meta ? ins.meta.last_row_id : null;
     } catch (e) {
       console.error("LEADS_DB insert failed", e && (e.message || String(e)));
     }
@@ -330,10 +340,20 @@ async function handleLead(request, env, ctx) {
   const tasks = [];
   if (env.RESEND_API_KEY) tasks.push(sendEmail(env, payload, new URL(request.url).origin + "/admin/billing"));
   if (env.SHEETS_WEBHOOK_URL) tasks.push(appendSheet(env, payload));
-  if (payload.email && env.MC_API_KEY && env.MC_LIST_ID && env.MC_DC) {
-    tasks.push(addToMailchimp(env, payload));
-  }
+  // WA-1 consent change: the booking form grants booking-contact consent only, NOT
+  // marketing — so the Mailchimp marketing auto-subscribe (a marketing action keyed
+  // off form consent) is DISABLED. Re-enable only behind an explicit marketing opt-in.
+  // if (payload.email && env.MC_API_KEY && env.MC_LIST_ID && env.MC_DC) {
+  //   tasks.push(addToMailchimp(env, payload));
+  // }
   if (env.RESEND_API_KEY && payload.email && turnstileVerified) tasks.push(sendClientReceipt(env, payload));
+
+  // WA-1: booking-request WhatsApp acknowledgment (transactional/UTILITY). INERT until
+  // WA_SEND_ENABLED="1" (flip only once the template shows APPROVED). Booking-form leads
+  // only; one send per lead (idempotent); errors silent to the client, logged for us.
+  if (env.WA_SEND_ENABLED === "1" && payload.source === "booking" && leadId) {
+    tasks.push(sendBookingWhatsApp(env, leadId, payload));
+  }
 
   // Fire and forget — do not block the response
   ctx.waitUntil(Promise.allSettled(tasks));
@@ -1020,12 +1040,23 @@ async function handleWaWebhook(request, env, ctx, url) {
   }
   if (!rows.length) rows.push({ eventType: "unknown", waId: "", waba: "", payload: clip(raw, 8000) });
 
-  // Store, then 200. A D1 hiccup is logged, never surfaced — Meta must always
-  // get a fast 200 so it doesn't retry or disable the subscription.
+  // WA-1 reachability: collect any status events (sent/delivered/read/failed) to
+  // match back to wa_sends by wamid.
+  const statuses = [];
+  for (const entry of entries) {
+    for (const change of (Array.isArray(entry.changes) ? entry.changes : [])) {
+      const st = change && change.value && change.value.statuses;
+      if (Array.isArray(st)) statuses.push(...st);
+    }
+  }
+
+  // Store + apply status, then 200. A D1 hiccup is logged, never surfaced — Meta
+  // must always get a fast 200 so it doesn't retry or disable the subscription.
   try {
     await storeWaEvents(env, rows);
+    if (statuses.length) await applyWaStatuses(env, statuses);
   } catch (e) {
-    console.error("WA store failed", e && (e.message || String(e)));
+    console.error("WA store/status failed", e && (e.message || String(e)));
   }
   return new Response("ok", { status: 200 });
 }
@@ -1058,3 +1089,130 @@ async function handleWaEventsPeek(request, env) {
   }
 }
 // ── end WA-0 ─────────────────────────────────────────────────────────────────
+
+// ── WA-1: booking-request acknowledgment send + reachability ─────────────────
+async function ensureWaSendsSchema(env) {
+  await env.BILLING_DB.prepare(
+    `CREATE TABLE IF NOT EXISTS wa_sends (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       lead_id INTEGER NOT NULL UNIQUE,
+       wamid TEXT,
+       template TEXT,
+       status TEXT,
+       error_code TEXT,
+       updated_at TEXT NOT NULL
+     )`
+  ).run();
+  try {
+    await env.BILLING_DB.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_wa_sends_wamid ON wa_sends (wamid)`
+    ).run();
+  } catch (e) { /* index may already exist */ }
+}
+
+// {{2}} summary — "{vehicle} · {date}, {time} · {pickup} → {destination}" — compose
+// gracefully: drop any missing piece with no dangling separators.
+function waSummaryLine(p) {
+  const dateTime = [p.date, p.time].filter((x) => x && String(x).trim()).join(", ");
+  const route = [p.pickup, p.destination].filter((x) => x && String(x).trim()).join(" → ");
+  return [p.vehicle, dateTime, route].filter((x) => x && String(x).trim()).join(" · ");
+}
+
+// E.164 digits (no +) for the WhatsApp recipient. payload.phone is "+<cc> <digits>".
+function waNormalizePhone(phone) {
+  return String(phone || "").replace(/\D/g, "");
+}
+
+// Send the booking_request_received template. Idempotent per lead (UNIQUE lead_id).
+// Errors are logged, never surfaced to the client. Called only when WA_SEND_ENABLED.
+async function sendBookingWhatsApp(env, leadId, payload) {
+  if (!env.BILLING_DB || !env.WA_PHONE_NUMBER_ID || !env.WA_ACCESS_TOKEN) return;
+  const to = waNormalizePhone(payload.phone);
+  if (to.length < 8) return; // no usable mobile number
+  const firstName = (payload.name || "").trim().split(/\s+/)[0] || "there";
+  const summary = waSummaryLine(payload);
+  await ensureWaSendsSchema(env);
+
+  // Claim the send row first — UNIQUE(lead_id) makes a duplicate attempt for the
+  // same lead throw, so exactly one send per lead.
+  try {
+    await env.BILLING_DB.prepare(
+      `INSERT INTO wa_sends (lead_id, template, status, updated_at) VALUES (?,?,?,?)`
+    ).bind(leadId, "booking_request_received", "queued", new Date().toISOString()).run();
+  } catch (e) {
+    return; // already queued/sent for this lead
+  }
+
+  let wamid = null, status = "failed", errorCode = null;
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/${env.WA_GRAPH_VERSION || "v21.0"}/${env.WA_PHONE_NUMBER_ID}/messages`,
+      {
+        method: "POST",
+        headers: { Authorization: "Bearer " + env.WA_ACCESS_TOKEN, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to,
+          type: "template",
+          template: {
+            name: "booking_request_received",
+            language: { code: "en" },
+            components: [
+              {
+                type: "body",
+                parameters: [
+                  { type: "text", text: firstName },
+                  { type: "text", text: summary }
+                ]
+              }
+            ]
+          }
+        })
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.messages && data.messages[0] && data.messages[0].id) {
+      wamid = data.messages[0].id;
+      status = "sent";
+    } else {
+      const err = data && data.error;
+      errorCode = err ? String(err.code || "") : String(res.status);
+      console.error("WA send failed", res.status, JSON.stringify(err || data).slice(0, 300));
+    }
+  } catch (e) {
+    errorCode = "exception";
+    console.error("WA send threw", e && (e.message || String(e)));
+  }
+
+  await env.BILLING_DB.prepare(
+    `UPDATE wa_sends SET wamid=?, status=?, error_code=?, updated_at=? WHERE lead_id=?`
+  ).bind(wamid, status, errorCode, new Date().toISOString(), leadId).run();
+}
+
+// Reachability: match status events (by wamid) to wa_sends, and set the lead's
+// whatsapp_reachable — delivered/read => 'yes'; 131026 (not on WhatsApp) => 'no'.
+async function applyWaStatuses(env, statuses) {
+  if (!env.BILLING_DB) return;
+  await ensureWaSendsSchema(env);
+  for (const s of statuses) {
+    const wamid = s && s.id;
+    if (!wamid) continue;
+    const status = String((s && s.status) || "").toLowerCase();
+    const err = Array.isArray(s.errors) && s.errors[0] ? s.errors[0] : null;
+    const errorCode = err ? String(err.code || "") : null;
+    await env.BILLING_DB.prepare(
+      `UPDATE wa_sends SET status=?, error_code=?, updated_at=? WHERE wamid=?`
+    ).bind(status || null, errorCode, new Date().toISOString(), wamid).run();
+
+    let reachable = null;
+    if (status === "delivered" || status === "read") reachable = "yes";
+    else if (errorCode === "131026") reachable = "no";
+    if (reachable) {
+      await env.BILLING_DB.prepare(
+        `UPDATE leads SET whatsapp_reachable=?
+           WHERE id = (SELECT lead_id FROM wa_sends WHERE wamid=?)`
+      ).bind(reachable, wamid).run();
+    }
+  }
+}
+// ── end WA-1 ─────────────────────────────────────────────────────────────────

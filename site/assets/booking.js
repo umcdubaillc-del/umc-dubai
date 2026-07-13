@@ -476,9 +476,9 @@ function trackLead(formId, service){
 
   // terms dialog
   const dlg = document.getElementById("termsDlg");
-  const opener = document.getElementById("openTerms");
-  if(dlg && opener){
-    opener.addEventListener("click", e=>{ e.preventDefault(); dlg.showModal(); });
+  const openers = document.querySelectorAll("#openTerms, .js-openterms");
+  if(dlg && openers.length){
+    openers.forEach(o=>o.addEventListener("click", e=>{ e.preventDefault(); dlg.showModal(); }));
     dlg.querySelector(".x").addEventListener("click", ()=>dlg.close());
   }
 

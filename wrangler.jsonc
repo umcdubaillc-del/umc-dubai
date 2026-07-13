@@ -50,7 +50,10 @@
     // entry[].id != WA_WABA_ID, or whose value.metadata.phone_number_id (when
     // present) != WA_PHONE_NUMBER_ID.
     "WA_WABA_ID": "313696945164986",
-    "WA_PHONE_NUMBER_ID": "343578442168997"
+    "WA_PHONE_NUMBER_ID": "343578442168997",
+    // WA-1: booking-request WhatsApp send. Kept "0" (inert) until the
+    // booking_request_received template shows APPROVED — flip to "1" to go live.
+    "WA_SEND_ENABLED": "0"
   },
   "assets": {
     "directory": "./site",
