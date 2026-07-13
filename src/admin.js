@@ -83,7 +83,9 @@ async function expectedSession(env) {
   return sha256Hex(env.ADMIN_PASSWORD + SESSION_SUFFIX);
 }
 
-async function isAuthed(request, env) {
+// Exported (WA-0) so index.js can gate the temporary /admin/api/wa-events peek
+// behind the same admin session cookie without duplicating the auth logic.
+export async function isAuthed(request, env) {
   const expected = await expectedSession(env);
   if (!expected) return false;
   return readCookie(request, COOKIE_NAME) === expected;

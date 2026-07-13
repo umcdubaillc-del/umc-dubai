@@ -1,6 +1,6 @@
 /* (c) UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 
-import { handleAdmin, handleFleetRatesPublic } from "./admin.js";
+import { handleAdmin, handleFleetRatesPublic, isAuthed } from "./admin.js";
 
 // Cloudflare Worker (with static assets) — entry point.
 //
@@ -112,6 +112,16 @@ export default {
     // Google key never touches the client — only this same-origin JSON does.
     if (url.pathname === "/api/reviews") {
       return handleReviews(env, ctx);
+    }
+
+    // WA-0: WhatsApp Cloud API webhook (Dualhook). The route only resolves when
+    // the high-entropy path segment matches env.WA_PATH_TOKEN; anything else 404s.
+    if (url.pathname.startsWith("/api/wa/webhook/")) {
+      return handleWaWebhook(request, env, ctx, url);
+    }
+    // WA-0: temporary admin-only peek at the last 20 received events (onboarding).
+    if (url.pathname === "/admin/api/wa-events") {
+      return handleWaEventsPeek(request, env);
     }
 
     if (url.pathname === "/admin/billing" ||
@@ -837,3 +847,179 @@ function md5(s) {
   }
   return rh(a) + rh(b) + rh(c) + rh(d);
 }
+
+// ── WA-0: WhatsApp Cloud API webhook receiver (Dualhook onboarding) ──────────
+// Foundation only: verify Meta's GET handshake, validate the POST (optional
+// X-Hub-Signature-256 + optional pinned WABA/phone_number_id), and log every
+// event to wa_events. No messaging logic yet. Always return 200 fast on a valid
+// request so Meta never retries or disables the subscription.
+//
+// Secrets/vars (set in Cloudflare → umc-dubai → Variables and Secrets, or via
+// `wrangler secret put`):
+//   WA_PATH_TOKEN       required — 32+ char random; the {token} segment of the URL
+//   WA_VERIFY_TOKEN     required — Meta webhook verify token (GET handshake)
+//   WA_APP_SECRET       optional — Meta app secret; when set, X-Hub-Signature-256 is enforced
+//   WA_WABA_ID          optional — pin after first event; envelopes with a different WABA id are rejected
+//   WA_PHONE_NUMBER_ID  optional — pin after first event; envelopes with a different phone_number_id are rejected
+
+async function ensureWaEventsSchema(env) {
+  await env.BILLING_DB.prepare(
+    `CREATE TABLE IF NOT EXISTS wa_events (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       event_type TEXT,
+       wa_id TEXT,
+       payload_json TEXT NOT NULL,
+       received_at TEXT NOT NULL
+     )`
+  ).run();
+}
+
+// Constant-time compare (mirrors admin.js timingSafeEq) so token/signature
+// checks don't leak via response timing.
+function waTimingSafeEq(a, b) {
+  a = String(a == null ? "" : a); b = String(b == null ? "" : b);
+  const len = Math.max(a.length, b.length);
+  let out = a.length ^ b.length;
+  for (let i = 0; i < len; i++) out |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  return out === 0;
+}
+
+async function hmacSha256Hex(secret, message) {
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Derive (event_type, wa_id) for one WhatsApp `changes[]` entry, best-effort.
+function deriveWaEvent(change) {
+  const field = (change && change.field) || "";
+  const value = (change && change.value) || {};
+  let eventType = field || "unknown";
+  let waId = "";
+  if (Array.isArray(value.messages) && value.messages.length) {
+    eventType = "messages";
+    waId = (value.contacts && value.contacts[0] && value.contacts[0].wa_id) ||
+           value.messages[0].from || "";
+  } else if (Array.isArray(value.statuses) && value.statuses.length) {
+    eventType = "statuses";
+    waId = value.statuses[0].recipient_id || "";
+  } else if (value.metadata) {
+    waId = value.metadata.phone_number_id || "";
+  }
+  return { eventType, waId };
+}
+
+async function handleWaWebhook(request, env, ctx, url) {
+  // The route only exists when the path token matches the secret. Unknown or
+  // unset token → 404, revealing nothing.
+  const token = url.pathname.slice("/api/wa/webhook/".length).replace(/\/+$/, "");
+  if (!env.WA_PATH_TOKEN || !waTimingSafeEq(token, env.WA_PATH_TOKEN)) {
+    return new Response("Not found", { status: 404 });
+  }
+
+  // GET: Meta verification handshake — echo hub.challenge when the verify token matches.
+  if (request.method === "GET") {
+    const mode = url.searchParams.get("hub.mode");
+    const verify = url.searchParams.get("hub.verify_token");
+    const challenge = url.searchParams.get("hub.challenge");
+    if (mode === "subscribe" && env.WA_VERIFY_TOKEN && waTimingSafeEq(verify, env.WA_VERIFY_TOKEN)) {
+      return new Response(challenge || "", { status: 200, headers: { "Content-Type": "text/plain" } });
+    }
+    return new Response("Forbidden", { status: 403 });
+  }
+
+  if (request.method !== "POST") {
+    return new Response("Method Not Allowed", { status: 405, headers: { "Allow": "GET, POST" } });
+  }
+
+  const raw = await request.text();
+
+  // Signature: tolerant-if-unset now, hard-required later. When WA_APP_SECRET is
+  // set, an invalid/absent X-Hub-Signature-256 is rejected.
+  if (env.WA_APP_SECRET) {
+    const header = request.headers.get("X-Hub-Signature-256") || "";
+    const expected = "sha256=" + (await hmacSha256Hex(env.WA_APP_SECRET, raw));
+    if (!waTimingSafeEq(header, expected)) {
+      return new Response("invalid signature", { status: 401 });
+    }
+  }
+
+  let envelope;
+  try {
+    envelope = JSON.parse(raw);
+  } catch {
+    // Never drop silently during onboarding — log the unparseable body.
+    ctx.waitUntil(storeWaEvents(env, [{ eventType: "unknown", waId: "", payload: clip(raw, 8000) }]).catch(() => {}));
+    return new Response("ok", { status: 200 });
+  }
+
+  const entries = Array.isArray(envelope.entry) ? envelope.entry : [];
+
+  // AMEND: once WA_WABA_ID / WA_PHONE_NUMBER_ID are pinned (after the first real
+  // event), reject any envelope that doesn't match — a spoof guard on top of the
+  // signature. Inert until the vars are set.
+  if (env.WA_WABA_ID || env.WA_PHONE_NUMBER_ID) {
+    const okMatch = entries.some((entry) => {
+      const wabaOk = !env.WA_WABA_ID || String(entry.id || "") === env.WA_WABA_ID;
+      const changes = Array.isArray(entry.changes) ? entry.changes : [];
+      const phoneOk = !env.WA_PHONE_NUMBER_ID || changes.some(
+        (c) => c && c.value && c.value.metadata && c.value.metadata.phone_number_id === env.WA_PHONE_NUMBER_ID
+      );
+      return wabaOk && phoneOk;
+    });
+    if (!okMatch) return new Response("forbidden", { status: 403 });
+  }
+
+  // One row per change (the atomic webhook event). Empty/odd envelope → one
+  // "unknown" row with the raw body so nothing is lost during onboarding.
+  const rows = [];
+  for (const entry of entries) {
+    const changes = Array.isArray(entry.changes) ? entry.changes : [];
+    for (const change of changes) {
+      const { eventType, waId } = deriveWaEvent(change);
+      rows.push({ eventType, waId, payload: JSON.stringify(change) });
+    }
+  }
+  if (!rows.length) rows.push({ eventType: "unknown", waId: "", payload: clip(raw, 8000) });
+
+  // Store, then 200. A D1 hiccup is logged, never surfaced — Meta must always
+  // get a fast 200 so it doesn't retry or disable the subscription.
+  try {
+    await storeWaEvents(env, rows);
+  } catch (e) {
+    console.error("WA store failed", e && (e.message || String(e)));
+  }
+  return new Response("ok", { status: 200 });
+}
+
+async function storeWaEvents(env, rows) {
+  if (!env.BILLING_DB || !rows || !rows.length) return;
+  await ensureWaEventsSchema(env);
+  const now = new Date().toISOString();
+  for (const r of rows) {
+    await env.BILLING_DB.prepare(
+      `INSERT INTO wa_events (event_type, wa_id, payload_json, received_at) VALUES (?,?,?,?)`
+    ).bind(r.eventType || "unknown", r.waId || "", r.payload || "", now).run();
+  }
+}
+
+// Temporary onboarding aid: admin-cookie-gated JSON of the last 20 events, so we
+// can watch events arrive during Dualhook setup. Remove once WA has a real UI.
+async function handleWaEventsPeek(request, env) {
+  if (!(await isAuthed(request, env))) return json({ ok: false, error: "unauthorized" }, 401);
+  try {
+    await ensureWaEventsSchema(env);
+    const res = await env.BILLING_DB.prepare(
+      `SELECT id, event_type, wa_id, payload_json, received_at
+         FROM wa_events ORDER BY id DESC LIMIT 20`
+    ).all();
+    const rows = (res && res.results) || [];
+    return json({ ok: true, count: rows.length, events: rows }, 200);
+  } catch (e) {
+    return json({ ok: false, error: clip(e && (e.message || String(e)), 300) }, 500);
+  }
+}
+// ── end WA-0 ─────────────────────────────────────────────────────────────────
