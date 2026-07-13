@@ -1,6 +1,7 @@
 /* (c) UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 
 import { handleAdmin, handleFleetRatesPublic, isAuthed } from "./admin.js";
+import { handleWaTemplates } from "./wa-templates.js";
 
 // Cloudflare Worker (with static assets) — entry point.
 //
@@ -122,6 +123,11 @@ export default {
     // WA-0: temporary admin-only peek at the last 20 received events (onboarding).
     if (url.pathname === "/admin/api/wa-events") {
       return handleWaEventsPeek(request, env);
+    }
+    // WA-1: admin-gated template-management rail (submit/list message templates
+    // server-side; WA_ACCESS_TOKEN never leaves the Worker).
+    if (url.pathname === "/admin/api/wa-templates") {
+      return handleWaTemplates(request, env);
     }
 
     if (url.pathname === "/admin/billing" ||
