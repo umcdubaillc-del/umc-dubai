@@ -3706,6 +3706,8 @@ async function handleListLeads(env) {
             viewed_at,
             -- WA-2 C: persisted quote amount (NULL until the operator Saves one).
             quote_price,
+            -- WA-2 E: reachability badge source ('yes'|'no'|NULL=unknown).
+            whatsapp_reachable,
             linked_doc_number, converted_at
        FROM leads
       ORDER BY id DESC LIMIT 500`
@@ -4396,6 +4398,55 @@ async function handleLeadWaStatus(id, env) {
   return json({ ok: true, quote: row || null });
 }
 
+// ── Gate E — per-client WhatsApp thread state for the Leads-row chips ─────────
+// Returns a map keyed by normalized client phone → { state:'awaiting'|'responded',
+// at: ISO }. Inbound = wa_events 'messages' (wa_id = client). Outbound = manual app
+// replies ('smb_message_echoes', recipient parsed from payload) + our API sends
+// (wa_outbound client kinds). "awaiting" iff the client's last inbound is newer than
+// our last outbound; otherwise "responded" (at = last outbound).
+async function handleLeadThreads(env) {
+  await ensureSchema(env);
+  const lastIn = new Map(), lastOut = new Map();
+  const bump = (m, p, at) => { if (!p || !at) return; const c = m.get(p); if (!c || at > c) m.set(p, at); };
+
+  const { results: evs } = await env.BILLING_DB.prepare(
+    `SELECT event_type, wa_id, payload_json, received_at
+       FROM wa_events
+      WHERE event_type IN ('messages','smb_message_echoes')
+      ORDER BY id DESC LIMIT 2000`
+  ).all();
+  for (const e of (evs || [])) {
+    if (e.event_type === "messages") {
+      bump(lastIn, String(e.wa_id || ""), e.received_at);
+    } else {
+      let to = "";
+      try {
+        const v = (JSON.parse(e.payload_json) || {}).value || {};
+        const echo = (v.message_echoes && v.message_echoes[0]) || {};
+        to = echo.to || (v.contacts && v.contacts[0] && v.contacts[0].wa_id) || "";
+      } catch (_) { /* skip unparseable */ }
+      bump(lastOut, String(to), e.received_at);
+    }
+  }
+  // Our API sends to the client also count as a reply (WA-2 wa_outbound client kinds).
+  const { results: outs } = await env.BILLING_DB.prepare(
+    `SELECT recipient, updated_at FROM wa_outbound
+      WHERE kind IN ('quote','payment','flight') AND recipient IS NOT NULL
+        AND status IN ('sent','delivered','read')`
+  ).all();
+  for (const o of (outs || [])) bump(lastOut, String(o.recipient), o.updated_at);
+
+  const threads = {};
+  const phones = new Set([...lastIn.keys(), ...lastOut.keys()]);
+  for (const p of phones) {
+    const inAt = lastIn.get(p) || null, outAt = lastOut.get(p) || null;
+    if (!inAt && !outAt) continue;
+    if (inAt && (!outAt || outAt < inAt)) threads[p] = { state: "awaiting", at: inAt };
+    else threads[p] = { state: "responded", at: outAt };
+  }
+  return json({ ok: true, threads });
+}
+
 // Match statuses-webhook events to wa_outbound by wamid; update status/error and,
 // for client-directed kinds, the lead's whatsapp_reachable. Called from index.js.
 export async function applyWaOutboundStatuses(env, statuses) {
@@ -4580,6 +4631,13 @@ export async function handleAdmin(request, env) {
     if (!authed) return json({ ok: false, error: "auth required" }, 401);
     if (!env.BILLING_DB) return dbUnavailable();
     return handleListLeads(env);
+  }
+  // WA-2 E — per-client WhatsApp thread state for the lead-row response chips.
+  if (path === "/admin/api/lead-threads" && method === "GET") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    return handleLeadThreads(env);
   }
   // Phase 1.3 — DELETE a lead (hard delete; leads carry no financial impact).
   {
@@ -9653,7 +9711,7 @@ const PAGE_SCRIPT = `<script>
         return '<tr class="expandable" data-expandable="1" data-leadid="'+x.id+'" data-leadseen="'+(isUnseen?'0':'1')+'" data-leadstat="'+status+'" data-sortdate="'+esc(x.created_at||"")+'" data-sortamount="'+sortAmount+'">'
           + '<td data-lbl="Date">'+esc(created)+'</td>'
           + '<td data-lbl="Name">'+esc(x.name || "")+newBadge+'</td>'
-          + '<td data-lbl="Contact">'+(contactBits.join('<br>') || '<span style="color:var(--muted)">·</span>')+'</td>'
+          + '<td data-lbl="Contact">'+(contactBits.join('<br>') || '<span style="color:var(--muted)">·</span>')+'<div class="lead-chips" data-leadchips="'+x.id+'" style="margin-top:.3rem;display:flex;gap:.3rem;flex-wrap:wrap"></div></td>'
           + '<td data-lbl="Service">'+esc(serviceBits || "·")+'</td>'
           + '<td data-lbl="Route">'+esc(route || "·")+'</td>'
           + '<td data-lbl="Consent">'+consent+'</td>'
@@ -9664,7 +9722,39 @@ const PAGE_SCRIPT = `<script>
           + '<tr class="hist-actions-row" hidden><td colspan="9"><div class="hist-actions-panel">'+openBtn+followupBlock+'</div></td></tr>';
       }).join("");
       applyLeadsFilter();
+      loadLeadThreads(); // WA-2 E — response chips (async; fills after the rows render)
     } catch(e){ setStatus("Leads load failed."); console.log("loadLeads error:", e); }
+  }
+  // WA-2 E — Leads-row chip cluster: WhatsApp reachability + response state.
+  function fmtHM(iso){
+    try { return new Date(iso).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" }); } catch(_){ return ""; }
+  }
+  function renderLeadChips(threads){
+    threads = threads || {};
+    (leadsCache || []).forEach(function(x){
+      var holder = document.querySelector('[data-leadchips="'+x.id+'"]');
+      if(!holder) return;
+      var chips = [];
+      if(x.whatsapp_reachable === "yes"){
+        chips.push('<span class="lchip" style="background:rgba(31,168,85,.14);color:#1a7d43;border:1px solid rgba(31,168,85,.32);padding:.05rem .45rem;border-radius:10px;font-size:.72rem;white-space:nowrap">WhatsApp \\u2713</span>');
+      } else if(x.whatsapp_reachable === "no"){
+        chips.push('<span class="lchip" style="background:rgba(120,110,95,.12);color:var(--muted);border:1px solid rgba(120,110,95,.25);padding:.05rem .45rem;border-radius:10px;font-size:.72rem;white-space:nowrap">No WhatsApp</span>');
+      }
+      var num = normalizeWaNumber(x.phone);
+      var t = num ? threads[num] : null;
+      if(t && t.state === "awaiting"){
+        chips.push('<span class="lchip" style="background:rgba(199,91,18,.14);color:#a84b0c;border:1px solid rgba(199,91,18,.3);padding:.05rem .45rem;border-radius:10px;font-size:.72rem;white-space:nowrap">Awaiting reply</span>');
+      } else if(t && t.state === "responded"){
+        chips.push('<span class="lchip" style="background:rgba(34,27,20,.06);color:var(--ink-soft,#4a4136);border:1px solid rgba(34,27,20,.12);padding:.05rem .45rem;border-radius:10px;font-size:.72rem;white-space:nowrap">Responded '+esc(fmtHM(t.at))+'</span>');
+      }
+      holder.innerHTML = chips.join("");
+    });
+  }
+  function loadLeadThreads(){
+    fetch("/admin/api/lead-threads", { credentials:"same-origin" })
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if(j && j.ok) renderLeadChips(j.threads); })
+      .catch(function(){ /* chips are best-effort */ });
   }
   // Prefill is editable: every value below is a starting value, not a fixed
   // one. lead_id travels along silently for lineage; editing any prefilled
