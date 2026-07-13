@@ -57,7 +57,8 @@ export const WA_TEMPLATES = {
         text:
           "New booking request — {{1}}.\n" +
           "{{2}}\n" +
-          "Summary emailed to the client. Respond here: {{3}}",
+          "Respond here: {{3}}\n" +
+          "Summary emailed to the client.",
         example: {
           body_text: [[
             "Sarah Wells",
