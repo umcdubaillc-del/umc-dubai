@@ -4258,9 +4258,28 @@ export async function sendLeadAlerts(env, leadId, lead, opts) {
   opts = opts || {};
   if (!env.BILLING_DB) return { sent: 0, skipped: 0 };
   await ensureSchema(env);
+
+  // Ruling #5 — duplicate-submission guard: the same normalized phone + service +
+  // pickup date/time within 10 minutes gets a SINGLE alert. Skip the whole fan-out
+  // if a matching team_alert was logged in the window. Not applied to escalations.
+  const sig = (waMeNumber(lead.phone) + "|" + waNz(lead.service) + "|" + waNz(lead.date) + "|" + waNz(lead.time))
+    .replace(/[^a-z0-9|]/gi, "").toLowerCase();
+  if (!opts.escalation && sig) {
+    const tenAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const dupe = await env.BILLING_DB.prepare(
+      `SELECT 1 FROM wa_outbound WHERE kind='team_alert' AND created_at >= ? AND meta_json LIKE ? LIMIT 1`
+    ).bind(tenAgo, '%"sig":"' + sig + '"%').first();
+    if (dupe) return { sent: 0, skipped: 0, duplicate: true };
+  }
+
   const team = await getActiveWaTeam(env);
   const clientName = waNz(lead.name) || "a new client";
-  const summary = waLeadSummary(lead) || "New reservation request";
+  // Ruling #1 — the team alert {{2}} carries the request/notes INLINE (one line;
+  // Meta forbids newlines in a body variable) so responders never quote blind to a
+  // special request. The CLIENT-facing quote still excludes notes.
+  let summary = waLeadSummary(lead) || "New reservation request";
+  const req = waNz(lead.notes);
+  if (req) summary = summary + " · Request: " + req.slice(0, 300);
   const quoteUrl = waQuoteUrl(lead) || ("https://wa.me/" + waMeNumber(lead.phone));
   const nameParam = opts.escalation ? ("⏱ Unanswered 30 min — " + clientName) : clientName;
   const kind = opts.escalation ? "escalation" : "team_alert";
@@ -4271,7 +4290,7 @@ export async function sendLeadAlerts(env, leadId, lead, opts) {
     const dedupe = (opts.escalation ? "escalation:" : "alert:") + leadId + ":" + to;
     const rowId = await claimOutbound(env, {
       lead_id: leadId, kind, recipient: to, template: "lead_alert",
-      dedupe_key: dedupe, meta_json: JSON.stringify({ summary })
+      dedupe_key: dedupe, meta_json: JSON.stringify({ summary, sig })
     });
     if (!rowId) { skipped++; continue; } // already alerted this member for this lead
     const result = await waGraphSend(env, {
@@ -4357,7 +4376,14 @@ async function handleSendLeadWhatsApp(request, env) {
   const result = await waGraphSend(env, sendPayload);
   if (rowId) await finishOutbound(env, rowId, result);
   if (!result.ok) return json({ ok: false, mode, error: "WhatsApp rejected the send (code " + (result.errorCode || "?") + ")." }, 502);
-  return json({ ok: true, mode, wamid: result.wamid, status: result.status, outboundId: rowId });
+  // Gate C ruling — a successful API quote send stamps the lead QUOTED (best-effort;
+  // never downgrades a lead already 'quoted'/'invoiced').
+  try {
+    await env.BILLING_DB.prepare(
+      `UPDATE leads SET status='quoted' WHERE id = ? AND COALESCE(status,'new') = 'new'`
+    ).bind(leadId).run();
+  } catch (e) { /* stamp is best-effort */ }
+  return json({ ok: true, mode, quoted: true, wamid: result.wamid, status: result.status, outboundId: rowId });
 }
 
 // Latest quote-send status for a lead's row ticks (sending/sent/delivered/read).
@@ -9613,7 +9639,8 @@ const PAGE_SCRIPT = `<script>
           +   '<span class="lvs-label" data-leadvat-label="'+x.id+'">'+(isPlusVat?'+VAT':'No VAT')+'</span>'
           + '</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leadsave="'+x.id+'" title="Save this quote price (used by the messages and when generating a quote/invoice)">Save</button>'
-          + '<button type="button" class="btn btn-small btn-ink" data-leadwa="'+x.id+'"'+(hasPhone?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Send this follow-up to the client on WhatsApp">WhatsApp client</button>'
+          + '<button type="button" class="btn btn-small btn-ink" data-leadwasend="'+x.id+'"'+(hasPhone?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Send the quote to the client from the UMC WhatsApp number, with live delivery ticks">Send from UMC number</button>'
+          + '<button type="button" class="btn btn-small btn-ghost" data-leadwaopen="'+x.id+'"'+(hasPhone?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Open WhatsApp with the quote prefilled to send it yourself">Open in WhatsApp</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leadcopy="'+x.id+'" title="Copy this follow-up message">Copy quote</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leademail="'+x.id+'"'+(hasEmail?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Email this follow-up to the client">Email client</button>'
           // WA-2 C — live delivery status for the desktop WhatsApp send (sending →
@@ -10914,12 +10941,9 @@ const PAGE_SCRIPT = `<script>
         if(btn) btn.disabled = false;
         var j = res.j || {};
         if(res.http === 409 && j.disabled){
-          // WA_SEND_ENABLED=0 — fall back to opening WhatsApp so the operator can
-          // still send manually from the desktop app.
-          setLeadWaStatus(id, "Opening WhatsApp\\u2026");
-          var msg = buildLeadMessage(lead, readLeadQuote(id));
-          window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(msg), "_blank", "noopener");
-          setTimeout(function(){ setLeadWaStatus(id, ""); }, 2500);
+          // WA_SEND_ENABLED=0 — there is a dedicated "Open in WhatsApp" button for
+          // the manual path, so point to it rather than auto-opening.
+          setLeadWaStatus(id, "Sending is off \\u2014 use \\u201cOpen in WhatsApp\\u201d", "err");
           return;
         }
         if(!j.ok){ setLeadWaStatus(id, (j.error || "Send failed"), "err"); return; }
@@ -11142,25 +11166,34 @@ const PAGE_SCRIPT = `<script>
       }
       // v103 — follow-up: WhatsApp / Copy / Email. Each reads the quote-price
       // input live at click time and builds the message from the lead's fields.
-      const waBtn = e.target.closest("[data-leadwa]");
-      if(waBtn){
+      // WA-2 C — identical actions on every device (the admin is a browser
+      // everywhere; capability must not fork on user-agent). Primary "Send from
+      // UMC number" (API + live ticks); secondary "Open in WhatsApp" (wa.me).
+      const waSendBtn = e.target.closest("[data-leadwasend]");
+      if(waSendBtn){
         e.preventDefault();
-        if(waBtn.disabled) return;
-        const id = Number(waBtn.getAttribute("data-leadwa"));
+        if(waSendBtn.disabled) return;
+        const id = Number(waSendBtn.getAttribute("data-leadwasend"));
         const lead = leadsCache.find(function(z){ return Number(z.id) === id; });
         if(!lead) return;
         const num = normalizeWaNumber(lead.phone);
         if(!num){ setStatus("This lead has no phone number."); return; }
-        // WA-2 C — Mobile: open wa.me so the operator sends from their own phone.
-        // Desktop: send via the API from the business number, with live ticks.
         commitLeadQuote(id); // persist the current amount before sending
-        const isMobile = window.matchMedia("(max-width: 620px)").matches;
-        if(isMobile){
-          const msg = buildLeadMessage(lead, readLeadQuote(id));
-          window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(msg), "_blank", "noopener");
-          return;
-        }
-        sendLeadWhatsApp(id, waBtn, lead, num);
+        sendLeadWhatsApp(id, waSendBtn, lead, num);
+        return;
+      }
+      const waOpenBtn = e.target.closest("[data-leadwaopen]");
+      if(waOpenBtn){
+        e.preventDefault();
+        if(waOpenBtn.disabled) return;
+        const id = Number(waOpenBtn.getAttribute("data-leadwaopen"));
+        const lead = leadsCache.find(function(z){ return Number(z.id) === id; });
+        if(!lead) return;
+        const num = normalizeWaNumber(lead.phone);
+        if(!num){ setStatus("This lead has no phone number."); return; }
+        commitLeadQuote(id); // persist the current amount before opening
+        const msg = buildLeadMessage(lead, readLeadQuote(id));
+        window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(msg), "_blank", "noopener");
         return;
       }
       const cpBtn = e.target.closest("[data-leadcopy]");
