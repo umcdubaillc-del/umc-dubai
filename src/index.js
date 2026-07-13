@@ -1,6 +1,9 @@
 /* (c) UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 
-import { handleAdmin, handleFleetRatesPublic, isAuthed } from "./admin.js";
+import {
+  handleAdmin, handleFleetRatesPublic, isAuthed,
+  sendLeadAlerts, waQuoteUrl, applyWaOutboundStatuses
+} from "./admin.js";
 import { handleWaTemplates } from "./wa-templates.js";
 
 // Cloudflare Worker (with static assets) — entry point.
@@ -354,6 +357,13 @@ async function handleLead(request, env, ctx) {
     tasks.push(sendBookingWhatsApp(env, leadId, payload));
   }
 
+  // WA-2 B: alert every active team member (lead_alert) on a new booking, with a
+  // wa.me link to the client carrying the prefilled quote. Booking-form leads only;
+  // idempotent per (lead, member). Inert until WA_SEND_ENABLED="1".
+  if (env.WA_SEND_ENABLED === "1" && payload.source === "booking" && leadId) {
+    tasks.push(sendLeadAlerts(env, leadId, payload));
+  }
+
   // Fire and forget — do not block the response
   ctx.waitUntil(Promise.allSettled(tasks));
   return json({ ok: true }, 200);
@@ -575,6 +585,8 @@ async function sendEmail(env, b, adminUrl) {
   // default). Derived from the request origin so it follows the domain across
   // cutover; falls back to env.ADMIN_URL then the workers.dev host (selftest).
   const adminLink = adminUrl || env.ADMIN_URL || "https://umc-dubai.umcdubaillc.workers.dev/admin/billing";
+  // WA-2 B — prefilled wa.me link to the client for the "WhatsApp the client" button.
+  const waUrl = waQuoteUrl(b);
   // v22: split into "Guest details" + "Request details" sections; labels renamed to match
   // the website form's wording (Vehicle → Vehicle or service, Notes → Request).
   const guestRowsHtml = emailRows([
@@ -612,6 +624,12 @@ async function sendEmail(env, b, adminUrl) {
     `</td></tr>` +
     `<tr><td style="padding:8px 28px 24px 28px;text-align:center">` +
       `<a href="${adminLink}" style="display:inline-block;background:#A84B0C;color:#FBF8F1;text-decoration:none;padding:13px 32px;font-size:12px;letter-spacing:.18em;text-transform:uppercase;font-weight:600;border-radius:3px">View in admin</a>` +
+      // WA-2 B — one-tap "WhatsApp the client": opens a chat to the guest with the
+      // quote prefilled (mirrors the admin quote text). Shown only when we have a
+      // usable mobile number. A plain wa.me link — works regardless of WA_SEND_ENABLED.
+      (waUrl
+        ? ` &nbsp; <a href="${waUrl}" style="display:inline-block;background:#1FA855;color:#FBF8F1;text-decoration:none;padding:13px 32px;font-size:12px;letter-spacing:.18em;text-transform:uppercase;font-weight:600;border-radius:3px">WhatsApp the client</a>`
+        : "") +
       `<p style="margin:10px 0 0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;color:#7A6F5F">Opens the Leads tab. Sign in if prompted.</p>` +
     `</td></tr>` +
     `<tr><td style="padding:20px 28px 22px 28px;background:#231B12;text-align:center;font-family:-apple-system,Segoe UI,Roboto,sans-serif">` +
@@ -1053,7 +1071,10 @@ async function handleWaWebhook(request, env, ctx, url) {
   // must always get a fast 200 so it doesn't retry or disable the subscription.
   try {
     await storeWaEvents(env, rows);
-    if (statuses.length) await applyWaStatuses(env, statuses);
+    if (statuses.length) {
+      await applyWaStatuses(env, statuses);          // WA-1 booking-ack reachability
+      await applyWaOutboundStatuses(env, statuses);  // WA-2 alert/quote/payment ticks
+    }
   } catch (e) {
     console.error("WA store/status failed", e && (e.message || String(e)));
   }

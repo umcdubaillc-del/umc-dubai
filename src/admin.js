@@ -331,6 +331,9 @@ async function ensureSchema(env) {
       // v110 (item 3) — first-open timestamp. NULL = never opened → the "NEW"
       // badge shows; set on first open so the badge stops shouting once seen.
       "viewed_at TEXT",
+      // WA-2 C — persisted quote amount (was session-only in leadsCache). Lets the
+      // desktop WhatsApp API-send fill the amount and survives a page refresh.
+      "quote_price REAL",
     ]);
     // v110 (item 3) — one-time seed so the feature doesn't paint a wall of NEW
     // badges across the whole history on first deploy. A lead that is already
@@ -340,6 +343,47 @@ async function ensureSchema(env) {
       `UPDATE leads SET viewed_at = COALESCE(viewed_at, created_at)
         WHERE viewed_at IS NULL
           AND (COALESCE(status,'new') <> 'new' OR linked_doc_number IS NOT NULL)`
+    ).run();
+    // WA-2 (gates B/C/H/D/I) — team alert roster + generalized outbound WA log.
+    // Canonical paper trail: migrations/0013_wa_team_and_outbound.sql. Seeds are
+    // idempotent (INSERT OR IGNORE against UNIQUE(phone)).
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS wa_team (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         name TEXT,
+         phone TEXT NOT NULL UNIQUE,
+         active INTEGER NOT NULL DEFAULT 1,
+         created_at TEXT NOT NULL
+       )`
+    ).run();
+    // Owner-supplied seed (2026-07-14): the two active alert numbers.
+    await env.BILLING_DB.prepare(
+      `INSERT OR IGNORE INTO wa_team (name, phone, active, created_at) VALUES (?,?,1,?)`
+    ).bind("Alerts 1", "971582244898", "2026-07-14T00:00:00.000Z").run();
+    await env.BILLING_DB.prepare(
+      `INSERT OR IGNORE INTO wa_team (name, phone, active, created_at) VALUES (?,?,1,?)`
+    ).bind("Alerts 2", "971555154430", "2026-07-14T00:00:00.000Z").run();
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS wa_outbound (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         lead_id INTEGER,
+         kind TEXT NOT NULL,
+         recipient TEXT,
+         template TEXT,
+         wamid TEXT,
+         status TEXT,
+         error_code TEXT,
+         dedupe_key TEXT UNIQUE,
+         meta_json TEXT,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL
+       )`
+    ).run();
+    await env.BILLING_DB.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_wa_outbound_wamid ON wa_outbound (wamid)`
+    ).run();
+    await env.BILLING_DB.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_wa_outbound_lead ON wa_outbound (lead_id)`
     ).run();
     // Dispatch Phase 1 — Fleet: drivers + vehicles. Foundational records that
     // Jobs (Phase 2) will reference by id, so DELETE is SOFT (active=0) to avoid
@@ -3660,6 +3704,8 @@ async function handleListLeads(env) {
             COALESCE(vat_mode_set, 0) AS vat_mode_set,
             -- item 3: viewed state persisted in D1 (NULL = never opened = NEW).
             viewed_at,
+            -- WA-2 C: persisted quote amount (NULL until the operator Saves one).
+            quote_price,
             linked_doc_number, converted_at
        FROM leads
       ORDER BY id DESC LIMIT 500`
@@ -3675,12 +3721,25 @@ async function handleSetLeadVat(id, request, env) {
   await ensureSchema(env);
   let body = {};
   try { body = await request.json(); } catch (e) { body = {}; }
-  const mode = (body && body.vat_mode === "plus") ? "plus" : "none";
-  // item 4 — mark that the operator has made an explicit choice, so this lead is
-  // no longer treated as "no saved choice" (which now defaults to +VAT ON).
-  await env.BILLING_DB.prepare("UPDATE leads SET vat_mode=?, vat_mode_set=1 WHERE id=?")
-    .bind(mode, id).run();
-  return json({ ok: true, id, vat_mode: mode });
+  const out = { ok: true, id };
+  // VAT label (optional in the body).
+  if (body && Object.prototype.hasOwnProperty.call(body, "vat_mode")) {
+    const mode = (body.vat_mode === "plus") ? "plus" : "none";
+    // item 4 — mark that the operator has made an explicit choice, so this lead is
+    // no longer treated as "no saved choice" (which now defaults to +VAT ON).
+    await env.BILLING_DB.prepare("UPDATE leads SET vat_mode=?, vat_mode_set=1 WHERE id=?")
+      .bind(mode, id).run();
+    out.vat_mode = mode;
+  }
+  // WA-2 C — persist the quote price (optional). Parsed the same way commitLeadQuote
+  // normalises it; blank/invalid clears it back to NULL.
+  if (body && Object.prototype.hasOwnProperty.call(body, "quote_price")) {
+    const n = parseFloat(String(body.quote_price == null ? "" : body.quote_price).replace(/[^0-9.]/g, ""));
+    const price = (isFinite(n) && n > 0) ? n : null;
+    await env.BILLING_DB.prepare("UPDATE leads SET quote_price=? WHERE id=?").bind(price, id).run();
+    out.quote_price = price;
+  }
+  return json(out);
 }
 
 // item 3 — stamp a lead's first-open time. Only writes when viewed_at is still
@@ -4059,6 +4118,338 @@ async function handleSendLeadQuote(request, env) {
   }
 }
 
+// ═══ WA-2 server core ════════════════════════════════════════════════════════
+// Shared quote composer + team-alert roster + generalized outbound WhatsApp log.
+// The plain-text composeQuoteText here is the MIRROR of the PAGE_SCRIPT
+// buildLeadMessage (mobile wa.me + Copy). Keep them in exact step: same field
+// order, same labels, same "only if captured" omission (which mirrors emailRows).
+// Consumed by: index.js (internal-email "WhatsApp the client" button + team
+// lead_alert link + the /api/lead alert fan-out), and the desktop API-send below.
+const WA_GRAPH = (env) => `https://graph.facebook.com/${env.WA_GRAPH_VERSION || "v21.0"}`;
+function waNz(v) { return (v == null ? "" : String(v)).trim(); }
+
+// Mirror of PAGE_SCRIPT normalizeWaNumber: digits only; drop a leading "00"; a
+// single leading "0" on a 9/10-digit local number becomes 971; else assume the
+// country code is already present.
+export function waMeNumber(phone) {
+  let d = String(phone == null ? "" : phone).replace(/\D/g, "");
+  if (!d) return "";
+  if (d.indexOf("00") === 0) return d.slice(2);
+  if (d.charAt(0) === "0" && (d.length === 9 || d.length === 10)) return "971" + d.slice(1);
+  return d;
+}
+
+// Canonical quote text. WA-2 wording (owner-approved 2026-07-14): no trailing
+// phone line; "Welcome sign:"; a captured field renders only when present; price
+// with no amount is "Price: +VAT" (exactly one space); with an amount
+// "Price: AED {n}" + optional " +VAT" (opts.vatPlus honours the lead's toggle).
+export function composeQuoteText(lead, opts) {
+  opts = opts || {};
+  const L = [];
+  L.push("Dear " + (waNz(lead.name) || "Guest") + ",");
+  L.push("");
+  L.push("Thank you for your reservation request with UMC Dubai. Here are the details we have on file:");
+  L.push("");
+  L.push("Service: " + deriveLeadServiceLabel(lead));
+  if (waNz(lead.date))        L.push("Pickup date: " + waNz(lead.date));
+  if (waNz(lead.time))        L.push("Pickup time: " + waNz(lead.time));
+  if (waNz(lead.pickup))      L.push("Pickup location: " + waNz(lead.pickup));
+  if (waNz(lead.destination)) L.push("Destination: " + waNz(lead.destination));
+  if (waNz(lead.days))        L.push("At your disposal: " + waNz(lead.days));
+  if (waNz(lead.flight))      L.push("Flight number: " + waNz(lead.flight));
+  if (waNz(lead.sign))        L.push("Welcome sign: " + waNz(lead.sign));
+  if (waNz(lead.vehicle))     L.push("Vehicle: " + waNz(lead.vehicle));
+  const amt = waNz(opts.amount);
+  if (amt) L.push("Price: AED " + amt + (opts.vatPlus ? " +VAT" : ""));
+  else     L.push("Price: +VAT");
+  L.push("");
+  L.push("Please confirm these details are correct and we will arrange everything for you. We are happy to adjust anything if needed.");
+  L.push("");
+  L.push("Warm regards,");
+  L.push("UMC Dubai");
+  return L.join("\n");
+}
+
+// One-line summary for lead_alert {{2}} / booking_quote {{2}}.
+export function waLeadSummary(lead) {
+  const dt = [waNz(lead.date), waNz(lead.time)].filter(Boolean).join(", ");
+  const route = [waNz(lead.pickup), waNz(lead.destination)].filter(Boolean).join(" → ");
+  return [waNz(lead.vehicle), dt, route].filter(Boolean).join(" · ");
+}
+
+// Effective +VAT state for a raw leads row (mirrors the handleListLeads CASE):
+// an explicit choice wins; no saved choice defaults to +VAT ON.
+function leadVatPlus(lead) {
+  if (Number(lead.vat_mode_set) === 1) return lead.vat_mode === "plus";
+  // Already-effective value (e.g. from handleListLeads) or unset → default plus.
+  return lead.vat_mode ? lead.vat_mode === "plus" : true;
+}
+
+// wa.me deep link to the CLIENT with the (no-amount) quote prefilled. Used by the
+// team alert {{3}} and the internal-email button.
+export function waQuoteUrl(lead) {
+  const num = waMeNumber(lead.phone);
+  if (!num) return "";
+  const text = composeQuoteText(lead, { vatPlus: leadVatPlus(lead) });
+  return "https://wa.me/" + num + "?text=" + encodeURIComponent(text);
+}
+
+export async function getActiveWaTeam(env) {
+  await ensureSchema(env);
+  const { results } = await env.BILLING_DB.prepare(
+    `SELECT id, name, phone FROM wa_team WHERE active = 1 ORDER BY id`
+  ).all();
+  return results || [];
+}
+
+// ── Low-level send + wa_outbound bookkeeping ─────────────────────────────────
+async function waGraphSend(env, payload) {
+  if (!env.WA_PHONE_NUMBER_ID || !env.WA_ACCESS_TOKEN) {
+    return { ok: false, status: "failed", errorCode: "unconfigured" };
+  }
+  try {
+    const res = await fetch(`${WA_GRAPH(env)}/${env.WA_PHONE_NUMBER_ID}/messages`, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + env.WA_ACCESS_TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.messages && data.messages[0] && data.messages[0].id) {
+      return { ok: true, wamid: data.messages[0].id, status: "sent", errorCode: null };
+    }
+    const err = data && data.error;
+    console.error("WA-2 send failed", res.status, JSON.stringify(err || data).slice(0, 300));
+    return { ok: false, status: "failed", errorCode: err ? String(err.code || "") : String(res.status) };
+  } catch (e) {
+    console.error("WA-2 send threw", e && (e.message || String(e)));
+    return { ok: false, status: "failed", errorCode: "exception" };
+  }
+}
+
+// Claim a wa_outbound row. dedupe_key UNIQUE → a duplicate claim throws and we
+// return null (idempotency). dedupe_key null = always insert.
+async function claimOutbound(env, row) {
+  const now = new Date().toISOString();
+  try {
+    const ins = await env.BILLING_DB.prepare(
+      `INSERT INTO wa_outbound (lead_id, kind, recipient, template, status, dedupe_key, meta_json, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      row.lead_id == null ? null : row.lead_id, row.kind, row.recipient || null,
+      row.template || null, "queued", row.dedupe_key || null, row.meta_json || null, now, now
+    ).run();
+    return ins.meta ? ins.meta.last_row_id : null;
+  } catch (e) {
+    return null; // dedupe collision → already sent
+  }
+}
+
+async function finishOutbound(env, id, result) {
+  await env.BILLING_DB.prepare(
+    `UPDATE wa_outbound SET wamid=?, status=?, error_code=?, updated_at=? WHERE id=?`
+  ).bind(result.wamid || null, result.status, result.errorCode || null, new Date().toISOString(), id).run();
+}
+
+// ── Gate B — team lead alerts ────────────────────────────────────────────────
+// Alert every active team member with lead_alert on a new booking. Idempotent per
+// (lead, member). opts.escalation (gate D) prefixes {{1}} and logs kind
+// 'escalation'. Gated by WA_SEND_ENABLED at the call site.
+export async function sendLeadAlerts(env, leadId, lead, opts) {
+  opts = opts || {};
+  if (!env.BILLING_DB) return { sent: 0, skipped: 0 };
+  await ensureSchema(env);
+  const team = await getActiveWaTeam(env);
+  const clientName = waNz(lead.name) || "a new client";
+  const summary = waLeadSummary(lead) || "New reservation request";
+  const quoteUrl = waQuoteUrl(lead) || ("https://wa.me/" + waMeNumber(lead.phone));
+  const nameParam = opts.escalation ? ("⏱ Unanswered 30 min — " + clientName) : clientName;
+  const kind = opts.escalation ? "escalation" : "team_alert";
+  let sent = 0, skipped = 0;
+  for (const member of team) {
+    const to = waMeNumber(member.phone);
+    if (to.length < 8) { skipped++; continue; }
+    const dedupe = (opts.escalation ? "escalation:" : "alert:") + leadId + ":" + to;
+    const rowId = await claimOutbound(env, {
+      lead_id: leadId, kind, recipient: to, template: "lead_alert",
+      dedupe_key: dedupe, meta_json: JSON.stringify({ summary })
+    });
+    if (!rowId) { skipped++; continue; } // already alerted this member for this lead
+    const result = await waGraphSend(env, {
+      messaging_product: "whatsapp", to, type: "template",
+      template: {
+        name: "lead_alert", language: { code: "en" },
+        components: [{ type: "body", parameters: [
+          { type: "text", text: nameParam },
+          { type: "text", text: summary },
+          { type: "text", text: quoteUrl }
+        ] }]
+      }
+    });
+    await finishOutbound(env, rowId, result);
+    if (result.ok) sent++; else skipped++;
+  }
+  return { sent, skipped };
+}
+
+// ── Gate C — desktop WhatsApp send from the business number ───────────────────
+async function handleSendLeadWhatsApp(request, env) {
+  await ensureSchema(env);
+  if (env.WA_SEND_ENABLED !== "1") {
+    return json({ ok: false, disabled: true, error: "WhatsApp sending is off (WA_SEND_ENABLED=0). Use Copy quote for now." }, 409);
+  }
+  if (!env.WA_PHONE_NUMBER_ID || !env.WA_ACCESS_TOKEN) {
+    return json({ ok: false, error: "WhatsApp is not configured on this Worker." }, 503);
+  }
+  let body = {}; try { body = await request.json(); } catch {}
+  const leadId = parseInt(body.leadId, 10);
+  if (!Number.isFinite(leadId)) return json({ ok: false, error: "Invalid lead id" }, 400);
+
+  const lead = await env.BILLING_DB.prepare(
+    `SELECT id, name, phone, service, vehicle, pickup, destination, date, time, days,
+            flight, sign, notes, quote_price, vat_mode, vat_mode_set
+       FROM leads WHERE id = ?`
+  ).bind(leadId).first();
+  if (!lead) return json({ ok: false, error: "Lead not found" }, 404);
+
+  const to = waMeNumber(lead.phone);
+  if (to.length < 8) return json({ ok: false, error: "This lead has no usable phone number" }, 400);
+
+  // Amount: an explicit body.quote (operator typed but maybe didn't Save) wins over
+  // the stored quote_price. Normalised like commitLeadQuote.
+  const rawAmt = (body.quote != null && String(body.quote).trim() !== "") ? body.quote : lead.quote_price;
+  const an = parseFloat(String(rawAmt == null ? "" : rawAmt).replace(/[^0-9.]/g, ""));
+  const amount = (isFinite(an) && an > 0) ? String(an) : "";
+  const vatPlus = leadVatPlus(lead);
+  const firstName = (waNz(lead.name) || "there").split(/\s+/)[0];
+  const summary = waLeadSummary(lead) || "Your reservation";
+
+  // 24h customer-service window: most recent INBOUND message from this client.
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const inWindow = await env.BILLING_DB.prepare(
+    `SELECT 1 FROM wa_events WHERE event_type='messages' AND wa_id=? AND received_at >= ? LIMIT 1`
+  ).bind(to, since).first();
+
+  let sendPayload, mode, template;
+  if (inWindow) {
+    mode = "freeform"; template = "freeform";
+    const text = composeQuoteText(lead, { amount, vatPlus });
+    sendPayload = { messaging_product: "whatsapp", to, type: "text", text: { preview_url: false, body: text } };
+  } else {
+    if (!amount) {
+      return json({ ok: false, error: "Outside the 24-hour window this sends as the booking_quote template, which needs a price. Enter an amount (and Save), or use Copy quote." }, 400);
+    }
+    mode = "template"; template = "booking_quote";
+    sendPayload = {
+      messaging_product: "whatsapp", to, type: "template",
+      template: { name: "booking_quote", language: { code: "en" },
+        components: [{ type: "body", parameters: [
+          { type: "text", text: firstName },
+          { type: "text", text: summary },
+          { type: "text", text: amount }
+        ] }] }
+    };
+  }
+
+  const rowId = await claimOutbound(env, {
+    lead_id: leadId, kind: "quote", recipient: to, template,
+    dedupe_key: null, meta_json: JSON.stringify({ amount, mode })
+  });
+  const result = await waGraphSend(env, sendPayload);
+  if (rowId) await finishOutbound(env, rowId, result);
+  if (!result.ok) return json({ ok: false, mode, error: "WhatsApp rejected the send (code " + (result.errorCode || "?") + ")." }, 502);
+  return json({ ok: true, mode, wamid: result.wamid, status: result.status, outboundId: rowId });
+}
+
+// Latest quote-send status for a lead's row ticks (sending/sent/delivered/read).
+async function handleLeadWaStatus(id, env) {
+  await ensureSchema(env);
+  const row = await env.BILLING_DB.prepare(
+    `SELECT status, error_code, template, meta_json, updated_at
+       FROM wa_outbound WHERE lead_id = ? AND kind = 'quote' ORDER BY id DESC LIMIT 1`
+  ).bind(id).first();
+  return json({ ok: true, quote: row || null });
+}
+
+// Match statuses-webhook events to wa_outbound by wamid; update status/error and,
+// for client-directed kinds, the lead's whatsapp_reachable. Called from index.js.
+export async function applyWaOutboundStatuses(env, statuses) {
+  if (!env.BILLING_DB) return;
+  await ensureSchema(env);
+  for (const s of statuses) {
+    const wamid = s && s.id;
+    if (!wamid) continue;
+    const status = String((s && s.status) || "").toLowerCase();
+    const err = Array.isArray(s.errors) && s.errors[0] ? s.errors[0] : null;
+    const errorCode = err ? String(err.code || "") : null;
+    const r = await env.BILLING_DB.prepare(
+      `UPDATE wa_outbound SET status=?, error_code=?, updated_at=? WHERE wamid=?`
+    ).bind(status || null, errorCode, new Date().toISOString(), wamid).run();
+    if (!r.meta || !r.meta.changes) continue; // not one of ours
+    let reachable = null;
+    if (status === "delivered" || status === "read") reachable = "yes";
+    else if (errorCode === "131026") reachable = "no";
+    if (reachable) {
+      // Only client-directed kinds imply the LEAD is reachable (team_alert/escalation go to staff).
+      await env.BILLING_DB.prepare(
+        `UPDATE leads SET whatsapp_reachable=?
+           WHERE id = (SELECT lead_id FROM wa_outbound WHERE wamid=? AND kind IN ('quote','payment','flight'))`
+      ).bind(reachable, wamid).run();
+    }
+  }
+}
+
+// ── Team-roster admin CRUD (gate B editor) ───────────────────────────────────
+async function handleListWaTeam(env) {
+  await ensureSchema(env);
+  const { results } = await env.BILLING_DB.prepare(
+    `SELECT id, name, phone, active, created_at FROM wa_team ORDER BY id`
+  ).all();
+  return json({ ok: true, items: results || [] });
+}
+async function handleCreateWaTeam(request, env) {
+  await ensureSchema(env);
+  let body = {}; try { body = await request.json(); } catch {}
+  const name = waNz(body.name).slice(0, 80);
+  const phone = waMeNumber(body.phone);
+  if (phone.length < 8) return json({ ok: false, error: "A valid phone number with country code is required." }, 400);
+  const active = body.active === false ? 0 : 1;
+  try {
+    const ins = await env.BILLING_DB.prepare(
+      `INSERT INTO wa_team (name, phone, active, created_at) VALUES (?,?,?,?)`
+    ).bind(name || null, phone, active, new Date().toISOString()).run();
+    return json({ ok: true, id: ins.meta ? ins.meta.last_row_id : null, phone });
+  } catch (e) {
+    return json({ ok: false, error: "That number is already on the team." }, 409);
+  }
+}
+async function handleUpdateWaTeam(id, request, env) {
+  await ensureSchema(env);
+  let body = {}; try { body = await request.json(); } catch {}
+  const sets = [], binds = [];
+  if (Object.prototype.hasOwnProperty.call(body, "name")) { sets.push("name=?"); binds.push(waNz(body.name).slice(0, 80) || null); }
+  if (Object.prototype.hasOwnProperty.call(body, "active")) { sets.push("active=?"); binds.push(body.active ? 1 : 0); }
+  if (Object.prototype.hasOwnProperty.call(body, "phone")) {
+    const p = waMeNumber(body.phone);
+    if (p.length < 8) return json({ ok: false, error: "Invalid phone number." }, 400);
+    sets.push("phone=?"); binds.push(p);
+  }
+  if (!sets.length) return json({ ok: false, error: "Nothing to update." }, 400);
+  binds.push(id);
+  try {
+    const r = await env.BILLING_DB.prepare(`UPDATE wa_team SET ${sets.join(", ")} WHERE id=?`).bind(...binds).run();
+    if (!r.meta || !r.meta.changes) return json({ ok: false, error: "not found" }, 404);
+    return json({ ok: true, id });
+  } catch (e) {
+    return json({ ok: false, error: "That number is already on the team." }, 409);
+  }
+}
+async function handleDeleteWaTeam(id, env) {
+  await ensureSchema(env);
+  const r = await env.BILLING_DB.prepare(`DELETE FROM wa_team WHERE id=?`).bind(id).run();
+  if (!r.meta || !r.meta.changes) return json({ ok: false, error: "not found" }, 404);
+  return json({ ok: true, id });
+}
+
 export async function handleAdmin(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -4190,6 +4581,14 @@ export async function handleAdmin(request, env) {
       if (!env.BILLING_DB) return dbUnavailable();
       return handleMarkLeadViewed(parseInt(vm[1], 10), env);
     }
+    // WA-2 C — latest quote-send status for a lead's row ticks (polled by the UI).
+    const wm = path.match(/^\/admin\/api\/leads\/(\d+)\/wa-status$/);
+    if (wm && method === "GET") {
+      const authed = await isAuthed(request, env);
+      if (!authed) return json({ ok: false, error: "auth required" }, 401);
+      if (!env.BILLING_DB) return dbUnavailable();
+      return handleLeadWaStatus(parseInt(wm[1], 10), env);
+    }
   }
 
   // v87 — Sync from Nomod: imports any settled payments the webhook missed.
@@ -4209,6 +4608,38 @@ export async function handleAdmin(request, env) {
     if (!env.BILLING_DB) return dbUnavailable();
     if (method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
     return handleSendLeadQuote(request, env);
+  }
+
+  // WA-2 C — send the quote to a lead's client on WhatsApp FROM the business
+  // number (desktop path). Inside the 24h window → free-form text; outside →
+  // booking_quote template. Inert unless WA_SEND_ENABLED=1.
+  if (path === "/admin/api/send-lead-whatsapp") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    if (method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+    return handleSendLeadWhatsApp(request, env);
+  }
+
+  // WA-2 B — team-alert roster CRUD (admin editor).
+  if (path === "/admin/api/wa-team") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    if (method === "GET") return handleListWaTeam(env);
+    if (method === "POST") return handleCreateWaTeam(request, env);
+    return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, POST" } });
+  }
+  {
+    const tm = path.match(/^\/admin\/api\/wa-team\/(\d+)$/);
+    if (tm) {
+      const authed = await isAuthed(request, env);
+      if (!authed) return json({ ok: false, error: "auth required" }, 401);
+      if (!env.BILLING_DB) return dbUnavailable();
+      if (method === "PATCH") return handleUpdateWaTeam(parseInt(tm[1], 10), request, env);
+      if (method === "DELETE") return handleDeleteWaTeam(parseInt(tm[1], 10), env);
+      return new Response("Method Not Allowed", { status: 405, headers: { Allow: "PATCH, DELETE" } });
+    }
   }
 
   // Dispatch Phase 1 — Fleet: drivers + vehicles CRUD. GET/POST on the collection,
@@ -5477,6 +5908,20 @@ function appShellHTML() {
       </table>
     </div>
     <div class="empty" id="leadsEmpty" hidden>No leads yet.</div>
+    <!-- WA-2 B — team-alert roster editor. Recipients who get a WhatsApp alert on
+         every new booking (and watchdog escalations). Seeded with the owner's two
+         numbers; this editor is for future changes. -->
+    <details class="wa-team" id="waTeam" style="margin-top:1.25rem;border-top:1px solid var(--line,rgba(34,27,20,.1));padding-top:.9rem">
+      <summary style="cursor:pointer;font-weight:600;font-size:.9rem">WhatsApp alert recipients</summary>
+      <p class="hist-sub" style="margin:.4rem 0 .7rem">These team members receive a WhatsApp alert on every new booking, and any watchdog escalation. Stored with country code, digits only.</p>
+      <div id="waTeamList" class="wa-team-list"></div>
+      <div class="wa-team-add" style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.6rem;align-items:flex-end">
+        <div><label class="lbl" for="waTeamName">Name</label><input id="waTeamName" type="text" autocomplete="off" placeholder="e.g. Dispatch" style="max-width:9rem"></div>
+        <div><label class="lbl" for="waTeamPhone">Phone (with country code)</label><input id="waTeamPhone" type="tel" inputmode="tel" autocomplete="off" placeholder="9715XXXXXXXX"></div>
+        <button type="button" class="btn btn-small btn-ink" id="waTeamAdd">Add member</button>
+      </div>
+      <p class="wa-team-msg" id="waTeamMsg" aria-live="polite" style="font-size:.8rem;color:var(--muted);margin-top:.5rem"></p>
+    </details>
   </div>
 </section>
 </section><!-- /#tab-leads -->
@@ -9170,7 +9615,10 @@ const PAGE_SCRIPT = `<script>
           + '<button type="button" class="btn btn-small btn-ghost" data-leadsave="'+x.id+'" title="Save this quote price (used by the messages and when generating a quote/invoice)">Save</button>'
           + '<button type="button" class="btn btn-small btn-ink" data-leadwa="'+x.id+'"'+(hasPhone?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Send this follow-up to the client on WhatsApp">WhatsApp client</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leadcopy="'+x.id+'" title="Copy this follow-up message">Copy quote</button>'
-          + '<button type="button" class="btn btn-small btn-ghost" data-leademail="'+x.id+'"'+(hasEmail?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Email this follow-up to the client">Email client</button>';
+          + '<button type="button" class="btn btn-small btn-ghost" data-leademail="'+x.id+'"'+(hasEmail?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Email this follow-up to the client">Email client</button>'
+          // WA-2 C — live delivery status for the desktop WhatsApp send (sending →
+          // sent → delivered ✓✓ → read). Populated by sendLeadWhatsApp + polling.
+          + '<span class="leadwa-status" data-leadwa-status="'+x.id+'" aria-live="polite" style="font-size:.8rem;color:var(--muted);margin-left:.5rem"></span>';
         // item 3 — "NEW" badge persisted in D1: shown until the lead is first
         // opened (viewed_at is NULL). Marked seen server-side on first expand.
         const isUnseen = !x.viewed_at;
@@ -10359,21 +10807,20 @@ const PAGE_SCRIPT = `<script>
     if(leadNz(x.destination)) L.push("Destination: " + leadNz(x.destination));
     if(leadNz(x.days))        L.push("At your disposal: " + leadNz(x.days));
     if(leadNz(x.flight))      L.push("Flight number: " + leadNz(x.flight));
-    if(leadNz(x.sign))        L.push("Welcome sign name: " + leadNz(x.sign));
+    if(leadNz(x.sign))        L.push("Welcome sign: " + leadNz(x.sign));
     if(leadNz(x.vehicle))     L.push("Vehicle: " + leadNz(x.vehicle));
-    if(leadNz(x.notes))       L.push("Notes: " + leadNz(x.notes));
     const price = leadNz(quoteStr);
-    // v109 — VAT label switch: when the lead is set to +VAT, append the literal
-    // " +VAT" to the price line here (WhatsApp + Copy). Display label only — the
-    // number is unchanged. No suffix on "to be confirmed".
+    // WA-2 C (owner-approved 2026-07-14) — EXACT MIRROR of the server composeQuoteText
+    // in this file. Price with an amount: "AED {n}" + " +VAT" iff the lead's toggle is
+    // on (display label only, number unchanged). Price with NO amount: "+VAT". No
+    // trailing phone line. Keep this in exact step with composeQuoteText.
     const vatSuffix = (x && x.vat_mode === "plus") ? " +VAT" : "";
-    L.push("Price: " + (price ? ("AED " + price + vatSuffix) : "to be confirmed"));
+    L.push("Price: " + (price ? ("AED " + price + vatSuffix) : "+VAT"));
     L.push("");
     L.push("Please confirm these details are correct and we will arrange everything for you. We are happy to adjust anything if needed.");
     L.push("");
     L.push("Warm regards,");
     L.push("UMC Dubai");
-    L.push("+971 58 649 7861");
     return L.join("\\n");
   }
   // Normalize a lead phone to a wa.me number: digits only; drop a leading "00";
@@ -10408,10 +10855,82 @@ const PAGE_SCRIPT = `<script>
     if(sheetInput) sheetInput.value = norm;
     const lead = leadsCache.find(function(z){ return Number(z.id) === id; });
     if(lead) lead.quote_price = norm;
+    // WA-2 C — persist to D1 (was session-only). Lets the desktop WhatsApp send fill
+    // the amount and survives a refresh. Fire-and-forget; the UI is already updated.
+    fetch("/admin/api/leads/" + id, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ quote_price: norm })
+    }).catch(function(){});
     return norm;
   }
   // Exposed so the bottom-sheet IIFE (a separate scope) can commit the same way.
   window.__umcCommitLeadQuote = commitLeadQuote;
+
+  // WA-2 C — desktop WhatsApp send (from the business number) with live ticks.
+  function setLeadWaStatus(id, text, cls){
+    document.querySelectorAll('[data-leadwa-status="'+id+'"]').forEach(function(el){
+      el.textContent = text || "";
+      el.style.color = (cls === "err") ? "var(--danger, #b23)" : "var(--muted)";
+    });
+  }
+  function waTickLabel(status){
+    switch(String(status||"").toLowerCase()){
+      case "queued": case "sending": return "Sending\\u2026";
+      case "sent":      return "Sent \\u2713";
+      case "delivered": return "Delivered \\u2713\\u2713";
+      case "read":      return "Read \\u2713\\u2713";
+      case "failed":    return "Failed";
+      default:          return status ? String(status) : "";
+    }
+  }
+  var _waPollTimers = {};
+  function pollLeadWaStatus(id, tries){
+    if(_waPollTimers[id]) clearTimeout(_waPollTimers[id]);
+    fetch("/admin/api/leads/" + id + "/wa-status", { credentials: "same-origin" })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if(j && j.ok && j.quote){
+          var s = String(j.quote.status||"").toLowerCase();
+          setLeadWaStatus(id, waTickLabel(s), s === "failed" ? "err" : "");
+          if(s === "read" || s === "failed") return; // terminal
+        }
+        if(tries > 0) _waPollTimers[id] = setTimeout(function(){ pollLeadWaStatus(id, tries - 1); }, 4000);
+      })
+      .catch(function(){ if(tries > 0) _waPollTimers[id] = setTimeout(function(){ pollLeadWaStatus(id, tries - 1); }, 4000); });
+  }
+  function sendLeadWhatsApp(id, btn, lead, num){
+    setLeadWaStatus(id, waTickLabel("sending"));
+    if(btn) btn.disabled = true;
+    fetch("/admin/api/send-lead-whatsapp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ leadId: id, quote: readLeadQuote(id) })
+    })
+      .then(function(r){ return r.json().then(function(j){ return { http: r.status, j: j }; }); })
+      .then(function(res){
+        if(btn) btn.disabled = false;
+        var j = res.j || {};
+        if(res.http === 409 && j.disabled){
+          // WA_SEND_ENABLED=0 — fall back to opening WhatsApp so the operator can
+          // still send manually from the desktop app.
+          setLeadWaStatus(id, "Opening WhatsApp\\u2026");
+          var msg = buildLeadMessage(lead, readLeadQuote(id));
+          window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(msg), "_blank", "noopener");
+          setTimeout(function(){ setLeadWaStatus(id, ""); }, 2500);
+          return;
+        }
+        if(!j.ok){ setLeadWaStatus(id, (j.error || "Send failed"), "err"); return; }
+        setLeadWaStatus(id, waTickLabel(j.status || "sent"));
+        pollLeadWaStatus(id, 8); // ~32s of delivery/read polling
+      })
+      .catch(function(){
+        if(btn) btn.disabled = false;
+        setLeadWaStatus(id, "Send failed \\u2014 network error", "err");
+      });
+  }
 
   // v109 — VAT label switch. Paints every switch + label + amount-suffix for a
   // lead (desktop drawer AND any open mobile sheet share the same data-attrs),
@@ -10480,6 +10999,34 @@ const PAGE_SCRIPT = `<script>
     }catch(_){}
     fetch("/admin/api/leads/" + id + "/viewed", { method: "POST" }).catch(function(){});
   }
+  // WA-2 B — team-alert roster editor (WhatsApp alert recipients).
+  function waTeamMsg(t, err){
+    const el = document.getElementById("waTeamMsg");
+    if(el){ el.textContent = t || ""; el.style.color = err ? "var(--danger,#b23)" : "var(--muted)"; }
+  }
+  function renderWaTeam(items){
+    const box = document.getElementById("waTeamList");
+    if(!box) return;
+    if(!items || !items.length){ box.innerHTML = '<p class="hist-sub" style="margin:0">No recipients yet — add one below.</p>'; return; }
+    box.innerHTML = items.map(function(m){
+      var active = Number(m.active) === 1;
+      return '<div class="wa-team-row" data-wateam="'+m.id+'" style="display:flex;align-items:center;gap:.6rem;padding:.35rem 0;border-bottom:1px solid var(--line,rgba(34,27,20,.06))">'
+        + '<span style="flex:0 0 auto;font-variant-numeric:tabular-nums">'+esc(m.phone)+'</span>'
+        + '<span style="flex:1 1 auto;color:var(--muted)">'+esc(m.name||"")+'</span>'
+        + '<button type="button" class="btn btn-small btn-ghost" data-wateam-toggle="'+m.id+'" data-active="'+(active?1:0)+'" title="'+(active?"Muting stops alerts to this number":"Activate to resume alerts")+'">'+(active?"Active":"Muted")+'</button>'
+        + '<button type="button" class="btn btn-small btn-ghost" data-wateam-del="'+m.id+'" title="Remove recipient">&times;</button>'
+        + '</div>';
+    }).join("");
+  }
+  var _waTeamLoaded = false;
+  function loadWaTeam(force){
+    if(_waTeamLoaded && !force) return;
+    _waTeamLoaded = true;
+    fetch("/admin/api/wa-team", { credentials:"same-origin" })
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if(j && j.ok) renderWaTeam(j.items); else waTeamMsg("Could not load recipients.", true); })
+      .catch(function(){ waTeamMsg("Could not load recipients.", true); });
+  }
   function bindLeadsClickOnce(){
     const root = document.getElementById("tab-leads");
     if(!root || root._leadsClickBound) return;
@@ -10487,9 +11034,55 @@ const PAGE_SCRIPT = `<script>
     // item 2 — live text filter (re-applies the combined status + search filter).
     const searchEl = root.querySelector("#leadsSearch");
     if(searchEl) searchEl.addEventListener("input", function(){ applyLeadsFilter(); });
+    // WA-2 B — lazy-load the alert roster the first time its panel is opened.
+    const waT = root.querySelector("#waTeam");
+    if(waT) waT.addEventListener("toggle", function(){ if(waT.open) loadWaTeam(); });
     root.addEventListener("click", function(e){
       const refresh = e.target.closest("#leadsRefresh");
       if(refresh){ e.preventDefault(); loadLeads(); return; }
+      // WA-2 B — alert-roster editor: add / mute-unmute / remove.
+      const wtAdd = e.target.closest("#waTeamAdd");
+      if(wtAdd){
+        e.preventDefault();
+        const nameEl = document.getElementById("waTeamName");
+        const phoneEl = document.getElementById("waTeamPhone");
+        const phone = phoneEl ? String(phoneEl.value||"").trim() : "";
+        if(!phone){ waTeamMsg("Enter a phone number (with country code).", true); return; }
+        wtAdd.disabled = true;
+        fetch("/admin/api/wa-team", { method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin",
+          body: JSON.stringify({ name: nameEl ? nameEl.value : "", phone: phone }) })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            wtAdd.disabled = false;
+            if(!j.ok){ waTeamMsg(j.error||"Could not add.", true); return; }
+            if(nameEl) nameEl.value = ""; if(phoneEl) phoneEl.value = "";
+            waTeamMsg("Recipient added."); loadWaTeam(true);
+          })
+          .catch(function(){ wtAdd.disabled = false; waTeamMsg("Could not add — network error.", true); });
+        return;
+      }
+      const wtTog = e.target.closest("[data-wateam-toggle]");
+      if(wtTog){
+        e.preventDefault();
+        const id = wtTog.getAttribute("data-wateam-toggle");
+        const cur = Number(wtTog.getAttribute("data-active")) === 1;
+        fetch("/admin/api/wa-team/"+id, { method:"PATCH", headers:{"Content-Type":"application/json"}, credentials:"same-origin",
+          body: JSON.stringify({ active: !cur }) })
+          .then(function(r){ return r.json(); })
+          .then(function(j){ if(j.ok){ loadWaTeam(true); } else { waTeamMsg(j.error||"Could not update.", true); } })
+          .catch(function(){ waTeamMsg("Could not update.", true); });
+        return;
+      }
+      const wtDel = e.target.closest("[data-wateam-del]");
+      if(wtDel){
+        e.preventDefault();
+        const id = wtDel.getAttribute("data-wateam-del");
+        fetch("/admin/api/wa-team/"+id, { method:"DELETE", credentials:"same-origin" })
+          .then(function(r){ return r.json(); })
+          .then(function(j){ if(j.ok){ loadWaTeam(true); } else { waTeamMsg(j.error||"Could not remove.", true); } })
+          .catch(function(){ waTeamMsg("Could not remove.", true); });
+        return;
+      }
       const seg = e.target.closest(".hist-typefilter .seg[data-leadstat]");
       if(seg){
         e.preventDefault();
@@ -10558,8 +11151,16 @@ const PAGE_SCRIPT = `<script>
         if(!lead) return;
         const num = normalizeWaNumber(lead.phone);
         if(!num){ setStatus("This lead has no phone number."); return; }
-        const msg = buildLeadMessage(lead, readLeadQuote(id));
-        window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(msg), "_blank", "noopener");
+        // WA-2 C — Mobile: open wa.me so the operator sends from their own phone.
+        // Desktop: send via the API from the business number, with live ticks.
+        commitLeadQuote(id); // persist the current amount before sending
+        const isMobile = window.matchMedia("(max-width: 620px)").matches;
+        if(isMobile){
+          const msg = buildLeadMessage(lead, readLeadQuote(id));
+          window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(msg), "_blank", "noopener");
+          return;
+        }
+        sendLeadWhatsApp(id, waBtn, lead, num);
         return;
       }
       const cpBtn = e.target.closest("[data-leadcopy]");
