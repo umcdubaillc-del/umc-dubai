@@ -340,12 +340,13 @@ async function handleLead(request, env, ctx) {
   const tasks = [];
   if (env.RESEND_API_KEY) tasks.push(sendEmail(env, payload, new URL(request.url).origin + "/admin/billing"));
   if (env.SHEETS_WEBHOOK_URL) tasks.push(appendSheet(env, payload));
-  // WA-1 consent change: the booking form grants booking-contact consent only, NOT
-  // marketing — so the Mailchimp marketing auto-subscribe (a marketing action keyed
-  // off form consent) is DISABLED. Re-enable only behind an explicit marketing opt-in.
-  // if (payload.email && env.MC_API_KEY && env.MC_LIST_ID && env.MC_DC) {
-  //   tasks.push(addToMailchimp(env, payload));
-  // }
+  // Mailchimp marketing auto-subscribe. NOTE (WA-1): the booking form no longer
+  // collects marketing consent (booking-contact consent only). Re-enabled at the
+  // owner's explicit "meanwhile" request — booking leads are enrolled without a
+  // marketing-consent line on the form; revisit with an explicit opt-in.
+  if (payload.email && env.MC_API_KEY && env.MC_LIST_ID && env.MC_DC) {
+    tasks.push(addToMailchimp(env, payload));
+  }
   if (env.RESEND_API_KEY && payload.email && turnstileVerified) tasks.push(sendClientReceipt(env, payload));
 
   // WA-1: booking-request WhatsApp acknowledgment (transactional/UTILITY). INERT until
