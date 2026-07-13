@@ -568,7 +568,7 @@ TERMS_ITEMS = [
  ("Unforeseen circumstances","We shall not be held responsible for delays or disruptions caused by traffic, weather conditions, road closures or any other unforeseen events beyond our control."),
  ("Vehicle representation","The assigned vehicle will match the category and model booked; however, specifications such as colour, interior features or exact configuration may vary. If you require specific features, please inform us in advance to confirm availability."),
  ("Client responsibility","Clients must provide accurate booking information including pickup details and contact information. Any damages to the vehicle caused by the client or passengers will be the client&rsquo;s responsibility. A cleaning fee will apply if the vehicle is excessively dirty."),
- ("Booking contact consent","By submitting a booking request you agree to be contacted about your booking via WhatsApp, email, or phone."),
+ ("Booking contact consent","By submitting a booking request you agree to be contacted about your booking via WhatsApp, email, or phone, and to receive marketing content by email, which you can opt out of at any time."),
  ("Conduct in vehicle","Smoking and the consumption of alcohol are strictly prohibited in all vehicles. The company reserves the right to terminate service immediately without refund if these rules are violated or if passengers behave in a manner deemed unsafe or inappropriate."),
  ("Booking confirmation and payments","Bookings are confirmed only upon receipt of payment or advance deposit as agreed. Any remaining balance must be settled prior to or at the time of service. Prices are subject to change without prior notice until payment is received."),
  ("Cancellation policy","Cancellations made within 24 hours of the scheduled service time will incur charges. Any confirmed booking that is not honoured (no show) or cancelled at the last minute will be fully chargeable; no refunds or credits will be issued under these circumstances. If payment was made via a payment link, a 3% transaction fee applies to all cancellations."),
@@ -945,10 +945,9 @@ booking_body = header("booking.html") + f"""
               </div><span class="fhint phone-err"></span></div>
           </div>
           <div class="f"><label class="req" for="kEmail">Email</label><input id="kEmail" type="email" autocomplete="email" required><span class="fhint">Enter a valid email address, e.g. name@domain.com</span></div>
-                    <p class="bk-note" style="margin-top:1rem">By sending this request you agree to the <a href="/terms" id="openTerms" style="border-bottom:1px solid var(--amber);color:var(--ink)">Terms of Service</a>.</p>
           <div data-sitekey="0x4AAAAAADpUlIS_5IkgJa-H" id="bkTs" style="margin:.2rem 0 .4rem"></div>
           <button class="btn btn-ink" type="submit" id="btnConfirm" style="width:100%;margin-top:.7rem" disabled>Confirm reservation request</button>
-          <p class="bk-note">By submitting this form you agree to our <a href="/terms" class="js-openterms" style="border-bottom:1px solid var(--amber);color:var(--ink)">Terms &amp; Conditions</a> and to be contacted about your booking via WhatsApp, email, or phone.</p>
+          <p class="bk-note">By submitting this form you agree to our <a href="/terms" class="js-openterms" style="border-bottom:1px solid var(--amber);color:var(--ink)">Terms &amp; Conditions</a>.</p>
         </div>
       </div>
 

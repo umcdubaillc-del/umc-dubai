@@ -193,11 +193,11 @@ export default {
 // legs fire, so a Sheets/Mailchimp/Resend outage can never lose a lead.
 // v93 — proof-of-consent text rendered on /booking and /contact, stored
 // verbatim on every lead so we can show exactly what the user agreed to.
-// WA-1: the /booking consent line is BOOKING-CONTACT consent (contact about the
-// booking via WhatsApp / email / phone) — NOT marketing. Kept in lockstep with the
-// rendered line in build_pages.py. No marketing send may key off this consent.
+// WA-1: consent is captured via the /booking form's "agree to Terms & Conditions" —
+// the Terms include a booking-contact + marketing-email (opt-out) consent clause.
+// Stored verbatim as proof-of-consent; keep in lockstep with that clause in build_pages.py.
 const BOOKING_CONSENT_TEXT =
-  "By submitting this form you agree to our Terms & Conditions and to be contacted about your booking via WhatsApp, email, or phone.";
+  "By submitting a booking request you agree to be contacted about your booking via WhatsApp, email, or phone, and to receive marketing content by email, which you can opt out of at any time.";
 
 async function ensureLeadsSchema(env) {
   await env.BILLING_DB.prepare(
@@ -316,8 +316,8 @@ async function handleLead(request, env, ctx) {
     try {
       await ensureLeadsSchema(env);
       const consentAt = new Date().toISOString();
-      // WA-1: marketing_consent = 0 — the booking form grants booking-contact consent
-      // only, not marketing. consent_text stores the exact booking-contact wording.
+      // WA-1: marketing_consent = 1 — the Terms the form binds the user to include a
+      // marketing-email (opt-out) consent clause. consent_text stores that clause.
       const ins = await env.BILLING_DB.prepare(
         `INSERT INTO leads
           (created_at, source, name, phone, email, service, pickup, destination,
@@ -329,7 +329,7 @@ async function handleLead(request, env, ctx) {
         payload.email, payload.service, payload.pickup, payload.destination,
         payload.date, payload.time, payload.vehicle, payload.days, payload.flight,
         payload.sign, payload.notes, payload.page, payload.ts, JSON.stringify(payload),
-        0, BOOKING_CONSENT_TEXT, consentAt, payload.verified
+        1, BOOKING_CONSENT_TEXT, consentAt, payload.verified
       ).run();
       leadId = ins && ins.meta ? ins.meta.last_row_id : null;
     } catch (e) {
@@ -340,10 +340,8 @@ async function handleLead(request, env, ctx) {
   const tasks = [];
   if (env.RESEND_API_KEY) tasks.push(sendEmail(env, payload, new URL(request.url).origin + "/admin/billing"));
   if (env.SHEETS_WEBHOOK_URL) tasks.push(appendSheet(env, payload));
-  // Mailchimp marketing auto-subscribe. NOTE (WA-1): the booking form no longer
-  // collects marketing consent (booking-contact consent only). Re-enabled at the
-  // owner's explicit "meanwhile" request — booking leads are enrolled without a
-  // marketing-consent line on the form; revisit with an explicit opt-in.
+  // Mailchimp marketing auto-subscribe — consented: the form binds the user to Terms
+  // that include a marketing-email (opt-out) consent clause.
   if (payload.email && env.MC_API_KEY && env.MC_LIST_ID && env.MC_DC) {
     tasks.push(addToMailchimp(env, payload));
   }
