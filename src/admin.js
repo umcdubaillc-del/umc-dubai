@@ -4130,14 +4130,17 @@ async function handleSendLeadQuote(request, env) {
 const WA_GRAPH = (env) => `https://graph.facebook.com/${env.WA_GRAPH_VERSION || "v21.0"}`;
 function waNz(v) { return (v == null ? "" : String(v)).trim(); }
 
-// Mirror of PAGE_SCRIPT normalizeWaNumber: digits only; drop a leading "00"; a
-// single leading "0" on a 9/10-digit local number becomes 971; else assume the
-// country code is already present.
+// E.164 digits (no +), INTERNATIONAL. Mirror of PAGE_SCRIPT normalizeWaNumber.
+// Never assumes a country code — the booking form prepends the kCC dial code at
+// capture, so a stored number already carries it. Strips non-digits and a "00"
+// international access prefix; a remaining leading zero means a national-only number
+// with no country code → UN-NORMALIZABLE (returns ""), which callers surface as a
+// lead-row warning instead of building a broken link. Validates E.164 length (8–15).
 export function waMeNumber(phone) {
   let d = String(phone == null ? "" : phone).replace(/\D/g, "");
-  if (!d) return "";
-  if (d.indexOf("00") === 0) return d.slice(2);
-  if (d.charAt(0) === "0" && (d.length === 9 || d.length === 10)) return "971" + d.slice(1);
+  if (d.indexOf("00") === 0) d = d.slice(2);
+  if (d.charAt(0) === "0") return "";
+  if (d.length < 8 || d.length > 15) return "";
   return d;
 }
 
@@ -4280,8 +4283,10 @@ export async function sendLeadAlerts(env, leadId, lead, opts) {
   // Meta forbids newlines in a body variable) so responders never quote blind to a
   // special request. The CLIENT-facing quote still excludes notes.
   let summary = waLeadSummary(lead) || "New reservation request";
+  // Source = the form's notes/Request box; included ONLY when filled, mirroring the
+  // email notification's emailRows predicate (non-empty AND not "-").
   const req = waNz(lead.notes);
-  if (req) summary = summary + " · Request: " + req.slice(0, 300);
+  if (req && req !== "-") summary = summary + " · Request: " + req.slice(0, 300);
   const quoteUrl = waQuoteUrl(lead) || ("https://wa.me/" + waMeNumber(lead.phone));
   const nameParam = opts.escalation ? ("⏱ Unanswered 30 min — " + clientName) : clientName;
   const kind = opts.escalation ? "escalation" : "team_alert";
@@ -9679,6 +9684,9 @@ const PAGE_SCRIPT = `<script>
         // quote input and forwards the buttons via the existing mechanism.
         const hasPhone = !!(x.phone && String(x.phone).trim());
         const hasEmail = !!(x.email && String(x.email).trim());
+        // WA-2 ruling 3 — the WhatsApp buttons need a normalizable E.164 number;
+        // an un-normalizable one is surfaced as a row warning (see renderLeadChips).
+        const waOk = !!normalizeWaNumber(x.phone);
         const savedQ = (x.quote_price != null && String(x.quote_price) !== "") ? esc(String(x.quote_price)) : "";
         // v109 — VAT label switch per lead. 'plus' appends a literal "+VAT" to
         // the amount in the Leads table AND to the WhatsApp / Copy message
@@ -9697,8 +9705,8 @@ const PAGE_SCRIPT = `<script>
           +   '<span class="lvs-label" data-leadvat-label="'+x.id+'">'+(isPlusVat?'+VAT':'No VAT')+'</span>'
           + '</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leadsave="'+x.id+'" title="Save this quote price (used by the messages and when generating a quote/invoice)">Save</button>'
-          + '<button type="button" class="btn btn-small btn-ink" data-leadwasend="'+x.id+'"'+(hasPhone?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Send the quote to the client from the UMC WhatsApp number, with live delivery ticks">Send from UMC number</button>'
-          + '<button type="button" class="btn btn-small btn-ghost" data-leadwaopen="'+x.id+'"'+(hasPhone?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Open WhatsApp with the quote prefilled to send it yourself">Open in WhatsApp</button>'
+          + '<button type="button" class="btn btn-small btn-ink" data-leadwasend="'+x.id+'"'+(waOk?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="'+(waOk?'Send the quote to the client from the UMC WhatsApp number, with live delivery ticks':'This number cannot be normalized to an international format — check it')+'">Send from UMC number</button>'
+          + '<button type="button" class="btn btn-small btn-ghost" data-leadwaopen="'+x.id+'"'+(waOk?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="'+(waOk?'Open WhatsApp with the quote prefilled to send it yourself':'This number cannot be normalized to an international format — check it')+'">WhatsApp quote</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leadcopy="'+x.id+'" title="Copy this follow-up message">Copy quote</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leademail="'+x.id+'"'+(hasEmail?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Email this follow-up to the client">Email client</button>'
           // WA-2 C — live delivery status for the desktop WhatsApp send (sending →
@@ -9741,6 +9749,10 @@ const PAGE_SCRIPT = `<script>
         chips.push('<span class="lchip" style="background:rgba(120,110,95,.12);color:var(--muted);border:1px solid rgba(120,110,95,.25);padding:.05rem .45rem;border-radius:10px;font-size:.72rem;white-space:nowrap">No WhatsApp</span>');
       }
       var num = normalizeWaNumber(x.phone);
+      // Ruling 3 — surface an un-normalizable number as a warning, not a broken link.
+      if(!num && x.phone && String(x.phone).trim()){
+        chips.push('<span class="lchip" style="background:rgba(178,51,51,.12);color:#b23;border:1px solid rgba(178,51,51,.35);padding:.05rem .45rem;border-radius:10px;font-size:.72rem;white-space:nowrap" title="Not a valid international number (missing country code or bad length) — check it before messaging">\\u26a0 Check number</span>');
+      }
       var t = num ? threads[num] : null;
       if(t && t.state === "awaiting"){
         chips.push('<span class="lchip" style="background:rgba(199,91,18,.14);color:#a84b0c;border:1px solid rgba(199,91,18,.3);padding:.05rem .45rem;border-radius:10px;font-size:.72rem;white-space:nowrap">Awaiting reply</span>');
@@ -10940,14 +10952,14 @@ const PAGE_SCRIPT = `<script>
     L.push("UMC Dubai");
     return L.join("\\n");
   }
-  // Normalize a lead phone to a wa.me number: digits only; drop a leading "00";
-  // a single leading "0" on a 9/10-digit local number becomes 971; otherwise
-  // assume the country code is already present.
+  // E.164 digits, INTERNATIONAL — exact MIRROR of the server waMeNumber. Never
+  // assumes a country code; a leading zero (national-only) or an out-of-range length
+  // returns "" so the row shows a "check number" warning instead of a broken link.
   function normalizeWaNumber(phone){
     let d = String(phone == null ? "" : phone).replace(/\\D/g, "");
-    if(!d) return "";
-    if(d.indexOf("00") === 0) return d.slice(2);
-    if(d.charAt(0) === "0" && (d.length === 9 || d.length === 10)) return "971" + d.slice(1);
+    if(d.indexOf("00") === 0) d = d.slice(2);
+    if(d.charAt(0) === "0") return "";
+    if(d.length < 8 || d.length > 15) return "";
     return d;
   }
   // Read the current quote-price value for a lead (desktop drawer input; the
