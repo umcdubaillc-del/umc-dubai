@@ -868,10 +868,18 @@ async function ensureWaEventsSchema(env) {
        id INTEGER PRIMARY KEY AUTOINCREMENT,
        event_type TEXT,
        wa_id TEXT,
+       waba_id TEXT,
        payload_json TEXT NOT NULL,
        received_at TEXT NOT NULL
      )`
   ).run();
+  // Additive migration for tables created before waba_id (0010 → 0011).
+  try {
+    await env.BILLING_DB.prepare(`ALTER TABLE wa_events ADD COLUMN waba_id TEXT`).run();
+  } catch (e) {
+    const msg = (e && (e.message || String(e))) || "";
+    if (!/duplicate column|already exists/i.test(msg)) throw e;
+  }
 }
 
 // Constant-time compare (mirrors admin.js timingSafeEq) so token/signature
@@ -952,7 +960,7 @@ async function handleWaWebhook(request, env, ctx, url) {
     envelope = JSON.parse(raw);
   } catch {
     // Never drop silently during onboarding — log the unparseable body.
-    ctx.waitUntil(storeWaEvents(env, [{ eventType: "unknown", waId: "", payload: clip(raw, 8000) }]).catch(() => {}));
+    ctx.waitUntil(storeWaEvents(env, [{ eventType: "unknown", waId: "", waba: "", payload: clip(raw, 8000) }]).catch(() => {}));
     return new Response("ok", { status: 200 });
   }
 
@@ -997,13 +1005,14 @@ async function handleWaWebhook(request, env, ctx, url) {
   // "unknown" row with the raw body so nothing is lost during onboarding.
   const rows = [];
   for (const entry of entries) {
+    const waba = String((entry && entry.id) || "");
     const changes = Array.isArray(entry.changes) ? entry.changes : [];
     for (const change of changes) {
       const { eventType, waId } = deriveWaEvent(change);
-      rows.push({ eventType, waId, payload: JSON.stringify(change) });
+      rows.push({ eventType, waId, waba, payload: JSON.stringify(change) });
     }
   }
-  if (!rows.length) rows.push({ eventType: "unknown", waId: "", payload: clip(raw, 8000) });
+  if (!rows.length) rows.push({ eventType: "unknown", waId: "", waba: "", payload: clip(raw, 8000) });
 
   // Store, then 200. A D1 hiccup is logged, never surfaced — Meta must always
   // get a fast 200 so it doesn't retry or disable the subscription.
@@ -1021,8 +1030,8 @@ async function storeWaEvents(env, rows) {
   const now = new Date().toISOString();
   for (const r of rows) {
     await env.BILLING_DB.prepare(
-      `INSERT INTO wa_events (event_type, wa_id, payload_json, received_at) VALUES (?,?,?,?)`
-    ).bind(r.eventType || "unknown", r.waId || "", r.payload || "", now).run();
+      `INSERT INTO wa_events (event_type, wa_id, waba_id, payload_json, received_at) VALUES (?,?,?,?,?)`
+    ).bind(r.eventType || "unknown", r.waId || "", r.waba || "", r.payload || "", now).run();
   }
 }
 
@@ -1033,7 +1042,7 @@ async function handleWaEventsPeek(request, env) {
   try {
     await ensureWaEventsSchema(env);
     const res = await env.BILLING_DB.prepare(
-      `SELECT id, event_type, wa_id, payload_json, received_at
+      `SELECT id, event_type, wa_id, waba_id, payload_json, received_at
          FROM wa_events ORDER BY id DESC LIMIT 20`
     ).all();
     const rows = (res && res.results) || [];
