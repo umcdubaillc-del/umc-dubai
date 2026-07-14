@@ -1432,6 +1432,13 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .kr-card__body{flex:1 1 auto;min-width:0}
 .kr-card__title{display:block;font-family:var(--serif);font-size:1.08rem;line-height:1.25;color:var(--ink)}
 .kr-card__desc{display:-webkit-box;-webkit-line-clamp:1;line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;margin-top:.22rem;font-size:.86rem;line-height:1.45;color:var(--muted)}
+/* UI-2: the card is inside .article-body, whose `a{text-decoration:underline}` (higher
+   specificity than .kr-card) was underlining the WHOLE card — headline and description.
+   Scope the underline to the headline only; the description stays clean. */
+.article-body .kr-card{text-decoration:none}
+.article-body .kr-card__title{text-decoration:underline;text-decoration-color:rgba(168,75,12,.35);text-underline-offset:3px;transition:text-decoration-color .2s}
+.article-body .kr-card:hover .kr-card__title,.article-body .kr-card:focus-visible .kr-card__title{text-decoration-color:var(--amber-deep)}
+.article-body .kr-card__desc{text-decoration:none}
 .kr-chev{flex:0 0 auto;width:18px;height:18px;stroke:var(--muted);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:stroke .2s ease,transform .2s ease}
 .kr-card:hover .kr-chev,.kr-card:focus-visible .kr-chev{stroke:var(--amber-deep);transform:translateX(2px)}
 .kr-more{display:inline-flex;align-items:center;gap:.45rem;margin-top:1.1rem;font-family:var(--sans);font-weight:500;font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-soft);text-decoration:none;transition:color .2s ease}

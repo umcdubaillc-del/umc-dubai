@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import json, pathlib
+import json, pathlib, re
 HERE = pathlib.Path(__file__).resolve().parent
 SITE = HERE / "site"
 
@@ -469,6 +469,34 @@ JLB = '<div class="jline jline--b" aria-hidden="true"><span class="n1"></span><s
 
 def faq_details(faqs):
     return "".join(f"<details><summary>{q}</summary><p>{a}</p></details>" for q,a in faqs)
+
+# UI-2: ONE FAQ grammar site-wide. Article bodies hand-author their FAQ as an
+# <h2>Frequently asked questions</h2> followed by consecutive <h3>/<p> pairs. This
+# rewrites that block into the homepage FAQ component (.shead eyebrow + .faq details),
+# so every article FAQ shares the same eyebrow/rules/type/spacing — content unchanged,
+# no per-page variants. Strict-match only (consecutive <h3>/<p> pairs); anything that
+# doesn't fit is left exactly as-is, so this is a safe no-op on non-FAQ content.
+_FAQ_PAIR_RE = re.compile(r'\s*<h3>(.*?)</h3>\s*<p>(.*?)</p>', re.S)
+def unify_article_faq(html):
+    marker = '<h2>Frequently asked questions</h2>'
+    idx = html.find(marker)
+    if idx == -1:
+        return html
+    after = html[idx + len(marker):]
+    pairs, pos = [], 0
+    while True:
+        m = _FAQ_PAIR_RE.match(after, pos)
+        if not m:
+            break
+        pairs.append((m.group(1).strip(), m.group(2).strip()))
+        pos = m.end()
+    if not pairs:
+        return html
+    details = "".join(f"<details><summary>{q}</summary><p>{a}</p></details>" for q, a in pairs)
+    block = ('<div class="shead rv"><span class="lbl">Good to know</span>'
+             '<h2>Frequently asked questions</h2></div>'
+             f'<div class="faq rv">{details}</div>')
+    return html[:idx] + block + after[pos:]
 
 def faq_schema(faqs):
     import re
@@ -4700,7 +4728,7 @@ def render_post(p):
   </header>
   <div class="article-body">
     <div class="wrap article-wrap rv">
-      {p['body']}
+      {unify_article_faq(p['body'])}
       {render_keep_reading(p['slug'])}
     </div>
   </div>
@@ -4835,8 +4863,8 @@ def render_comparison_page():
       <p><b>When UMC fits.</b> Dubai-centred travel; guests who want the specific car they chose; <a href="/corporate">corporates</a> needing AED VAT invoicing and a single accountable operator; anyone who values one WhatsApp thread over a support queue.</p>
       <p><b>The guarantee.</b> These are the layouts and cars we actually run. Your booking is confirmed to this exact car and configuration &mdash; never a smaller one. That sentence is on every <a href="/fleet">fleet</a> page, and it is the difference between an operator and a marketplace.</p>
 
-      <h2>Frequently asked questions</h2>
-      {faq_html}
+      <div class="shead rv"><span class="lbl">Good to know</span><h2>Frequently asked questions</h2></div>
+      <div class="faq rv">{faq_html}</div>
 
       {render_keep_reading("blacklane-alternative-dubai")}
     </div>
