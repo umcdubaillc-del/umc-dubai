@@ -440,6 +440,18 @@ async function ensureSchema(env) {
     await env.BILLING_DB.prepare(
       `CREATE INDEX IF NOT EXISTS idx_flight_watch_next ON flight_watch (done, next_poll_at)`
     ).run();
+    // WA-3-AMEND — flight hardening state: persistence (F2), client-message budget (F3),
+    // identity gate (F5), and the overnight client-message queue (F6).
+    await addMissingColumns(env, "flight_watch", [
+      "pending_delay_min INTEGER DEFAULT 0",   // last observed ≥30 delay (candidate)
+      "pending_delay_count INTEGER DEFAULT 0", // consecutive polls it has held (need 2)
+      "client_msgs INTEGER DEFAULT 0",         // client delay messages sent (max 1 + 1 further)
+      "arr_airport TEXT",                      // API arrival airport (identity match)
+      "pickup_airport TEXT",                   // lead's pickup airport code (enrollment)
+      "queued_client_at TEXT",                 // overnight-queued client send-after (ISO)
+      "queued_delay_min INTEGER",              // queued message's delay
+      "queued_eta_local TEXT",                 // queued message's ETA string
+    ]);
     // WA-3 — signed wa.me redirect links (/r/wa/{id}.{sig}). One row per emitted link;
     // the redirect serves the stored prefill, stamps the lead, and 302s to wa.me. Lets
     // every emailed/alerted client link be click-attributable and short (fits template
@@ -4870,26 +4882,44 @@ function arrivalDateStr(lead) {
   // The AeroDataBox date param is the arrival's LOCAL date (DXB +04:00).
   return new Date(ms + 4 * 3600 * 1000).toISOString().slice(0, 10);
 }
+// UAE arrival airports — the lead's pickup airport (identity gate F5) is matched to
+// the API's arrival airport IATA. Extract from the lead's pickup/destination text.
+const _UAE_AIRPORTS = [
+  ["DXB", /\bdxb\b|dubai international/i],
+  ["DWC", /\bdwc\b|al maktoum|maktoum international/i],
+  ["AUH", /\bauh\b|abu dhabi international|zayed international/i],
+  ["SHJ", /\bshj\b|sharjah international/i],
+  ["RKT", /\brkt\b|ras al khaimah international/i],
+  ["AAN", /\baan\b|al ain international/i],
+];
+function leadAirportCode(lead) {
+  const s = String((lead && lead.pickup) || "") + " " + String((lead && lead.destination) || "");
+  for (const [code, rx] of _UAE_AIRPORTS) if (rx.test(s)) return code;
+  return "";
+}
 async function aeroDataBoxPoll(env, flightNo, dateStr) {
   const clean = String(flightNo || "").replace(/\s+/g, "").toUpperCase();
   if (!clean || !dateStr) return { ok: false, error: "bad params" };
-  const url = `https://${FLIGHT_HOST}/flights/number/${encodeURIComponent(clean)}/${dateStr}?dateLocalRole=Arrival&withLocation=false`;
+  // withLocation=true so we get the arrival airport for the identity gate (F5).
+  const url = `https://${FLIGHT_HOST}/flights/number/${encodeURIComponent(clean)}/${dateStr}?dateLocalRole=Arrival&withLocation=true`;
   try {
     const res = await fetch(url, { headers: { "X-RapidAPI-Key": env.FLIGHT_API_KEY, "X-RapidAPI-Host": FLIGHT_HOST } });
     if (!res.ok) return { ok: false, error: "http " + res.status };
     const data = await res.json().catch(() => null);
     const arr = Array.isArray(data) ? data : (data && Array.isArray(data.flights) ? data.flights : []);
-    if (!arr.length) return { ok: true, found: false };
+    if (!arr.length) return { ok: true, found: false, count: 0 };
     const f = arr[0];
     const a = (f && f.arrival) || {};
     const sched = a.scheduledTime || {};
     const revised = a.revisedTime || a.runwayTime || a.predictedTime || {};
+    const ap = a.airport || {};
     return {
-      ok: true, found: true,
+      ok: true, found: true, count: arr.length,
       status: f.status || "",
       scheduledUtc: sched.utc || null,
       etaUtc: revised.utc || sched.utc || null,
-      etaLocal: revised.local || sched.local || null
+      etaLocal: revised.local || sched.local || null,
+      arrIata: (ap.iata || ap.iataCode || "").toUpperCase()
     };
   } catch (e) { return { ok: false, error: "exception" }; }
 }
@@ -4960,7 +4990,7 @@ export async function runFlightWatch(env) {
   // Enroll eligible confirmed leads (flight + phone) not already watched.
   try {
     const { results: cand } = await env.BILLING_DB.prepare(
-      `SELECT id, name, phone, flight, date, time FROM leads
+      `SELECT id, name, phone, flight, date, time, pickup, destination FROM leads
         WHERE flight IS NOT NULL AND TRIM(flight) <> ''
           AND phone IS NOT NULL
           AND (COALESCE(status,'') = 'invoiced' OR linked_doc_number LIKE 'UMC-INV-%')
@@ -4975,9 +5005,9 @@ export async function runFlightWatch(env) {
       const firstPoll = new Date(Math.max(nowMs, arrMs - 4 * 3600 * 1000)).toISOString(); // T-4h
       await env.BILLING_DB.prepare(
         `INSERT OR IGNORE INTO flight_watch
-           (lead_id, flight_no, arrival_date, next_poll_at, created_at, updated_at)
-         VALUES (?,?,?,?,?,?)`
-      ).bind(lead.id, String(lead.flight).trim(), dateStr, firstPoll, nowIso, nowIso).run();
+           (lead_id, flight_no, arrival_date, pickup_airport, next_poll_at, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?)`
+      ).bind(lead.id, String(lead.flight).trim(), dateStr, leadAirportCode(lead), firstPoll, nowIso, nowIso).run();
     }
   } catch (e) { /* enrollment best-effort */ }
 
@@ -5001,71 +5031,142 @@ export async function runFlightWatch(env) {
     const r = await aeroDataBoxPoll(env, fw.flight_no, fw.arrival_date);
     polled++;
     if (r.ok !== false) { units += 2; await addFlightUnits(env, 2); }
-    const upd = { last_poll_at: nowIso, next_poll_at: new Date(nowMs + 60 * 60 * 1000).toISOString() };
-    if (r.ok && r.found) {
-      upd.status = r.status; upd.scheduled_utc = r.scheduledUtc; upd.eta_utc = r.etaUtc; upd.eta_local = r.etaLocal;
+    const flightNo = String(fw.flight_no).trim();
+    const upd = {
+      last_poll_at: nowIso, next_poll_at: new Date(nowMs + 60 * 60 * 1000).toISOString(),
+      status: fw.status, scheduled_utc: fw.scheduled_utc, eta_utc: fw.eta_utc, eta_local: fw.eta_local,
+      arr_airport: fw.arr_airport, notified_delay_min: fw.notified_delay_min || 0,
+      pending_delay_min: fw.pending_delay_min || 0, pending_delay_count: fw.pending_delay_count || 0,
+      client_msgs: fw.client_msgs || 0, done: fw.done || 0,
+      queued_client_at: fw.queued_client_at, queued_delay_min: fw.queued_delay_min, queued_eta_local: fw.queued_eta_local
+    };
+    const lead = await env.BILLING_DB.prepare(
+      `SELECT id, name, phone, whatsapp_reachable, vehicle, pickup, destination, date, time FROM leads WHERE id = ?`
+    ).bind(fw.lead_id).first();
+    const clientName = lead ? (waNz(lead.name) || ("lead #" + fw.lead_id)) : ("lead #" + fw.lead_id);
+    const firstName = clientName.split(/\s+/)[0];
+    const clientTo = lead ? waMeNumber(lead.phone) : "";
+    const pickupWithin12h = lead ? (estimatedArrivalUtcMs(lead) - nowMs) <= 12 * 3600 * 1000 : false;
+    const gstHour = (new Date(nowMs).getUTCHours() + 4) % 24;
+    const overnight = gstHour >= 23 || gstHour < 6;
+    const nextDay6amIso = () => { const d = new Date(nowMs); const g = new Date(nowMs + 4*3600*1000); if (g.getUTCHours() >= 6) g.setUTCDate(g.getUTCDate()+1); g.setUTCHours(6,0,0,0); return new Date(g.getTime() - 4*3600*1000).toISOString(); };
+    // Team-only alert (F4/F5 classes): freeform + a client-prefill link (a human owns it).
+    const teamOnly = async (teamMsg, clientHint, tag) => {
+      const link = clientTo ? await createWaLink(env, { leadId: fw.lead_id, purpose: "flight", toPhone: lead.phone,
+        prefill: "Dear " + firstName + ", " + clientHint + "\n\nWarm regards,\nUMC Dubai" }) : "";
+      await teamFreeform(env, "Flight " + flightNo + " (" + clientName + "): " + teamMsg + (link ? (" — message the client: " + link) : ""),
+        "flightteam:" + fw.lead_id + ":" + tag, "flight_team", fw.lead_id);
+    };
+    // Client delay send (flight_delay_update) with mirror + failure fallback + P1 gate.
+    const sendDelayToClient = async (delayMin, etaShow) => {
+      const reachable = lead && (lead.whatsapp_reachable === "yes" || (clientTo && await leadHasInboundHistory(env, clientTo)));
+      const eta3 = etaShow + " (Dubai time)"; // F7
+      if (!clientTo || !reachable) { // P1/F8 — never auto-message an unverified number
+        await teamOnly("delayed ~" + delayMin + " min, new ETA " + eta3 + " (client number not verified — send manually)",
+          "your flight " + flightNo + " is now expected around " + eta3 + ". Your chauffeur will adjust; nothing is needed from you.",
+          "delayunreach:" + delayMin);
+        return false;
+      }
+      if (env.WA_CLIENT_SENDS_ENABLED !== "1") { console.log("FLIGHT dry-run: would send delay to client lead#" + fw.lead_id + " " + flightNo + " " + delayMin + "min ETA " + eta3); return false; }
+      const row = await claimOutbound(env, { lead_id: fw.lead_id, kind: "flight", recipient: clientTo, template: "flight_delay_update",
+        dedupe_key: "flightclient:" + fw.lead_id + ":" + delayMin, meta_json: JSON.stringify({ flight: flightNo, eta: eta3, delayMin }) });
+      if (!row) return false;
+      const result = await waGraphSend(env, { messaging_product: "whatsapp", to: clientTo, type: "template",
+        template: { name: "flight_delay_update", language: { code: "en" },
+          components: [{ type: "body", parameters: [
+            { type: "text", text: firstName }, { type: "text", text: flightNo }, { type: "text", text: eta3 } ] }] } });
+      await finishOutbound(env, row, result);
+      if (result.ok) {
+        await teamFreeform(env, "Client told: " + flightNo + " delayed ~" + delayMin + " min, ETA " + eta3 + " (" + clientName + ").", "flightmirror:" + fw.lead_id + ":" + delayMin, "flight_mirror", fw.lead_id);
+        await maybeQuotaAlert(env);
+        return true;
+      }
+      await teamOnly("delay message to the client FAILED (code " + (result.errorCode || "?") + ") — send manually. ETA " + eta3,
+        "your flight " + flightNo + " is now expected around " + eta3 + ".", "delayfail:" + delayMin);
+      return false;
+    };
+
+    if (r.ok === false) {
+      // Transient API error — just reschedule, no class handling.
+    } else if (!r.found) {
+      // F4 — flight not found for this date (likely a typo'd number). Team once, stop.
+      console.log("FLIGHT " + flightNo + " lead#" + fw.lead_id + ": not found for " + fw.arrival_date + " — team alert, tracking stops.");
+      await teamOnly("not found for " + fw.arrival_date + " — please verify the flight number", "please reply with your correct flight number so we can track your arrival.", "notfound");
+      upd.done = 1;
+    } else {
+      upd.status = r.status; upd.scheduled_utc = r.scheduledUtc; upd.eta_utc = r.etaUtc; upd.eta_local = r.etaLocal; upd.arr_airport = r.arrIata;
       const statusLc = String(r.status || "").toLowerCase();
+      const cancelled = /cancel|divert/.test(statusLc);
       const landed = /arriv|land/.test(statusLc);
-      const delayMin = (r.scheduledUtc && r.etaUtc)
-        ? Math.round((Date.parse(r.etaUtc) - Date.parse(r.scheduledUtc)) / 60000) : 0;
-      // Significant delay ≥20 min AND moved ≥15 min since last notified → notify once.
-      if (delayMin >= 20 && Math.abs(delayMin - (fw.notified_delay_min || 0)) >= 15) {
-        // WA-3 — alert the TEAM with flight_alert (NOT a client send). {{1}} client,
-        // {{2}} flight, {{3}} ETA, {{4}} inform-the-client link (a human sends it).
-        const lead = await env.BILLING_DB.prepare(`SELECT id, name, phone FROM leads WHERE id = ?`).bind(fw.lead_id).first();
-        const etaShow = r.etaLocal || (r.etaUtc ? new Date(Date.parse(r.etaUtc) + 4 * 3600 * 1000).toISOString().slice(11, 16) : "");
-        const clientName = lead ? (waNz(lead.name) || ("lead #" + fw.lead_id)) : ("lead #" + fw.lead_id);
-        const firstName = clientName.split(/\s+/)[0];
-        const clientTo = lead ? waMeNumber(lead.phone) : "";
-        const clientPrefill = "Dear " + firstName + ", a quick update on your flight " + String(fw.flight_no).trim() +
-          " — the new estimated arrival is " + etaShow + ". Your chauffeur will adjust automatically; nothing is needed from you.\n\nWarm regards,\nUMC Dubai";
-        const clientLink = clientTo
-          ? (await createWaLink(env, { leadId: fw.lead_id, purpose: "flight", toPhone: lead.phone, prefill: clientPrefill }))
-          : "No WhatsApp number on file";
-        const team = await getActiveWaTeam(env);
-        let anySent = false;
-        for (const member of team) {
-          const mto = waMeNumber(member.phone); if (mto.length < 8) continue;
-          const rowId = await claimOutbound(env, {
-            lead_id: fw.lead_id, kind: "flight", recipient: mto, template: "flight_alert",
-            dedupe_key: "flight:" + fw.lead_id + ":" + delayMin + ":" + mto,
-            meta_json: JSON.stringify({ flight: fw.flight_no, eta: etaShow, delayMin })
-          });
-          if (!rowId) continue; // already alerted this member for this change
-          if (env.WA_SEND_ENABLED === "1") {
-            const result = await waGraphSend(env, {
-              messaging_product: "whatsapp", to: mto, type: "template",
-              template: { name: "flight_alert", language: { code: "en" },
-                components: [{ type: "body", parameters: [
-                  { type: "text", text: clientName },
-                  { type: "text", text: String(fw.flight_no).trim() },
-                  { type: "text", text: etaShow },
-                  { type: "text", text: clientLink }
-                ] }] }
-            });
-            await finishOutbound(env, rowId, result);
-            if (result.ok) anySent = true;
+      const ambiguous = (r.count || 1) > 1;
+      const identityOk = !!r.arrIata && !!fw.pickup_airport && r.arrIata === fw.pickup_airport;
+      const etaShow = r.etaLocal ? String(r.etaLocal).slice(11, 16) : (r.etaUtc ? new Date(Date.parse(r.etaUtc) + 4 * 3600 * 1000).toISOString().slice(11, 16) : "");
+      const delayMin = (r.scheduledUtc && r.etaUtc) ? Math.round((Date.parse(r.etaUtc) - Date.parse(r.scheduledUtc)) / 60000) : 0;
+      console.log("FLIGHT " + flightNo + " lead#" + fw.lead_id + ": status=" + r.status + " delay=" + delayMin + " pendingCount=" + upd.pending_delay_count + " clientMsgs=" + upd.client_msgs + " arr=" + r.arrIata + " pickup=" + fw.pickup_airport + " identityOk=" + identityOk + " ambiguous=" + ambiguous);
+
+      // Deliver any overnight-queued client message once its send-time arrives (F6).
+      if (upd.queued_client_at && nowIso >= upd.queued_client_at && upd.client_msgs < 2 && !cancelled) {
+        const ok = await sendDelayToClient(upd.queued_delay_min || delayMin, upd.queued_eta_local || etaShow);
+        if (ok) { upd.client_msgs += 1; upd.notified_delay_min = upd.queued_delay_min || delayMin; }
+        upd.queued_client_at = null; upd.queued_delay_min = null; upd.queued_eta_local = null;
+      }
+
+      if (cancelled) {
+        // F4 — cancelled/diverted: urgent team alert with prefill, a human owns it. Stop.
+        await teamOnly("is " + (r.status || "cancelled/diverted") + " — URGENT, a human should call the client",
+          "we noticed your flight " + flightNo + " status has changed. Please let us know your updated plans and we will adjust your chauffeur.", "cancel");
+        upd.done = 1;
+      } else if (ambiguous) {
+        // F4 — multiple matches / codeshare: team-only, never client-auto. Keep tracking.
+        await teamOnly("returned multiple matches (codeshare/ambiguous) — verify manually before messaging the client",
+          "we are confirming your flight details and will be in touch shortly.", "ambig");
+      } else if (delayMin <= -30) {
+        // F4 — early arrival ≥30 min: chauffeur must leave EARLIER. Urgent team, never client.
+        await teamOnly("is EARLY by ~" + Math.abs(delayMin) + " min (ETA " + etaShow + " Dubai time) — chauffeur must leave earlier",
+          "good news — your flight " + flightNo + " is arriving early, around " + etaShow + " (Dubai time). Your chauffeur will be ready.", "early:" + Math.abs(delayMin));
+      } else if (!identityOk && delayMin >= 30) {
+        // F5 — arrival airport doesn't match the pickup airport (or unconfirmable): team-only.
+        await teamOnly("delay ~" + delayMin + " min but arrival airport (" + (r.arrIata || "?") + ") does not match pickup (" + (fw.pickup_airport || "?") + ") — verify before messaging",
+          "we are confirming your flight details and will be in touch shortly.", "identity:" + delayMin);
+      } else if (delayMin >= 30) {
+        // F1/F2 — persistence: the ≥30 delay must hold across TWO consecutive polls.
+        if (upd.pending_delay_count > 0 && Math.abs(delayMin - upd.pending_delay_min) < 20) upd.pending_delay_count += 1;
+        else { upd.pending_delay_min = delayMin; upd.pending_delay_count = 1; }
+        const held = upd.pending_delay_count >= 2;
+        // F3 — budget: first message, then one further only if it slips ≥30 more.
+        const budgetOk = upd.client_msgs === 0 || (upd.client_msgs === 1 && delayMin >= (upd.notified_delay_min || 0) + 30);
+        console.log("FLIGHT " + flightNo + " lead#" + fw.lead_id + ": held=" + held + " budgetOk=" + budgetOk + " within12h=" + pickupWithin12h + " overnight=" + overnight);
+        if (held && budgetOk && upd.client_msgs < 2) {
+          if (!pickupWithin12h && overnight) {
+            // F6 — queue the client message to 06:00; alert the team now.
+            upd.queued_client_at = nextDay6amIso(); upd.queued_delay_min = delayMin; upd.queued_eta_local = etaShow;
+            await teamOnly("delayed ~" + delayMin + " min (ETA " + etaShow + " Dubai time) — client message queued to 06:00 (overnight)",
+              "your flight " + flightNo + " is now expected around " + etaShow + " (Dubai time). Your chauffeur will adjust.", "queued:" + delayMin);
+            notified++;
           } else {
-            await finishOutbound(env, rowId, { status: "skipped", errorCode: "disabled" });
+            const ok = await sendDelayToClient(delayMin, etaShow);
+            if (ok) { upd.client_msgs += 1; upd.notified_delay_min = delayMin; notified++; }
           }
         }
-        upd.notified_delay_min = delayMin;
-        notified++;
-        if (anySent) await maybeQuotaAlert(env);
+      } else {
+        // Delay dropped below the threshold — it didn't hold. Reset the candidate.
+        // Never a "back on time" client message (F3); team sees it via the log only.
+        if (upd.pending_delay_count > 0 && delayMin < 30) { upd.pending_delay_min = 0; upd.pending_delay_count = 0; }
       }
-      if (landed || nowMs > estimatedArrivalUtcMs({ date: fw.arrival_date, time: "23:59" }) + 3 * 3600 * 1000) {
-        upd.done = 1;
-      }
+      if (landed || nowMs > estimatedArrivalUtcMs({ date: fw.arrival_date, time: "23:59" }) + 3 * 3600 * 1000) upd.done = 1;
     }
-    // Persist poll result.
+    // Persist poll result (all hardening state).
     await env.BILLING_DB.prepare(
-      `UPDATE flight_watch SET status=?, scheduled_utc=?, eta_utc=?, eta_local=?,
-         notified_delay_min=?, last_poll_at=?, next_poll_at=?, done=?, updated_at=?
+      `UPDATE flight_watch SET status=?, scheduled_utc=?, eta_utc=?, eta_local=?, arr_airport=?,
+         notified_delay_min=?, pending_delay_min=?, pending_delay_count=?, client_msgs=?,
+         queued_client_at=?, queued_delay_min=?, queued_eta_local=?,
+         last_poll_at=?, next_poll_at=?, done=?, updated_at=?
        WHERE id=?`
     ).bind(
-      upd.status ?? fw.status, upd.scheduled_utc ?? fw.scheduled_utc, upd.eta_utc ?? fw.eta_utc,
-      upd.eta_local ?? fw.eta_local, upd.notified_delay_min ?? fw.notified_delay_min,
-      upd.last_poll_at, upd.next_poll_at, upd.done ?? fw.done, nowIso, fw.id
+      upd.status, upd.scheduled_utc, upd.eta_utc, upd.eta_local, upd.arr_airport,
+      upd.notified_delay_min, upd.pending_delay_min, upd.pending_delay_count, upd.client_msgs,
+      upd.queued_client_at, upd.queued_delay_min, upd.queued_eta_local,
+      upd.last_poll_at, upd.next_poll_at, upd.done, nowIso, fw.id
     ).run();
   }
   return { polled, notified, units };
