@@ -1118,6 +1118,21 @@ async function captureWhatsAppLead(env, ctx, change) {
     if ((team || []).some((t) => waMeNumber(t.phone) === e164)) return;
   } catch (e) { /* wa_team absent → nothing to exclude */ }
 
+  // FIRST-EVER-CONTACT rule: only create on a number with NO prior presence in
+  // wa_events in ANY direction (history sync, prior inbound, prior smb echoes,
+  // status recipients). The current inbound is already stored by storeWaEvents, so
+  // exclude it by its own wamid. wa_id column covers messages/statuses; the LIKE on
+  // the raw payload covers echoes (recipient in message_echoes[].to) and history.
+  try {
+    const prior = await env.BILLING_DB.prepare(
+      `SELECT 1 FROM wa_events
+         WHERE (wa_id = ? OR payload_json LIKE ?)
+           AND payload_json NOT LIKE ?
+         LIMIT 1`
+    ).bind(e164, "%" + e164 + "%", "%" + (msg.id || "__no_wamid__") + "%").first();
+    if (prior) return; // existing conversation — a follow-up, not a new lead
+  } catch (e) { /* wa_events absent → treat as first contact */ }
+
   await ensureLeadsSchema(env);
   // Dedupe by normalized phone across ALL leads (full scan; fine at this scale).
   const { results } = await env.BILLING_DB.prepare(
@@ -1173,7 +1188,13 @@ async function handleWaEventsPeek(request, env) {
          FROM wa_events ORDER BY id DESC LIMIT 20`
     ).all();
     const rows = (res && res.results) || [];
-    return json({ ok: true, count: rows.length, events: rows }, 200);
+    // Per-type totals across ALL rows (diagnostic: is the onboarding history in wa_events?).
+    const cres = await env.BILLING_DB.prepare(
+      `SELECT event_type, COUNT(*) AS n FROM wa_events GROUP BY event_type`
+    ).all();
+    const counts = {};
+    for (const r of ((cres && cres.results) || [])) counts[r.event_type || "unknown"] = r.n;
+    return json({ ok: true, count: rows.length, counts, events: rows }, 200);
   } catch (e) {
     return json({ ok: false, error: clip(e && (e.message || String(e)), 300) }, 500);
   }
