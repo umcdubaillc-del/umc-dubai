@@ -3763,6 +3763,46 @@ async function handleMarkLeadViewed(id, env) {
   return json({ ok: true, id });
 }
 
+// Gate G — manual "Add lead" from the admin. Phone is normalized to E.164 the same
+// way as every other path (waMeNumber); origin is one of Call/Email/WhatsApp/Walk-in.
+// Deduped consistently against existing leads by normalized phone (blocks a dup with
+// the existing id so the operator can open it instead).
+async function handleAddLead(request, env) {
+  await ensureSchema(env);
+  let b = {}; try { b = await request.json(); } catch { /* empty */ }
+  const clip = (s, n) => String(s == null ? "" : s).trim().slice(0, n);
+  const name = clip(b.name, 200);
+  const e164 = waMeNumber(b.phone);
+  if (!name) return json({ ok: false, error: "Name is required." }, 400);
+  if (!e164) return json({ ok: false, error: "A valid phone number with country code is required." }, 400);
+
+  const { results } = await env.BILLING_DB.prepare(
+    `SELECT id, phone FROM leads WHERE phone IS NOT NULL`
+  ).all();
+  const dup = (results || []).find((r) => waMeNumber(r.phone) === e164);
+  if (dup) return json({ ok: false, error: "A lead with this number already exists.", existingId: dup.id }, 409);
+
+  const origin = ["Call", "Email", "WhatsApp", "Walk-in"].includes(b.origin) ? b.origin : "Manual";
+  const now = new Date().toISOString();
+  const payload = {
+    source: origin, name, phone: "+" + e164, email: clip(b.email, 200).toLowerCase(),
+    service: clip(b.service, 100), pickup: clip(b.pickup, 240), destination: clip(b.destination, 240),
+    date: clip(b.date, 60), time: clip(b.time, 60), vehicle: clip(b.vehicle, 100),
+    days: clip(b.days, 8), flight: clip(b.flight, 40), sign: clip(b.sign, 100),
+    notes: clip(b.notes, 800), page: "manual", ts: now, verified: 1
+  };
+  const ins = await env.BILLING_DB.prepare(
+    `INSERT INTO leads
+       (created_at, source, name, phone, email, service, pickup, destination,
+        date, time, vehicle, days, flight, sign, notes, page, client_ts, payload_json,
+        marketing_consent, verified)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(now, origin, name, payload.phone, payload.email, payload.service, payload.pickup,
+    payload.destination, payload.date, payload.time, payload.vehicle, payload.days,
+    payload.flight, payload.sign, payload.notes, "manual", now, JSON.stringify(payload), 0, 1).run();
+  return json({ ok: true, id: ins && ins.meta ? ins.meta.last_row_id : null, origin });
+}
+
 // Phase 0.2 — customer asset export. De-duplicates paid Nomod charges by
 // client_email and emits a CSV (email, name, first_purchase, last_purchase,
 // orders, total_spent_aed). One row per customer, highest spenders first.
@@ -4643,6 +4683,13 @@ export async function handleAdmin(request, env) {
     if (!authed) return json({ ok: false, error: "auth required" }, 401);
     if (!env.BILLING_DB) return dbUnavailable();
     return handleListLeads(env);
+  }
+  // Gate G — manual "Add lead".
+  if (path === "/admin/api/leads" && method === "POST") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    return handleAddLead(request, env);
   }
   // WA-2 E — per-client WhatsApp thread state for the lead-row response chips.
   if (path === "/admin/api/lead-threads" && method === "GET") {
@@ -5972,6 +6019,7 @@ function appShellHTML() {
         <p class="hist-sub">Bookings from the website. Convert to a quote or invoice and the Create builder is pre-filled, and every field stays editable.</p>
       </div>
       <div style="display:flex;gap:.5rem">
+        <button type="button" class="btn btn-small btn-ink" id="leadsAdd" title="Manually add a lead (call, email, WhatsApp, walk-in)">Add lead</button>
         <button type="button" class="btn btn-small btn-ghost" id="leadsCsv" title="Download the current leads as a CSV file">Export CSV</button>
         <button type="button" class="btn btn-small btn-ghost" id="leadsRefresh">Refresh</button>
       </div>
@@ -6021,6 +6069,72 @@ function appShellHTML() {
       </div>
       <p class="wa-team-msg" id="waTeamMsg" aria-live="polite" style="font-size:.8rem;color:var(--muted);margin-top:.5rem"></p>
     </details>
+    <!-- WA-2 G — manual Add lead dialog. -->
+    <dialog id="addLeadDialog" style="border:none;border-radius:10px;padding:0;max-width:560px;width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.28)">
+      <form id="addLeadForm" method="dialog" style="padding:1.25rem 1.25rem 1.1rem;background:var(--card,#FBF8F1);color:var(--ink,#221B14)">
+        <h3 style="margin:0 0 .2rem;font-family:Georgia,serif;font-weight:400;font-size:1.25rem">Add a lead</h3>
+        <p class="hist-sub" style="margin:0 0 .9rem">Manually captured — call, email, WhatsApp or walk-in.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.7rem">
+          <label style="grid-column:1/3">Origin
+            <select id="al_origin" style="width:100%">
+              <option value="Call">Call</option><option value="Email">Email</option>
+              <option value="WhatsApp">WhatsApp</option><option value="Walk-in">Walk-in</option>
+            </select>
+          </label>
+          <label style="grid-column:1/3">Name *
+            <input id="al_name" type="text" autocomplete="off" required style="width:100%">
+          </label>
+          <label>Country code *
+            <select id="al_cc" style="width:100%">
+              <option value="971" selected>UAE +971</option><option value="966">Saudi Arabia +966</option>
+              <option value="974">Qatar +974</option><option value="973">Bahrain +973</option>
+              <option value="965">Kuwait +965</option><option value="968">Oman +968</option>
+              <option value="44">UK +44</option><option value="1">US/Canada +1</option>
+              <option value="91">India +91</option><option value="92">Pakistan +92</option>
+              <option value="20">Egypt +20</option><option value="962">Jordan +962</option>
+              <option value="961">Lebanon +961</option><option value="90">Turkey +90</option>
+              <option value="7">Russia +7</option><option value="86">China +86</option>
+              <option value="49">Germany +49</option><option value="33">France +33</option>
+              <option value="39">Italy +39</option><option value="34">Spain +34</option>
+              <option value="31">Netherlands +31</option><option value="61">Australia +61</option>
+              <option value="63">Philippines +63</option><option value="234">Nigeria +234</option>
+            </select>
+          </label>
+          <label>Phone number *
+            <input id="al_phone" type="tel" inputmode="tel" autocomplete="off" required placeholder="50 123 4567" style="width:100%">
+          </label>
+          <label style="grid-column:1/3">Email
+            <input id="al_email" type="email" autocomplete="off" style="width:100%">
+          </label>
+          <label>Service
+            <input id="al_service" type="text" autocomplete="off" placeholder="Airport transfer" style="width:100%">
+          </label>
+          <label>Vehicle
+            <input id="al_vehicle" type="text" autocomplete="off" placeholder="Mercedes S-Class" style="width:100%">
+          </label>
+          <label>Pick-up
+            <input id="al_pickup" type="text" autocomplete="off" style="width:100%">
+          </label>
+          <label>Destination
+            <input id="al_destination" type="text" autocomplete="off" style="width:100%">
+          </label>
+          <label>Date
+            <input id="al_date" type="text" autocomplete="off" placeholder="Wed, 16 Jul 2026" style="width:100%">
+          </label>
+          <label>Time
+            <input id="al_time" type="text" autocomplete="off" placeholder="14:30" style="width:100%">
+          </label>
+          <label style="grid-column:1/3">Notes
+            <textarea id="al_notes" rows="2" style="width:100%"></textarea>
+          </label>
+        </div>
+        <p class="add-lead-msg" id="addLeadMsg" aria-live="polite" style="font-size:.8rem;color:var(--danger,#b23);margin:.6rem 0 0;min-height:1em"></p>
+        <div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:.8rem">
+          <button type="button" class="btn btn-small btn-ghost" id="addLeadCancel">Cancel</button>
+          <button type="submit" class="btn btn-small btn-ink" id="addLeadSave">Save lead</button>
+        </div>
+      </form>
+    </dialog>
   </div>
 </section>
 </section><!-- /#tab-leads -->
@@ -9797,6 +9911,43 @@ const PAGE_SCRIPT = `<script>
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
   }
+  // WA-2 G — manual Add lead.
+  function addLeadMsg(t){ var el = document.getElementById("addLeadMsg"); if(el) el.textContent = t || ""; }
+  function openAddLead(){
+    var d = document.getElementById("addLeadDialog"); if(!d) return;
+    var f = document.getElementById("addLeadForm"); if(f) f.reset();
+    addLeadMsg("");
+    if(typeof d.showModal === "function") d.showModal(); else d.setAttribute("open","");
+  }
+  function submitAddLead(){
+    var g = function(id){ var el = document.getElementById(id); return el ? el.value : ""; };
+    var name = String(g("al_name")).trim();
+    // E.164 from explicit country code + national (leading zeros stripped) — same
+    // rule as capture; never assumes a country.
+    var national = String(g("al_phone")||"").replace(/\\D/g,"").replace(/^0+/,"");
+    if(!name){ addLeadMsg("Name is required."); return; }
+    if(!national){ addLeadMsg("Enter a phone number."); return; }
+    var body = {
+      origin: g("al_origin"), name: name, phone: "+" + g("al_cc") + " " + national,
+      email: String(g("al_email")).trim(), service: String(g("al_service")).trim(),
+      vehicle: String(g("al_vehicle")).trim(), pickup: String(g("al_pickup")).trim(),
+      destination: String(g("al_destination")).trim(), date: String(g("al_date")).trim(),
+      time: String(g("al_time")).trim(), notes: String(g("al_notes")).trim()
+    };
+    var saveBtn = document.getElementById("addLeadSave"); if(saveBtn) saveBtn.disabled = true;
+    fetch("/admin/api/leads", { method:"POST", headers:{"Content-Type":"application/json"},
+      credentials:"same-origin", body: JSON.stringify(body) })
+      .then(function(r){ return r.json().then(function(j){ return { http:r.status, j:j }; }); })
+      .then(function(res){
+        if(saveBtn) saveBtn.disabled = false;
+        var j = res.j || {};
+        if(res.http === 409){ addLeadMsg((j.error||"Duplicate") + (j.existingId ? (" (lead #"+j.existingId+")") : "")); return; }
+        if(!j.ok){ addLeadMsg(j.error || "Could not save."); return; }
+        var d = document.getElementById("addLeadDialog"); if(d) d.close();
+        setStatus("Lead added."); loadLeads();
+      })
+      .catch(function(){ if(saveBtn) saveBtn.disabled = false; addLeadMsg("Could not save — network error."); });
+  }
   // Prefill is editable: every value below is a starting value, not a fixed
   // one. lead_id travels along silently for lineage; editing any prefilled
   // field must NEVER detach it. Server still enforces the price gate.
@@ -11192,11 +11343,18 @@ const PAGE_SCRIPT = `<script>
     // WA-2 B — lazy-load the alert roster the first time its panel is opened.
     const waT = root.querySelector("#waTeam");
     if(waT) waT.addEventListener("toggle", function(){ if(waT.open) loadWaTeam(); });
+    // WA-2 G — Add-lead form submit (native dialog submit intercepted to POST first).
+    const addForm = root.querySelector("#addLeadForm");
+    if(addForm) addForm.addEventListener("submit", function(ev){ ev.preventDefault(); submitAddLead(); });
     root.addEventListener("click", function(e){
       const refresh = e.target.closest("#leadsRefresh");
       if(refresh){ e.preventDefault(); loadLeads(); return; }
       const csvBtn = e.target.closest("#leadsCsv");
       if(csvBtn){ e.preventDefault(); exportLeadsCsv(); return; }
+      const addLeadBtn = e.target.closest("#leadsAdd");
+      if(addLeadBtn){ e.preventDefault(); openAddLead(); return; }
+      const addCancelBtn = e.target.closest("#addLeadCancel");
+      if(addCancelBtn){ e.preventDefault(); var ald = document.getElementById("addLeadDialog"); if(ald) ald.close(); return; }
       // WA-2 B — alert-roster editor: add / mute-unmute / remove.
       const wtAdd = e.target.closest("#waTeamAdd");
       if(wtAdd){
