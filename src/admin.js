@@ -408,6 +408,31 @@ async function ensureSchema(env) {
          value TEXT
        )`
     ).run();
+    // WA-2 I — flight watch enrollment + poll state. One row per watched lead-flight.
+    // scheduled_utc/eta_utc come from AeroDataBox; next_poll_at drives the 60-min
+    // cadence from T-4h to landing. notified_delay_min = the delay last told to the
+    // client (so we only re-notify on a significant change). done=1 once Arrived.
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS flight_watch (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         lead_id INTEGER NOT NULL UNIQUE,
+         flight_no TEXT NOT NULL,
+         arrival_date TEXT NOT NULL,
+         status TEXT,
+         scheduled_utc TEXT,
+         eta_utc TEXT,
+         eta_local TEXT,
+         notified_delay_min INTEGER DEFAULT 0,
+         last_poll_at TEXT,
+         next_poll_at TEXT,
+         done INTEGER DEFAULT 0,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL
+       )`
+    ).run();
+    await env.BILLING_DB.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_flight_watch_next ON flight_watch (done, next_poll_at)`
+    ).run();
     // Dispatch Phase 1 — Fleet: drivers + vehicles. Foundational records that
     // Jobs (Phase 2) will reference by id, so DELETE is SOFT (active=0) to avoid
     // orphaning future Job references. Same CREATE-IF-NOT-EXISTS + PRAGMA-diff
@@ -4535,6 +4560,199 @@ export async function runLeadWatchdog(env) {
     if (res && res.sent) escalated++;
   }
   return { checked: rows.length, escalated };
+}
+
+// ── Gate I — flight watch (AeroDataBox, budget-guarded) ──────────────────────
+// Behind FLIGHT_WATCH_ENABLED. Enrolls confirmed leads with a flight number + phone;
+// polls arrival from T-4h every ~60 min until landing; a delay ≥20 min (significant
+// change ≥15 min since last notified) sends flight_delay_update to the client + a
+// team alert, once per change. Unit budget guard: AeroDataBox BASIC = 600 units/mo
+// (2 units/poll); team alert at 80%; polling pauses on exhaustion (logged, no client
+// impact). Client sends are ALSO gated by WA_SEND_ENABLED, so flag-on + send-off is a
+// dry run. Times: compare in UTC, display the API's local string (DXB is +04:00).
+const FLIGHT_HOST = "aerodatabox.p.rapidapi.com";
+function flightUnitsKey() { return "flight_units_" + waMonthKey(); }
+async function getFlightUnits(env) {
+  try {
+    const r = await env.BILLING_DB.prepare(`SELECT value FROM app_settings WHERE key = ?`).bind(flightUnitsKey()).first();
+    const n = r ? parseInt(r.value, 10) : 0;
+    return isFinite(n) ? n : 0;
+  } catch (e) { return 0; }
+}
+async function addFlightUnits(env, n) {
+  await env.BILLING_DB.prepare(
+    `INSERT INTO app_settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(app_settings.value AS INTEGER) + ? AS TEXT)`
+  ).bind(flightUnitsKey(), String(n), n).run();
+}
+function flightBudget(env) {
+  const n = parseInt(env.FLIGHT_UNIT_BUDGET || "600", 10);
+  return (isFinite(n) && n > 0) ? n : 600;
+}
+// Best-effort estimated arrival (UTC ms) from the lead's booked date + time, read as
+// DXB local (+04:00). Used only to schedule polling windows before the API is hit.
+function estimatedArrivalUtcMs(lead) {
+  const d = String(lead.date || "").trim();
+  const t = String(lead.time || "").trim();
+  if (!d) return NaN;
+  const base = Date.parse(d + " " + (t || "12:00") + " +0400");
+  if (!isNaN(base)) return base;
+  const d2 = Date.parse(d + " +0400");
+  return isNaN(d2) ? NaN : d2;
+}
+function arrivalDateStr(lead) {
+  const ms = estimatedArrivalUtcMs(lead);
+  if (isNaN(ms)) return "";
+  // The AeroDataBox date param is the arrival's LOCAL date (DXB +04:00).
+  return new Date(ms + 4 * 3600 * 1000).toISOString().slice(0, 10);
+}
+async function aeroDataBoxPoll(env, flightNo, dateStr) {
+  const clean = String(flightNo || "").replace(/\s+/g, "").toUpperCase();
+  if (!clean || !dateStr) return { ok: false, error: "bad params" };
+  const url = `https://${FLIGHT_HOST}/flights/number/${encodeURIComponent(clean)}/${dateStr}?dateLocalRole=Arrival&withLocation=false`;
+  try {
+    const res = await fetch(url, { headers: { "X-RapidAPI-Key": env.FLIGHT_API_KEY, "X-RapidAPI-Host": FLIGHT_HOST } });
+    if (!res.ok) return { ok: false, error: "http " + res.status };
+    const data = await res.json().catch(() => null);
+    const arr = Array.isArray(data) ? data : (data && Array.isArray(data.flights) ? data.flights : []);
+    if (!arr.length) return { ok: true, found: false };
+    const f = arr[0];
+    const a = (f && f.arrival) || {};
+    const sched = a.scheduledTime || {};
+    const revised = a.revisedTime || a.runwayTime || a.predictedTime || {};
+    return {
+      ok: true, found: true,
+      status: f.status || "",
+      scheduledUtc: sched.utc || null,
+      etaUtc: revised.utc || sched.utc || null,
+      etaLocal: revised.local || sched.local || null
+    };
+  } catch (e) { return { ok: false, error: "exception" }; }
+}
+// Fire a best-effort team alert (freeform to active team; inert unless WA send on).
+async function teamFreeform(env, message, dedupeKey) {
+  const rowId = await claimOutbound(env, {
+    lead_id: null, kind: "flight_team", recipient: null, template: "freeform",
+    dedupe_key: dedupeKey || null, meta_json: JSON.stringify({ message })
+  });
+  if (!rowId) return;
+  let anyOk = false;
+  if (env.WA_SEND_ENABLED === "1") {
+    const team = await getActiveWaTeam(env);
+    for (const m of team) {
+      const to = waMeNumber(m.phone); if (to.length < 8) continue;
+      const r = await waGraphSend(env, { messaging_product: "whatsapp", to, type: "text", text: { preview_url: false, body: message } });
+      if (r.ok) anyOk = true;
+    }
+  }
+  await finishOutbound(env, rowId, { status: anyOk ? "sent" : "skipped", errorCode: anyOk ? null : "note_only" });
+}
+export async function runFlightWatch(env) {
+  if (!env.BILLING_DB || env.FLIGHT_WATCH_ENABLED !== "1" || !env.FLIGHT_API_KEY) return { polled: 0, notified: 0, skipped: "disabled" };
+  try { await ensureSchema(env); } catch (e) { return { polled: 0, notified: 0 }; }
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+
+  // Enroll eligible confirmed leads (flight + phone) not already watched.
+  try {
+    const { results: cand } = await env.BILLING_DB.prepare(
+      `SELECT id, name, phone, flight, date, time FROM leads
+        WHERE flight IS NOT NULL AND TRIM(flight) <> ''
+          AND phone IS NOT NULL
+          AND (COALESCE(status,'') = 'invoiced' OR linked_doc_number LIKE 'UMC-INV-%')
+          AND id NOT IN (SELECT lead_id FROM flight_watch)`
+    ).all();
+    for (const lead of (cand || [])) {
+      if (!waMeNumber(lead.phone)) continue;
+      const arrMs = estimatedArrivalUtcMs(lead);
+      const dateStr = arrivalDateStr(lead);
+      if (!dateStr || isNaN(arrMs)) continue;
+      if (arrMs < nowMs - 6 * 3600 * 1000) continue; // already well past — don't enroll
+      const firstPoll = new Date(Math.max(nowMs, arrMs - 4 * 3600 * 1000)).toISOString(); // T-4h
+      await env.BILLING_DB.prepare(
+        `INSERT OR IGNORE INTO flight_watch
+           (lead_id, flight_no, arrival_date, next_poll_at, created_at, updated_at)
+         VALUES (?,?,?,?,?,?)`
+      ).bind(lead.id, String(lead.flight).trim(), dateStr, firstPoll, nowIso, nowIso).run();
+    }
+  } catch (e) { /* enrollment best-effort */ }
+
+  // Budget guard.
+  const budget = flightBudget(env);
+  let units = await getFlightUnits(env);
+  if (units >= Math.floor(budget * 0.8)) {
+    await teamFreeform(env, "UMC flight watch: nearing the monthly quota (" + units + "/" + budget + " units). Polling will pause at the cap.", "flight_quota80:" + waMonthKey());
+  }
+
+  // Poll due flights (oldest next_poll_at first), within budget.
+  let polled = 0, notified = 0;
+  const { results: due } = await env.BILLING_DB.prepare(
+    `SELECT * FROM flight_watch WHERE done = 0 AND next_poll_at <= ? ORDER BY next_poll_at LIMIT 20`
+  ).bind(nowIso).all();
+  for (const fw of (due || [])) {
+    if (units + 2 > budget) { // exhausted — pause, log once
+      await teamFreeform(env, "UMC flight watch: monthly unit budget reached (" + budget + "). Polling paused until next month or a higher budget.", "flight_quota100:" + waMonthKey());
+      break;
+    }
+    const r = await aeroDataBoxPoll(env, fw.flight_no, fw.arrival_date);
+    polled++;
+    if (r.ok !== false) { units += 2; await addFlightUnits(env, 2); }
+    const upd = { last_poll_at: nowIso, next_poll_at: new Date(nowMs + 60 * 60 * 1000).toISOString() };
+    if (r.ok && r.found) {
+      upd.status = r.status; upd.scheduled_utc = r.scheduledUtc; upd.eta_utc = r.etaUtc; upd.eta_local = r.etaLocal;
+      const statusLc = String(r.status || "").toLowerCase();
+      const landed = /arriv|land/.test(statusLc);
+      const delayMin = (r.scheduledUtc && r.etaUtc)
+        ? Math.round((Date.parse(r.etaUtc) - Date.parse(r.scheduledUtc)) / 60000) : 0;
+      // Significant delay ≥20 min AND moved ≥15 min since last notified → notify once.
+      if (delayMin >= 20 && Math.abs(delayMin - (fw.notified_delay_min || 0)) >= 15) {
+        const lead = await env.BILLING_DB.prepare(`SELECT id, name, phone FROM leads WHERE id = ?`).bind(fw.lead_id).first();
+        const to = lead ? waMeNumber(lead.phone) : "";
+        const etaShow = r.etaLocal || (r.etaUtc ? new Date(Date.parse(r.etaUtc) + 4 * 3600 * 1000).toISOString().slice(11, 16) : "");
+        if (to) {
+          const dedupe = "flight:" + fw.lead_id + ":" + delayMin;
+          const rowId = await claimOutbound(env, {
+            lead_id: fw.lead_id, kind: "flight", recipient: to, template: "flight_delay_update",
+            dedupe_key: dedupe, meta_json: JSON.stringify({ flight: fw.flight_no, eta: etaShow, delayMin })
+          });
+          if (rowId) {
+            if (env.WA_SEND_ENABLED === "1") {
+              const firstName = (waNz(lead.name) || "there").split(/\s+/)[0];
+              const result = await waGraphSend(env, {
+                messaging_product: "whatsapp", to, type: "template",
+                template: { name: "flight_delay_update", language: { code: "en" },
+                  components: [{ type: "body", parameters: [
+                    { type: "text", text: firstName },
+                    { type: "text", text: String(fw.flight_no).trim() },
+                    { type: "text", text: etaShow }
+                  ] }] }
+              });
+              await finishOutbound(env, rowId, result);
+            } else {
+              await finishOutbound(env, rowId, { status: "skipped", errorCode: "disabled" });
+            }
+            await teamFreeform(env, "UMC flight watch: " + fw.flight_no + " delayed ~" + delayMin + " min, new ETA " + etaShow + " (lead #" + fw.lead_id + ").", "flightteam:" + fw.lead_id + ":" + delayMin);
+            upd.notified_delay_min = delayMin;
+            notified++;
+          }
+        }
+      }
+      if (landed || nowMs > estimatedArrivalUtcMs({ date: fw.arrival_date, time: "23:59" }) + 3 * 3600 * 1000) {
+        upd.done = 1;
+      }
+    }
+    // Persist poll result.
+    await env.BILLING_DB.prepare(
+      `UPDATE flight_watch SET status=?, scheduled_utc=?, eta_utc=?, eta_local=?,
+         notified_delay_min=?, last_poll_at=?, next_poll_at=?, done=?, updated_at=?
+       WHERE id=?`
+    ).bind(
+      upd.status ?? fw.status, upd.scheduled_utc ?? fw.scheduled_utc, upd.eta_utc ?? fw.eta_utc,
+      upd.eta_local ?? fw.eta_local, upd.notified_delay_min ?? fw.notified_delay_min,
+      upd.last_poll_at, upd.next_poll_at, upd.done ?? fw.done, nowIso, fw.id
+    ).run();
+  }
+  return { polled, notified, units };
 }
 
 // ── Gate B — team lead alerts ────────────────────────────────────────────────

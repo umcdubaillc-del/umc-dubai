@@ -2,7 +2,7 @@
 
 import {
   handleAdmin, handleFleetRatesPublic, isAuthed,
-  sendLeadAlerts, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runLeadWatchdog
+  sendLeadAlerts, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runLeadWatchdog, runFlightWatch
 } from "./admin.js";
 import { handleWaTemplates } from "./wa-templates.js";
 
@@ -200,6 +200,7 @@ export default {
       ctx.waitUntil(refreshReviewsCache(env).catch(() => {}));
     } else {
       ctx.waitUntil(runLeadWatchdog(env).catch(() => {}));
+      ctx.waitUntil(runFlightWatch(env).catch(() => {}));  // WA-2 I (self-gates on FLIGHT_WATCH_ENABLED)
     }
   }
 };

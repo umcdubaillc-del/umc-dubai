@@ -57,7 +57,14 @@
     "WA_PHONE_NUMBER_ID": "343578442168997",
     // WA-1: booking-request WhatsApp send. Kept "0" (inert) until the
     // booking_request_received template shows APPROVED — flip to "1" to go live.
-    "WA_SEND_ENABLED": "0"
+    "WA_SEND_ENABLED": "0",
+    // WA-2 I: flight watch. "0" = no polling, no API cost. Flip to "1" to enable
+    // AeroDataBox polling (needs the FLIGHT_API_KEY secret). Client flight_delay_update
+    // sends are ALSO gated by WA_SEND_ENABLED, so "1" here + WA_SEND_ENABLED "0" is a
+    // dry-run (polls + logs intended sends, sends nothing).
+    "FLIGHT_WATCH_ENABLED": "0",
+    // Monthly AeroDataBox unit budget (BASIC = 600 hard). Owner-adjustable here.
+    "FLIGHT_UNIT_BUDGET": "600"
   },
   "assets": {
     "directory": "./site",
