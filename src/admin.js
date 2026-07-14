@@ -257,6 +257,9 @@ async function ensureSchema(env) {
       // confirmation for this link (sent / why skipped). Nothing fails invisibly.
       "wa_confirm_note TEXT",
       "wa_confirm_at TEXT",
+      // WA-3 — manual payment→lead association (Link UI). Authoritative for Gate H's
+      // resolution when set; lets an orphan/standalone payment feed a payment_alert.
+      "lead_id INTEGER",
       // v107 — AED gross per row. For AED charges == amount; for DCC/foreign
       // charges this is the AED gross (Nomod original_total), so Sales sums a
       // single currency. Nullable: a foreign row stays null until a sync fills it.
@@ -3889,6 +3892,62 @@ async function handleAddLead(request, env) {
   return json({ ok: true, id: ins && ins.meta ? ins.meta.last_row_id : null, origin });
 }
 
+// WA-3 — payment-linking picker: ONLY entities not already linked (each linkable once).
+async function handlePaymentLinkCandidates(env) {
+  await ensureSchema(env);
+  const leads = (await env.BILLING_DB.prepare(
+    `SELECT id, name, phone, service, date FROM leads
+      WHERE id NOT IN (SELECT lead_id FROM payment_links WHERE lead_id IS NOT NULL)
+      ORDER BY id DESC LIMIT 60`
+  ).all()).results || [];
+  const docs = (await env.BILLING_DB.prepare(
+    `SELECT id, doc_type, number, client_name, total, lead_id FROM billing_documents
+      WHERE doc_type IN ('quote','invoice')
+        AND number NOT IN (SELECT invoice_number FROM payment_links WHERE invoice_number IS NOT NULL)
+      ORDER BY id DESC LIMIT 60`
+  ).all()).results || [];
+  return json({
+    ok: true,
+    leads,
+    quotes: docs.filter((d) => d.doc_type === "quote"),
+    invoices: docs.filter((d) => d.doc_type === "invoice")
+  });
+}
+// Persist a payment→entity association. Feeds Gate H resolution retroactively.
+async function handleLinkPayment(linkId, request, env) {
+  await ensureSchema(env);
+  let b = {}; try { b = await request.json(); } catch { /* empty */ }
+  const type = String(b.type || "");
+  const pl = await env.BILLING_DB.prepare(`SELECT id, lead_id, invoice_number FROM payment_links WHERE id = ?`).bind(linkId).first();
+  if (!pl) return json({ ok: false, error: "payment not found" }, 404);
+  if (pl.lead_id != null || (pl.invoice_number && pl.invoice_number !== "")) {
+    return json({ ok: false, error: "This payment is already linked." }, 409);
+  }
+  if (type === "lead") {
+    const leadId = parseInt(b.id, 10);
+    if (!Number.isFinite(leadId)) return json({ ok: false, error: "invalid lead id" }, 400);
+    const taken = await env.BILLING_DB.prepare(`SELECT 1 FROM payment_links WHERE lead_id = ? LIMIT 1`).bind(leadId).first();
+    if (taken) return json({ ok: false, error: "That lead is already linked to a payment." }, 409);
+    await env.BILLING_DB.prepare(`UPDATE payment_links SET lead_id = ? WHERE id = ?`).bind(leadId, linkId).run();
+    return json({ ok: true, linked: "lead", leadId });
+  }
+  if (type === "quote" || type === "invoice") {
+    const number = String(b.number || "").trim();
+    if (!number) return json({ ok: false, error: "invalid document number" }, 400);
+    const doc = await env.BILLING_DB.prepare(
+      `SELECT number, lead_id FROM billing_documents WHERE number = ? AND doc_type = ? LIMIT 1`
+    ).bind(number, type).first();
+    if (!doc) return json({ ok: false, error: "document not found" }, 404);
+    const taken = await env.BILLING_DB.prepare(`SELECT 1 FROM payment_links WHERE invoice_number = ? LIMIT 1`).bind(number).first();
+    if (taken) return json({ ok: false, error: "That document is already linked to a payment." }, 409);
+    await env.BILLING_DB.prepare(
+      `UPDATE payment_links SET invoice_number = ?, lead_id = COALESCE(?, lead_id) WHERE id = ?`
+    ).bind(number, doc.lead_id != null ? Number(doc.lead_id) : null, linkId).run();
+    return json({ ok: true, linked: type, number, leadResolved: doc.lead_id != null ? Number(doc.lead_id) : null });
+  }
+  return json({ ok: false, error: "type must be lead, quote, or invoice" }, 400);
+}
+
 // Phase 0.2 — customer asset export. De-duplicates paid Nomod charges by
 // client_email and emits a CSV (email, name, first_purchase, last_purchase,
 // orders, total_spent_aed). One row per customer, highest spenders first.
@@ -4521,6 +4580,18 @@ async function notifyDriverAssignment(env, job, addedDriverIds) {
 // leads → linked_doc_number back-reference (only lead-originated docs have it).
 // Returns null for any payment with no lead context — those NEVER fire.
 async function resolvePaidLead(env, linkId, chargeId) {
+  // WA-3 — a manual payment→lead link (Link UI) is authoritative.
+  const pl = await env.BILLING_DB.prepare(
+    `SELECT lead_id FROM payment_links
+       WHERE lead_id IS NOT NULL AND (nomod_link_id = ? OR nomod_charge_id = ?)
+       ORDER BY id DESC LIMIT 1`
+  ).bind(linkId, chargeId).first();
+  if (pl && pl.lead_id != null) {
+    return await env.BILLING_DB.prepare(
+      `SELECT id, name, phone, whatsapp_reachable, service, vehicle, pickup, destination,
+              date, time, days, flight, sign FROM leads WHERE id = ?`
+    ).bind(Number(pl.lead_id)).first();
+  }
   const doc = await env.BILLING_DB.prepare(
     `SELECT lead_id, number FROM billing_documents
        WHERE doc_type='invoice' AND (nomod_link_id = ? OR nomod_charge_id = ?)
@@ -4930,6 +5001,64 @@ export async function runFlightWatch(env) {
     ).run();
   }
   return { polled, notified, units };
+}
+
+// ── WA-3 — quote follow-up nudge ─────────────────────────────────────────────
+// A quote link opened ≥24h ago with NO client inbound since, in business hours
+// (08:00–22:00 GST) → ONE team alert with a gentle follow-up prefill (a human sends
+// it). Idempotent per lead (wa_outbound 'nudge:<lead>'). Gated by WA_SEND_ENABLED.
+export async function runQuoteNudge(env) {
+  if (!env.BILLING_DB) return { nudged: 0 };
+  const gstHour = (new Date().getUTCHours() + 4) % 24;
+  if (gstHour < 8 || gstHour >= 22) return { nudged: 0, skipped: "outside GST window" };
+  try { await ensureSchema(env); } catch (e) { return { nudged: 0 }; }
+  const cutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  let rows;
+  try {
+    const r = await env.BILLING_DB.prepare(
+      `SELECT id, name, phone, date, wa_opened_at FROM leads
+        WHERE wa_opened_at IS NOT NULL AND wa_opened_at <= ?
+          AND id NOT IN (SELECT lead_id FROM wa_outbound WHERE kind='nudge' AND lead_id IS NOT NULL)
+        LIMIT 50`
+    ).bind(cutoff).all();
+    rows = (r && r.results) || [];
+  } catch (e) { return { nudged: 0 }; }
+
+  let nudged = 0;
+  for (const lead of rows) {
+    const to = waMeNumber(lead.phone);
+    if (!to) continue;
+    // Client replied since the quote was opened? → no nudge.
+    const inbound = await env.BILLING_DB.prepare(
+      `SELECT 1 FROM wa_events WHERE event_type='messages' AND wa_id=? AND received_at >= ? LIMIT 1`
+    ).bind(to, lead.wa_opened_at).first();
+    if (inbound) continue;
+    // Claim the once-per-lead nudge marker (carries lead_id for the NOT IN filter).
+    const rowId = await claimOutbound(env, {
+      lead_id: lead.id, kind: "nudge", recipient: null, template: "freeform",
+      dedupe_key: "nudge:" + lead.id, meta_json: "{}"
+    });
+    if (!rowId) continue;
+    const firstName = (waNz(lead.name) || "there").split(/\s+/)[0];
+    const dayStr = waNz(lead.date) || "your trip";
+    const prefill = "Dear " + firstName + ", just checking you received our quote for " + dayStr +
+      " — happy to adjust anything if needed.\n\nUMC Dubai";
+    const link = await createWaLink(env, { leadId: lead.id, purpose: "nudge", toPhone: lead.phone, prefill });
+    let anyOk = false;
+    if (env.WA_SEND_ENABLED === "1") {
+      const team = await getActiveWaTeam(env);
+      const msg = "Quote follow-up — " + (waNz(lead.name) || ("lead #" + lead.id)) +
+        " opened the quote but hasn't replied in 24h. Nudge the client: " + link;
+      for (const m of team) {
+        const mto = waMeNumber(m.phone); if (mto.length < 8) continue;
+        const r = await waGraphSend(env, { messaging_product: "whatsapp", to: mto, type: "text", text: { preview_url: false, body: msg } });
+        if (r.ok) anyOk = true;
+      }
+    }
+    await finishOutbound(env, rowId, { status: anyOk ? "sent" : "skipped", errorCode: anyOk ? null : "note_only" });
+    nudged++;
+  }
+  return { nudged };
 }
 
 // ── Gate B — team lead alerts ────────────────────────────────────────────────
@@ -5400,6 +5529,22 @@ export async function handleAdmin(request, env) {
     return handleSendLeadWhatsApp(request, env);
   }
 
+  // WA-3 — payment-linking picker + persist association.
+  if (path === "/admin/api/payment-link-candidates" && method === "GET") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    return handlePaymentLinkCandidates(env);
+  }
+  {
+    const pm = path.match(/^\/admin\/api\/payment-links\/(\d+)\/link$/);
+    if (pm && method === "POST") {
+      const authed = await isAuthed(request, env);
+      if (!authed) return json({ ok: false, error: "auth required" }, 401);
+      if (!env.BILLING_DB) return dbUnavailable();
+      return handleLinkPayment(parseInt(pm[1], 10), request, env);
+    }
+  }
   // WA-2 H rider — monthly template-send usage + threshold (cost guard).
   if (path === "/admin/api/wa-usage") {
     const authed = await isAuthed(request, env);

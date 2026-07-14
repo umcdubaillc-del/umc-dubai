@@ -3,7 +3,7 @@
 import {
   handleAdmin, handleFleetRatesPublic, isAuthed,
   sendLeadAlerts, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runLeadWatchdog, runFlightWatch,
-  createWaLink, handleWaRedirect, composeQuoteText
+  createWaLink, handleWaRedirect, composeQuoteText, runQuoteNudge
 } from "./admin.js";
 import { handleWaTemplates } from "./wa-templates.js";
 
@@ -157,6 +157,8 @@ export default {
         url.pathname === "/admin/api/lead-threads" ||
         url.pathname === "/admin/api/send-lead-whatsapp" ||
         url.pathname === "/admin/api/wa-usage" ||
+        url.pathname === "/admin/api/payment-link-candidates" ||
+        url.pathname.startsWith("/admin/api/payment-links/") ||
         url.pathname === "/admin/api/wa-team" ||
         url.pathname.startsWith("/admin/api/wa-team/") ||
         url.pathname.startsWith("/admin/api/drivers") ||
@@ -207,6 +209,7 @@ export default {
     } else {
       ctx.waitUntil(runLeadWatchdog(env).catch(() => {}));
       ctx.waitUntil(runFlightWatch(env).catch(() => {}));  // WA-2 I (self-gates on FLIGHT_WATCH_ENABLED)
+      ctx.waitUntil(runQuoteNudge(env).catch(() => {}));   // WA-3 quote follow-up nudge
     }
   }
 };
