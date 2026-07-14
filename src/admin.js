@@ -4484,6 +4484,59 @@ async function handleWaUsage(request, env) {
   return json({ ok: true, month: waMonthKey(), count, threshold, over: count >= threshold });
 }
 
+// ── Gate D — lead-response watchdog (cron, every 10 min) ─────────────────────
+// A lead whose team was alerted ≥30 min ago, with NO human echo to that client AND
+// NO API send since the alert, gets ONE escalation (lead_alert with {{1}} prefixed
+// "⏱ Unanswered 30 min — "). Self-gates to 08:00–22:00 GST (UTC+4). Naturally inert
+// until WA_SEND_ENABLED=1, since team_alert rows only exist once sending is live.
+// max-once-per-lead is enforced twice: the NOT EXISTS(escalation) filter here AND
+// sendLeadAlerts' per-(lead,member) dedupe.
+export async function runLeadWatchdog(env) {
+  if (!env.BILLING_DB) return { checked: 0, escalated: 0 };
+  const gstHour = (new Date().getUTCHours() + 4) % 24;
+  if (gstHour < 8 || gstHour >= 22) return { checked: 0, escalated: 0, skipped: "outside GST window" };
+  try { await ensureSchema(env); } catch (e) { return { checked: 0, escalated: 0 }; }
+  const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  let rows;
+  try {
+    const r = await env.BILLING_DB.prepare(
+      `SELECT lead_id, MIN(created_at) AS alerted_at
+         FROM wa_outbound
+        WHERE kind='team_alert' AND lead_id IS NOT NULL
+        GROUP BY lead_id
+       HAVING MIN(created_at) <= ?
+          AND NOT EXISTS (SELECT 1 FROM wa_outbound e WHERE e.kind='escalation' AND e.lead_id = wa_outbound.lead_id)`
+    ).bind(cutoff).all();
+    rows = (r && r.results) || [];
+  } catch (e) { return { checked: 0, escalated: 0 }; }
+
+  let escalated = 0;
+  for (const row of rows) {
+    const lead = await env.BILLING_DB.prepare(`SELECT * FROM leads WHERE id = ?`).bind(row.lead_id).first();
+    if (!lead) continue;
+    const to = waMeNumber(lead.phone);
+    if (!to) continue;
+    // Any API send to the client since the alert? (quote/payment/flight, actually sent)
+    const apiSend = await env.BILLING_DB.prepare(
+      `SELECT 1 FROM wa_outbound
+        WHERE lead_id = ? AND kind IN ('quote','payment','flight')
+          AND status IN ('sent','delivered','read') AND created_at >= ? LIMIT 1`
+    ).bind(row.lead_id, row.alerted_at).first();
+    if (apiSend) continue;
+    // Any human echo (manual app reply) to that client since the alert?
+    const echo = await env.BILLING_DB.prepare(
+      `SELECT 1 FROM wa_events
+        WHERE event_type='smb_message_echoes' AND received_at >= ?
+          AND payload_json LIKE ? LIMIT 1`
+    ).bind(row.alerted_at, '%"to":"' + to + '"%').first();
+    if (echo) continue;
+    // Un-actioned → escalate once (reuses lead_alert; per-lead+member dedupe inside).
+    const res = await sendLeadAlerts(env, row.lead_id, lead, { escalation: true });
+    if (res && res.sent) escalated++;
+  }
+  return { checked: rows.length, escalated };
+}
+
 // ── Gate B — team lead alerts ────────────────────────────────────────────────
 // Alert every active team member with lead_alert on a new booking. Idempotent per
 // (lead, member). opts.escalation (gate D) prefixes {{1}} and logs kind

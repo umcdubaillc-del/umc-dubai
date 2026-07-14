@@ -34,8 +34,12 @@
   // 03:00 UTC = 07:00 Gulf time, a quiet hour. Needs the PLACES_API_KEY secret
   // set (wrangler secret put PLACES_API_KEY) or the fetch no-ops and the cache
   // stays curated-only.
+  // WA-2 D: added a 10-minute cron for the lead-response watchdog. The scheduled()
+  // handler dispatches by event.cron — daily one warms reviews, the 10-min one runs
+  // the watchdog (which self-gates to 08:00–22:00 GST and is inert until
+  // WA_SEND_ENABLED=1, since no team-alert rows exist to escalate before then).
   "triggers": {
-    "crons": ["0 3 * * *"]
+    "crons": ["0 3 * * *", "*/10 * * * *"]
   },
   // Plaintext vars — declared in the config so a deploy doesn't wipe what the dashboard
   // had set. SECRETS (RESEND_API_KEY, MC_API_KEY, SHEETS_WEBHOOK_URL) deliberately stay

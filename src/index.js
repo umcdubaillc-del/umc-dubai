@@ -2,7 +2,7 @@
 
 import {
   handleAdmin, handleFleetRatesPublic, isAuthed,
-  sendLeadAlerts, waQuoteUrl, applyWaOutboundStatuses, waMeNumber
+  sendLeadAlerts, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runLeadWatchdog
 } from "./admin.js";
 import { handleWaTemplates } from "./wa-templates.js";
 
@@ -194,7 +194,13 @@ export default {
   // cache from the Places API. Failures are swallowed so a bad fetch never
   // wipes the last-good cache; /api/reviews keeps serving what it has.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(refreshReviewsCache(env).catch(() => {}));
+    // Dispatch by cron: daily warms the reviews cache; the 10-min tick runs the
+    // lead-response watchdog (self-gates to 08:00–22:00 GST; inert until WA send on).
+    if (event.cron === "0 3 * * *") {
+      ctx.waitUntil(refreshReviewsCache(env).catch(() => {}));
+    } else {
+      ctx.waitUntil(runLeadWatchdog(env).catch(() => {}));
+    }
   }
 };
 
