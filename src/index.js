@@ -150,6 +150,7 @@ export default {
         // WA-2 B/C/E — these must reach the Worker (not the static asset binding).
         url.pathname === "/admin/api/lead-threads" ||
         url.pathname === "/admin/api/send-lead-whatsapp" ||
+        url.pathname === "/admin/api/wa-usage" ||
         url.pathname === "/admin/api/wa-team" ||
         url.pathname.startsWith("/admin/api/wa-team/") ||
         url.pathname.startsWith("/admin/api/drivers") ||

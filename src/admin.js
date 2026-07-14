@@ -213,6 +213,10 @@ async function ensureSchema(env) {
       // subtotal, vat, total, paid_amount). Written once; the "as paid" memory
       // that powers the editor's paid-lock and "Restore paid values" revert.
       "paid_snapshot TEXT",
+      // WA-2 H — the lead this document was created from (lead context). Persisted
+      // so a PAID webhook can resolve payment → lead for the WhatsApp confirmation.
+      // NULL for documents not created from a lead → those NEVER fire a confirmation.
+      "lead_id INTEGER",
     ]);
     // v53 — standalone Nomod payment links (Links tab). A separate table keeps
     // the billing_documents schema clean (a link has no client, items or VAT
@@ -249,6 +253,10 @@ async function ensureSchema(env) {
       // v86 — back-reference to the invoice this link is attached to (if any).
       // Forward reference (billing_documents.nomod_link_id) already exists.
       "invoice_number TEXT",
+      // WA-2 H — quiet admin note recording the outcome of the WhatsApp payment
+      // confirmation for this link (sent / why skipped). Nothing fails invisibly.
+      "wa_confirm_note TEXT",
+      "wa_confirm_at TEXT",
       // v107 — AED gross per row. For AED charges == amount; for DCC/foreign
       // charges this is the AED gross (Nomod original_total), so Sales sums a
       // single currency. Nullable: a foreign row stays null until a sync fills it.
@@ -391,6 +399,14 @@ async function ensureSchema(env) {
     ).run();
     await env.BILLING_DB.prepare(
       `CREATE INDEX IF NOT EXISTS idx_wa_outbound_lead ON wa_outbound (lead_id)`
+    ).run();
+    // WA-2 H cost guard — small key/value settings store (owner-adjustable monthly
+    // template-send threshold lives here; default applied in code when unset).
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS app_settings (
+         key TEXT PRIMARY KEY,
+         value TEXT
+       )`
     ).run();
     // Dispatch Phase 1 — Fleet: drivers + vehicles. Foundational records that
     // Jobs (Phase 2) will reference by id, so DELETE is SOFT (active=0) to avoid
@@ -787,8 +803,8 @@ async function handleCreate(request, env) {
     const res = await env.BILLING_DB.prepare(
       `INSERT INTO billing_documents
         (doc_type, number, doc_date, client_name, client_company, client_address, client_email, client_phone,
-         currency, vat_mode, line_items, discount, subtotal, vat, total, notes, internal_notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         currency, vat_mode, line_items, discount, subtotal, vat, total, notes, internal_notes, lead_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       b.doc_type, String(b.number), String(b.doc_date),
       String(b.client_name || ""), b.client_company || null, b.client_address || null, b.client_email || null, b.client_phone || null,
@@ -796,7 +812,8 @@ async function handleCreate(request, env) {
       b.discount == null ? null : Number(b.discount),
       Number(b.subtotal), Number(b.vat), Number(b.total),
       b.notes || null,
-      b.internal_notes || null
+      b.internal_notes || null,
+      leadId  // WA-2 H — lead context association (NULL for non-lead docs → never fires)
     ).run();
     const id = res && res.meta && res.meta.last_row_id;
     // Phase 1 — stamp the lead row with the new document so the Leads list
@@ -2526,6 +2543,19 @@ async function handleNomodWebhook(request, env) {
           paidAt: now
         });
       } catch (e) { console.error("payment email lookup/send failed", e && (e.message||e)); }
+      // WA-2 H — lead-centric WhatsApp payment confirmation (first settlement only).
+      // Resolves its own lead from the link's lead context; stamps a quiet note on
+      // the payment row for every outcome. Inert unless WA_SEND_ENABLED=1.
+      try {
+        const lkAmt = await env.BILLING_DB.prepare(
+          `SELECT amount, currency FROM payment_links WHERE nomod_link_id = ? LIMIT 1`
+        ).bind(linkId).first();
+        await sendPaymentConfirmation(env, null, {
+          linkId, chargeId,
+          amount: (lkAmt && lkAmt.amount) || data.amount || data.gross || data.total || 0,
+          currency: (lkAmt && lkAmt.currency) || data.currency || "AED"
+        });
+      } catch (e) { console.error("WA payment confirmation failed", e && (e.message||e)); }
     }
     return json({
       ok: true, linkId, chargeId, event: evtType, action: "paid",
@@ -4302,6 +4332,158 @@ async function finishOutbound(env, id, result) {
   ).bind(result.wamid || null, result.status, result.errorCode || null, new Date().toISOString(), id).run();
 }
 
+// ── Gate H — lead-centric payment confirmation ───────────────────────────────
+// Resolve a paid Nomod link to the lead it came from. Direct: billing_documents
+// carries lead_id when the invoice was created from a lead (WA-2 H). Fallback: a
+// lead-invoice created before lead_id persistence still resolves via the
+// leads → linked_doc_number back-reference (only lead-originated docs have it).
+// Returns null for any payment with no lead context — those NEVER fire.
+async function resolvePaidLead(env, linkId, chargeId) {
+  const doc = await env.BILLING_DB.prepare(
+    `SELECT lead_id, number FROM billing_documents
+       WHERE doc_type='invoice' AND (nomod_link_id = ? OR nomod_charge_id = ?)
+       ORDER BY id DESC LIMIT 1`
+  ).bind(linkId, chargeId).first();
+  let leadId = (doc && doc.lead_id != null) ? Number(doc.lead_id) : null;
+  if (!leadId && doc && doc.number) {
+    const lr = await env.BILLING_DB.prepare(
+      `SELECT id FROM leads WHERE linked_doc_number = ? LIMIT 1`
+    ).bind(String(doc.number)).first();
+    leadId = lr ? Number(lr.id) : null;
+  }
+  if (!leadId) return null;
+  return await env.BILLING_DB.prepare(
+    `SELECT id, name, phone, whatsapp_reachable, service, vehicle, pickup, destination,
+            date, time, days, flight, sign
+       FROM leads WHERE id = ?`
+  ).bind(leadId).first();
+}
+
+// Send the WhatsApp payment_received confirmation for a settled Nomod payment.
+// Order of checks (spec): lead context exists · lead has a normalized WA number ·
+// whatsapp_reachable ≠ 'no' · this payment id not already confirmed (idempotent
+// forever via wa_outbound dedupe 'payment:<id>'). Every outcome stamps a quiet note
+// on the payment row (wa_confirm_note) — nothing fails invisibly. Gated by
+// WA_SEND_ENABLED + template approval → build inert. Nomod's own customer number is
+// NEVER read for sending; only the resolved lead's phone.
+async function sendPaymentConfirmation(env, ctx, info) {
+  if (!env.BILLING_DB) return;
+  const stampNote = async (note) => {
+    try {
+      await env.BILLING_DB.prepare(
+        `UPDATE payment_links SET wa_confirm_note = ?, wa_confirm_at = ? WHERE nomod_link_id = ?`
+      ).bind(note, new Date().toISOString(), info.linkId).run();
+    } catch (e) { /* note is best-effort */ }
+  };
+  const lead = await resolvePaidLead(env, info.linkId, info.chargeId);
+  if (!lead) { await stampNote("No lead linked to this payment — WhatsApp confirmation skipped."); return; }
+  const to = waMeNumber(lead.phone);
+  if (!to) { await stampNote("Lead #" + lead.id + " has no valid WhatsApp number — confirmation skipped."); return; }
+  if (lead.whatsapp_reachable === "no") { await stampNote("Lead #" + lead.id + " is not on WhatsApp — confirmation skipped."); return; }
+
+  const dedupe = "payment:" + (info.chargeId || info.linkId);
+  const rowId = await claimOutbound(env, {
+    lead_id: lead.id, kind: "payment", recipient: to, template: "payment_received",
+    dedupe_key: dedupe, meta_json: JSON.stringify({ amount: info.amount, currency: info.currency })
+  });
+  if (!rowId) return; // already confirmed this payment id (webhook retry) — idempotent
+
+  if (env.WA_SEND_ENABLED !== "1") {
+    await finishOutbound(env, rowId, { status: "skipped", errorCode: "disabled" });
+    await stampNote("WhatsApp confirmation is ready for lead #" + lead.id + " (sending is off).");
+    return;
+  }
+  const firstName = (waNz(lead.name) || "there").split(/\s+/)[0];
+  const amtNum = Number(info.amount);
+  const amountStr = isFinite(amtNum) && amtNum > 0
+    ? amtNum.toFixed(2).replace(/\.00$/, "") : String(info.amount || "");
+  const summary = waLeadSummary(lead) || "Your booking";
+  const result = await waGraphSend(env, {
+    messaging_product: "whatsapp", to, type: "template",
+    template: { name: "payment_received", language: { code: "en" },
+      components: [{ type: "body", parameters: [
+        { type: "text", text: firstName },
+        { type: "text", text: amountStr },
+        { type: "text", text: summary }
+      ] }] }
+  });
+  await finishOutbound(env, rowId, result);
+  if (result.ok) {
+    await stampNote("WhatsApp payment confirmation sent to lead #" + lead.id + ".");
+    if (ctx && ctx.waitUntil) ctx.waitUntil(maybeQuotaAlert(env).catch(() => {})); else await maybeQuotaAlert(env);
+  } else {
+    await stampNote("WhatsApp confirmation FAILED for lead #" + lead.id + " (code " + (result.errorCode || "?") + ").");
+  }
+}
+
+// ── Gate H rider — monthly template-send cost guard ──────────────────────────
+function waMonthKey() { return new Date().toISOString().slice(0, 7); } // YYYY-MM (UTC)
+async function getWaThreshold(env) {
+  try {
+    const r = await env.BILLING_DB.prepare(
+      `SELECT value FROM app_settings WHERE key = 'wa_monthly_threshold'`
+    ).first();
+    const n = r ? parseInt(r.value, 10) : NaN;
+    return (isFinite(n) && n > 0) ? n : 1000; // owner-adjustable; default 1,000/mo
+  } catch (e) { return 1000; }
+}
+// Count billable TEMPLATE sends this month (excludes in-window freeform + quota rows).
+async function getWaMonthlyCount(env) {
+  try {
+    const start = waMonthKey() + "-01T00:00:00.000Z";
+    const r = await env.BILLING_DB.prepare(
+      `SELECT COUNT(*) AS n FROM wa_outbound
+        WHERE status IN ('sent','delivered','read')
+          AND template IS NOT NULL AND template <> 'freeform'
+          AND created_at >= ?`
+    ).bind(start).first();
+    return r ? Number(r.n) : 0;
+  } catch (e) { return 0; }
+}
+// Fire a team alert ONCE per month when template sends reach the threshold. The
+// admin usage counter is the durable surface; the WhatsApp ping is best-effort
+// (freeform to team, delivers only in-window; inert when sending is off).
+async function maybeQuotaAlert(env) {
+  try {
+    const threshold = await getWaThreshold(env);
+    const count = await getWaMonthlyCount(env);
+    if (count < threshold) return;
+    const rowId = await claimOutbound(env, {
+      lead_id: null, kind: "quota", recipient: null, template: "freeform",
+      dedupe_key: "quota:" + waMonthKey(), meta_json: JSON.stringify({ count, threshold })
+    });
+    if (!rowId) return; // already alerted this month
+    let anyOk = false;
+    if (env.WA_SEND_ENABLED === "1") {
+      const team = await getActiveWaTeam(env);
+      const msg = "UMC alert: WhatsApp template sends this month have reached " + count +
+        " (threshold " + threshold + "). Review usage in the admin.";
+      for (const m of team) {
+        const to = waMeNumber(m.phone); if (to.length < 8) continue;
+        const r = await waGraphSend(env, { messaging_product: "whatsapp", to, type: "text", text: { preview_url: false, body: msg } });
+        if (r.ok) anyOk = true;
+      }
+    }
+    await finishOutbound(env, rowId, { status: anyOk ? "sent" : "skipped", errorCode: anyOk ? null : "quota_note_only" });
+  } catch (e) { /* the cost guard must never break a send */ }
+}
+async function handleWaUsage(request, env) {
+  await ensureSchema(env);
+  if (request.method === "POST") {
+    let b = {}; try { b = await request.json(); } catch { /* empty */ }
+    const n = parseInt(b.threshold, 10);
+    if (!isFinite(n) || n < 1) return json({ ok: false, error: "Threshold must be a positive whole number." }, 400);
+    await env.BILLING_DB.prepare(
+      `INSERT INTO app_settings (key, value) VALUES ('wa_monthly_threshold', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    ).bind(String(n)).run();
+    return json({ ok: true, threshold: n });
+  }
+  const threshold = await getWaThreshold(env);
+  const count = await getWaMonthlyCount(env);
+  return json({ ok: true, month: waMonthKey(), count, threshold, over: count >= threshold });
+}
+
 // ── Gate B — team lead alerts ────────────────────────────────────────────────
 // Alert every active team member with lead_alert on a new booking. Idempotent per
 // (lead, member). opts.escalation (gate D) prefixes {{1}} and logs kind
@@ -4764,6 +4946,14 @@ export async function handleAdmin(request, env) {
     return handleSendLeadWhatsApp(request, env);
   }
 
+  // WA-2 H rider — monthly template-send usage + threshold (cost guard).
+  if (path === "/admin/api/wa-usage") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    if (method === "GET" || method === "POST") return handleWaUsage(request, env);
+    return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, POST" } });
+  }
   // WA-2 B — team-alert roster CRUD (admin editor).
   if (path === "/admin/api/wa-team") {
     const authed = await isAuthed(request, env);
@@ -6068,6 +6258,17 @@ function appShellHTML() {
         <button type="button" class="btn btn-small btn-ink" id="waTeamAdd">Add member</button>
       </div>
       <p class="wa-team-msg" id="waTeamMsg" aria-live="polite" style="font-size:.8rem;color:var(--muted);margin-top:.5rem"></p>
+      <!-- WA-2 H rider — monthly template-send cost guard. -->
+      <div class="wa-usage" style="margin-top:1rem;padding-top:.8rem;border-top:1px solid var(--line,rgba(34,27,20,.08))">
+        <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+          <strong style="font-size:.9rem">WhatsApp sends this month:</strong>
+          <span id="waUsageCount" style="font-variant-numeric:tabular-nums">—</span>
+          <span style="color:var(--muted)">of</span>
+          <input id="waUsageThreshold" type="number" min="1" step="1" style="width:6rem" title="Alert threshold — a team alert fires when monthly template sends reach this">
+          <button type="button" class="btn btn-small btn-ghost" id="waUsageSave" title="Save the monthly send-alert threshold">Save threshold</button>
+          <span id="waUsageMsg" aria-live="polite" style="font-size:.8rem;color:var(--muted)"></span>
+        </div>
+      </div>
     </details>
     <!-- WA-2 G — manual Add lead dialog. -->
     <dialog id="addLeadDialog" style="border:none;border-radius:10px;padding:0;max-width:560px;width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.28)">
@@ -11332,6 +11533,22 @@ const PAGE_SCRIPT = `<script>
       .then(function(r){ return r.json(); })
       .then(function(j){ if(j && j.ok) renderWaTeam(j.items); else waTeamMsg("Could not load recipients.", true); })
       .catch(function(){ waTeamMsg("Could not load recipients.", true); });
+    loadWaUsage();
+  }
+  // WA-2 H rider — monthly usage counter + threshold.
+  function loadWaUsage(){
+    fetch("/admin/api/wa-usage", { credentials:"same-origin" })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if(!j || !j.ok) return;
+        var c = document.getElementById("waUsageCount");
+        if(c){ c.textContent = j.count; c.style.color = j.over ? "var(--danger,#b23)" : "var(--ink,#221B14)"; }
+        var t = document.getElementById("waUsageThreshold");
+        if(t && document.activeElement !== t) t.value = j.threshold;
+        var m = document.getElementById("waUsageMsg");
+        if(m) m.textContent = j.over ? "Threshold reached — team alerted." : "";
+      })
+      .catch(function(){ /* usage is best-effort */ });
   }
   function bindLeadsClickOnce(){
     const root = document.getElementById("tab-leads");
@@ -11396,6 +11613,20 @@ const PAGE_SCRIPT = `<script>
           .then(function(r){ return r.json(); })
           .then(function(j){ if(j.ok){ loadWaTeam(true); } else { waTeamMsg(j.error||"Could not remove.", true); } })
           .catch(function(){ waTeamMsg("Could not remove.", true); });
+        return;
+      }
+      // WA-2 H rider — save the monthly send-alert threshold.
+      const wuSave = e.target.closest("#waUsageSave");
+      if(wuSave){
+        e.preventDefault();
+        var tEl = document.getElementById("waUsageThreshold");
+        var n = parseInt(tEl ? tEl.value : "", 10);
+        var mEl = document.getElementById("waUsageMsg");
+        if(!isFinite(n) || n < 1){ if(mEl){ mEl.textContent = "Enter a positive number."; mEl.style.color = "var(--danger,#b23)"; } return; }
+        fetch("/admin/api/wa-usage", { method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: JSON.stringify({ threshold: n }) })
+          .then(function(r){ return r.json(); })
+          .then(function(j){ if(mEl){ mEl.style.color = "var(--muted)"; mEl.textContent = j.ok ? "Threshold saved." : (j.error||"Could not save."); } loadWaUsage(); })
+          .catch(function(){ if(mEl){ mEl.textContent = "Could not save."; mEl.style.color = "var(--danger,#b23)"; } });
         return;
       }
       const seg = e.target.closest(".hist-typefilter .seg[data-leadstat]");
