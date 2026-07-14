@@ -2600,17 +2600,14 @@ async function handleNomodWebhook(request, env) {
           paidAt: now
         });
       } catch (e) { console.error("payment email lookup/send failed", e && (e.message||e)); }
-      // WA-2 H — lead-centric WhatsApp payment confirmation (first settlement only).
-      // Resolves its own lead from the link's lead context; stamps a quiet note on
-      // the payment row for every outcome. Inert unless WA_SEND_ENABLED=1.
+      // WA-3-AMEND — payment confirmation (first settlement only). P3: ONLY a genuine
+      // PAID event (isPaid), never the ambiguous empty-evtType fallback. P4: the ACTUAL
+      // charged amount + currency from the webhook payload, never the invoice figure.
       try {
-        const lkAmt = await env.BILLING_DB.prepare(
-          `SELECT amount, currency FROM payment_links WHERE nomod_link_id = ? LIMIT 1`
-        ).bind(linkId).first();
         await sendPaymentConfirmation(env, null, {
-          linkId, chargeId,
-          amount: (lkAmt && lkAmt.amount) || data.amount || data.gross || data.total || 0,
-          currency: (lkAmt && lkAmt.currency) || data.currency || "AED"
+          linkId, chargeId, isPaid,
+          amount: Number(data.amount ?? data.gross ?? data.total ?? (data.charge && data.charge.amount) ?? 0) || 0,
+          currency: String(data.currency || (data.charge && data.charge.currency) || "AED").toUpperCase()
         });
       } catch (e) { console.error("WA payment confirmation failed", e && (e.message||e)); }
     }
@@ -4612,11 +4609,13 @@ async function resolvePaidLead(env, linkId, chargeId) {
   ).bind(leadId).first();
 }
 
-// WA-3 — on a settled Nomod payment with a resolvable lead, alert the TEAM with
-// payment_alert (NOT a client send). {{1}} client name, {{2}} amount, {{3}} summary,
-// {{4}} signed "message the client" link (a human sends the thank-you). Idempotent
-// per (payment, member). Every outcome stamps a quiet note on the payment row. Gated
-// by WA_SEND_ENABLED (team automation). Non-lead payments never fire.
+// WA-3-AMEND — payment_received CLIENT auto-send (hardened), mirrored to the team.
+// Gates: P1 reachability (whatsapp_reachable='yes' OR prior inbound), P2 idempotent
+// per payment id forever, P3 only a genuine PAID event, P4 actual charged amount +
+// AED-only, P5 team mirror/alert carries name+amount+link id, P6 no quiet hours.
+// A never-reachable number gets a TEAM prefill alert instead of a client send (privacy).
+// A failed client send falls back to a team prefill alert. Client send rides
+// WA_CLIENT_SENDS_ENABLED; team messages ride WA_SEND_ENABLED.
 async function sendPaymentConfirmation(env, ctx, info) {
   if (!env.BILLING_DB) return;
   const stampNote = async (note) => {
@@ -4626,55 +4625,84 @@ async function sendPaymentConfirmation(env, ctx, info) {
       ).bind(note, new Date().toISOString(), info.linkId).run();
     } catch (e) { /* note is best-effort */ }
   };
+  // P3 — ONLY a genuine PAID event. Refunds/failures/chargebacks/partial-auth/ambiguous
+  // empty-evtType never trigger.
+  if (info.isPaid !== true) { await stampNote("Non-PAID event — no confirmation."); return; }
   const lead = await resolvePaidLead(env, info.linkId, info.chargeId);
-  if (!lead) { await stampNote("No lead linked to this payment — no alert (non-lead payment)."); return; }
+  if (!lead) { await stampNote("No lead linked to this payment — nothing sent (non-lead payment)."); return; }
+
+  // P2 — forever idempotency: one processing lock per payment id.
+  const payId = String(info.chargeId || info.linkId);
+  const lockId = await claimOutbound(env, {
+    lead_id: lead.id, kind: "payment", recipient: null, template: "payment_lock",
+    dedupe_key: "payment:" + payId, meta_json: JSON.stringify({ payId })
+  });
+  if (!lockId) return; // already processed this payment (webhook retry / replay)
 
   const clientName = waNz(lead.name) || "the client";
+  const firstName = clientName.split(/\s+/)[0];
+  // P4 — actual charged amount from the webhook (never the invoice figure).
   const amtNum = Number(info.amount);
   const amountStr = isFinite(amtNum) && amtNum > 0 ? amtNum.toFixed(2).replace(/\.00$/, "") : String(info.amount || "");
   const summary = waLeadSummary(lead) || "Booking";
-  // Client-prefill "message the client" link (a human sends the thank-you).
-  const firstName = clientName.split(/\s+/)[0];
   const to = waMeNumber(lead.phone);
   const clientPrefill = "Dear " + firstName + ", thank you — we have received your payment of AED " +
     amountStr + ". Your booking is confirmed and your concierge will share the final arrangements shortly.\n\nWarm regards,\nUMC Dubai";
   const clientLink = to
     ? (await createWaLink(env, { leadId: lead.id, purpose: "payment", toPhone: lead.phone, prefill: clientPrefill }))
     : "No WhatsApp number on file";
+  const mirrorTag = " [lead #" + lead.id + " · link " + info.linkId + "]"; // P5 mislink insurance
 
-  const team = await getActiveWaTeam(env);
-  if (!team.length) { await stampNote("Payment for lead #" + lead.id + " — no active team recipients to alert."); return; }
-
-  let sent = 0, skipped = 0, disabled = false;
-  for (const member of team) {
-    const mto = waMeNumber(member.phone);
-    if (mto.length < 8) { skipped++; continue; }
-    const rowId = await claimOutbound(env, {
-      lead_id: lead.id, kind: "payment", recipient: mto, template: "payment_alert",
-      dedupe_key: "payment:" + (info.chargeId || info.linkId) + ":" + mto,
-      meta_json: JSON.stringify({ amount: amountStr, currency: info.currency, summary })
-    });
-    if (!rowId) { skipped++; continue; } // already alerted this member for this payment
-    if (env.WA_SEND_ENABLED !== "1") {
-      await finishOutbound(env, rowId, { status: "skipped", errorCode: "disabled" });
-      disabled = true; continue;
-    }
-    const result = await waGraphSend(env, {
-      messaging_product: "whatsapp", to: mto, type: "template",
-      template: { name: "payment_alert", language: { code: "en" },
-        components: [{ type: "body", parameters: [
-          { type: "text", text: clientName },
-          { type: "text", text: amountStr },
-          { type: "text", text: summary },
-          { type: "text", text: clientLink }
-        ] }] }
-    });
-    await finishOutbound(env, rowId, result);
-    if (result.ok) sent++; else skipped++;
+  // P4 — non-AED never auto-confirms to the client; the team handles it.
+  if (String(info.currency || "AED").toUpperCase() !== "AED") {
+    await teamPaymentAlert(env, lead, amountStr + " " + String(info.currency || ""), summary, clientLink, payId + ":fx");
+    await finishOutbound(env, lockId, { status: "skipped", errorCode: "non_aed" });
+    await stampNote("Non-AED payment (" + info.currency + ") — team alerted, no client auto-send." + mirrorTag);
+    return;
   }
-  if (disabled) await stampNote("Payment alert ready for lead #" + lead.id + " (team sending is off).");
-  else await stampNote("Payment alert sent to " + sent + " team member(s) for lead #" + lead.id + (skipped ? (", " + skipped + " skipped") : "") + ".");
-  if (sent) { if (ctx && ctx.waitUntil) ctx.waitUntil(maybeQuotaAlert(env).catch(() => {})); else await maybeQuotaAlert(env); }
+
+  // P1 — reachability gate. Unverified number → team prefill alert, never a client send.
+  const reachable = lead.whatsapp_reachable === "yes" || (to && await leadHasInboundHistory(env, to));
+  if (!to || !reachable) {
+    await teamPaymentAlert(env, lead, amountStr, summary, clientLink, payId + ":unreach");
+    await finishOutbound(env, lockId, { status: "skipped", errorCode: "unreachable" });
+    await stampNote((to ? "Number not verified" : "No usable number") + " — team prefill alert, no client auto-send." + mirrorTag);
+    return;
+  }
+
+  // Client auto-send (rides WA_CLIENT_SENDS_ENABLED). Inert otherwise.
+  if (env.WA_CLIENT_SENDS_ENABLED !== "1") {
+    await finishOutbound(env, lockId, { status: "skipped", errorCode: "client_disabled" });
+    await stampNote("Client receipt ready (client sending is off)." + mirrorTag);
+    return;
+  }
+  const clientRow = await claimOutbound(env, {
+    lead_id: lead.id, kind: "payment", recipient: to, template: "payment_received",
+    dedupe_key: "payment:" + payId + ":client", meta_json: JSON.stringify({ amount: amountStr })
+  });
+  const result = await waGraphSend(env, {
+    messaging_product: "whatsapp", to, type: "template",
+    template: { name: "payment_received", language: { code: "en" },
+      components: [{ type: "body", parameters: [
+        { type: "text", text: firstName },
+        { type: "text", text: amountStr },
+        { type: "text", text: summary }
+      ] }] }
+  });
+  if (clientRow) await finishOutbound(env, clientRow, result);
+  await finishOutbound(env, lockId, { status: result.ok ? "sent" : "failed", errorCode: result.ok ? null : (result.errorCode || "send_failed") });
+  if (result.ok) {
+    // Team MIRROR — the team sees exactly what the client saw, the moment they saw it.
+    await teamFreeform(env,
+      "Receipt sent to " + clientName + ": AED " + amountStr + " received — " + summary + "." + mirrorTag,
+      "paymirror:" + payId, "payment_mirror", lead.id);
+    await stampNote("Payment receipt sent to the client + mirrored to team." + mirrorTag);
+    if (ctx && ctx.waitUntil) ctx.waitUntil(maybeQuotaAlert(env).catch(() => {})); else await maybeQuotaAlert(env);
+  } else {
+    // Failed client send → team prefill fallback so a human can send it manually.
+    await teamPaymentAlert(env, lead, amountStr, summary, clientLink, payId + ":fail");
+    await stampNote("Client receipt FAILED (code " + (result.errorCode || "?") + ") — team prefill fallback sent." + mirrorTag);
+  }
 }
 
 // ── Gate H rider — monthly template-send cost guard ──────────────────────────
@@ -4866,12 +4894,12 @@ async function aeroDataBoxPoll(env, flightNo, dateStr) {
   } catch (e) { return { ok: false, error: "exception" }; }
 }
 // Fire a best-effort team alert (freeform to active team; inert unless WA send on).
-async function teamFreeform(env, message, dedupeKey) {
+async function teamFreeform(env, message, dedupeKey, kind, leadId) {
   const rowId = await claimOutbound(env, {
-    lead_id: null, kind: "flight_team", recipient: null, template: "freeform",
+    lead_id: leadId == null ? null : leadId, kind: kind || "flight_team", recipient: null, template: "freeform",
     dedupe_key: dedupeKey || null, meta_json: JSON.stringify({ message })
   });
-  if (!rowId) return;
+  if (!rowId) return false;
   let anyOk = false;
   if (env.WA_SEND_ENABLED === "1") {
     const team = await getActiveWaTeam(env);
@@ -4882,6 +4910,46 @@ async function teamFreeform(env, message, dedupeKey) {
     }
   }
   await finishOutbound(env, rowId, { status: anyOk ? "sent" : "skipped", errorCode: anyOk ? null : "note_only" });
+  return anyOk;
+}
+// WA-3-AMEND P1/F8 — reachability: 'yes' OR any prior INBOUND from this number in
+// wa_events (a message they sent us proves the number is really theirs).
+async function leadHasInboundHistory(env, e164) {
+  if (!e164) return false;
+  try {
+    const r = await env.BILLING_DB.prepare(
+      `SELECT 1 FROM wa_events WHERE event_type='messages' AND wa_id=? LIMIT 1`
+    ).bind(e164).first();
+    return !!r;
+  } catch (e) { return false; }
+}
+// Fan out the payment_alert TEMPLATE to the team (used for unreachable / non-AED /
+// client-send-failure paths). {{1}} client, {{2}} amount, {{3}} summary, {{4}} link.
+async function teamPaymentAlert(env, lead, amountStr, summary, clientLink, dedupeSuffix) {
+  const team = await getActiveWaTeam(env);
+  let sent = 0;
+  for (const m of team) {
+    const mto = waMeNumber(m.phone); if (mto.length < 8) continue;
+    const rowId = await claimOutbound(env, {
+      lead_id: lead.id, kind: "payment", recipient: mto, template: "payment_alert",
+      dedupe_key: "payalert:" + dedupeSuffix + ":" + mto, meta_json: JSON.stringify({ amount: amountStr, summary })
+    });
+    if (!rowId) continue;
+    if (env.WA_SEND_ENABLED !== "1") { await finishOutbound(env, rowId, { status: "skipped", errorCode: "disabled" }); continue; }
+    const result = await waGraphSend(env, {
+      messaging_product: "whatsapp", to: mto, type: "template",
+      template: { name: "payment_alert", language: { code: "en" },
+        components: [{ type: "body", parameters: [
+          { type: "text", text: waNz(lead.name) || "the client" },
+          { type: "text", text: amountStr },
+          { type: "text", text: summary },
+          { type: "text", text: clientLink || "No WhatsApp number on file" }
+        ] }] }
+    });
+    await finishOutbound(env, rowId, result);
+    if (result.ok) sent++;
+  }
+  return sent;
 }
 export async function runFlightWatch(env) {
   if (!env.BILLING_DB || env.FLIGHT_WATCH_ENABLED !== "1" || !env.FLIGHT_API_KEY) return { polled: 0, notified: 0, skipped: "disabled" };

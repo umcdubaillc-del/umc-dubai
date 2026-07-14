@@ -146,10 +146,10 @@ export const WA_TEMPLATES = {
     ]
   },
 
-  // WA-2 A.2 — PARKED (WA-3): approved-but-unused. The company-mediated model never
-  // auto-sends payment confirmations to clients; payment_alert (to the team) replaces
-  // this. Kept in the registry so the approved template isn't deleted.
-  // {{1}} first name, {{2}} amount (AED), {{3}} bold booking summary.
+  // WA-2 A.2 / WA-3-AMEND — ACTIVE client auto-send (hardened, rides
+  // WA_CLIENT_SENDS_ENABLED). Sent to the client on a genuine PAID event when the
+  // reachability gate passes; every send is mirrored to the team; a failed send falls
+  // back to a payment_alert team prefill. {{1}} first name, {{2}} amount (AED), {{3}} summary.
   payment_received: {
     name: "payment_received",
     category: "UTILITY",
@@ -169,9 +169,11 @@ export const WA_TEMPLATES = {
     ]
   },
 
-  // WA-2 A.3 — PARKED (WA-3): approved-but-unused. flight_alert (to the team) replaces
-  // this client-facing send under the company-mediated model. Kept in the registry.
-  // {{1}} first name, {{2}} flight code, {{3}} new local ETA.
+  // WA-2 A.3 / WA-3-AMEND — ACTIVE client auto-send (hardened, rides
+  // WA_CLIENT_SENDS_ENABLED). Sent to the client only after a ≥30-min delay holds
+  // across two consecutive polls, identity/reachability gates pass, and message budget
+  // allows. Mirrored to the team; failure falls back to a flight_alert team prefill.
+  // {{1}} first name, {{2}} flight code, {{3}} new local ETA "(Dubai time)".
   flight_delay_update: {
     name: "flight_delay_update",
     category: "UTILITY",
