@@ -1108,6 +1108,16 @@ async function captureWhatsAppLead(env, ctx, change) {
   const e164 = waMeNumber(contact.wa_id || msg.from || "");
   if (!e164) return; // un-normalizable → never build a broken lead
 
+  // Never auto-create a lead for a team member messaging the business number (once
+  // alerts go live, staff will message it). Exclude any active wa_team row. Fail-open
+  // if wa_team isn't created yet (fresh DB) — it exists in production.
+  try {
+    const { results: team } = await env.BILLING_DB.prepare(
+      `SELECT phone FROM wa_team WHERE active = 1`
+    ).all();
+    if ((team || []).some((t) => waMeNumber(t.phone) === e164)) return;
+  } catch (e) { /* wa_team absent → nothing to exclude */ }
+
   await ensureLeadsSchema(env);
   // Dedupe by normalized phone across ALL leads (full scan; fine at this scale).
   const { results } = await env.BILLING_DB.prepare(
