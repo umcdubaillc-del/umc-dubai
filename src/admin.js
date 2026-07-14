@@ -10189,6 +10189,12 @@ const PAGE_SCRIPT = `<script>
         const actions = [];
         const isNomodSynced = !!x.nomod_charge_id;
         const linkId = x.source === "link" ? x.link_id : null;
+        // WA-3 — unlinked payment (a standalone/orphan link-source row with no invoice
+        // attached): offer "Link" to attribute it to a lead/quote/invoice, which feeds
+        // Gate H's payment_alert resolution retroactively.
+        if (linkId && !x.invoice_number){
+          actions.push('<button type="button" class="btn btn-small btn-ink" data-paylink="'+linkId+'" title="Link this payment to a lead, quote or invoice so the team gets a payment alert">Link</button>');
+        }
         if (isNomodSynced && linkId){
           if (isExcluded){
             actions.push('<button type="button" class="btn btn-small btn-ghost" data-payexclude="0" data-id="'+linkId+'" title="Include this charge in revenue and reports again">Restore</button>');
@@ -10682,6 +10688,11 @@ const PAGE_SCRIPT = `<script>
         chips.push('<span class="lchip" style="background:rgba(199,91,18,.14);color:#a84b0c;border:1px solid rgba(199,91,18,.3);padding:.05rem .45rem;border-radius:10px;font-size:.72rem;white-space:nowrap">Awaiting reply</span>');
       } else if(t && t.state === "responded"){
         chips.push('<span class="lchip" style="background:rgba(34,27,20,.06);color:var(--ink-soft,#4a4136);border:1px solid rgba(34,27,20,.12);padding:.05rem .45rem;border-radius:10px;font-size:.72rem;white-space:nowrap">Responded '+esc(fmtHM(t.at))+'</span>');
+      }
+      // WA-3 — honest layering: a signed wa.me link CLICK is intent (lighter chip),
+      // shown only when there is no actual reply/thread yet. Echo = the real truth.
+      if(x.wa_opened_at && !t){
+        chips.push('<span class="lchip" style="background:rgba(90,120,160,.12);color:#3a5a86;border:1px solid rgba(90,120,160,.3);padding:.05rem .45rem;border-radius:10px;font-size:.72rem;white-space:nowrap">WA opened '+esc(fmtHM(x.wa_opened_at))+'</span>');
       }
       holder.innerHTML = chips.join("");
     });
@@ -11780,6 +11791,79 @@ const PAGE_SCRIPT = `<script>
       .catch(function(err){ elStatus.textContent = "Failed to load invoices: " + (err.message || err); });
   }
 
+  // WA-3 — picker to link an unlinked payment to a lead / quote / invoice. Follows
+  // the ed-modal pattern; posts to /admin/api/payment-links/{id}/link.
+  function openPaymentLinkPicker(linkId){
+    const modal = document.createElement("div");
+    modal.className = "ed-modal";
+    modal.style.cssText = "position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center";
+    const close = function(){ if(modal.parentNode) modal.parentNode.removeChild(modal); document.removeEventListener("keydown", esc); };
+    const esc = function(ev){ if(ev.key === "Escape"){ ev.preventDefault(); close(); } };
+    document.addEventListener("keydown", esc);
+    modal.innerHTML =
+      '<div class="ed-backdrop" style="position:absolute;inset:0;background:rgba(20,15,10,.45)"></div>'
+      + '<div class="ed-shell" style="position:relative;background:var(--card,#FBF8F1);max-width:560px;width:92vw;max-height:86vh;display:flex;flex-direction:column;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)">'
+      + '<header class="ed-head" style="display:flex;justify-content:space-between;align-items:center;padding:.9rem 1.1rem;border-bottom:1px solid var(--line,rgba(34,27,20,.1))">'
+      + '<h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.15rem">Link this payment</h2>'
+      + '<button type="button" class="btn btn-small btn-ghost" data-plk-cancel>Close</button></header>'
+      + '<div class="ed-body" style="padding:.9rem 1.1rem 1.1rem;flex:1 1 auto;overflow:auto">'
+      + '<div class="hist-typefilter" role="tablist" style="margin-bottom:.7rem"><button type="button" class="seg on" data-plk-tab="leads">Leads</button> <button type="button" class="seg" data-plk-tab="quotes">Quotes</button> <button type="button" class="seg" data-plk-tab="invoices">Invoices</button></div>'
+      + '<div class="status-line" id="plkStatus" style="min-height:1.1em;margin:0 0 .6rem;color:var(--muted);font-size:.85rem">Loading…</div>'
+      + '<div id="plkList" style="display:flex;flex-direction:column;gap:.4rem"></div>'
+      + '</div></div>';
+    document.body.appendChild(modal);
+    modal.querySelector(".ed-backdrop").addEventListener("click", close);
+    modal.querySelector("[data-plk-cancel]").addEventListener("click", close);
+    const statusEl = modal.querySelector("#plkStatus");
+    const listEl = modal.querySelector("#plkList");
+    let cache = { leads: [], quotes: [], invoices: [] };
+    const render = function(tab){
+      const rows = cache[tab] || [];
+      if(!rows.length){ statusEl.textContent = "No unlinked " + tab + "."; listEl.innerHTML = ""; return; }
+      statusEl.textContent = "";
+      listEl.innerHTML = rows.map(function(it){
+        let title, sub, payload;
+        if(tab === "leads"){
+          title = esc(it.name || ("Lead #" + it.id));
+          sub = esc([it.service, it.date, it.phone].filter(Boolean).join(" · "));
+          payload = 'data-plk-type="lead" data-plk-id="'+it.id+'"';
+        } else {
+          title = esc(it.number) + " · " + esc(it.client_name || "");
+          sub = esc(String(it.total != null ? ("AED " + it.total) : ""));
+          payload = 'data-plk-type="'+(tab==="quotes"?"quote":"invoice")+'" data-plk-num="'+esc(it.number)+'"';
+        }
+        return '<button type="button" class="btn btn-small btn-ghost" '+payload+' style="display:flex;flex-direction:column;align-items:flex-start;text-align:left;padding:.55rem .8rem"><b>'+title+'</b><span style="color:var(--muted);font-size:12px">'+sub+'</span></button>';
+      }).join("");
+    };
+    modal.querySelectorAll("[data-plk-tab]").forEach(function(b){
+      b.addEventListener("click", function(){
+        modal.querySelectorAll("[data-plk-tab]").forEach(function(s){ s.classList.toggle("on", s === b); });
+        render(b.getAttribute("data-plk-tab"));
+      });
+    });
+    listEl.addEventListener("click", function(e){
+      const pick = e.target.closest("[data-plk-type]");
+      if(!pick) return;
+      e.preventDefault();
+      const body = { type: pick.getAttribute("data-plk-type") };
+      if(pick.hasAttribute("data-plk-id")) body.id = Number(pick.getAttribute("data-plk-id"));
+      if(pick.hasAttribute("data-plk-num")) body.number = pick.getAttribute("data-plk-num");
+      statusEl.textContent = "Linking…";
+      listEl.querySelectorAll("button").forEach(function(x){ x.disabled = true; });
+      fetch("/admin/api/payment-links/" + linkId + "/link", { method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: JSON.stringify(body) })
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          if(j && j.ok){ close(); setStatus("Payment linked."); if(typeof loadPayments === "function") loadPayments(); }
+          else { statusEl.textContent = "Link failed: " + ((j && j.error) || ""); statusEl.style.color = "var(--danger,#b23)"; listEl.querySelectorAll("button").forEach(function(x){ x.disabled = false; }); }
+        })
+        .catch(function(err){ statusEl.textContent = "Link failed: " + (err.message || err); listEl.querySelectorAll("button").forEach(function(x){ x.disabled = false; }); });
+    });
+    fetch("/admin/api/payment-link-candidates", { credentials:"same-origin" })
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if(j && j.ok){ cache = { leads: j.leads||[], quotes: j.quotes||[], invoices: j.invoices||[] }; render("leads"); } else { statusEl.textContent = "Could not load candidates."; } })
+      .catch(function(){ statusEl.textContent = "Could not load candidates."; });
+  }
+
   // Delegated click handler on stable #tab-payments ancestor.
   function bindPayClickOnce(){
     const root = document.getElementById("tab-payments");
@@ -11788,6 +11872,9 @@ const PAGE_SCRIPT = `<script>
     root.addEventListener("click", function(e){
       const refresh = e.target.closest("#btnPayRefresh");
       if(refresh){ e.preventDefault(); reconcilePaymentsNow(); return; }
+      // WA-3 — Link an unlinked payment to a lead/quote/invoice.
+      const plB = e.target.closest("[data-paylink]");
+      if(plB){ e.preventDefault(); e.stopPropagation(); openPaymentLinkPicker(plB.getAttribute("data-paylink")); return; }
       const seg = e.target.closest(".hist-typefilter .seg[data-paystat]");
       if(seg){
         e.preventDefault();
