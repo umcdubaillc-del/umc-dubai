@@ -2,7 +2,8 @@
 
 import {
   handleAdmin, handleFleetRatesPublic, isAuthed,
-  sendLeadAlerts, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runLeadWatchdog, runFlightWatch
+  sendLeadAlerts, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runLeadWatchdog, runFlightWatch,
+  createWaLink, handleWaRedirect, composeQuoteText
 } from "./admin.js";
 import { handleWaTemplates } from "./wa-templates.js";
 
@@ -122,6 +123,11 @@ export default {
     // the high-entropy path segment matches env.WA_PATH_TOKEN; anything else 404s.
     if (url.pathname.startsWith("/api/wa/webhook/")) {
       return handleWaWebhook(request, env, ctx, url);
+    }
+    // WA-3: signed wa.me redirect (click-tracking). Public, non-guessable, single-
+    // purpose — stamps the lead's intent and 302s to the stored wa.me prefill.
+    if (url.pathname.startsWith("/r/wa/")) {
+      return handleWaRedirect(env, url.pathname.slice("/r/wa/".length));
     }
     // WA-0: temporary admin-only peek at the last 20 received events (onboarding).
     if (url.pathname === "/admin/api/wa-events") {
@@ -354,7 +360,7 @@ async function handleLead(request, env, ctx) {
   }
 
   const tasks = [];
-  if (env.RESEND_API_KEY) tasks.push(sendEmail(env, payload, new URL(request.url).origin + "/admin/billing"));
+  if (env.RESEND_API_KEY) tasks.push(sendEmail(env, payload, new URL(request.url).origin + "/admin/billing", leadId));
   if (env.SHEETS_WEBHOOK_URL) tasks.push(appendSheet(env, payload));
   // Mailchimp marketing auto-subscribe — consented: the form binds the user to Terms
   // that include a marketing-email (opt-out) consent clause.
@@ -589,7 +595,7 @@ async function resendSend(env, message, role) {
   }
 }
 
-async function sendEmail(env, b, adminUrl) {
+async function sendEmail(env, b, adminUrl, leadId) {
   // Notify recipients: LEAD_EMAIL_TO may be a comma-separated list so the owner can
   // add a redundant inbox (e.g. a personal Gmail) via env with no code change.
   const to = (env.LEAD_EMAIL_TO || "contact@umcdubai.ae").split(",").map(s => s.trim()).filter(Boolean);
@@ -598,8 +604,13 @@ async function sendEmail(env, b, adminUrl) {
   // default). Derived from the request origin so it follows the domain across
   // cutover; falls back to env.ADMIN_URL then the workers.dev host (selftest).
   const adminLink = adminUrl || env.ADMIN_URL || "https://umc-dubai.umcdubaillc.workers.dev/admin/billing";
-  // WA-2 B — prefilled wa.me link to the client for the "WhatsApp the client" button.
-  const waUrl = waQuoteUrl(b);
+  // WA-3 B — "WhatsApp the client" button routes through the signed redirect so the
+  // click is attributable (stamps the lead's intent, then 302s to the wa.me prefill).
+  // Falls back to a plain wa.me link until WA_LINK_SECRET is set.
+  const waUrl = await createWaLink(env, {
+    leadId: leadId || null, purpose: "quote", toPhone: b.phone,
+    prefill: composeQuoteText(b, { vatPlus: true })
+  });
   // v22: split into "Guest details" + "Request details" sections; labels renamed to match
   // the website form's wording (Vehicle → Vehicle or service, Notes → Request).
   const guestRowsHtml = emailRows([

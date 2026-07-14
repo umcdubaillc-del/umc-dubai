@@ -55,9 +55,14 @@
     // present) != WA_PHONE_NUMBER_ID.
     "WA_WABA_ID": "313696945164986",
     "WA_PHONE_NUMBER_ID": "343578442168997",
-    // WA-1: booking-request WhatsApp send. Kept "0" (inert) until the
-    // booking_request_received template shows APPROVED — flip to "1" to go live.
+    // WA-3 company-mediated model: NOTHING auto-sends to clients. WA_SEND_ENABLED
+    // now governs COMPANY/TEAM automation sends (lead_alert, payment_alert,
+    // flight_alert, driver_assignment, escalations, nudges, quota alerts). Kept "0"
+    // (inert) until the team templates show APPROVED.
     "WA_SEND_ENABLED": "0",
+    // WA-3: the ONLY client-directed send path — the human-initiated "WhatsApp via
+    // API" button (Gate C desktop send). Independently switchable from team alerts.
+    "WA_CLIENT_SENDS_ENABLED": "0",
     // WA-2 I: flight watch. "0" = no polling, no API cost. Flip to "1" to enable
     // AeroDataBox polling (needs the FLIGHT_API_KEY secret). Client flight_delay_update
     // sends are ALSO gated by WA_SEND_ENABLED, so "1" here + WA_SEND_ENABLED "0" is a

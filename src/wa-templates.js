@@ -70,7 +70,85 @@ export const WA_TEMPLATES = {
     ]
   },
 
-  // WA-2 A.2 — payment confirmation to the client (lead-centric, Nomod PAID webhook).
+  // WA-3 — driver assignment to the DRIVER (not a client). Sent when a driver is
+  // selected on a job. {{1}} driver first name, {{2}} client + vehicle summary,
+  // {{3}} pickup, {{4}} job details. Body does not end on a variable.
+  driver_assignment: {
+    name: "driver_assignment",
+    category: "UTILITY",
+    language: "en",
+    components: [
+      {
+        type: "BODY",
+        text:
+          "New job assigned, {{1}}.\n" +
+          "{{2}}\n" +
+          "Pickup: {{3}}\n" +
+          "Job details: {{4}}\n" +
+          "Please confirm receipt.",
+        example: {
+          body_text: [[
+            "Imran",
+            "Sarah Wells · Mercedes S-Class",
+            "DXB T3, 12 Jun 14:30",
+            "Flight EK203, welcome sign 'Ms Wells'"
+          ]]
+        }
+      }
+    ]
+  },
+
+  // WA-3 — payment alert to the TEAM (not the client). Nomod PAID webhook, lead-linked.
+  // {{1}} client name, {{2}} amount (AED), {{3}} summary, {{4}} message-the-client link.
+  payment_alert: {
+    name: "payment_alert",
+    category: "UTILITY",
+    language: "en",
+    components: [
+      {
+        type: "BODY",
+        text:
+          "Payment received — {{1}} has paid AED {{2}}.\n" +
+          "{{3}}\n" +
+          "Message the client: {{4}}\n" +
+          "Logged in the workspace.",
+        example: {
+          body_text: [[
+            "Sarah Wells", "450",
+            "Mercedes S-Class · 12 Jun, 14:30 · DXB T3 → Downtown Dubai",
+            "https://umcdubai.ae/r/wa/AbC123"
+          ]]
+        }
+      }
+    ]
+  },
+
+  // WA-3 — flight-delay alert to the TEAM (not the client). {{1}} client/context,
+  // {{2}} flight code, {{3}} new ETA, {{4}} inform-the-client link.
+  flight_alert: {
+    name: "flight_alert",
+    category: "UTILITY",
+    language: "en",
+    components: [
+      {
+        type: "BODY",
+        text:
+          "Flight update — {{1}}: {{2}} shows a delay, new ETA {{3}}.\n" +
+          "Inform the client: {{4}}\n" +
+          "The chauffeur schedule may need adjusting.",
+        example: {
+          body_text: [[
+            "Sarah Wells", "EK203", "18:45",
+            "https://umcdubai.ae/r/wa/AbC123"
+          ]]
+        }
+      }
+    ]
+  },
+
+  // WA-2 A.2 — PARKED (WA-3): approved-but-unused. The company-mediated model never
+  // auto-sends payment confirmations to clients; payment_alert (to the team) replaces
+  // this. Kept in the registry so the approved template isn't deleted.
   // {{1}} first name, {{2}} amount (AED), {{3}} bold booking summary.
   payment_received: {
     name: "payment_received",
@@ -91,7 +169,8 @@ export const WA_TEMPLATES = {
     ]
   },
 
-  // WA-2 A.3 — flight-delay update to the client (flight watch).
+  // WA-2 A.3 — PARKED (WA-3): approved-but-unused. flight_alert (to the team) replaces
+  // this client-facing send under the company-mediated model. Kept in the registry.
   // {{1}} first name, {{2}} flight code, {{3}} new local ETA.
   flight_delay_update: {
     name: "flight_delay_update",

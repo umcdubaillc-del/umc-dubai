@@ -342,6 +342,10 @@ async function ensureSchema(env) {
       // WA-2 C — persisted quote amount (was session-only in leadsCache). Lets the
       // desktop WhatsApp API-send fill the amount and survives a page refresh.
       "quote_price REAL",
+      // WA-3 — first time a signed wa.me link for this lead was CLICKED (intent).
+      // Honest layering: the click proves intent; smb_message_echoes remains the
+      // truth of an actual reply ("Responded" chip). Shown as a lighter "WA opened" chip.
+      "wa_opened_at TEXT",
       // These are created by index.js ensureLeadsSchema on the PUBLIC /api/lead path,
       // but handleListLeads' SELECT reads them on the ADMIN path — so this schema
       // manager MUST ensure them too, or the SELECT throws when the column is absent
@@ -432,6 +436,22 @@ async function ensureSchema(env) {
     ).run();
     await env.BILLING_DB.prepare(
       `CREATE INDEX IF NOT EXISTS idx_flight_watch_next ON flight_watch (done, next_poll_at)`
+    ).run();
+    // WA-3 — signed wa.me redirect links (/r/wa/{id}.{sig}). One row per emitted link;
+    // the redirect serves the stored prefill, stamps the lead, and 302s to wa.me. Lets
+    // every emailed/alerted client link be click-attributable and short (fits template
+    // body vars). Signed with WA_LINK_SECRET so ids can't be forged.
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS wa_links (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         lead_id INTEGER,
+         purpose TEXT,
+         to_phone TEXT NOT NULL,
+         prefill TEXT NOT NULL,
+         clicked_at TEXT,
+         click_count INTEGER DEFAULT 0,
+         created_at TEXT NOT NULL
+       )`
     ).run();
     // Dispatch Phase 1 — Fleet: drivers + vehicles. Foundational records that
     // Jobs (Phase 2) will reference by id, so DELETE is SOFT (active=0) to avoid
@@ -3770,6 +3790,8 @@ async function handleListLeads(env) {
             quote_price,
             -- WA-2 E: reachability badge source ('yes'|'no'|NULL=unknown).
             whatsapp_reachable,
+            -- WA-3: signed wa.me link click (intent) — lighter chip than "Responded".
+            wa_opened_at,
             linked_doc_number, converted_at
        FROM leads
       ORDER BY id DESC LIMIT 500`
@@ -4357,6 +4379,71 @@ async function finishOutbound(env, id, result) {
   ).bind(result.wamid || null, result.status, result.errorCode || null, new Date().toISOString(), id).run();
 }
 
+// ── WA-3 — signed wa.me redirect links (click-attributable, reusable) ────────
+const WA_LINK_BASE = "https://umcdubai.ae";
+async function waHmacHex(secret, msg) {
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(String(secret || "")),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(String(msg)));
+  return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function waLinkSig(env, id) { return (await waHmacHex(env.WA_LINK_SECRET, "walink:" + id)).slice(0, 20); }
+function waConstEq(a, b) {
+  a = String(a); b = String(b);
+  if (a.length !== b.length) return false;
+  let out = 0; for (let i = 0; i < a.length; i++) out |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return out === 0;
+}
+// Build a click-attributable wa.me link. With WA_LINK_SECRET set → a signed
+// /r/wa/{id}.{sig} that stamps the lead on click and 302s to wa.me. Without the
+// secret → a plain wa.me link (untracked) so nothing breaks until the owner sets it.
+export async function createWaLink(env, opts) {
+  const to = waMeNumber(opts && opts.toPhone);
+  const prefill = (opts && opts.prefill) || "";
+  const directWa = to ? ("https://wa.me/" + to + "?text=" + encodeURIComponent(prefill)) : "";
+  if (!env.WA_LINK_SECRET || !env.BILLING_DB || !to) return directWa;
+  try {
+    await ensureSchema(env);
+    const ins = await env.BILLING_DB.prepare(
+      `INSERT INTO wa_links (lead_id, purpose, to_phone, prefill, created_at, click_count)
+       VALUES (?,?,?,?,?,0)`
+    ).bind(opts.leadId == null ? null : opts.leadId, opts.purpose || "quote", to, prefill, new Date().toISOString()).run();
+    const id = ins && ins.meta ? ins.meta.last_row_id : null;
+    if (!id) return directWa;
+    return WA_LINK_BASE + "/r/wa/" + id + "." + (await waLinkSig(env, id));
+  } catch (e) { return directWa; }
+}
+// Public redirect (no admin session; non-guessable via HMAC). Verifies the token,
+// stamps the lead's wa_opened_at (intent) on first click, and 302s to the stored
+// wa.me prefill. Single-purpose: only ever opens WhatsApp for a stored link.
+export async function handleWaRedirect(env, token) {
+  const notFound = () => new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
+  if (!env.WA_LINK_SECRET || !env.BILLING_DB) return notFound();
+  const m = String(token || "").match(/^(\d+)\.([a-f0-9]{20})$/);
+  if (!m) return notFound();
+  const id = m[1];
+  if (!waConstEq(await waLinkSig(env, id), m[2])) return notFound();
+  let row;
+  try { await ensureSchema(env); row = await env.BILLING_DB.prepare(`SELECT * FROM wa_links WHERE id = ?`).bind(Number(id)).first(); }
+  catch (e) { return notFound(); }
+  if (!row) return notFound();
+  const now = new Date().toISOString();
+  try {
+    await env.BILLING_DB.prepare(
+      `UPDATE wa_links SET clicked_at = COALESCE(clicked_at, ?), click_count = click_count + 1 WHERE id = ?`
+    ).bind(now, Number(id)).run();
+    if (row.lead_id) {
+      await env.BILLING_DB.prepare(
+        `UPDATE leads SET wa_opened_at = COALESCE(wa_opened_at, ?) WHERE id = ?`
+      ).bind(now, row.lead_id).run();
+    }
+  } catch (e) { /* stamp is best-effort; still redirect */ }
+  const url = "https://wa.me/" + row.to_phone + "?text=" + encodeURIComponent(row.prefill || "");
+  return new Response(null, { status: 302, headers: { Location: url, "Cache-Control": "no-store" } });
+}
+
 // ── Gate H — lead-centric payment confirmation ───────────────────────────────
 // Resolve a paid Nomod link to the lead it came from. Direct: billing_documents
 // carries lead_id when the invoice was created from a lead (WA-2 H). Fallback: a
@@ -4787,7 +4874,12 @@ export async function sendLeadAlerts(env, leadId, lead, opts) {
   // email notification's emailRows predicate (non-empty AND not "-").
   const req = waNz(lead.notes);
   if (req && req !== "-") summary = summary + " · Request: " + req.slice(0, 300);
-  const quoteUrl = waQuoteUrl(lead) || ("https://wa.me/" + waMeNumber(lead.phone));
+  // WA-3 — the {{3}} "respond here" link is a signed short redirect (click-attributable,
+  // fits the template body var). Prefill = the quote text to the CLIENT; a human sends it.
+  const quoteUrl = (await createWaLink(env, {
+    leadId, purpose: "quote", toPhone: lead.phone,
+    prefill: composeQuoteText(lead, { vatPlus: leadVatPlus(lead) })
+  })) || ("https://wa.me/" + waMeNumber(lead.phone));
   const nameParam = opts.escalation ? ("⏱ Unanswered 30 min — " + clientName) : clientName;
   const kind = opts.escalation ? "escalation" : "team_alert";
   let sent = 0, skipped = 0;
@@ -4820,8 +4912,9 @@ export async function sendLeadAlerts(env, leadId, lead, opts) {
 // ── Gate C — desktop WhatsApp send from the business number ───────────────────
 async function handleSendLeadWhatsApp(request, env) {
   await ensureSchema(env);
-  if (env.WA_SEND_ENABLED !== "1") {
-    return json({ ok: false, disabled: true, error: "WhatsApp sending is off (WA_SEND_ENABLED=0). Use Copy quote for now." }, 409);
+  // WA-3: the human-initiated client send has its OWN flag, independent of team alerts.
+  if (env.WA_CLIENT_SENDS_ENABLED !== "1") {
+    return json({ ok: false, disabled: true, error: "Client WhatsApp sending is off (WA_CLIENT_SENDS_ENABLED=0). Use Copy quote or Open in WhatsApp." }, 409);
   }
   if (!env.WA_PHONE_NUMBER_ID || !env.WA_ACCESS_TOKEN) {
     return json({ ok: false, error: "WhatsApp is not configured on this Worker." }, 503);
