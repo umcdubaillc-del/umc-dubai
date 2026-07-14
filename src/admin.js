@@ -1650,7 +1650,12 @@ async function getJobRow(env, jobId) {
 async function setJobAssignments(env, jobId, driverIds, vehicleIds) {
   const clean = (a) => Array.isArray(a) ? a.map(Number).filter((n) => Number.isFinite(n)) : null;
   const dIds = clean(driverIds), vIds = clean(vehicleIds);
+  let addedDriverIds = [];
   if (dIds) {
+    // WA-3 — diff against the previous set so we only notify NEWLY-assigned drivers.
+    const prev = (await env.BILLING_DB.prepare(`SELECT driver_id FROM job_drivers WHERE job_id = ?`).bind(jobId).all()).results || [];
+    const prevSet = new Set(prev.map((r) => Number(r.driver_id)));
+    addedDriverIds = dIds.filter((id) => !prevSet.has(id));
     await env.BILLING_DB.prepare(`DELETE FROM job_drivers WHERE job_id = ?`).bind(jobId).run();
     for (const id of dIds) await env.BILLING_DB.prepare(`INSERT INTO job_drivers (job_id, driver_id) VALUES (?, ?)`).bind(jobId, id).run();
   }
@@ -1658,6 +1663,7 @@ async function setJobAssignments(env, jobId, driverIds, vehicleIds) {
     await env.BILLING_DB.prepare(`DELETE FROM job_vehicles WHERE job_id = ?`).bind(jobId).run();
     for (const id of vIds) await env.BILLING_DB.prepare(`INSERT INTO job_vehicles (job_id, vehicle_id) VALUES (?, ?)`).bind(jobId, id).run();
   }
+  return { addedDriverIds };
 }
 // The single recompute-on-save path. Re-derives requirements, syncs the
 // calendar (best-effort), recomputes status (unless terminal), persists, and
@@ -1718,8 +1724,9 @@ async function handleCreateJob(request, env) {
     f.service, f.vehicle_text, f.pickup, f.destination, f.date, f.time, f.days, f.flight, f.sign,
     f.driver_notes, f.requirements, f.client_informed, f.cancelled_reason).run();
   const jobId = res.meta.last_row_id;
-  await setJobAssignments(env, jobId, b.driver_ids, b.vehicle_ids);
+  const asg = await setJobAssignments(env, jobId, b.driver_ids, b.vehicle_ids);
   const job = await finalizeJob(env, jobId);
+  try { await notifyDriverAssignment(env, job, asg.addedDriverIds); } catch (e) { console.error("driver notify failed", e && (e.message || e)); }
   return json({ ok: true, id: jobId, job });
 }
 async function handleUpdateJob(id, request, env) {
@@ -1739,10 +1746,12 @@ async function handleUpdateJob(id, request, env) {
   ).bind(status, f.source_type, f.source_id, f.client_name, f.client_phone, f.client_email,
     f.service, f.vehicle_text, f.pickup, f.destination, f.date, f.time, f.days, f.flight, f.sign,
     f.driver_notes, f.requirements, f.client_informed, f.cancelled_reason, id).run();
+  let asg = { addedDriverIds: [] };
   if (b.driver_ids !== undefined || b.vehicle_ids !== undefined) {
-    await setJobAssignments(env, id, b.driver_ids, b.vehicle_ids);
+    asg = await setJobAssignments(env, id, b.driver_ids, b.vehicle_ids);
   }
   const job = await finalizeJob(env, id);
+  try { await notifyDriverAssignment(env, job, asg.addedDriverIds); } catch (e) { console.error("driver notify failed", e && (e.message || e)); }
   return json({ ok: true, id, job });
 }
 // Hard delete (distinct from Cancel). Removes the calendar event first (same
@@ -4442,6 +4451,67 @@ export async function handleWaRedirect(env, token) {
   } catch (e) { /* stamp is best-effort; still redirect */ }
   const url = "https://wa.me/" + row.to_phone + "?text=" + encodeURIComponent(row.prefill || "");
   return new Response(null, { status: 302, headers: { Location: url, "Cache-Control": "no-store" } });
+}
+
+// ── WA-3 — driver assignment ─────────────────────────────────────────────────
+// When a driver is newly assigned to a job: (a) send driver_assignment to the DRIVER
+// (their template), (b) send the TEAM a "chauffeur confirmed" prefill link to the
+// CLIENT (a human sends it — no client auto-send). Idempotent per (job, driver).
+async function notifyDriverAssignment(env, job, addedDriverIds) {
+  if (!env.BILLING_DB || !job || !Array.isArray(addedDriverIds) || !addedDriverIds.length) return;
+  const jobId = job.id;
+  const clientName = waNz(job.client_name) || "the client";
+  const vehicle = waNz(job.vehicle_text) || "the vehicle";
+  const dateTime = [waNz(job.date), waNz(job.time)].filter(Boolean).join(" ");
+  const pickupLine = [waNz(job.pickup), dateTime].filter(Boolean).join(", ") || "See workspace";
+  const detailBits = [];
+  if (waNz(job.flight)) detailBits.push("Flight " + waNz(job.flight));
+  if (waNz(job.sign)) detailBits.push("welcome sign '" + waNz(job.sign) + "'");
+  if (waNz(job.destination)) detailBits.push("→ " + waNz(job.destination));
+  if (waNz(job.driver_notes)) detailBits.push(waNz(job.driver_notes));
+  const jobDetails = (detailBits.join(", ") || "No extra details").slice(0, 300);
+
+  for (const did of addedDriverIds) {
+    const driver = await env.BILLING_DB.prepare(`SELECT id, name, phone FROM drivers WHERE id = ?`).bind(did).first();
+    if (!driver) continue;
+    const driverFirst = (waNz(driver.name) || "there").split(/\s+/)[0];
+    // (a) driver_assignment → the driver.
+    const dto = waMeNumber(driver.phone);
+    if (dto) {
+      const rowId = await claimOutbound(env, {
+        lead_id: null, kind: "driver_assign", recipient: dto, template: "driver_assignment",
+        dedupe_key: "driverjob:" + jobId + ":" + did, meta_json: JSON.stringify({ jobId, driver: driver.name })
+      });
+      if (rowId) {
+        if (env.WA_SEND_ENABLED === "1") {
+          const result = await waGraphSend(env, {
+            messaging_product: "whatsapp", to: dto, type: "template",
+            template: { name: "driver_assignment", language: { code: "en" },
+              components: [{ type: "body", parameters: [
+                { type: "text", text: driverFirst },
+                { type: "text", text: (clientName + " · " + vehicle).slice(0, 250) },
+                { type: "text", text: pickupLine.slice(0, 250) },
+                { type: "text", text: jobDetails }
+              ] }] }
+          });
+          await finishOutbound(env, rowId, result);
+        } else {
+          await finishOutbound(env, rowId, { status: "skipped", errorCode: "disabled" });
+        }
+      }
+    }
+    // (b) team "chauffeur confirmed" prefill link to the CLIENT (human sends).
+    const clientTo = waMeNumber(job.client_phone);
+    if (clientTo) {
+      const dayStr = waNz(job.date) || "your booking";
+      const clientPrefill = "Dear " + clientName.split(/\s+/)[0] + ", your chauffeur for " + dayStr +
+        " is confirmed — " + driverFirst + ", driving a " + vehicle + ". He will be in touch on the day.\n\nUMC Dubai";
+      const link = await createWaLink(env, { leadId: job.source_type === "lead" ? job.source_id : null, purpose: "driver", toPhone: job.client_phone, prefill: clientPrefill });
+      await teamFreeform(env,
+        "Chauffeur confirmed for " + clientName + " (" + dayStr + "): " + driverFirst + " · " + vehicle + ". Message the client: " + link,
+        "driverclient:" + jobId + ":" + did);
+    }
+  }
 }
 
 // ── Gate H — lead-centric payment confirmation ───────────────────────────────
