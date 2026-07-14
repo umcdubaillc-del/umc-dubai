@@ -1083,7 +1083,62 @@ async function handleWaWebhook(request, env, ctx, url) {
   } catch (e) {
     console.error("WA store/status failed", e && (e.message || String(e)));
   }
+  // Gate F — capture unknown-number inbound messages as leads (non-blocking, after 200).
+  for (const entry of entries) {
+    for (const change of (Array.isArray(entry.changes) ? entry.changes : [])) {
+      if (change && change.value && Array.isArray(change.value.messages) && change.value.messages.length) {
+        ctx.waitUntil(captureWhatsAppLead(env, ctx, change).catch(() => {}));
+      }
+    }
+  }
   return new Response("ok", { status: 200 });
+}
+
+// Gate F — WhatsApp lead capture. An inbound message from a number matching no
+// existing lead (E.164-normalized) becomes a new lead (origin "WhatsApp"): profile
+// name, phone, first message as the note, timestamp. Deduped by normalized phone
+// forever. Mirrors to the Sheet with source "WhatsApp" (own tab once the Apps Script
+// edit lands; the active sheet until then — graceful).
+async function captureWhatsAppLead(env, ctx, change) {
+  if (!env.BILLING_DB) return;
+  const value = (change && change.value) || {};
+  if (!Array.isArray(value.messages) || !value.messages.length) return;
+  const msg = value.messages[0];
+  const contact = (Array.isArray(value.contacts) && value.contacts[0]) || {};
+  const e164 = waMeNumber(contact.wa_id || msg.from || "");
+  if (!e164) return; // un-normalizable → never build a broken lead
+
+  await ensureLeadsSchema(env);
+  // Dedupe by normalized phone across ALL leads (full scan; fine at this scale).
+  const { results } = await env.BILLING_DB.prepare(
+    `SELECT phone FROM leads WHERE phone IS NOT NULL`
+  ).all();
+  if ((results || []).some((r) => waMeNumber(r.phone) === e164)) return; // already known
+
+  const name = (contact.profile && contact.profile.name) || "";
+  const text = (msg.text && msg.text.body) ? msg.text.body : ("[" + (msg.type || "message") + "]");
+  const tsIso = msg.timestamp ? new Date(Number(msg.timestamp) * 1000).toISOString() : new Date().toISOString();
+  const now = new Date().toISOString();
+  const payload = {
+    source: "WhatsApp", name, phone: "+" + e164, email: "", service: "", pickup: "",
+    destination: "", date: "", time: "", vehicle: "", days: "", flight: "", sign: "",
+    notes: text, page: "whatsapp", ts: tsIso, verified: 1
+  };
+  try {
+    await env.BILLING_DB.prepare(
+      `INSERT INTO leads
+         (created_at, source, name, phone, email, service, pickup, destination,
+          date, time, vehicle, days, flight, sign, notes, page, client_ts, payload_json,
+          marketing_consent, verified, whatsapp_reachable)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(now, "WhatsApp", name, "+" + e164, "", "", "", "", "", "", "", "", "", "",
+           text, "whatsapp", tsIso, JSON.stringify(payload), 0, 1, "yes").run();
+  } catch (e) {
+    console.error("WA lead capture insert failed", e && (e.message || String(e)));
+    return;
+  }
+  // Mirror to the Sheet (source "WhatsApp" → its own tab once the Apps Script edit lands).
+  if (env.SHEETS_WEBHOOK_URL) ctx.waitUntil(appendSheet(env, payload).catch(() => {}));
 }
 
 async function storeWaEvents(env, rows) {

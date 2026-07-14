@@ -5971,7 +5971,10 @@ function appShellHTML() {
         <h2>Leads</h2>
         <p class="hist-sub">Bookings from the website. Convert to a quote or invoice and the Create builder is pre-filled, and every field stays editable.</p>
       </div>
-      <button type="button" class="btn btn-small btn-ghost" id="leadsRefresh">Refresh</button>
+      <div style="display:flex;gap:.5rem">
+        <button type="button" class="btn btn-small btn-ghost" id="leadsCsv" title="Download the current leads as a CSV file">Export CSV</button>
+        <button type="button" class="btn btn-small btn-ghost" id="leadsRefresh">Refresh</button>
+      </div>
     </div>
     <div class="hist-filter" style="display:flex;gap:1rem;flex-wrap:wrap">
       <div class="hist-search">
@@ -9775,6 +9778,25 @@ const PAGE_SCRIPT = `<script>
       .then(function(j){ if(j && j.ok) renderLeadChips(j.threads); })
       .catch(function(){ /* chips are best-effort */ });
   }
+  // WA-2 F — CSV export of the current leads (client-side, from leadsCache).
+  function leadsToCsv(rows){
+    var cols = ["id","created_at","source","name","phone","email","service","vehicle",
+      "pickup","destination","date","time","days","flight","sign","notes","status",
+      "vat_mode","quote_price","whatsapp_reachable","linked_doc_number","converted_at","verified"];
+    var cell = function(v){ return '"' + String(v==null?"":v).replace(/"/g,'""') + '"'; };
+    var out = cols.join(",") + "\\r\\n";
+    (rows||[]).forEach(function(r){ out += cols.map(function(c){ return cell(r[c]); }).join(",") + "\\r\\n"; });
+    return out;
+  }
+  function exportLeadsCsv(){
+    var csv = "\\ufeff" + leadsToCsv(leadsCache); // BOM so Excel reads UTF-8
+    var blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = "umc-leads.csv";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  }
   // Prefill is editable: every value below is a starting value, not a fixed
   // one. lead_id travels along silently for lineage; editing any prefilled
   // field must NEVER detach it. Server still enforces the price gate.
@@ -11173,6 +11195,8 @@ const PAGE_SCRIPT = `<script>
     root.addEventListener("click", function(e){
       const refresh = e.target.closest("#leadsRefresh");
       if(refresh){ e.preventDefault(); loadLeads(); return; }
+      const csvBtn = e.target.closest("#leadsCsv");
+      if(csvBtn){ e.preventDefault(); exportLeadsCsv(); return; }
       // WA-2 B — alert-roster editor: add / mute-unmute / remove.
       const wtAdd = e.target.closest("#waTeamAdd");
       if(wtAdd){
