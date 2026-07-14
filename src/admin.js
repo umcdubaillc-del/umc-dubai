@@ -334,6 +334,13 @@ async function ensureSchema(env) {
       // WA-2 C — persisted quote amount (was session-only in leadsCache). Lets the
       // desktop WhatsApp API-send fill the amount and survives a page refresh.
       "quote_price REAL",
+      // These are created by index.js ensureLeadsSchema on the PUBLIC /api/lead path,
+      // but handleListLeads' SELECT reads them on the ADMIN path — so this schema
+      // manager MUST ensure them too, or the SELECT throws when the column is absent
+      // (the leads-list outage of 2026-07-14). Keep this list a superset of every
+      // column the leads SELECT references.
+      "verified INTEGER DEFAULT 1",
+      "whatsapp_reachable TEXT",
     ]);
     // v110 (item 3) — one-time seed so the feature doesn't paint a wall of NEW
     // badges across the whole history on first deploy. A lead that is already
