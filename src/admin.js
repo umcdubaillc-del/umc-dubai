@@ -6324,7 +6324,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260716-ls2disc";
+const ADMIN_BUILD = "20260716-filpop";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -6823,6 +6823,12 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 .mp-pop__err{margin-top:.5rem;padding:.45rem .6rem;background:rgba(199,91,18,.08);border:1px solid rgba(199,91,18,.32);border-radius:3px;color:var(--amber-deep);font-size:.78rem;line-height:1.45}
 .mp-pop__btns{display:flex;justify-content:flex-end;gap:.45rem;margin-top:.8rem}
 .mp-pop__btns .btn{margin:0}
+/* FIL-3 — Filters open as an anchored floating popover (positionPopover: flip+clamp),
+   so they never occupy a standing row at any width. display is toggled inline by JS;
+   this class supplies the card chrome + column layout. */
+.leads-filter-pop{position:fixed;z-index:300;flex-direction:column;align-items:stretch;gap:.75rem;min-width:200px;background:var(--card);border:1px solid var(--line);border-radius:6px;box-shadow:0 26px 52px -28px rgba(34,27,20,.45);padding:.9rem 1rem 1rem}
+.leads-filter-pop .hist-ctrl{width:100%}
+.leads-filter-pop select{width:100%}
 @media(max-width:720px){
   .sales-page{padding:1rem 1rem 2rem}
   .sales-kpis{grid-template-columns:repeat(2,1fr)}
@@ -7475,7 +7481,7 @@ function appShellHTML() {
              vertical space. Collapsed by default; a badge shows the active-filter count. -->
         <button type="button" class="btn btn-small btn-ghost" id="leadsFiltersToggle" aria-expanded="false" aria-controls="leadsAdvFilters" style="margin-left:auto">Filters<span id="leadsFilterBadge" class="filter-badge" hidden style="display:inline-flex;min-width:1.15em;height:1.15em;padding:0 .35em;margin-left:.45em;border-radius:999px;background:var(--ink);color:var(--bone);font-size:.62rem;line-height:1;align-items:center;justify-content:center;vertical-align:middle"></span></button>
       </div>
-      <div id="leadsAdvFilters" class="hist-advfilters hide" style="display:flex;flex-wrap:wrap;gap:1rem;align-items:center;margin-top:.7rem">
+      <div id="leadsAdvFilters" class="hist-advfilters leads-filter-pop" role="dialog" aria-label="Lead filters" style="display:none">
         <div class="hist-ctrl">
           <label class="lbl" for="leadsOriginFilter">Origin</label>
           <select id="leadsOriginFilter" aria-label="Filter by origin">
@@ -12114,22 +12120,22 @@ const PAGE_SCRIPT = `<script>
     modal.appendChild(backdrop);
     modal.appendChild(shell);
     document.body.appendChild(modal);
-    // Anchor the desktop popover under the More button (viewport coords; the
-    // shell is position:fixed). Clamp within the viewport.
+    // Anchor the desktop popover under the More button via the shared positionPopover
+    // (flip-above near the bottom edge + full viewport clamp), replacing the ad-hoc
+    // rect math that only clamped horizontally. Reposition on resize while open.
+    var _moreReposition = null;
     if(isDesktop){
       const anchor = document.getElementById("tabBtnMore");
-      const popW = 300;
       if(anchor){
-        const r = anchor.getBoundingClientRect();
-        const left = Math.max(8, Math.min(window.innerWidth - popW - 8, r.left));
-        shell.style.left = left + "px";
-        shell.style.top = (r.bottom + 6) + "px";
+        positionPopover(shell, anchor, { width: 300 });
+        _moreReposition = function(){ positionPopover(shell, anchor, { width: 300 }); };
+        window.addEventListener("resize", _moreReposition);
       } else {
         shell.style.right = "1.5rem";
         shell.style.top = "72px";
       }
     }
-    function close(){ try { document.body.removeChild(modal); } catch(_){} }
+    function close(){ if(_moreReposition){ window.removeEventListener("resize", _moreReposition); _moreReposition = null; } try { document.body.removeChild(modal); } catch(_){} }
     modal.querySelectorAll("[data-more-close]").forEach(function(b){
       b.addEventListener("click", function(e){ e.preventDefault(); close(); });
     });
@@ -13103,7 +13109,7 @@ const PAGE_SCRIPT = `<script>
       if((b.dataset.stageFilter||"all")  !== "all") n++;
       var badge = document.getElementById("leadsFilterBadge");
       var panel = document.getElementById("leadsAdvFilters");
-      var collapsed = !panel || panel.classList.contains("hide");
+      var collapsed = !panel || panel.style.display === "none" || panel.style.display === "";
       if(badge){
         if(n > 0 && collapsed){ badge.textContent = String(n); badge.hidden = false; }
         else { badge.hidden = true; }
@@ -13115,13 +13121,37 @@ const PAGE_SCRIPT = `<script>
     if(kF) kF.addEventListener("change", function(){ var b=_lb(); if(b){ b.dataset.kindFilter = this.value; } applyLeadsFilter(); updateLeadsFilterBadge(); });
     var sF = root.querySelector("#leadsStageFilter");
     if(sF) sF.addEventListener("change", function(){ var b=_lb(); if(b){ b.dataset.stageFilter = this.value; } applyLeadsFilter(); updateLeadsFilterBadge(); });
-    // UI-3 C — Filters panel expand/collapse.
+    // FIL-3 — Filters open as an anchored floating popover (positionPopover: flip+clamp),
+    // never a standing row. Replaces the old inline collapse, which toggled a "hide"
+    // class that has no CSS rule — so the panel had been rendering permanently open.
     var fTog = root.querySelector("#leadsFiltersToggle");
     var fPanel = root.querySelector("#leadsAdvFilters");
-    if(fTog && fPanel) fTog.addEventListener("click", function(){
-      var open = fPanel.classList.toggle("hide") === false;
-      fTog.setAttribute("aria-expanded", open ? "true" : "false");
+    var _fpReposition = null, _fpOnKey = null, _fpOnOutside = null;
+    function closeLeadsFilters(){
+      if(!fPanel) return;
+      fPanel.style.display = "none";
+      if(fTog) fTog.setAttribute("aria-expanded", "false");
+      if(_fpReposition){ window.removeEventListener("resize", _fpReposition); _fpReposition = null; }
+      if(_fpOnKey){ document.removeEventListener("keydown", _fpOnKey); _fpOnKey = null; }
+      if(_fpOnOutside){ document.removeEventListener("mousedown", _fpOnOutside, true); _fpOnOutside = null; }
       updateLeadsFilterBadge();
+    }
+    function openLeadsFilters(){
+      if(!fPanel || !fTog) return;
+      fPanel.style.display = "flex";
+      positionPopover(fPanel, fTog, { width: 232, align: "right" });
+      fTog.setAttribute("aria-expanded", "true");
+      _fpReposition = function(){ positionPopover(fPanel, fTog, { width: 232, align: "right" }); };
+      window.addEventListener("resize", _fpReposition);
+      _fpOnKey = function(e){ if(e.key === "Escape") closeLeadsFilters(); };
+      document.addEventListener("keydown", _fpOnKey);
+      _fpOnOutside = function(e){ if(!fPanel.contains(e.target) && e.target !== fTog && !fTog.contains(e.target)) closeLeadsFilters(); };
+      // Defer outside-click binding so the opening click doesn't immediately close it.
+      setTimeout(function(){ document.addEventListener("mousedown", _fpOnOutside, true); }, 0);
+      updateLeadsFilterBadge();
+    }
+    if(fTog && fPanel) fTog.addEventListener("click", function(){
+      if(fPanel.style.display === "flex") closeLeadsFilters(); else openLeadsFilters();
     });
     // WA-2 B — lazy-load the alert roster the first time its panel is opened.
     const waT = root.querySelector("#waTeam");
