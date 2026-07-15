@@ -372,12 +372,10 @@ async function handleLead(request, env, ctx) {
   }
   if (env.RESEND_API_KEY && payload.email && turnstileVerified) tasks.push(sendClientReceipt(env, payload));
 
-  // WA-1: booking-request WhatsApp acknowledgment (transactional/UTILITY). INERT until
-  // WA_SEND_ENABLED="1" (flip only once the template shows APPROVED). Booking-form leads
-  // only; one send per lead (idempotent); errors silent to the client, logged for us.
-  if (env.WA_SEND_ENABLED === "1" && payload.source === "booking" && leadId) {
-    tasks.push(sendBookingWhatsApp(env, leadId, payload));
-  }
+  // WA-3: the WA-1 client booking_request_received auto-send is REMOVED — the
+  // company-mediated model never auto-messages clients, and booking_request_received is
+  // parked. The team lead_alert below replaces it. (sendBookingWhatsApp retained in the
+  // module only for reference/history; intentionally not called.)
 
   // WA-2 B: alert every active team member (lead_alert) on a new booking, with a
   // wa.me link to the client carrying the prefilled quote. Booking-form leads only;

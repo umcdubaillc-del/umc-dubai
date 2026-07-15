@@ -5300,9 +5300,12 @@ export async function sendLeadAlerts(env, leadId, lead, opts) {
 // ── Gate C — desktop WhatsApp send from the business number ───────────────────
 async function handleSendLeadWhatsApp(request, env) {
   await ensureSchema(env);
-  // WA-3: the human-initiated client send has its OWN flag, independent of team alerts.
-  if (env.WA_CLIENT_SENDS_ENABLED !== "1") {
-    return json({ ok: false, disabled: true, error: "Client WhatsApp sending is off (WA_CLIENT_SENDS_ENABLED=0). Use Copy quote or Open in WhatsApp." }, 409);
+  // WA-3 staged go-live (owner 2026-07-15): the HUMAN-INITIATED desktop quote send
+  // (booking_quote) rides WA_SEND_ENABLED (Tier A, live with team alerts). Only the
+  // AUTOMATED client sends (payment_received, flight_delay_update) ride
+  // WA_CLIENT_SENDS_ENABLED.
+  if (env.WA_SEND_ENABLED !== "1") {
+    return json({ ok: false, disabled: true, error: "WhatsApp sending is off (WA_SEND_ENABLED=0). Use Copy quote or Open in WhatsApp." }, 409);
   }
   if (!env.WA_PHONE_NUMBER_ID || !env.WA_ACCESS_TOKEN) {
     return json({ ok: false, error: "WhatsApp is not configured on this Worker." }, 503);
