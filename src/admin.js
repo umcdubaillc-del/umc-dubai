@@ -5437,19 +5437,29 @@ export async function computeWeeklyFunnel(env) {
   const leads  = await one(`SELECT COUNT(*) AS n FROM leads WHERE created_at >= ?`, weekAgo);
   const quoted = await one(`SELECT COUNT(DISTINCT lead_id) AS n FROM wa_outbound WHERE kind='quote' AND created_at >= ?`, weekAgo);
   const paid   = await one(`SELECT COUNT(*) AS n FROM payment_links WHERE payment_status='paid' AND paid_at >= ?`, weekAgo);
-  let rows = [];
+  // Two simple queries joined in JS (avoids a correlated subquery under FROM leads,
+  // which the schema-column build guard can't parse): this week's leads, and the first
+  // client-directed send per lead. Median = minutes from lead creation to that send.
+  let leadRows = [], outRows = [];
   try {
-    rows = (await env.BILLING_DB.prepare(
-      `SELECT l.created_at AS c,
-              (SELECT MIN(o.created_at) FROM wa_outbound o
-                 WHERE o.lead_id = l.id AND o.kind IN ('quote','payment','flight','paylink')
-                   AND o.status IN ('sent','delivered','read')) AS first_out
-         FROM leads l WHERE l.created_at >= ?`
+    leadRows = (await env.BILLING_DB.prepare(
+      `SELECT id, created_at FROM leads WHERE created_at >= ?`
     ).bind(weekAgo).all()).results || [];
-  } catch (e) { rows = []; }
+  } catch (e) { leadRows = []; }
+  try {
+    outRows = (await env.BILLING_DB.prepare(
+      `SELECT lead_id, MIN(created_at) AS first_out FROM wa_outbound
+        WHERE kind IN ('quote','payment','flight','paylink')
+          AND status IN ('sent','delivered','read') AND created_at >= ?
+        GROUP BY lead_id`
+    ).bind(weekAgo).all()).results || [];
+  } catch (e) { outRows = []; }
+  const firstOut = new Map();
+  for (const o of outRows) if (o.lead_id != null && o.first_out) firstOut.set(Number(o.lead_id), o.first_out);
   const mins = [];
-  for (const r of rows) {
-    if (r.first_out) { const dt = (Date.parse(r.first_out) - Date.parse(r.c)) / 60000; if (isFinite(dt) && dt >= 0) mins.push(dt); }
+  for (const l of leadRows) {
+    const fo = firstOut.get(Number(l.id));
+    if (fo) { const dt = (Date.parse(fo) - Date.parse(l.created_at)) / 60000; if (isFinite(dt) && dt >= 0) mins.push(dt); }
   }
   const responded = mins.length;
   let medianMins = 0;

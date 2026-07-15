@@ -112,15 +112,14 @@
   ],
   // WA-4 §4 — durable off-database backup target. The daily cron (runD1Backup in the
   // 03:00 UTC branch) dumps every BILLING_DB table to R2 as JSON (backups/YYYY-MM-DD/
-  // umc-billing.json + backups/latest.json). OWNER SETUP: create this bucket on the UMC
-  // account before deploy — `wrangler r2 bucket create umc-billing-backups`. Until the
-  // binding resolves, runD1Backup no-ops (logged), so a missing bucket never errors.
-  // This complements D1 Time Travel (the 30-day point-in-time restore used for the
-  // gated test-restore before Sheets retirement).
+  // umc-billing.json + backups/latest.json). Bucket "umc-backups" already created on the
+  // UMC account. Until the binding resolves, runD1Backup no-ops (logged), so a missing
+  // bucket never errors. Complements D1 Time Travel (the 30-day point-in-time restore
+  // used for the gated test-restore before Sheets retirement).
   "r2_buckets": [
     {
       "binding": "BACKUP_BUCKET",
-      "bucket_name": "umc-billing-backups"
+      "bucket_name": "umc-backups"
     }
   ]
 }

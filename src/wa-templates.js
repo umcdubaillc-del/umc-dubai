@@ -336,7 +336,7 @@ export const WA_TEMPLATES = {
 
 async function metaList(env) {
   const url = `${graphBase(env)}/${env.WA_WABA_ID}/message_templates` +
-    `?fields=name,status,category,language,rejected_reason&limit=100`;
+    `?fields=id,name,status,category,language,rejected_reason&limit=100`;
   const res = await fetch(url, { headers: { Authorization: "Bearer " + env.WA_ACCESS_TOKEN } });
   return { http: res.status, body: await res.json().catch(() => ({})) };
 }
@@ -346,6 +346,19 @@ async function metaSubmit(env, tpl) {
     method: "POST",
     headers: { Authorization: "Bearer " + env.WA_ACCESS_TOKEN, "Content-Type": "application/json" },
     body: JSON.stringify(tpl)
+  });
+  return { http: res.status, body: await res.json().catch(() => ({})) };
+}
+
+// WA-4 §3 — EDIT an existing template by its Meta ID (adds the footer without minting a
+// new name, so the send paths never change). Meta rejects edits while PENDING/IN_APPEAL,
+// so this is used AFTER a template approves; the edit re-enters review (harmless — the
+// template is unused until it re-approves). Only the components are pushed.
+async function metaEdit(env, templateId, tpl) {
+  const res = await fetch(`${graphBase(env)}/${templateId}`, {
+    method: "POST",
+    headers: { Authorization: "Bearer " + env.WA_ACCESS_TOKEN, "Content-Type": "application/json" },
+    body: JSON.stringify({ components: tpl.components })
   });
   return { http: res.status, body: await res.json().catch(() => ({})) };
 }
@@ -369,6 +382,24 @@ export async function handleWaTemplates(request, env) {
     const tpl = name && WA_TEMPLATES[name];
     if (!tpl) {
       return json({ ok: false, error: "unknown template name", available: Object.keys(WA_TEMPLATES) }, 400);
+    }
+    // WA-4 §3 — action:"edit" pushes the registry's components (with footer) to the
+    // EXISTING template by ID instead of creating a new name. Used once the template has
+    // left PENDING (approved/rejected); the edit re-enters review.
+    if (body && body.action === "edit") {
+      const listed = await metaList(env);
+      const rows = (listed.body && Array.isArray(listed.body.data)) ? listed.body.data : [];
+      const match = rows.find((t) => t.name === name);
+      if (!match || !match.id) {
+        return json({ ok: false, error: "template not found on Meta to edit — submit it first", name }, 404);
+      }
+      const status = String(match.status || "").toUpperCase();
+      if (status === "PENDING" || status === "IN_APPEAL") {
+        return json({ ok: false, error: "cannot edit while " + status + " — wait for approval, then edit", name, id: match.id, status }, 409);
+      }
+      const e = await metaEdit(env, match.id, tpl);
+      return json({ ok: e.http < 400, http: e.http, edited: name, id: match.id, prevStatus: status, meta: e.body },
+        e.http < 400 ? 200 : 502);
     }
     const r = await metaSubmit(env, tpl);
     return json({ ok: r.http < 400, http: r.http, submitted: name, meta: r.body },
