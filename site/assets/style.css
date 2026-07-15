@@ -1,5 +1,5 @@
 /* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
-/* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v85. */
+/* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v86 (DIV-4: --jline-gap divider rhythm). */
 /* P-1: self-hosted fonts (was Google Fonts CDN). Latin subset, OFL-licensed.
    Outfit is a variable font covering 300–500; Marcellus is 400 only. Both are
    font-display:swap so text paints immediately in the fallback then swaps. */
@@ -12,6 +12,10 @@
   --espresso:#231B12;
   --hair:rgba(34,27,20,.10); --line:rgba(34,27,20,.18);
   --wrap:1080px; --narrow:680px;
+  /* DIV-4: section/divider vertical rhythm. The homepage's divider-to-section
+     optical gap is one .sec pad — encode it once here so between-section
+     dividers (via .sec) and in-prose dividers (.jline--article) share it. */
+  --jline-gap:clamp(2.8rem,7vw,4.6rem);
   --serif:'Marcellus',Georgia,serif; --sans:'Outfit',system-ui,sans-serif;
   --mono:ui-monospace,'SF Mono','Cascadia Mono',Menlo,Consolas,monospace;
 }
@@ -168,9 +172,13 @@ nav.mainnav .sub-toggle{display:none}
 /* Divider variant with bottom breathing room, for dividers that sit directly
    above a full-bleed dark CTA band so the bottom dot no longer touches it. */
 .jline--b{padding-bottom:clamp(2.6rem,6vw,4rem)}
+/* DIV-4: in-prose divider (blog/comparison FAQ + keep-reading). Unlike the
+   homepage motif it has no flanking .sec padding, so it carries its own
+   symmetric --jline-gap breathing to match the homepage divider rhythm. */
+.jline--article{padding-top:var(--jline-gap);padding-bottom:var(--jline-gap)}
 
 /* ---------- sections ---------- */
-.sec{padding:clamp(2.8rem,7vw,4.6rem) 0}
+.sec{padding:var(--jline-gap) 0}
 /* Consecutive-paragraph spacing, scoped to the added bottom prose sections only. */
 .sec-prose p+p{margin-top:.75em}
 .shead{max-width:var(--narrow);margin:0 auto 2.4rem;text-align:center}

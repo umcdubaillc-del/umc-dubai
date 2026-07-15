@@ -466,6 +466,10 @@ JL = '<div class="jline" aria-hidden="true"><span class="n1"></span><span class=
 # a divider sits directly above a full-bleed dark CTA band (otherwise the bottom
 # dot touches the band). Same dotted motif, extra padding-bottom to match section rhythm.
 JLB = '<div class="jline jline--b" aria-hidden="true"><span class="n1"></span><span class="stem"></span><span class="n2"></span></div>'
+# DIV-4: JLA is the in-prose journey divider (blog + comparison article bodies),
+# where the divider sits inside .article-wrap with no flanking .sec padding. It
+# carries symmetric --jline-gap breathing so it matches the homepage rhythm.
+JLA = '<div class="jline jline--article" aria-hidden="true"><span class="n1"></span><span class="stem"></span><span class="n2"></span></div>'
 
 def faq_details(faqs):
     return "".join(f"<details><summary>{q}</summary><p>{a}</p></details>" for q,a in faqs)
@@ -495,7 +499,7 @@ def unify_article_faq(html):
     details = "".join(f"<details><summary>{q}</summary><p>{a}</p></details>" for q, a in pairs)
     # UI-3 E: dotted vertical divider (homepage JL motif) between the article body and
     # the FAQ, replacing the plain h2 border-top rule for a consistent section break.
-    block = (JL +
+    block = (JLA +
              '<div class="shead rv"><span class="lbl">Good to know</span>'
              '<h2>Frequently asked questions</h2></div>'
              f'<div class="faq rv">{details}</div>')
@@ -4717,7 +4721,7 @@ def render_post(p):
     # UI-3 E: dotted divider (homepage JL motif) before Keep-reading, replacing the old
     # .kr border-top rule. Only when there IS a keep-reading block.
     _kr = render_keep_reading(p['slug'])
-    kr_block = (JL + _kr) if _kr else ""
+    kr_block = (JLA + _kr) if _kr else ""
     body = header(canon) + f"""
 <article class="article">
   <header class="article-hero">
@@ -4864,11 +4868,11 @@ def render_comparison_page():
       <p><b>When UMC fits.</b> Dubai-centred travel; guests who want the specific car they chose; <a href="/corporate">corporates</a> needing AED VAT invoicing and a single accountable operator; anyone who values one WhatsApp thread over a support queue.</p>
       <p><b>The guarantee.</b> These are the layouts and cars we actually run. Your booking is confirmed to this exact car and configuration &mdash; never a smaller one. That sentence is on every <a href="/fleet">fleet</a> page, and it is the difference between an operator and a marketplace.</p>
 
-      {JL}
+      {JLA}
       <div class="shead rv"><span class="lbl">Good to know</span><h2>Frequently asked questions</h2></div>
       <div class="faq rv">{faq_html}</div>
 
-      {JL}
+      {JLA}
       {render_keep_reading("blacklane-alternative-dubai")}
     </div>
   </div>
