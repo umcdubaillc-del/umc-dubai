@@ -4864,9 +4864,11 @@ def render_comparison_page():
       <p><b>When UMC fits.</b> Dubai-centred travel; guests who want the specific car they chose; <a href="/corporate">corporates</a> needing AED VAT invoicing and a single accountable operator; anyone who values one WhatsApp thread over a support queue.</p>
       <p><b>The guarantee.</b> These are the layouts and cars we actually run. Your booking is confirmed to this exact car and configuration &mdash; never a smaller one. That sentence is on every <a href="/fleet">fleet</a> page, and it is the difference between an operator and a marketplace.</p>
 
+      {JL}
       <div class="shead rv"><span class="lbl">Good to know</span><h2>Frequently asked questions</h2></div>
       <div class="faq rv">{faq_html}</div>
 
+      {JL}
       {render_keep_reading("blacklane-alternative-dubai")}
     </div>
   </div>

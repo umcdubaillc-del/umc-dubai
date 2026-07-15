@@ -6318,6 +6318,14 @@ export async function handleAdmin(request, env) {
 // Big inline page — login form + generator + history. Brand tokens hard-coded
 // to match site/assets/style.css. No external assets except Google Fonts.
 
+// UI-3-FIX #1 — admin build stamp. The admin's JS/CSS are INLINE and the HTML is
+// served `no-store` (see html()), so there is no external bundle to version. This
+// constant (a) versions the external vendor/icon includes, (b) is exposed as a
+// <meta> + console line so the running bundle is verifiable at a glance, and (c) the
+// pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
+// navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
+const ADMIN_BUILD = "20260715-ui3fix";
+
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
   return `<!doctype html>
@@ -6326,7 +6334,11 @@ function PAGE_HTML(authed, env) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
+<meta name="admin-build" content="${ADMIN_BUILD}">
 <title>UMC Dubai · Billing</title>
+<!-- UI-3-FIX #1 — force a fresh load if the browser restores this page from the
+     back/forward cache (bfcache serves a stale snapshot despite no-store). -->
+<script>window.addEventListener("pageshow",function(e){if(e.persisted)location.reload();});console.log("[admin] build ${ADMIN_BUILD}");</script>
 <!-- PWA: installable standalone workspace. Icons + manifest are static assets
      under /assets/admin/ (served statically, worker falls through). start_url
      is /admin/billing. -->
@@ -6342,8 +6354,8 @@ function PAGE_HTML(authed, env) {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Outfit:wght@300;400;500;600&family=Fraunces:opsz,wght@9..144,300;9..144,400&display=swap" rel="stylesheet">
 <!-- v86 — flatpickr for the Mark-paid date picker in the Payments tab. -->
-<link rel="stylesheet" href="/assets/vendor/flatpickr.min.css">
-<script src="/assets/vendor/flatpickr.min.js" defer></script>
+<link rel="stylesheet" href="/assets/vendor/flatpickr.min.css?v=${ADMIN_BUILD}">
+<script src="/assets/vendor/flatpickr.min.js?v=${ADMIN_BUILD}" defer></script>
 <style>
 :root{
   --bone:#F6F1E7; --bone2:#EFE8D9; --card:#FBF8F1; --ink:#221B14; --ink-soft:#4A4136;
@@ -7055,6 +7067,13 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   .history .hist-tsrow .hist-sort{flex:0 1 auto; display:inline-flex; align-items:center; gap:.5rem; margin-left:auto}
   .history .hist-typefilter .seg{padding:.4rem .6rem; font-size:10px; letter-spacing:.1em}
   .history .hist-sort select{font-size:12px; padding:.4rem .5rem}
+  /* UI-3-FIX #4 — on mobile the Leads Filters toggle was pushed off-screen by the
+     row's nowrap; let it wrap and stack the expanded selects full-width. */
+  #tab-leads .hist-tsrow{flex-wrap:wrap; row-gap:.5rem}
+  #tab-leads #leadsFiltersToggle{flex:0 0 auto; margin-left:auto}
+  #tab-leads #leadsAdvFilters{flex-direction:column; align-items:stretch}
+  #tab-leads #leadsAdvFilters .hist-ctrl{width:100%}
+  #tab-leads #leadsAdvFilters select{width:100%}
 
   /* 2.6 Editor textareas taller (ride base font-size:16px to dodge iOS zoom) */
   .ed-modal #fNotes, .ed-modal #fInternalNotes{min-height:96px; line-height:1.5}
@@ -11326,10 +11345,12 @@ const PAGE_SCRIPT = `<script>
           + '<button type="button" class="btn btn-small btn-ghost" data-leademail="'+x.id+'"'+(hasEmail?'':_disA)+' title="Email the composed quote to the client (branded email)">Email quote</button>'
           + '<span class="leadwa-status" data-leadwa-status="'+x.id+'" aria-live="polite" style="font-size:.8rem;color:var(--muted);margin-left:.5rem"></span>';
         // UI-3 A — CONTACT cluster: quick-reach actions (no quote composed).
+        // UI-3-FIX #3 — owner ruling: exactly TWO WhatsApp buttons (via API + quote,
+        // both in the Quote cluster). The Contact cluster's plain "WhatsApp" chat button
+        // is removed.
         const contactCluster = ''
           + '<button type="button" class="btn btn-small btn-ghost" data-leadcall="'+x.id+'"'+(hasPhone?'':_disA)+' title="Call the client">Call</button>'
-          + '<button type="button" class="btn btn-small btn-ghost" data-leadmailto="'+x.id+'"'+(hasEmail?'':_disA)+' title="Open your email app to write to the client">Email client</button>'
-          + '<button type="button" class="btn btn-small btn-ghost" data-leadwachat="'+x.id+'"'+(waOk?'':_disA)+' title="Open a WhatsApp chat with the client (no quote)">WhatsApp</button>';
+          + '<button type="button" class="btn btn-small btn-ghost" data-leadmailto="'+x.id+'"'+(hasEmail?'':_disA)+' title="Open your email app to write to the client">Email client</button>';
         // UI-3 A — PAYMENT cluster: send a pay link + link an existing payment (shared
         // association backend with the Payments-tab "Link" action).
         const paymentCluster = ''
@@ -13260,19 +13281,6 @@ const PAGE_SCRIPT = `<script>
         window.location.href = "mailto:" + lead.email
           + "?subject=" + encodeURIComponent("UMC Dubai — your reservation")
           + "&body=" + encodeURIComponent("Dear " + first + ",\\n\\n");
-        return;
-      }
-      // UI-3 A — CONTACT: open a plain WhatsApp chat with the client (no quote prefill).
-      const waChatBtn = e.target.closest("[data-leadwachat]");
-      if(waChatBtn){
-        e.preventDefault();
-        if(waChatBtn.disabled) return;
-        const id = Number(waChatBtn.getAttribute("data-leadwachat"));
-        const lead = leadsCache.find(function(z){ return Number(z.id) === id; });
-        if(!lead) return;
-        const num = normalizeWaNumber(lead.phone);
-        if(!num){ setStatus("This lead has no usable phone number."); return; }
-        window.open("https://wa.me/" + num, "_blank", "noopener");
         return;
       }
       // UI-3 A — PAYMENT: attach an existing Nomod payment to this lead (shared backend
