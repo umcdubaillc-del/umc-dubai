@@ -552,7 +552,10 @@ async function ensureSchema(env) {
         requirements TEXT DEFAULT '[]',
         client_informed INTEGER DEFAULT 0,
         calendar_event_id TEXT,
-        cancelled_reason TEXT
+        cancelled_reason TEXT,
+        driver_assigned_at TEXT,
+        driver_informed_at TEXT, driver_informed_src TEXT,
+        client_informed_at TEXT, client_informed_src TEXT
       )`
     ).run();
     await addMissingColumns(env, "jobs", [
@@ -568,6 +571,13 @@ async function ensureSchema(env) {
       "client_informed INTEGER DEFAULT 0",
       "calendar_event_id TEXT",
       "cancelled_reason TEXT",
+      // WA-4 §1 — auto-stamp chips. *_at holds the ISO time the party was informed;
+      // *_src is 'auto' (system-detected) or 'manual' (operator override — a phone call
+      // also informs). driver_assigned_at is the reference point for "client informed
+      // AFTER assignment".
+      "driver_assigned_at TEXT",
+      "driver_informed_at TEXT", "driver_informed_src TEXT",
+      "client_informed_at TEXT", "client_informed_src TEXT",
     ]);
     await env.BILLING_DB.prepare(
       `CREATE TABLE IF NOT EXISTS job_drivers (
@@ -1704,6 +1714,33 @@ async function finalizeJob(env, jobId) {
   return await getJobRow(env, jobId);
 }
 
+// WA-4 §1 — detect an automatic "Client informed" signal: a company-phone echo to
+// the client, OR an API send to the client (quote/payment/flight), occurring AFTER
+// the driver was assigned. Returns the ISO time of the first such signal, or null.
+async function detectClientInformed(env, job) {
+  const to = waMeNumber(job.client_phone);
+  if (!to || !job.driver_assigned_at) return null;
+  // Human echo (company phone → client) after assignment — the concierge messaging
+  // the client (e.g. via the "chauffeur confirmed" prefill link) informs them.
+  const echo = await env.BILLING_DB.prepare(
+    `SELECT received_at FROM wa_events
+      WHERE event_type='smb_message_echoes' AND received_at >= ?
+        AND payload_json LIKE ? ORDER BY received_at ASC LIMIT 1`
+  ).bind(job.driver_assigned_at, '%"to":"' + to + '"%').first();
+  if (echo && echo.received_at) return echo.received_at;
+  // API send to the client (only if this job maps to a lead).
+  const leadId = (job.source_type === "lead") ? job.source_id : null;
+  if (leadId) {
+    const api = await env.BILLING_DB.prepare(
+      `SELECT MIN(created_at) AS at FROM wa_outbound
+        WHERE lead_id = ? AND kind IN ('quote','payment','flight')
+          AND status IN ('sent','delivered','read') AND created_at >= ?`
+    ).bind(leadId, job.driver_assigned_at).first();
+    if (api && api.at) return api.at;
+  }
+  return null;
+}
+
 async function handleListJobs(env) {
   await ensureSchema(env);
   // Operational sort: soonest trip first (date, then time ascending). Undated
@@ -1712,6 +1749,23 @@ async function handleListJobs(env) {
   const jobs = (await env.BILLING_DB.prepare(
     `SELECT * FROM jobs ORDER BY (date IS NULL OR date = '') ASC, date ASC, time ASC, id ASC LIMIT 500`
   ).all()).results || [];
+  // WA-4 §1 — lazily auto-stamp "Client informed" for active, assigned jobs that
+  // haven't been stamped yet. Manual stamps ('manual' src) are never touched.
+  for (const j of jobs) {
+    if (!j.client_informed_at && j.driver_assigned_at && j.client_phone &&
+        j.status !== "completed" && j.status !== "cancelled") {
+      try {
+        const at = await detectClientInformed(env, j);
+        if (at) {
+          await env.BILLING_DB.prepare(
+            `UPDATE jobs SET client_informed_at=?, client_informed_src='auto', client_informed=1
+               WHERE id=? AND client_informed_at IS NULL`
+          ).bind(at, j.id).run();
+          j.client_informed_at = at; j.client_informed_src = "auto"; j.client_informed = 1;
+        }
+      } catch (e) { /* best-effort auto-stamp */ }
+    }
+  }
   const allD = (await env.BILLING_DB.prepare(`SELECT jd.job_id, d.id, d.name, d.phone FROM job_drivers jd JOIN drivers d ON d.id = jd.driver_id`).all()).results || [];
   const allV = (await env.BILLING_DB.prepare(`SELECT jv.job_id, v.id, v.name, v.plate FROM job_vehicles jv JOIN vehicles v ON v.id = jv.vehicle_id`).all()).results || [];
   const dMap = {}, vMap = {};
@@ -1761,6 +1815,31 @@ async function handleUpdateJob(id, request, env) {
   ).bind(status, f.source_type, f.source_id, f.client_name, f.client_phone, f.client_email,
     f.service, f.vehicle_text, f.pickup, f.destination, f.date, f.time, f.days, f.flight, f.sign,
     f.driver_notes, f.requirements, f.client_informed, f.cancelled_reason, id).run();
+  // WA-4 §1 — manual override of the informed chips (a phone call also informs).
+  // A manual set/clear writes *_src='manual' (reads "(manual)") and wins over auto.
+  const nowIso = new Date().toISOString();
+  if (Object.prototype.hasOwnProperty.call(b, "client_informed")) {
+    if (b.client_informed) {
+      await env.BILLING_DB.prepare(
+        `UPDATE jobs SET client_informed=1, client_informed_at=COALESCE(client_informed_at, ?), client_informed_src='manual' WHERE id=?`
+      ).bind(nowIso, id).run();
+    } else {
+      await env.BILLING_DB.prepare(
+        `UPDATE jobs SET client_informed=0, client_informed_at=NULL, client_informed_src=NULL WHERE id=?`
+      ).bind(id).run();
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(b, "driver_informed")) {
+    if (b.driver_informed) {
+      await env.BILLING_DB.prepare(
+        `UPDATE jobs SET driver_informed_at=COALESCE(driver_informed_at, ?), driver_informed_src='manual' WHERE id=?`
+      ).bind(nowIso, id).run();
+    } else {
+      await env.BILLING_DB.prepare(
+        `UPDATE jobs SET driver_informed_at=NULL, driver_informed_src=NULL WHERE id=?`
+      ).bind(id).run();
+    }
+  }
   let asg = { addedDriverIds: [] };
   if (b.driver_ids !== undefined || b.vehicle_ids !== undefined) {
     asg = await setJobAssignments(env, id, b.driver_ids, b.vehicle_ids);
@@ -3817,7 +3896,46 @@ async function handleListLeads(env) {
        FROM leads
       ORDER BY id DESC LIMIT 500`
   ).all();
-  return json({ ok: true, items: results || [] });
+  const items = results || [];
+
+  // WA-4 §5c + §ADD5 — enrich each lead with a display origin, a Lead/Inquiry kind,
+  // and a derived funnel stage. Three lightweight set queries feed all rows (avoids
+  // per-lead round-trips).
+  const idSet = async (sql) => {
+    const s = new Set();
+    try { const r = await env.BILLING_DB.prepare(sql).all(); for (const x of (r.results || [])) if (x.lead_id != null) s.add(Number(x.lead_id)); } catch (e) { /* table may be absent */ }
+    return s;
+  };
+  const alertedIds = await idSet(`SELECT DISTINCT lead_id FROM wa_outbound WHERE kind='team_alert' AND lead_id IS NOT NULL`);
+  const paidIds    = await idSet(`SELECT DISTINCT lead_id FROM payment_links WHERE lead_id IS NOT NULL AND payment_status='paid'`);
+  const inbound = new Set();
+  try {
+    const r = await env.BILLING_DB.prepare(`SELECT DISTINCT wa_id FROM wa_events WHERE event_type='messages' AND wa_id IS NOT NULL`).all();
+    for (const x of (r.results || [])) { const n = waMeNumber(x.wa_id); if (n) inbound.add(n); }
+  } catch (e) { /* wa_events may be absent */ }
+
+  const originLabel = (src) => {
+    const s = String(src || "");
+    if (s === "booking") return "Booking form";
+    if (s === "contact-form") return "Contact form";
+    if (s === "WhatsApp") return "WhatsApp";
+    if (["Call", "Email", "Walk-in", "Manual"].includes(s)) return s;
+    return s || "—";
+  };
+  const stageFor = (lead) => {
+    if (paidIds.has(Number(lead.id))) return "Paid";
+    if (["quoted", "invoiced"].includes(String(lead.status)) || lead.linked_doc_number || lead.quote_price != null) return "Quoted";
+    if (lead.phone && inbound.has(waMeNumber(lead.phone))) return "Responded";
+    if (lead.wa_opened_at) return "Opened";
+    if (alertedIds.has(Number(lead.id))) return "Alerted";
+    return "New";
+  };
+  for (const lead of items) {
+    lead.origin_label = originLabel(lead.source);
+    lead.lead_kind = isInquiryLead(lead) ? "inquiry" : "lead";
+    lead.funnel_stage = stageFor(lead);
+  }
+  return json({ ok: true, items });
 }
 
 // Display-only VAT label toggle for a lead. Persists 'plus' | 'none' in D1
@@ -3898,7 +4016,14 @@ async function handleAddLead(request, env) {
   ).bind(now, origin, name, payload.phone, payload.email, payload.service, payload.pickup,
     payload.destination, payload.date, payload.time, payload.vehicle, payload.days,
     payload.flight, payload.sign, payload.notes, "manual", now, JSON.stringify(payload), 0, 1).run();
-  return json({ ok: true, id: ins && ins.meta ? ins.meta.last_row_id : null, origin });
+  const leadId = ins && ins.meta ? ins.meta.last_row_id : null;
+  // WA-4 §5a — alert parity: a manually-added lead rings the team too (was silent;
+  // owner saw the row but heard no ring). Guarded so a failed alert never fails the add.
+  if (env.WA_SEND_ENABLED === "1" && leadId) {
+    try { await sendLeadAlerts(env, leadId, payload); }
+    catch (e) { console.error("manual-add lead_alert failed", e && (e.message || String(e))); }
+  }
+  return json({ ok: true, id: leadId, origin });
 }
 
 // WA-3 — payment-linking picker: ONLY entities not already linked (each linkable once).
@@ -4376,6 +4501,53 @@ export function composeQuoteText(lead, opts) {
   return L.join("\n");
 }
 
+// WA-4 §2 — build the outside-window quote as the unified v2 template, matching
+// composeQuoteText line-for-line so API sends and in-window free-form sends read
+// identically. Picks the airport variant when a flight is present, else standard.
+// Meta rejects empty/whitespace parameters, so every slot gets a non-empty value
+// ("To be confirmed" / welcome sign "—"). The +VAT suffix is COMPOSED INTO the
+// price parameter so the per-lead toggle is honored — the body hardcodes no VAT.
+function quoteTemplateV2Payload(lead, opts) {
+  const to = opts.to;
+  const tbc = "To be confirmed";
+  const t = (s) => ({ type: "text", text: s });
+  const clientName   = waNz(lead.name) || "Guest";
+  const service      = deriveLeadServiceLabel(lead) || tbc;
+  const date         = waNz(lead.date) || tbc;
+  const time         = waNz(lead.time) || tbc;
+  const pickup       = waNz(lead.pickup) || tbc;
+  const destination  = waNz(lead.destination) || tbc;
+  const vehicle      = waNz(lead.vehicle) || tbc;
+  const price        = String(opts.amount) + (opts.vatPlus ? " +VAT" : "");
+  const isAirport    = !!waNz(lead.flight);
+  if (isAirport) {
+    const flight = waNz(lead.flight) || tbc;
+    const sign   = waNz(lead.sign) || "—";
+    return {
+      template: "booking_quote_v2_airport",
+      payload: {
+        messaging_product: "whatsapp", to, type: "template",
+        template: { name: "booking_quote_v2_airport", language: { code: "en" },
+          components: [{ type: "body", parameters: [
+            t(clientName), t(service), t(date), t(time), t(pickup),
+            t(destination), t(flight), t(sign), t(vehicle), t(price)
+          ] }] }
+      }
+    };
+  }
+  return {
+    template: "booking_quote_v2_standard",
+    payload: {
+      messaging_product: "whatsapp", to, type: "template",
+      template: { name: "booking_quote_v2_standard", language: { code: "en" },
+        components: [{ type: "body", parameters: [
+          t(clientName), t(service), t(date), t(time), t(pickup),
+          t(destination), t(vehicle), t(price)
+        ] }] }
+    }
+  };
+}
+
 // One-line summary for lead_alert {{2}} / booking_quote {{2}}.
 export function waLeadSummary(lead) {
   const dt = [waNz(lead.date), waNz(lead.time)].filter(Boolean).join(", ");
@@ -4528,6 +4700,13 @@ export async function handleWaRedirect(env, token) {
 async function notifyDriverAssignment(env, job, addedDriverIds) {
   if (!env.BILLING_DB || !job || !Array.isArray(addedDriverIds) || !addedDriverIds.length) return;
   const jobId = job.id;
+  // WA-4 §1 — record when a driver was first assigned; the client-informed auto-stamp
+  // only counts a company echo / client API-send that happens AFTER this moment.
+  try {
+    await env.BILLING_DB.prepare(
+      `UPDATE jobs SET driver_assigned_at = COALESCE(driver_assigned_at, ?) WHERE id = ?`
+    ).bind(new Date().toISOString(), jobId).run();
+  } catch (e) { /* best-effort reference stamp */ }
   const clientName = waNz(job.client_name) || "the client";
   const vehicle = waNz(job.vehicle_text) || "the vehicle";
   const dateTime = [waNz(job.date), waNz(job.time)].filter(Boolean).join(" ");
@@ -4792,6 +4971,14 @@ async function handleWaUsage(request, env) {
 // until WA_SEND_ENABLED=1, since team_alert rows only exist once sending is live.
 // max-once-per-lead is enforced twice: the NOT EXISTS(escalation) filter here AND
 // sendLeadAlerts' per-(lead,member) dedupe.
+// WA-4 §5c — an "inquiry" is a contact-form submission with no service AND no date
+// (a general question, not a booking). Inquiries are visible in the Leads tab and DO
+// alert the team, but are NEVER chased by the watchdog. Everything else is a "lead".
+export function isInquiryLead(lead) {
+  return String((lead && lead.source) || "") === "contact-form" &&
+    !waNz(lead && lead.service) && !waNz(lead && lead.date);
+}
+
 export async function runLeadWatchdog(env) {
   if (!env.BILLING_DB) return { checked: 0, escalated: 0 };
   const gstHour = (new Date().getUTCHours() + 4) % 24;
@@ -4815,6 +5002,7 @@ export async function runLeadWatchdog(env) {
   for (const row of rows) {
     const lead = await env.BILLING_DB.prepare(`SELECT * FROM leads WHERE id = ?`).bind(row.lead_id).first();
     if (!lead) continue;
+    if (isInquiryLead(lead)) continue; // WA-4 §5c: inquiries alert but are never escalated
     const to = waMeNumber(lead.phone);
     if (!to) continue;
     // Any API send to the client since the alert? (quote/payment/flight, actually sent)
@@ -5211,13 +5399,13 @@ export async function runQuoteNudge(env) {
     const firstName = (waNz(lead.name) || "there").split(/\s+/)[0];
     const dayStr = waNz(lead.date) || "your trip";
     const prefill = "Dear " + firstName + ", just checking you received our quote for " + dayStr +
-      " — happy to adjust anything if needed.\n\nUMC Dubai";
+      " — happy to adjust anything if needed.\n\nWarm regards,\nUMC Dubai";
     const link = await createWaLink(env, { leadId: lead.id, purpose: "nudge", toPhone: lead.phone, prefill });
     let anyOk = false;
     if (env.WA_SEND_ENABLED === "1") {
       const team = await getActiveWaTeam(env);
-      const msg = "Quote follow-up — " + (waNz(lead.name) || ("lead #" + lead.id)) +
-        " opened the quote but hasn't replied in 24h. Nudge the client: " + link;
+      const msg = "It's been 24h since the quote to " + (waNz(lead.name) || ("lead #" + lead.id)) +
+        " — did it convert to a booking? Send a follow-up: " + link;
       for (const m of team) {
         const mto = waMeNumber(m.phone); if (mto.length < 8) continue;
         const r = await waGraphSend(env, { messaging_product: "whatsapp", to: mto, type: "text", text: { preview_url: false, body: msg } });
@@ -5228,6 +5416,70 @@ export async function runQuoteNudge(env) {
     nudged++;
   }
   return { nudged };
+}
+
+// ── WA-4 §ADD6 — weekly line for the 08:30 Ops Digest ────────────────────────
+// No Ops Digest host existed, so this IS the host: a daily 08:30 GST cron composes a
+// rolling-7-day line — "This week: N leads · N responded (median M mins) · N quoted ·
+// N paid" — from existing data. It ALWAYS logs the line (evidence); it only SENDS to
+// wa_team when OPS_DIGEST_ENABLED='1' (deploys inert so the owner confirms cadence/
+// channel first) AND WA_SEND_ENABLED='1'. "responded" = leads that got a first client-
+// directed send; median = minutes from lead creation to that send (team responsiveness).
+// Rolling-7-day funnel numbers from existing data. Shared by the (inert) digest cron
+// and the /admin/api/funnel-week endpoint that the EXTERNAL briefing/digest system
+// consumes. "responded" = leads that got a first client-directed send; median = minutes
+// from lead creation to that send (team responsiveness).
+export async function computeWeeklyFunnel(env) {
+  try { await ensureSchema(env); } catch (e) { /* best-effort */ }
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString();
+  const one = async (sql, ...binds) => { try { const r = await env.BILLING_DB.prepare(sql).bind(...binds).first(); return (r && r.n) || 0; } catch (e) { return 0; } };
+  const leads  = await one(`SELECT COUNT(*) AS n FROM leads WHERE created_at >= ?`, weekAgo);
+  const quoted = await one(`SELECT COUNT(DISTINCT lead_id) AS n FROM wa_outbound WHERE kind='quote' AND created_at >= ?`, weekAgo);
+  const paid   = await one(`SELECT COUNT(*) AS n FROM payment_links WHERE payment_status='paid' AND paid_at >= ?`, weekAgo);
+  let rows = [];
+  try {
+    rows = (await env.BILLING_DB.prepare(
+      `SELECT l.created_at AS c,
+              (SELECT MIN(o.created_at) FROM wa_outbound o
+                 WHERE o.lead_id = l.id AND o.kind IN ('quote','payment','flight','paylink')
+                   AND o.status IN ('sent','delivered','read')) AS first_out
+         FROM leads l WHERE l.created_at >= ?`
+    ).bind(weekAgo).all()).results || [];
+  } catch (e) { rows = []; }
+  const mins = [];
+  for (const r of rows) {
+    if (r.first_out) { const dt = (Date.parse(r.first_out) - Date.parse(r.c)) / 60000; if (isFinite(dt) && dt >= 0) mins.push(dt); }
+  }
+  const responded = mins.length;
+  let medianMins = 0;
+  if (mins.length) { mins.sort((a, b) => a - b); const m = Math.floor(mins.length / 2); medianMins = mins.length % 2 ? mins[m] : (mins[m - 1] + mins[m]) / 2; }
+  return {
+    window_start: weekAgo, window_end: now.toISOString(),
+    leads, responded, median_response_mins: Math.round(medianMins), quoted, paid
+  };
+}
+
+// PERMANENTLY INERT fallback (owner ruling 2026-07-15): the real Ops Digest lives in a
+// separate briefing/intel system that consumes /admin/api/funnel-week. This cron stays
+// gated off (OPS_DIGEST_ENABLED=0) as a WhatsApp fallback — do NOT retire it. It always
+// LOGS the line; it only SENDS when the flag (kept 0) and WA_SEND_ENABLED are both "1".
+export async function runOpsDigest(env) {
+  if (!env.BILLING_DB) return { ok: false };
+  const f = await computeWeeklyFunnel(env);
+  const line = "UMC Ops Digest — This week: " + f.leads + " leads · " + f.responded +
+    " responded (median " + f.median_response_mins + " mins) · " + f.quoted + " quoted · " + f.paid + " paid.";
+  console.log("[ops-digest] " + line);
+  let sent = 0;
+  if (env.OPS_DIGEST_ENABLED === "1" && env.WA_SEND_ENABLED === "1") {
+    const team = await getActiveWaTeam(env);
+    for (const m of team) {
+      const to = waMeNumber(m.phone); if (to.length < 8) continue;
+      const r = await waGraphSend(env, { messaging_product: "whatsapp", to, type: "text", text: { preview_url: false, body: line } });
+      if (r.ok) sent++;
+    }
+  }
+  return { ok: true, line, sent };
 }
 
 // ── Gate B — team lead alerts ────────────────────────────────────────────────
@@ -5348,16 +5600,25 @@ async function handleSendLeadWhatsApp(request, env) {
     if (!amount) {
       return json({ ok: false, error: "Outside the 24-hour window this sends as the booking_quote template, which needs a price. Enter an amount (and Save), or use Copy quote." }, 400);
     }
-    mode = "template"; template = "booking_quote";
-    sendPayload = {
-      messaging_product: "whatsapp", to, type: "template",
-      template: { name: "booking_quote", language: { code: "en" },
-        components: [{ type: "body", parameters: [
-          { type: "text", text: firstName },
-          { type: "text", text: summary },
-          { type: "text", text: amount }
-        ] }] }
-    };
+    // WA-4 §2: once the v2 pair is APPROVED the owner flips WA_QUOTE_V2_ENABLED=1
+    // and the unified, VAT-toggle-honoring template pair takes over. Until then we
+    // keep sending the already-approved booking_quote (unchanged) so nothing breaks.
+    if (env.WA_QUOTE_V2_ENABLED === "1") {
+      const v2 = quoteTemplateV2Payload(lead, { to, amount, vatPlus });
+      mode = "template"; template = v2.template;
+      sendPayload = v2.payload;
+    } else {
+      mode = "template"; template = "booking_quote";
+      sendPayload = {
+        messaging_product: "whatsapp", to, type: "template",
+        template: { name: "booking_quote", language: { code: "en" },
+          components: [{ type: "body", parameters: [
+            { type: "text", text: firstName },
+            { type: "text", text: summary },
+            { type: "text", text: amount }
+          ] }] }
+      };
+    }
   }
 
   const rowId = await claimOutbound(env, {
@@ -5375,6 +5636,116 @@ async function handleSendLeadWhatsApp(request, env) {
     ).bind(leadId).run();
   } catch (e) { /* stamp is best-effort */ }
   return json({ ok: true, mode, quoted: true, wamid: result.wamid, status: result.status, outboundId: rowId });
+}
+
+// ── WA-4 §5b — human-initiated payment link to the client ────────────────────
+// Rides WA_SEND_ENABLED (Tier A), like the desktop quote button. Finds the lead's
+// Nomod pay URL (directly-linked payment_links row, else its linked invoice/quote),
+// then sends it: free-form text inside the 24h window, the payment_link template
+// outside. The URL travels as a text parameter (Nomod URLs have no fixed prefix, so
+// a Meta URL-button can't carry them). The +VAT toggle is composed into the amount.
+async function handleSendLeadPaymentLink(request, env) {
+  await ensureSchema(env);
+  if (env.WA_SEND_ENABLED !== "1") {
+    return json({ ok: false, disabled: true, error: "WhatsApp sending is off (WA_SEND_ENABLED=0)." }, 409);
+  }
+  if (!env.WA_PHONE_NUMBER_ID || !env.WA_ACCESS_TOKEN) {
+    return json({ ok: false, error: "WhatsApp is not configured on this Worker." }, 503);
+  }
+  let body = {}; try { body = await request.json(); } catch {}
+  const leadId = parseInt(body.leadId, 10);
+  if (!Number.isFinite(leadId)) return json({ ok: false, error: "Invalid lead id" }, 400);
+
+  const lead = await env.BILLING_DB.prepare(
+    `SELECT id, name, phone, vat_mode, vat_mode_set, quote_price, linked_doc_number FROM leads WHERE id = ?`
+  ).bind(leadId).first();
+  if (!lead) return json({ ok: false, error: "Lead not found" }, 404);
+  const to = waMeNumber(lead.phone);
+  if (to.length < 8) return json({ ok: false, error: "This lead has no usable phone number" }, 400);
+
+  // Locate a shareable, still-unpaid Nomod pay URL for this lead.
+  let payUrl = null, amtRaw = null;
+  const pl = await env.BILLING_DB.prepare(
+    `SELECT nomod_link_url, amount_aed FROM payment_links
+       WHERE lead_id = ? AND nomod_link_url IS NOT NULL AND nomod_link_url != ''
+         AND COALESCE(payment_status,'unpaid') != 'paid'
+       ORDER BY id DESC LIMIT 1`
+  ).bind(leadId).first();
+  if (pl && pl.nomod_link_url) { payUrl = pl.nomod_link_url; amtRaw = pl.amount_aed; }
+  if (!payUrl && lead.linked_doc_number) {
+    const doc = await env.BILLING_DB.prepare(
+      `SELECT nomod_link_url, total FROM billing_documents
+         WHERE number = ? AND nomod_link_url IS NOT NULL AND nomod_link_url != '' LIMIT 1`
+    ).bind(lead.linked_doc_number).first();
+    if (doc && doc.nomod_link_url) { payUrl = doc.nomod_link_url; amtRaw = doc.total; }
+  }
+  if (!payUrl) {
+    return json({ ok: false, error: "No payment link on file for this lead. Create or link a Nomod payment first." }, 400);
+  }
+
+  const vatPlus = leadVatPlus(lead);
+  const rawAmt = (amtRaw != null && String(amtRaw) !== "") ? amtRaw : lead.quote_price;
+  const an = parseFloat(String(rawAmt == null ? "" : rawAmt).replace(/[^0-9.]/g, ""));
+  const amountParam = (isFinite(an) && an > 0)
+    ? ("AED " + String(an) + (vatPlus ? " +VAT" : ""))
+    : "the amount shown at your link";
+  const firstName = (waNz(lead.name) || "there").split(/\s+/)[0];
+
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const inWindow = await env.BILLING_DB.prepare(
+    `SELECT 1 FROM wa_events WHERE event_type='messages' AND wa_id=? AND received_at >= ? LIMIT 1`
+  ).bind(to, since).first();
+
+  let sendPayload, mode, template;
+  if (inWindow) {
+    mode = "freeform"; template = "freeform";
+    const text = "Dear " + firstName + ",\n\nHere is your secure payment link to confirm your booking:\n" + payUrl +
+      "\n\nAmount due: " + amountParam + ". Once payment is received your booking is confirmed.\n\nUMC Dubai";
+    sendPayload = { messaging_product: "whatsapp", to, type: "text", text: { preview_url: true, body: text } };
+  } else {
+    mode = "template"; template = "payment_link";
+    sendPayload = {
+      messaging_product: "whatsapp", to, type: "template",
+      template: { name: "payment_link", language: { code: "en" },
+        components: [{ type: "body", parameters: [
+          { type: "text", text: firstName },
+          { type: "text", text: payUrl },
+          { type: "text", text: amountParam }
+        ] }] }
+    };
+  }
+
+  const rowId = await claimOutbound(env, {
+    lead_id: leadId, kind: "paylink", recipient: to, template,
+    dedupe_key: null, meta_json: JSON.stringify({ payUrl, mode })
+  });
+  const result = await waGraphSend(env, sendPayload);
+  if (rowId) await finishOutbound(env, rowId, result);
+  if (!result.ok) return json({ ok: false, mode, error: "WhatsApp rejected the send (code " + (result.errorCode || "?") + ")." }, 502);
+  return json({ ok: true, mode, wamid: result.wamid, status: result.status, outboundId: rowId });
+}
+
+// WA-4 §ADD6 — admin-gated weekly funnel numbers for the EXTERNAL briefing/digest
+// system to consume (leads · responded · median response mins · quoted · paid + window).
+async function handleFunnelWeek(env) {
+  if (!env.BILLING_DB) return json({ ok: false, error: "db unavailable" }, 503);
+  const f = await computeWeeklyFunnel(env);
+  return json(Object.assign({ ok: true }, f));
+}
+
+// WA-4 §4 — read-only backup evidence: list the most recent R2 backup objects so the
+// owner can confirm the daily D1 → R2 archive is running (size + upload time per day).
+async function handleBackupStatus(env) {
+  if (!env.BACKUP_BUCKET) return json({ ok: false, error: "R2 backup bucket not bound — create umc-billing-backups and redeploy." }, 503);
+  try {
+    const listed = await env.BACKUP_BUCKET.list({ prefix: "backups/", limit: 60 });
+    const items = (listed.objects || [])
+      .map((o) => ({ key: o.key, size: o.size, uploaded: o.uploaded }))
+      .sort((a, b) => String(b.uploaded).localeCompare(String(a.uploaded)));
+    return json({ ok: true, count: items.length, items });
+  } catch (e) {
+    return json({ ok: false, error: String(e && (e.message || e)) }, 500);
+  }
 }
 
 // Latest quote-send status for a lead's row ticks (sending/sent/delivered/read).
@@ -5460,6 +5831,23 @@ export async function applyWaOutboundStatuses(env, statuses) {
         `UPDATE leads SET whatsapp_reachable=?
            WHERE id = (SELECT lead_id FROM wa_outbound WHERE wamid=? AND kind IN ('quote','payment','flight'))`
       ).bind(reachable, wamid).run();
+    }
+    // WA-4 §1 — a DELIVERED (or read) driver_assignment auto-stamps the job's
+    // "Driver informed ✓ (auto)". Never overwrites a stamp already set (manual wins).
+    if (status === "delivered" || status === "read") {
+      const row = await env.BILLING_DB.prepare(
+        `SELECT kind, meta_json FROM wa_outbound WHERE wamid=?`
+      ).bind(wamid).first();
+      if (row && row.kind === "driver_assign") {
+        let jobId = null;
+        try { jobId = JSON.parse(row.meta_json || "{}").jobId; } catch { /* no jobId */ }
+        if (jobId) {
+          await env.BILLING_DB.prepare(
+            `UPDATE jobs SET driver_informed_at = ?, driver_informed_src = 'auto'
+               WHERE id = ? AND driver_informed_at IS NULL`
+          ).bind(new Date().toISOString(), jobId).run();
+        }
+      }
     }
   }
 }
@@ -5701,6 +6089,15 @@ export async function handleAdmin(request, env) {
     return handleSendLeadWhatsApp(request, env);
   }
 
+  // WA-4 §5b — human-initiated payment link to the lead's client (desktop path).
+  if (path === "/admin/api/send-lead-payment-link") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    if (method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+    return handleSendLeadPaymentLink(request, env);
+  }
+
   // WA-3 — payment-linking picker + persist association.
   if (path === "/admin/api/payment-link-candidates" && method === "GET") {
     const authed = await isAuthed(request, env);
@@ -5716,6 +6113,18 @@ export async function handleAdmin(request, env) {
       if (!env.BILLING_DB) return dbUnavailable();
       return handleLinkPayment(parseInt(pm[1], 10), request, env);
     }
+  }
+  // WA-4 §4 — backup evidence (read-only R2 object listing).
+  if (path === "/admin/api/backup-status" && method === "GET") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    return handleBackupStatus(env);
+  }
+  // WA-4 §ADD6 — weekly funnel numbers for the external digest system.
+  if (path === "/admin/api/funnel-week" && method === "GET") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    return handleFunnelWeek(env);
   }
   // WA-2 H rider — monthly template-send usage + threshold (cost guard).
   if (path === "/admin/api/wa-usage") {
@@ -7000,18 +7409,50 @@ function appShellHTML() {
             <button type="button" class="seg"    data-leadstat="invoiced">Invoiced</button>
           </div>
         </div>
+        <div class="hist-ctrl">
+          <label class="lbl" for="leadsOriginFilter">Origin</label>
+          <select id="leadsOriginFilter" aria-label="Filter by origin">
+            <option value="all" selected>All origins</option>
+            <option value="Booking form">Booking form</option>
+            <option value="Contact form">Contact form</option>
+            <option value="WhatsApp">WhatsApp</option>
+            <option value="Manual">Manual</option>
+          </select>
+        </div>
+        <div class="hist-ctrl">
+          <label class="lbl" for="leadsKindFilter">Type</label>
+          <select id="leadsKindFilter" aria-label="Filter by type">
+            <option value="all" selected>Leads &amp; inquiries</option>
+            <option value="lead">Leads only</option>
+            <option value="inquiry">Inquiries only</option>
+          </select>
+        </div>
+        <div class="hist-ctrl">
+          <label class="lbl" for="leadsStageFilter">Funnel</label>
+          <select id="leadsStageFilter" aria-label="Filter by funnel stage">
+            <option value="all" selected>All stages</option>
+            <option value="New">New</option>
+            <option value="Alerted">Alerted</option>
+            <option value="Opened">Opened</option>
+            <option value="Responded">Responded</option>
+            <option value="Quoted">Quoted</option>
+            <option value="Paid">Paid</option>
+          </select>
+        </div>
         <div class="hist-sort hist-ctrl" style="margin-left:auto">
           <label class="lbl" for="leadsSort">Sort</label>
           <select id="leadsSort" aria-label="Sort leads">
             <option value="date-desc" selected>Latest first</option>
             <option value="date-asc">Oldest first</option>
+            <option value="funnel-desc">Funnel: furthest first</option>
+            <option value="funnel-asc">Funnel: earliest first</option>
           </select>
         </div>
       </div>
     </div>
     <div class="hist-scroll">
       <table>
-        <thead><tr><th>Date</th><th>Name</th><th>Contact</th><th>Service</th><th>Route</th><th>Consent</th><th>Status</th><th style="text-align:right">Actions</th><th aria-hidden="true"></th></tr></thead>
+        <thead><tr><th>Date</th><th>Name</th><th>Contact</th><th>Service</th><th>Route</th><th>Funnel</th><th>Consent</th><th>Status</th><th style="text-align:right">Actions</th><th aria-hidden="true"></th></tr></thead>
         <tbody id="leadsBody"></tbody>
       </table>
     </div>
@@ -8907,6 +9348,14 @@ const PAGE_SCRIPT = `<script>
         const vb = Number(mb.dataset.sortamount) || 0;
         return mode === "amount-desc" ? vb - va : va - vb;
       }
+      if(mode === "funnel-desc" || mode === "funnel-asc"){
+        // WA-4 §ADD5 — sort by funnel-stage rank; tie-break newest first.
+        const va = Number(ma.dataset.sortstage) || 0;
+        const vb = Number(mb.dataset.sortstage) || 0;
+        if(va !== vb) return mode === "funnel-desc" ? vb - va : va - vb;
+        const dat = String(ma.dataset.sortdate || ""), dbt = String(mb.dataset.sortdate || "");
+        return dat > dbt ? -1 : (dat < dbt ? 1 : 0);
+      }
       const da = String(ma.dataset.sortdate || "");
       const db = String(mb.dataset.sortdate || "");
       if(da === db) return 0;
@@ -9845,6 +10294,15 @@ const PAGE_SCRIPT = `<script>
       var hasVeh = (cur.vehicle_ids||[]).length >= 1;
       var onCal  = !!leadNz(cur.calendar_event_id);
       var informed = Number(cur.client_informed) === 1;
+      // WA-4 §1 — auto-stamp chips. *_at is the ISO time informed; src 'auto'|'manual'.
+      var drvInfAt = leadNz(cur.driver_informed_at), drvInfSrc = leadNz(cur.driver_informed_src) || "auto";
+      var cliInfAt = leadNz(cur.client_informed_at), cliInfSrc = leadNz(cur.client_informed_src) || "manual";
+      var infChip = function(atIso, src){
+        if(!atIso) return '<span class="js-note" style="margin:0 .4rem;color:var(--amber-deep)">— not yet</span>';
+        var d = new Date(atIso), hhmm = "";
+        if(!isNaN(d)){ var g = new Date(d.getTime()+4*3600*1000); hhmm = String(g.getUTCHours()).padStart(2,"0")+":"+String(g.getUTCMinutes()).padStart(2,"0"); }
+        return '<span class="js-note" style="margin:0 .4rem;color:var(--paid,#2E7D54)">✓ ' + hhmm + ' (' + esc(src) + ')</span>';
+      };
       var reqMet = jobRequirementsMet(cur);
       var reqState = jobRequirements(cur);
       var driverPhone = (cur.driver_phones||[]).map(normalizeWaNumber).filter(Boolean)[0];
@@ -9876,14 +10334,17 @@ const PAGE_SCRIPT = `<script>
 
         + '<h3 class="js-h3">Notify</h3>'
         + (hasDrv && driverPhone
-            ? '<div class="js-row"><button type="button" class="btn btn-small btn-ghost" id="jsWaDriver" style="flex:1;justify-content:flex-start">Notify driver (WhatsApp)</button></div>'
+            ? '<div class="js-row"><button type="button" class="btn btn-small btn-ghost" id="jsWaDriver" style="flex:1;justify-content:flex-start">Notify driver (WhatsApp)</button>'
+                + '<span class="js-note" style="margin:0">Driver informed</span>' + infChip(drvInfAt, drvInfSrc)
+                + '<label class="job-check js-informed"><input type="checkbox" id="jsDrvInf"' + (drvInfAt ? " checked" : "") + '><span>Informed</span></label>'
+              + '</div>'
             : '<div class="js-note">Assign a driver with a phone number to notify them.</div>')
         + '<div class="js-row">'
         +   (clientPhone
               ? '<button type="button" class="btn btn-small btn-ghost" id="jsWaClient" style="flex:1;justify-content:flex-start">Notify client (WhatsApp)</button>'
               : '<span class="js-note" style="flex:1;margin:0">No client phone on file.</span>')
-        +   dot(informed, informed ? "Client informed" : "Client not yet informed")
-        +   '<label class="job-check js-informed"><input type="checkbox" id="jsInformed"' + (informed ? " checked" : "") + '><span>Informed</span></label>'
+        +   '<span class="js-note" style="margin:0">Client informed</span>' + infChip(cliInfAt, cliInfSrc)
+        +   '<label class="job-check js-informed"><input type="checkbox" id="jsInformed"' + (cliInfAt ? " checked" : "") + '><span>Informed</span></label>'
         + '</div>'
 
         + '<h3 class="js-h3">Requirements ' + dot(reqMet, reqMet ? "All requirements met" : "Requirements outstanding") + '</h3>'
@@ -9919,6 +10380,8 @@ const PAGE_SCRIPT = `<script>
       var wc = shell.querySelector("#jsWaClient");
       if(wc) wc.addEventListener("click", function(){ var num = normalizeWaNumber(cur.client_phone); if(!num){ setStat("No client phone on file."); return; } window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(buildJobClientMessage(cur)), "_blank", "noopener"); });
       shell.querySelector("#jsInformed").addEventListener("change", async function(){ var v = this.checked ? 1 : 0; var ok = await patchJob({ client_informed: v }); if(ok) render(); });
+      var jdi = shell.querySelector("#jsDrvInf");
+      if(jdi) jdi.addEventListener("change", async function(){ var v = this.checked ? 1 : 0; var ok = await patchJob({ driver_informed: v }); if(ok) render(); });
       shell.querySelectorAll("#jsReqs [data-req-i]").forEach(function(row){
         row.querySelector("input").addEventListener("change", async function(){
           reqState[Number(row.getAttribute("data-req-i"))].confirmed = this.checked;
@@ -10685,11 +11148,19 @@ const PAGE_SCRIPT = `<script>
     // the status segment. Drawer rows follow their main row's visibility.
     const qEl = $("leadsSearch");
     const q = qEl ? qEl.value.trim().toLowerCase() : "";
+    // WA-4 §5c + §ADD5 — origin / type / funnel-stage filters (set on body.dataset by
+    // the header selects). "all" is a pass-through.
+    const wantOrigin = (body.dataset.originFilter || "all");
+    const wantKind   = (body.dataset.kindFilter || "all");
+    const wantStage  = (body.dataset.stageFilter || "all");
     body.querySelectorAll("tr.expandable").forEach(function(tr){
       const st = (tr.getAttribute("data-leadstat") || "").toLowerCase();
       const okStat = want === "all" || st === want;
       const okText = !q || (tr.textContent || "").toLowerCase().indexOf(q) !== -1;
-      const show = okStat && okText;
+      const okOrigin = wantOrigin === "all" || (tr.getAttribute("data-origin") || "") === wantOrigin;
+      const okKind   = wantKind === "all"   || (tr.getAttribute("data-kind") || "")   === wantKind;
+      const okStage  = wantStage === "all"  || (tr.getAttribute("data-stage") || "")  === wantStage;
+      const show = okStat && okText && okOrigin && okKind && okStage;
       tr.style.display = show ? "" : "none";
       const drawer = tr.nextElementSibling;
       if(drawer && drawer.classList.contains("hist-actions-row")) drawer.style.display = show ? "" : "none";
@@ -10811,6 +11282,8 @@ const PAGE_SCRIPT = `<script>
           + '<button type="button" class="btn btn-small btn-ghost" data-leadwaopen="'+x.id+'"'+(waOk?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="'+(waOk?'Open WhatsApp with the quote prefilled to send it yourself':'This number cannot be normalized to an international format — check it')+'">WhatsApp quote</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leadcopy="'+x.id+'" title="Copy this follow-up message">Copy quote</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leademail="'+x.id+'"'+(hasEmail?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Email this follow-up to the client">Email client</button>'
+          // WA-4 §5b — human-initiated payment link (needs a linked Nomod payment; rides WA_SEND_ENABLED).
+          + '<button type="button" class="btn btn-small btn-ghost" data-leadpaylink="'+x.id+'"'+(waOk?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="'+(waOk?'Send the client their secure payment link on WhatsApp (needs a linked Nomod payment)':'This number cannot be normalized to an international format — check it')+'">Payment link</button>'
           // WA-2 C — live delivery status for the desktop WhatsApp send (sending →
           // sent → delivered ✓✓ → read). Populated by sendLeadWhatsApp + polling.
           + '<span class="leadwa-status" data-leadwa-status="'+x.id+'" aria-live="polite" style="font-size:.8rem;color:var(--muted);margin-left:.5rem"></span>';
@@ -10818,18 +11291,30 @@ const PAGE_SCRIPT = `<script>
         // opened (viewed_at is NULL). Marked seen server-side on first expand.
         const isUnseen = !x.viewed_at;
         const newBadge = isUnseen ? ' <span class="lead-new" data-leadnew="'+x.id+'">NEW</span>' : '';
-        return '<tr class="expandable" data-expandable="1" data-leadid="'+x.id+'" data-leadseen="'+(isUnseen?'0':'1')+'" data-leadstat="'+status+'" data-sortdate="'+esc(x.created_at||"")+'" data-sortamount="'+sortAmount+'">'
+        // WA-4 §5c + §ADD5 — origin label, Lead/Inquiry type chip, and derived funnel
+        // stage. Quiet institutional styling: text + subtle tone, no traffic lights.
+        const originLabel = x.origin_label || x.source || "—";
+        const kind = (x.lead_kind === "inquiry") ? "inquiry" : "lead";
+        const stage = x.funnel_stage || "New";
+        const stageRank = ({New:0,Alerted:1,Opened:2,Responded:3,Quoted:4,Paid:5})[stage] || 0;
+        const kindChip = kind === "inquiry"
+          ? '<span class="lead-kind" style="font-size:.68rem;letter-spacing:.04em;text-transform:uppercase;color:#8a6d3b;border:1px solid rgba(138,109,59,.32);border-radius:9px;padding:.02rem .4rem">Inquiry</span>'
+          : '<span class="lead-kind" style="font-size:.68rem;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border:1px solid rgba(120,110,95,.28);border-radius:9px;padding:.02rem .4rem">Lead</span>';
+        const originChip = '<span class="lead-origin" style="color:var(--muted);font-size:.72rem">'+esc(originLabel)+'</span>';
+        const stageCell = '<span class="lead-stage" style="color:var(--ink-soft,#4a4136);font-size:.8rem;letter-spacing:.02em;white-space:nowrap">'+esc(stage)+'</span>';
+        return '<tr class="expandable" data-expandable="1" data-leadid="'+x.id+'" data-leadseen="'+(isUnseen?'0':'1')+'" data-leadstat="'+status+'" data-origin="'+esc(originLabel)+'" data-kind="'+kind+'" data-stage="'+esc(stage)+'" data-sortdate="'+esc(x.created_at||"")+'" data-sortstage="'+stageRank+'" data-sortamount="'+sortAmount+'">'
           + '<td data-lbl="Date">'+esc(created)+'</td>'
-          + '<td data-lbl="Name">'+esc(x.name || "")+newBadge+'</td>'
+          + '<td data-lbl="Name">'+esc(x.name || "")+newBadge+'<div class="lead-meta" style="margin-top:.25rem;display:flex;gap:.35rem;align-items:center;flex-wrap:wrap">'+kindChip+originChip+'</div></td>'
           + '<td data-lbl="Contact">'+(contactBits.join('<br>') || '<span style="color:var(--muted)">·</span>')+'<div class="lead-chips" data-leadchips="'+x.id+'" style="margin-top:.3rem;display:flex;gap:.3rem;flex-wrap:wrap"></div></td>'
           + '<td data-lbl="Service">'+esc(serviceBits || "·")+'</td>'
           + '<td data-lbl="Route">'+esc(route || "·")+'</td>'
+          + '<td data-lbl="Funnel">'+stageCell+'</td>'
           + '<td data-lbl="Consent">'+consent+'</td>'
           + '<td data-lbl="Status">'+statusCell+unverifiedPill+'</td>'
           + '<td data-lbl="Actions" style="text-align:right;white-space:nowrap" class="hist-actions">'+actions+'</td>'
           + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
           + '</tr>'
-          + '<tr class="hist-actions-row" hidden><td colspan="9"><div class="hist-actions-panel">'+openBtn+followupBlock+'</div></td></tr>';
+          + '<tr class="hist-actions-row" hidden><td colspan="10"><div class="hist-actions-panel">'+openBtn+followupBlock+'</div></td></tr>';
       }).join("");
       applyLeadsFilter();
       loadLeadThreads(); // WA-2 E — response chips (async; fills after the rows render)
@@ -12415,6 +12900,15 @@ const PAGE_SCRIPT = `<script>
     // item 2 — live text filter (re-applies the combined status + search filter).
     const searchEl = root.querySelector("#leadsSearch");
     if(searchEl) searchEl.addEventListener("input", function(){ applyLeadsFilter(); });
+    // WA-4 §5c + §ADD5 — origin / type / funnel-stage filters drive body.dataset,
+    // then re-apply the combined filter (search + status + these).
+    var _lb = function(){ return document.getElementById("leadsBody"); };
+    var oF = root.querySelector("#leadsOriginFilter");
+    if(oF) oF.addEventListener("change", function(){ var b=_lb(); if(b){ b.dataset.originFilter = this.value; } applyLeadsFilter(); });
+    var kF = root.querySelector("#leadsKindFilter");
+    if(kF) kF.addEventListener("change", function(){ var b=_lb(); if(b){ b.dataset.kindFilter = this.value; } applyLeadsFilter(); });
+    var sF = root.querySelector("#leadsStageFilter");
+    if(sF) sF.addEventListener("change", function(){ var b=_lb(); if(b){ b.dataset.stageFilter = this.value; } applyLeadsFilter(); });
     // WA-2 B — lazy-load the alert roster the first time its panel is opened.
     const waT = root.querySelector("#waTeam");
     if(waT) waT.addEventListener("toggle", function(){ if(waT.open) loadWaTeam(); });
@@ -12560,6 +13054,31 @@ const PAGE_SCRIPT = `<script>
         if(!num){ setStatus("This lead has no phone number."); return; }
         commitLeadQuote(id); // persist the current amount before sending
         sendLeadWhatsApp(id, waSendBtn, lead, num);
+        return;
+      }
+      // WA-4 §5b — human-initiated payment link to the client.
+      const payLinkBtn = e.target.closest("[data-leadpaylink]");
+      if(payLinkBtn){
+        e.preventDefault();
+        if(payLinkBtn.disabled) return;
+        const id = Number(payLinkBtn.getAttribute("data-leadpaylink"));
+        const lead = leadsCache.find(function(z){ return Number(z.id) === id; });
+        if(!lead) return;
+        const num = normalizeWaNumber(lead.phone);
+        if(!num){ setStatus("This lead has no phone number."); return; }
+        payLinkBtn.disabled = true;
+        var payStatEl = document.querySelector('[data-leadwa-status="'+id+'"]');
+        if(payStatEl) payStatEl.textContent = "Sending payment link…";
+        fetch("/admin/api/send-lead-payment-link", { method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: JSON.stringify({ leadId: id }) })
+          .then(function(r){ return r.json().then(function(j){ return { http:r.status, j:j }; }); })
+          .then(function(res){
+            payLinkBtn.disabled = false;
+            var j = res.j || {};
+            if(!j.ok){ if(payStatEl) payStatEl.textContent = ""; setStatus(j.error || "Could not send payment link."); return; }
+            if(payStatEl) payStatEl.textContent = "Payment link " + (j.status || "sent") + (j.mode === "freeform" ? " (message)" : "") + ".";
+            setStatus("Payment link sent.");
+          })
+          .catch(function(){ payLinkBtn.disabled = false; if(payStatEl) payStatEl.textContent = ""; setStatus("Could not send — network error."); });
         return;
       }
       const waOpenBtn = e.target.closest("[data-leadwaopen]");

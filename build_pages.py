@@ -994,7 +994,7 @@ booking_body = header("booking.html") + f"""
     <div class="hide" id="bkDone">
       <div class="bk-card" style="max-width:560px;margin:0 auto;text-align:center">
         <h2>Request received</h2>
-        <p class="lede" style="margin-bottom:1rem">Thank you! Our concierge desk will be in touch to confirm your booking. We&rsquo;re opening WhatsApp so you can reach us directly, if it doesn&rsquo;t open, or you&rsquo;d prefer, call us on <a href="tel:+971586497861" style="border-bottom:1px solid var(--amber);color:var(--ink)">+971 58 649 7861</a> or email <a href="mailto:contact@umcdubai.ae" style="border-bottom:1px solid var(--amber);color:var(--ink)">contact@umcdubai.ae</a>.</p>
+        <p class="lede" style="margin-bottom:1rem">Thank you &mdash; your request has been received. A summary has been sent to your email, and our concierge team will contact you shortly on WhatsApp or phone.</p>
       </div>
     </div>
   </div>
@@ -2338,7 +2338,7 @@ contact_body = header("contact.html") + f"""
       </div>
       <div class="bk-card hide" id="ctDone" style="text-align:center">
         <h2>Request received</h2>
-        <p class="lede" style="margin-bottom:1rem">Thank you! Your request is with our concierge desk. We&rsquo;re opening WhatsApp so you can reach us directly, if it doesn&rsquo;t open, or you&rsquo;d prefer, call us on <a href="tel:+971586497861" style="border-bottom:1px solid var(--amber);color:var(--ink)">+971 58 649 7861</a> or email <a href="mailto:contact@umcdubai.ae" style="border-bottom:1px solid var(--amber);color:var(--ink)">contact@umcdubai.ae</a>.</p>
+        <p class="lede" style="margin-bottom:1rem">Thank you &mdash; your request has been received. A summary has been sent to your email, and our concierge team will contact you shortly on WhatsApp or phone.</p>
       </div>
       <div class="bk-card">
         <div class="chatcard rv" aria-hidden="true">
@@ -2407,26 +2407,20 @@ document.getElementById("cSend").addEventListener("click", function(){
   };
   try { fetch("/api/lead", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(cPayload)}).then(function(res){ if(res.ok) trackLead('contact', g("cVehicle")); }).catch(function(){}); } catch(_){}
 
-  // Swap the form card for the done panel, then open WhatsApp ~600ms later.
+  // WA-4 §ADD1 / Gate J parity: NO on-submission auto-open to WhatsApp on the contact
+  // form either (Gate J only removed it from the booking form). The concierge reaches
+  // out; the floating WhatsApp button stays for anyone who wants to message directly.
   const formCard = document.getElementById("ctFormCard");
   const doneCard = document.getElementById("ctDone");
   if (formCard) formCard.classList.add("hide");
   if (doneCard) {
+    const cLede = doneCard.querySelector(".lede");
+    if (cLede) cLede.textContent = g("cEmail")
+      ? "Thank you — your request has been received. A summary has been sent to your email, and our concierge team will contact you shortly on WhatsApp or phone."
+      : "Thank you — your request has been received. Our concierge team will contact you shortly on WhatsApp or phone.";
     doneCard.classList.remove("hide");
     doneCard.scrollIntoView({behavior:"smooth", block:"start"});
   }
-  // Polished WhatsApp pre-fill (v22),same template as the booking form for consistency.
-  // Compose as plain text + encodeURIComponent once; skip any empty field.
-  const cLines = ["Hello UMC Dubai, I'd like to request a reservation.", ""];
-  cLines.push("Name: " + g("cName"));
-  const cContactBits = ["+" + cCCEl.value + " " + cPhoneOut];
-  if (g("cEmail")) cContactBits.push(g("cEmail"));
-  cLines.push("Contact: " + cContactBits.join(" · "));
-  if (g("cVehicle")) cLines.push("Service: " + g("cVehicle"));
-  if (g("cMsg")) cLines.push("Notes: " + g("cMsg"));
-  cLines.push("", "Please confirm availability. Thank you.");
-  const cWaText = encodeURIComponent(cLines.join("\\n"));
-  setTimeout(()=>{ window.open("https://api.whatsapp.com/send?phone=971586497861&text=" + cWaText, "_blank", "noopener"); }, 600);
 });
 </script>
 </body>

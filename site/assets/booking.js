@@ -468,9 +468,11 @@ function trackLead(formId, service){
         // AND capture succeeded; if capture failed, stay honest (no receipt claim).
         const lede = done.querySelector(".lede");
         if (lede) {
-          if (!ok) lede.textContent = "We couldn't confirm your request just now. Please reach our concierge on WhatsApp and we'll take care of it right away.";
-          else if (hasEmail) lede.textContent = "A summary has been sent to your email. Your concierge will be in touch shortly.";
-          else lede.textContent = "Your concierge will be in touch shortly.";
+          // WA-4 §ADD1 — unified confirmation copy, no auto-open wording. The email
+          // clause is only claimed when an email was actually provided (stay honest).
+          lede.textContent = (ok && hasEmail)
+            ? "Thank you — your request has been received. A summary has been sent to your email, and our concierge team will contact you shortly on WhatsApp or phone."
+            : "Thank you — your request has been received. Our concierge team will contact you shortly on WhatsApp or phone.";
         }
         done.classList.remove("hide");
         done.scrollIntoView({ behavior:"smooth", block:"start" });

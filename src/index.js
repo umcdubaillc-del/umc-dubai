@@ -3,7 +3,7 @@
 import {
   handleAdmin, handleFleetRatesPublic, isAuthed,
   sendLeadAlerts, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runLeadWatchdog, runFlightWatch,
-  createWaLink, handleWaRedirect, composeQuoteText, runQuoteNudge
+  createWaLink, handleWaRedirect, composeQuoteText, runQuoteNudge, runOpsDigest
 } from "./admin.js";
 import { handleWaTemplates } from "./wa-templates.js";
 
@@ -206,6 +206,9 @@ export default {
     // lead-response watchdog (self-gates to 08:00–22:00 GST; inert until WA send on).
     if (event.cron === "0 3 * * *") {
       ctx.waitUntil(refreshReviewsCache(env).catch(() => {}));
+      ctx.waitUntil(runD1Backup(env).catch(() => {}));   // WA-4 §4 — daily D1 → R2 archive
+    } else if (event.cron === "30 4 * * *") {
+      ctx.waitUntil(runOpsDigest(env).catch(() => {}));  // WA-4 §ADD6 — 08:30 GST Ops Digest
     } else {
       ctx.waitUntil(runLeadWatchdog(env).catch(() => {}));
       ctx.waitUntil(runFlightWatch(env).catch(() => {}));  // WA-2 I (self-gates on FLIGHT_WATCH_ENABLED)
@@ -258,6 +261,46 @@ async function ensureLeadsSchema(env) {
       const msg = (e && (e.message || String(e))) || "";
       if (!/duplicate column|already exists/i.test(msg)) throw e;
     }
+  }
+}
+
+// WA-4 §4 — daily D1 → R2 archive. Dumps every BILLING_DB table to JSON and writes
+// backups/YYYY-MM-DD/umc-billing.json plus a backups/latest.json pointer. No-ops
+// (logged) when the R2 binding is absent, so a missing bucket never errors the cron.
+// This is the durable off-database copy; D1 Time Travel is the 30-day point-in-time
+// restore used for the gated test-restore before Sheets retirement.
+async function runD1Backup(env) {
+  if (!env.BILLING_DB) return { ok: false, skipped: "no BILLING_DB" };
+  if (!env.BACKUP_BUCKET) { console.log("D1 backup skipped — BACKUP_BUCKET (R2) not bound"); return { ok: false, skipped: "no R2 binding" }; }
+  const day = new Date().toISOString().slice(0, 10);
+  let tables = [];
+  try {
+    tables = (await env.BILLING_DB.prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`
+    ).all()).results || [];
+  } catch (e) { console.error("D1 backup: table list failed", e && (e.message || e)); return { ok: false }; }
+  const dump = { db: "umc-billing", taken_at: new Date().toISOString(), tables: {} };
+  let rows = 0;
+  for (const t of tables) {
+    const name = t.name;
+    try {
+      const r = await env.BILLING_DB.prepare(`SELECT * FROM "${name}"`).all();
+      dump.tables[name] = r.results || [];
+      rows += (r.results || []).length;
+    } catch (e) {
+      dump.tables[name] = { __error: String(e && (e.message || e)) };
+    }
+  }
+  const bodyStr = JSON.stringify(dump);
+  const key = `backups/${day}/umc-billing.json`;
+  try {
+    await env.BACKUP_BUCKET.put(key, bodyStr, { httpMetadata: { contentType: "application/json" } });
+    await env.BACKUP_BUCKET.put("backups/latest.json", bodyStr, { httpMetadata: { contentType: "application/json" } });
+    console.log("D1 backup written", key, "tables=" + tables.length, "rows=" + rows, "bytes=" + bodyStr.length);
+    return { ok: true, key, tables: tables.length, rows, bytes: bodyStr.length };
+  } catch (e) {
+    console.error("D1 backup: R2 put failed", e && (e.message || e));
+    return { ok: false };
   }
 }
 
@@ -333,13 +376,45 @@ async function handleLead(request, env, ctx) {
     verified: turnstileVerified
   };
 
+  // WA-4 §5b — duplicate-submission guard (never lose data, never ring twice).
+  // An EXACT resubmission (same normalized phone + identical service details, within
+  // 10 min) does NOT create a second lead and does NOT re-alert; we append a
+  // "resubmitted HH:MM" note to the original so nothing is lost. Non-exact same-phone
+  // submissions remain separate leads (different trip/time → genuinely new).
+  if (env.BILLING_DB) {
+    try {
+      await ensureLeadsSchema(env);
+      const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const { results } = await env.BILLING_DB.prepare(
+        `SELECT id, phone, service, date, time, pickup, destination
+           FROM leads WHERE created_at >= ? ORDER BY id DESC LIMIT 50`
+      ).bind(cutoff).all();
+      const pn = waMeNumber(payload.phone);
+      const eq = (a, b) => String(a == null ? "" : a).trim() === String(b == null ? "" : b).trim();
+      const dup = pn && (results || []).find((r) =>
+        waMeNumber(r.phone) === pn &&
+        eq(r.service, payload.service) && eq(r.date, payload.date) &&
+        eq(r.time, payload.time) && eq(r.pickup, payload.pickup) &&
+        eq(r.destination, payload.destination));
+      if (dup) {
+        const hhmm = new Date(Date.now() + 4 * 3600 * 1000).toISOString().slice(11, 16); // GST
+        await env.BILLING_DB.prepare(
+          `UPDATE leads SET notes = TRIM(COALESCE(notes,'') || ?) WHERE id = ?`
+        ).bind("\n[resubmitted " + hhmm + "]", dup.id).run();
+        // Nothing lost, nothing rings twice: no new row, no re-alert, no duplicate legs.
+        return json({ ok: true, deduped: true }, 200);
+      }
+    } catch (e) {
+      console.error("dup-guard check failed", e && (e.message || String(e)));
+    }
+  }
+
   // v89 — durable local write FIRST (fail-open: a D1 error is logged, never
   // blocks delivery or the response).
   // v93 — proof-of-consent columns stamped on every lead.
   let leadId = null;
   if (env.BILLING_DB) {
     try {
-      await ensureLeadsSchema(env);
       const consentAt = new Date().toISOString();
       // WA-1: marketing_consent = 1 — the Terms the form binds the user to include a
       // marketing-email (opt-out) consent clause. consent_text stores that clause.
@@ -377,10 +452,12 @@ async function handleLead(request, env, ctx) {
   // parked. The team lead_alert below replaces it. (sendBookingWhatsApp retained in the
   // module only for reference/history; intentionally not called.)
 
-  // WA-2 B: alert every active team member (lead_alert) on a new booking, with a
-  // wa.me link to the client carrying the prefilled quote. Booking-form leads only;
-  // idempotent per (lead, member). Inert until WA_SEND_ENABLED="1".
-  if (env.WA_SEND_ENABLED === "1" && payload.source === "booking" && leadId) {
+  // WA-2 B / WA-4 §5a+§5c: alert every active team member (lead_alert) on a new
+  // website submission — booking form AND contact form, inquiries included (owner
+  // ruling: inquiries alert YES, watchdog NO). idempotent per (lead, member); inert
+  // until WA_SEND_ENABLED="1".
+  if (env.WA_SEND_ENABLED === "1" && leadId &&
+      (payload.source === "booking" || payload.source === "contact-form")) {
     tasks.push(sendLeadAlerts(env, leadId, payload));
   }
 
@@ -1169,8 +1246,9 @@ async function captureWhatsAppLead(env, ctx, change) {
     destination: "", date: "", time: "", vehicle: "", days: "", flight: "", sign: "",
     notes: text, page: "whatsapp", ts: tsIso, verified: 1
   };
+  let leadId = null;
   try {
-    await env.BILLING_DB.prepare(
+    const ins = await env.BILLING_DB.prepare(
       `INSERT INTO leads
          (created_at, source, name, phone, email, service, pickup, destination,
           date, time, vehicle, days, flight, sign, notes, page, client_ts, payload_json,
@@ -1178,9 +1256,16 @@ async function captureWhatsAppLead(env, ctx, change) {
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(now, "WhatsApp", name, "+" + e164, "", "", "", "", "", "", "", "", "", "",
            text, "whatsapp", tsIso, JSON.stringify(payload), 0, 1, "yes").run();
+    leadId = ins && ins.meta ? ins.meta.last_row_id : null;
   } catch (e) {
     console.error("WA lead capture insert failed", e && (e.message || String(e)));
     return;
+  }
+  // WA-4 §5a — alert parity: a WhatsApp-captured lead rings the team too (was silent;
+  // owner saw captured rows but never heard rings). Idempotent per (lead, member);
+  // inert until WA_SEND_ENABLED="1".
+  if (env.WA_SEND_ENABLED === "1" && leadId) {
+    ctx.waitUntil(sendLeadAlerts(env, leadId, payload).catch(() => {}));
   }
   // Mirror to the Sheet (source "WhatsApp" → its own tab once the Apps Script edit lands).
   if (env.SHEETS_WEBHOOK_URL) ctx.waitUntil(appendSheet(env, payload).catch(() => {}));

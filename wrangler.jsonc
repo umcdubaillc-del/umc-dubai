@@ -38,8 +38,11 @@
   // handler dispatches by event.cron — daily one warms reviews, the 10-min one runs
   // the watchdog (which self-gates to 08:00–22:00 GST and is inert until
   // WA_SEND_ENABLED=1, since no team-alert rows exist to escalate before then).
+  // WA-4 §4/§ADD6: "0 3 * * *" also runs the daily D1 → R2 backup; "30 4 * * *"
+  // (04:30 UTC = 08:30 Gulf) runs the Ops Digest (logs the weekly line always; sends
+  // to the team only when OPS_DIGEST_ENABLED=1).
   "triggers": {
-    "crons": ["0 3 * * *", "*/10 * * * *"]
+    "crons": ["0 3 * * *", "30 4 * * *", "*/10 * * * *"]
   },
   // Plaintext vars — declared in the config so a deploy doesn't wipe what the dashboard
   // had set. SECRETS (RESEND_API_KEY, MC_API_KEY, SHEETS_WEBHOOK_URL) deliberately stay
@@ -70,7 +73,15 @@
     // dry-run (polls + logs intended sends, sends nothing).
     "FLIGHT_WATCH_ENABLED": "0",
     // Monthly AeroDataBox unit budget (BASIC = 600 hard). Owner-adjustable here.
-    "FLIGHT_UNIT_BUDGET": "600"
+    "FLIGHT_UNIT_BUDGET": "600",
+    // WA-4 §2: flip to "1" ONLY once booking_quote_v2_standard + booking_quote_v2_airport
+    // are APPROVED by Meta. Then the desktop quote send uses the unified, VAT-toggle-
+    // honoring template pair (retiring booking_quote). Stays "0" (keeps sending the
+    // already-approved booking_quote) until approval, so the code deploys inert.
+    "WA_QUOTE_V2_ENABLED": "0",
+    // WA-4 §ADD6: the 08:30 Ops Digest logs its weekly line every day; it only SENDS to
+    // the team when this is "1". Stays "0" until the owner confirms cadence + channel.
+    "OPS_DIGEST_ENABLED": "0"
   },
   "assets": {
     "directory": "./site",
@@ -97,6 +108,19 @@
       "binding": "BILLING_DB",
       "database_name": "umc-billing",
       "database_id": "fca29ef5-a5e5-47e2-be30-e756722d78a1"
+    }
+  ],
+  // WA-4 §4 — durable off-database backup target. The daily cron (runD1Backup in the
+  // 03:00 UTC branch) dumps every BILLING_DB table to R2 as JSON (backups/YYYY-MM-DD/
+  // umc-billing.json + backups/latest.json). OWNER SETUP: create this bucket on the UMC
+  // account before deploy — `wrangler r2 bucket create umc-billing-backups`. Until the
+  // binding resolves, runD1Backup no-ops (logged), so a missing bucket never errors.
+  // This complements D1 Time Travel (the 30-day point-in-time restore used for the
+  // gated test-restore before Sheets retirement).
+  "r2_buckets": [
+    {
+      "binding": "BACKUP_BUCKET",
+      "bucket_name": "umc-billing-backups"
     }
   ]
 }

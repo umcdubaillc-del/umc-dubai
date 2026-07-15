@@ -94,7 +94,8 @@ export const WA_TEMPLATES = {
             "Flight EK203, welcome sign 'Ms Wells'"
           ]]
         }
-      }
+      },
+      { type: "FOOTER", text: "UMC Dubai · umcdubai.ae" }
     ]
   },
 
@@ -119,7 +120,8 @@ export const WA_TEMPLATES = {
             "https://umcdubai.ae/r/wa/AbC123"
           ]]
         }
-      }
+      },
+      { type: "FOOTER", text: "UMC Dubai · umcdubai.ae" }
     ]
   },
 
@@ -142,7 +144,8 @@ export const WA_TEMPLATES = {
             "https://umcdubai.ae/r/wa/AbC123"
           ]]
         }
-      }
+      },
+      { type: "FOOTER", text: "UMC Dubai · umcdubai.ae" }
     ]
   },
 
@@ -209,6 +212,121 @@ export const WA_TEMPLATES = {
           "Reply here to confirm, and we will arrange everything.",
         example: {
           body_text: [["Sarah", "Mercedes S-Class · 12 Jun, 14:30 · DXB T3 → Downtown Dubai", "450"]]
+        }
+      },
+      { type: "FOOTER", text: "UMC Dubai · umcdubai.ae" }
+    ]
+  },
+
+  // WA-4 §2 — unified copy-quote layout, STANDARD variant (no flight/sign).
+  // Mirrors composeQuoteText line-for-line so API sends and in-window free-form
+  // sends read identically. The +VAT suffix is COMPOSED INTO the price parameter
+  // ({{8}} = "650 +VAT" or "650") so the per-lead VAT toggle is honored — the body
+  // never hardcodes VAT. Retires the old booking_quote once approved.
+  // {{1}} name, {{2}} service, {{3}} date, {{4}} time, {{5}} pickup,
+  // {{6}} destination, {{7}} vehicle, {{8}} price (VAT suffix baked in).
+  booking_quote_v2_standard: {
+    name: "booking_quote_v2_standard",
+    category: "UTILITY",
+    language: "en",
+    components: [
+      {
+        type: "BODY",
+        text:
+          "Dear {{1}},\n\n" +
+          "Thank you for your reservation request with UMC Dubai. Here are the details we have on file:\n\n" +
+          "Service: {{2}}\n" +
+          "Pickup date: {{3}}\n" +
+          "Pickup time: {{4}}\n" +
+          "Pickup location: {{5}}\n" +
+          "Destination: {{6}}\n" +
+          "Vehicle: {{7}}\n" +
+          "Price: AED {{8}}\n\n" +
+          "Please confirm these details are correct and we will arrange everything for you. " +
+          "We are happy to adjust anything if needed.\n\n" +
+          "Warm regards,\n" +
+          "UMC Dubai",
+        example: {
+          body_text: [[
+            "Sarah",
+            "Chauffeur Service — Half Day",
+            "12 Jun 2026",
+            "14:30",
+            "Downtown Dubai",
+            "Palm Jumeirah",
+            "Mercedes S-Class",
+            "650 +VAT"
+          ]]
+        }
+      },
+      { type: "FOOTER", text: "UMC Dubai · umcdubai.ae" }
+    ]
+  },
+
+  // WA-4 §2 — unified copy-quote layout, AIRPORT variant (adds flight + welcome sign).
+  // Same VAT-in-parameter rule as the standard variant. Welcome sign absent → "—".
+  // {{1}} name, {{2}} service, {{3}} date, {{4}} time, {{5}} pickup, {{6}} destination,
+  // {{7}} flight number, {{8}} welcome sign, {{9}} vehicle, {{10}} price (VAT baked in).
+  booking_quote_v2_airport: {
+    name: "booking_quote_v2_airport",
+    category: "UTILITY",
+    language: "en",
+    components: [
+      {
+        type: "BODY",
+        text:
+          "Dear {{1}},\n\n" +
+          "Thank you for your reservation request with UMC Dubai. Here are the details we have on file:\n\n" +
+          "Service: {{2}}\n" +
+          "Pickup date: {{3}}\n" +
+          "Pickup time: {{4}}\n" +
+          "Pickup location: {{5}}\n" +
+          "Destination: {{6}}\n" +
+          "Flight number: {{7}}\n" +
+          "Welcome sign: {{8}}\n" +
+          "Vehicle: {{9}}\n" +
+          "Price: AED {{10}}\n\n" +
+          "Please confirm these details are correct and we will arrange everything for you. " +
+          "We are happy to adjust anything if needed.\n\n" +
+          "Warm regards,\n" +
+          "UMC Dubai",
+        example: {
+          body_text: [[
+            "Sarah",
+            "Airport Transfer",
+            "12 Jun 2026",
+            "14:30",
+            "DXB T3",
+            "Downtown Dubai",
+            "EK203",
+            "Ms Wells",
+            "Mercedes S-Class",
+            "650 +VAT"
+          ]]
+        }
+      },
+      { type: "FOOTER", text: "UMC Dubai · umcdubai.ae" }
+    ]
+  },
+
+  // WA-4 §5b — human-initiated payment link to the CLIENT, outside the 24h window.
+  // Nomod pay URLs have no shared prefix, so the link rides as a TEXT parameter ({{2}})
+  // rather than a Meta URL-button (which only supports a fixed base + suffix). Inside
+  // the window the desktop action sends the same content free-form (no template).
+  // {{1}} first name, {{2}} secure pay URL, {{3}} amount (VAT suffix composed in).
+  payment_link: {
+    name: "payment_link",
+    category: "UTILITY",
+    language: "en",
+    components: [
+      {
+        type: "BODY",
+        text:
+          "Dear {{1}},\n\n" +
+          "Here is your secure payment link to confirm your booking:\n{{2}}\n\n" +
+          "Amount due: {{3}}. Once payment is received your booking is confirmed, and your concierge will share the final arrangements.",
+        example: {
+          body_text: [["Sarah", "https://pay.nomod.com/abc123", "AED 650 +VAT"]]
         }
       },
       { type: "FOOTER", text: "UMC Dubai · umcdubai.ae" }
