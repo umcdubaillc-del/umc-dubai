@@ -6324,7 +6324,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260715-ui3fix";
+const ADMIN_BUILD = "20260716-popupsys1";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -10920,6 +10920,32 @@ const PAGE_SCRIPT = `<script>
   // list. Re-fetches when the year selector changes.
   // v86 — themed Mark-paid popover anchored to the clicked button. Uses the
   // shared flatpickr build already loaded for the marketing booking form.
+  // ── POPUP-SYSTEM: one anchored-popover positioner ──────────────────────────
+  // Positions a floating element relative to a trigger using position:FIXED
+  // (viewport coords, immune to scroll/containing-block). Prefers opening below and
+  // left-aligned; FLIPS above when it would overflow the bottom; right-aligns when it
+  // would overflow the right; always CLAMPS within an 8px margin so it can never render
+  // off-screen. opts: {gap, align:"left"|"right", width}. Call after the element is in
+  // the DOM (so it can be measured). Re-callable on resize.
+  function positionPopover(pop, anchor, opts){
+    opts = opts || {};
+    var gap = opts.gap == null ? 6 : opts.gap, m = 8;
+    pop.style.position = "fixed";
+    if (opts.width) pop.style.width = opts.width + "px";
+    pop.style.left = "0px"; pop.style.top = "0px"; // reset before measuring
+    var a = anchor.getBoundingClientRect();
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var pw = pop.offsetWidth, ph = pop.offsetHeight;
+    var left = (opts.align === "right") ? (a.right - pw) : a.left;
+    if (left + pw > vw - m) left = a.right - pw;          // flip to right-aligned
+    left = Math.max(m, Math.min(vw - pw - m, left));       // clamp horizontally
+    var top = a.bottom + gap;                              // prefer below
+    if (top + ph > vh - m && (a.top - gap - ph) >= m) top = a.top - gap - ph; // flip above
+    top = Math.max(m, Math.min(vh - ph - m, top));         // clamp vertically
+    pop.style.left = Math.round(left) + "px";
+    pop.style.top  = Math.round(top) + "px";
+  }
+
   function openMarkPaidPopover(anchorBtn){
     // Close any previously-open popover first.
     const prev = document.querySelector(".mp-pop");
@@ -10945,14 +10971,12 @@ const PAGE_SCRIPT = `<script>
       + '</div>'
       + '</div>';
     document.body.appendChild(pop);
-    // Position the popover under the anchor button (viewport coords).
-    const r = anchorBtn.getBoundingClientRect();
-    const popW = 280;
-    let left = Math.max(8, Math.min(window.innerWidth - popW - 8, r.left));
-    let top = r.bottom + window.scrollY + 6;
-    pop.style.left = left + "px";
-    pop.style.top  = top + "px";
-    pop.style.width = popW + "px";
+    // POPUP-SYSTEM: anchored, flips above near the bottom edge, clamps in-viewport
+    // (fixes the reproduced 128px bottom-clip when a Mark-paid button sits low in a
+    // long list). Reposition on resize while open.
+    positionPopover(pop, anchorBtn, { width: 280 });
+    const _mpReposition = function(){ positionPopover(pop, anchorBtn, { width: 280 }); };
+    window.addEventListener("resize", _mpReposition);
     // Bind flatpickr to the input. flatpickr is loaded via defer; if it
     // hasn't initialised yet, the input stays as a normal date input.
     const dateInput = pop.querySelector(".mp-pop__date");
@@ -10972,6 +10996,7 @@ const PAGE_SCRIPT = `<script>
     }
     function close(){
       if(fpInstance) fpInstance.destroy();
+      window.removeEventListener("resize", _mpReposition);
       pop.remove();
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("mousedown", onOutside, true);
