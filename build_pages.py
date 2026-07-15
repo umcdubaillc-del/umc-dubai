@@ -493,7 +493,10 @@ def unify_article_faq(html):
     if not pairs:
         return html
     details = "".join(f"<details><summary>{q}</summary><p>{a}</p></details>" for q, a in pairs)
-    block = ('<div class="shead rv"><span class="lbl">Good to know</span>'
+    # UI-3 E: dotted vertical divider (homepage JL motif) between the article body and
+    # the FAQ, replacing the plain h2 border-top rule for a consistent section break.
+    block = (JL +
+             '<div class="shead rv"><span class="lbl">Good to know</span>'
              '<h2>Frequently asked questions</h2></div>'
              f'<div class="faq rv">{details}</div>')
     return html[:idx] + block + after[pos:]
@@ -1269,7 +1272,7 @@ airport_body = header("airport-transfers.html") + f"""
     <h1>Airport transfers in Dubai &amp; the UAE</h1>
     <p class="lede">Met at arrivals. Driven without delay.</p>
     <div class="btns rv" style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
-      <a class="btn btn-ink" href="/booking">Reserve your transfer</a>
+      <a class="btn btn-ink" href="/booking?service=airport">Reserve your transfer</a>
     </div>
   </div>
   </section>
@@ -1324,7 +1327,7 @@ airport_body = header("airport-transfers.html") + f"""
 </section>
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">Have the car waiting when you land.</h2>
-  <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
+  <div class="btns rv"><a class="btn btn-ink" href="/booking?service=airport">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
 </section>
 """ + FOOTER + """
 <script>document.addEventListener("DOMContentLoaded",function(){renderFleet(document.getElementById("airportFleet"),{})});</script>
@@ -1495,7 +1498,7 @@ def render_emirate_airport_page(em):
     <h1>{em['h1']}</h1>
     <p class="lede">{em['hero_sub']}</p>
     <div class="btns rv" style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
-      <a class="btn btn-ink" href="/booking">Reserve your transfer</a>
+      <a class="btn btn-ink" href="/booking?service=airport">Reserve your transfer</a>
     </div>
   </div>
   </section>
@@ -1560,7 +1563,7 @@ def render_emirate_airport_page(em):
 </section>
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">{em['closing_heading']}</h2>
-  <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
+  <div class="btns rv"><a class="btn btn-ink" href="/booking?service=airport">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
 </section>
 """ + FOOTER + f"""
 <script>document.addEventListener("DOMContentLoaded",function(){{renderFleet(document.getElementById("airportFleet"),{{emirate:"{em['slug']}"}})}});</script>
@@ -2472,7 +2475,7 @@ ie_body = header("inter-emirate.html") + f"""
     <h1>Inter-emirate transfers</h1>
     <p class="lede">Dubai to Abu Dhabi and every emirate beyond. One car and one chauffeur, door to door.</p>
     <div style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
-      <a class="btn btn-ink" href="/booking">Reserve your transfer</a>
+      <a class="btn btn-ink" href="/booking?service=airport">Reserve your transfer</a>
     </div>
   </div>
 </section>
@@ -2519,7 +2522,7 @@ ie_body = header("inter-emirate.html") + f"""
 {JLB}
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">One chauffeur, door to door.</h2>
-  <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
+  <div class="btns rv"><a class="btn btn-ink" href="/booking?service=airport">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{WA}">WhatsApp concierge</a></div></div>
 </section>
 """ + FOOTER + "</body></html>"
 (SITE/"inter-emirate.html").write_text(
@@ -4056,7 +4059,7 @@ BLOG_POSTS = [
 """,
     "cta_heading": "Consistency, not just a car.",
     "cta_body": "Every vehicle in our fleet is held to the same standard, driven by chauffeurs trained the same way. Book once and see it for yourself.",
-    "cta_primary": ("/booking", "Reserve your transfer"),
+    "cta_primary": ("/booking?service=airport", "Reserve your transfer"),
     "cta_secondary": ("/fleet", "See our fleet"),
   },
   {
@@ -4105,7 +4108,7 @@ BLOG_POSTS = [
 """,
     "cta_heading": "Drive Dubai without the meter.",
     "cta_body": "With UMC, Salik, fuel and parking are already included in every quote. One all-inclusive rate, chauffeur driven.",
-    "cta_primary": ("/booking", "Reserve your transfer"),
+    "cta_primary": ("/booking?service=airport", "Reserve your transfer"),
     "cta_secondary": ("/airport-transfers", "Airport transfers"),
   },
   {
@@ -4334,7 +4337,7 @@ BLOG_POSTS = [
 """,
     "cta_heading": "Dubai to Abu Dhabi, the calm way.",
     "cta_body": "All-inclusive chauffeur service between Dubai and Abu Dhabi. Fixed rate, comfortable car, no surprises.",
-    "cta_primary": ("/booking", "Reserve your transfer"),
+    "cta_primary": ("/booking?service=airport", "Reserve your transfer"),
     "cta_secondary": ("/airport-transfers/abu-dhabi", "Abu Dhabi airport transfers"),
   },
   {
@@ -4711,6 +4714,10 @@ def render_post(p):
     # author and render plain. Normal followed link (no nofollow), new tab.
     author_html = (f'<a href="https://mrusmanhanif.com" target="_blank" rel="noopener">{p["author"]}</a>'
                    if p["author"] == "Usman Hanif" else p["author"])
+    # UI-3 E: dotted divider (homepage JL motif) before Keep-reading, replacing the old
+    # .kr border-top rule. Only when there IS a keep-reading block.
+    _kr = render_keep_reading(p['slug'])
+    kr_block = (JL + _kr) if _kr else ""
     body = header(canon) + f"""
 <article class="article">
   <header class="article-hero">
@@ -4723,7 +4730,7 @@ def render_post(p):
   <div class="article-body">
     <div class="wrap article-wrap rv">
       {unify_article_faq(p['body'])}
-      {render_keep_reading(p['slug'])}
+      {kr_block}
     </div>
   </div>
   <section class="closing band-dark article-closing">

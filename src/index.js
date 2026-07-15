@@ -157,6 +157,7 @@ export default {
         url.pathname === "/admin/api/lead-threads" ||
         url.pathname === "/admin/api/send-lead-whatsapp" ||
         url.pathname === "/admin/api/send-lead-payment-link" ||
+        url.pathname === "/admin/api/unlinked-payments" ||
         url.pathname === "/admin/api/backup-status" ||
         url.pathname === "/admin/api/funnel-week" ||
         url.pathname === "/admin/api/wa-usage" ||

@@ -1340,6 +1340,8 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .article-body p.lede{font-size:1.14rem;color:var(--ink);line-height:1.65;margin-bottom:1.6rem}
 .article-body h2{font-family:var(--serif);font-weight:400;font-size:1.55rem;line-height:1.2;color:var(--ink);letter-spacing:-.005em;margin:2.2rem 0 .8rem;padding-top:1rem;border-top:1px solid var(--hair)}
 .article-body h2:first-of-type{border-top:0;padding-top:0;margin-top:0}
+/* UI-3 E: the FAQ heading sits under a dotted JL divider now, so drop its rule line. */
+.article-body .shead h2{border-top:0;padding-top:0;margin-top:.2rem}
 .article-body h3{font-family:var(--serif);font-weight:400;font-size:1.2rem;color:var(--ink);margin:1.6rem 0 .6rem}
 .article-body ul{padding:0 0 0 1.2rem;margin:0 0 1.2rem;max-width:64ch}
 .article-body li{font-family:var(--sans);font-weight:300;font-size:1.02rem;line-height:1.72;color:var(--ink-soft);margin:.35rem 0}
@@ -1424,7 +1426,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 /* BLOG-1: shared end-of-article "Keep reading" component. Hairline cards with a
    full-card tap target, amber border on hover/active, chevron; the money page is
    a quieter final link-row. Stacks single-column and stays clean at 330px. */
-.kr{margin-top:3rem;padding-top:1.8rem;border-top:1px solid var(--hair);max-width:64ch}
+.kr{margin-top:1.2rem;max-width:64ch}/* UI-3 E: border-top HR replaced by the JL dotted divider */
 .kr__eyebrow{display:block;margin-bottom:1rem}
 .kr__cards{display:grid;gap:.7rem;grid-template-columns:1fr}
 .kr-card{display:flex;align-items:center;gap:1rem;padding:1rem 1.15rem;background:var(--card);border:1px solid var(--hair);border-radius:10px;text-decoration:none;color:inherit;transition:border-color .2s ease,transform .2s ease,box-shadow .2s ease}

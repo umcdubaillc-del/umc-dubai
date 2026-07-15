@@ -37,7 +37,7 @@
      round-trip. crossorigin is required to match the CORS font fetch. -->
 <link rel="preload" href="/assets/fonts/outfit-var.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/assets/fonts/marcellus-400.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/assets/style.css?v=d40ab54325">
+<link rel="stylesheet" href="/assets/style.css?v=21354f2997">
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","@id":"https://umcdubai.ae/#organization","name":"UMC Dubai","legalName":"UMC IN BOUND TOUR OPERATOR LLC","url":"https://umcdubai.ae/","logo":{"@type":"ImageObject","url":"https://umcdubai.ae/assets/og-image-v3.png"},"sameAs":["https://www.facebook.com/umcdubai","https://www.instagram.com/umcdubai","https://www.linkedin.com/company/umc-dubai/","https://maps.app.goo.gl/UdPJ9VDBtFegaeX56"]}</script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"Service","name":"Airport transfer service in Ras Al Khaimah","serviceType":"Airport transfer","areaServed":{"@type":"AdministrativeArea","name":"Ras Al Khaimah"},"provider":{"@id":"https://umcdubai.ae/#organization"},"url":"https://umcdubai.ae/airport-transfers/rak","description":"Chauffeur driven Ras Al Khaimah airport transfers from RKT. Meet & greet at arrivals, on to the resorts and Jebel Jais, flight tracking included."}</script><script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","@id":"https://umcdubai.ae/airport-transfers/rak#webpage","url":"https://umcdubai.ae/airport-transfers/rak","name":"Ras Al Khaimah Airport Transfer (RKT) | UMC Dubai","dateModified":"2026-07-07","publisher":{"@id":"https://umcdubai.ae/#organization"}}</script><script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "How does the meet &amp; greet work at Ras Al Khaimah International?", "acceptedAnswer": {"@type": "Answer", "text": "Ras Al Khaimah International is a small, calm airport and the walk from the aircraft to arrivals is short. Your chauffeur is already waiting with a name board by the time you reach the hall, takes your luggage and walks you to the car. There is rarely a crowd to navigate."}}, {"@type": "Question", "name": "What if my flight into RAK arrives late?", "acceptedAnswer": {"@type": "Answer", "text": "The flight is tracked from departure, so the pick-up follows the actual landing. The road north is quiet after dark, which keeps a night arrival simple, and the chauffeur waits regardless of the hour. A delayed or early landing carries no extra charge."}}, {"@type": "Question", "name": "Where will my chauffeur meet me at RKT?", "acceptedAnswer": {"@type": "Answer", "text": "Ras Al Khaimah International has a single, compact terminal. Your chauffeur waits in the arrivals hall with a name board showing your name, and because the airport is small the walk from the aircraft is short and the reception quick, with your luggage taken to the car at the kerb."}}, {"@type": "Question", "name": "How long is the drive from the airport to the resorts?", "acceptedAnswer": {"@type": "Answer", "text": "Most arrivals head to the coast: the beachfront resorts and Al Marjan Island are typically 20 to 25 minutes away, the city centre nearer 15. The summit road up Jebel Jais is the exception, climbing in long switchbacks, so allow closer to 45 minutes to an hour to the viewpoints."}}, {"@type": "Question", "name": "Where in Ras Al Khaimah will you take me?", "acceptedAnswer": {"@type": "Answer", "text": "Across the emirate: the beachfront resorts, Al Marjan Island and Jebel Jais, alongside any other Ras Al Khaimah address you provide. The drive is toll-free, with fuel and parking already inside the fixed rate, and the full fare is quoted before you confirm."}}, {"@type": "Question", "name": "Can you drive me up from Dubai's airports to Ras Al Khaimah?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Many guests prefer to land at Dubai International or Al Maktoum and be driven up the E311, around 60 to 75 minutes, which we run as one booking. The chauffeur meets you at the Dubai terminal and the toll and fuel are priced into the fixed rate."}}]}</script>
@@ -67,7 +67,7 @@
     <h1>Airport transfers in Ras Al Khaimah.</h1>
     <p class="lede">From RKT to the mountains and the shore, unhurried.</p>
     <div class="btns rv" style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
-      <a class="btn btn-ink" href="/booking">Reserve your transfer</a>
+      <a class="btn btn-ink" href="/booking?service=airport">Reserve your transfer</a>
     </div>
   </div>
   </section>
@@ -132,7 +132,7 @@
 </section>
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">The journey north, made easy.</h2>
-  <div class="btns rv"><a class="btn btn-ink" href="/booking">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="https://api.whatsapp.com/send?phone=971586497861&text=Hello%2C%20I%20would%20like%20to%20reserve%20a%20car%20with%20UMC%20Dubai.">WhatsApp concierge</a></div></div>
+  <div class="btns rv"><a class="btn btn-ink" href="/booking?service=airport">Reserve your transfer</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="https://api.whatsapp.com/send?phone=971586497861&text=Hello%2C%20I%20would%20like%20to%20reserve%20a%20car%20with%20UMC%20Dubai.">WhatsApp concierge</a></div></div>
 </section>
 </main>
 <footer class="site">
@@ -193,8 +193,8 @@
   <svg viewBox="0 0 32 32"><path d="M16 .8C7.6.8.8 7.6.8 16c0 2.7.7 5.3 2 7.6L.7 31.3l7.9-2.1c2.2 1.2 4.7 1.9 7.4 1.9 8.4 0 15.2-6.8 15.2-15.1S24.4.8 16 .8zm0 27.7c-2.4 0-4.7-.7-6.7-1.9l-.5-.3-4.7 1.2 1.3-4.6-.3-.5a12.4 12.4 0 0 1-1.9-6.6C3.2 9 8.9 3.3 16 3.3S28.8 9 28.8 16 23.1 28.5 16 28.5zm7-9.4c-.4-.2-2.3-1.1-2.6-1.2-.4-.1-.6-.2-.9.2-.3.4-1 1.2-1.2 1.5-.2.3-.4.3-.8.1-.4-.2-1.6-.6-3.1-1.9-1.1-1-1.9-2.2-2.1-2.6-.2-.4 0-.6.2-.8l.6-.7c.2-.2.3-.4.4-.6.1-.3 0-.5 0-.7l-1.2-2.8c-.3-.7-.6-.6-.9-.6h-.7c-.3 0-.7.1-1 .5-.4.4-1.3 1.3-1.3 3.2s1.4 3.7 1.6 4c.2.3 2.7 4.1 6.6 5.8.9.4 1.6.6 2.2.8.9.3 1.8.3 2.4.2.7-.1 2.3-.9 2.6-1.8.3-.9.3-1.7.2-1.8-.1-.2-.3-.3-.7-.5z"/></svg>
 </a>
 <script>window.UMC_FLEET_V="ba27761bdf";</script>
-<script src="/assets/fleet-data.js?v=d40ab54325"></script>
-<script src="/assets/main.js?v=d40ab54325"></script>
+<script src="/assets/fleet-data.js?v=21354f2997"></script>
+<script src="/assets/main.js?v=21354f2997"></script>
 
 <script>document.addEventListener("DOMContentLoaded",function(){renderFleet(document.getElementById("airportFleet"),{emirate:"rak"})});</script>
 </body></html>

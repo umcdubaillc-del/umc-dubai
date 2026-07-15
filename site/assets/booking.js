@@ -62,6 +62,11 @@ function trackLead(formId, service){
   state.fromIsAirport = AIRPORT_RX.test($("kFrom").value||"");
   state.toIsAirport   = AIRPORT_RX.test($("kTo").value||"");
   state.fromIsT3      = T3_RX.test($("kFrom").value||"");
+  // UI-3 F: airport-transfer CTAs land here with ?service=airport — preselect the
+  // Airport transfer service and open airport mode (flight + welcome-sign fields and the
+  // live-flight-tracking inclusion) immediately, before any address is typed. A real
+  // airport pickup typed later still drives fromIsT3/toIsAirport as usual.
+  if(params.get("service")==="airport"){ state.service = "airport"; state.fromIsAirport = true; }
 
   // segmented Transfer / By the hour (consistent with homepage)
   const seg = document.querySelectorAll("#bkSeg button");
@@ -87,7 +92,7 @@ function trackLead(formId, service){
   // the grid stays a clean 3x2 in every state. SSR renders the concierge default
   // (booking opens non-airport); this flips to flight tracking when an airport is
   // detected in the pickup OR destination. Icon markup mirrors the SSR span.
-  const INC_FLIGHT_HTML = '<svg viewBox="0 0 24 24"><path d="M21.5 4.6c.8-.8.6-2-.5-2.1-.9-.1-1.9.2-2.6.9l-3.5 3.4-9.3-2.4a1 1 0 0 0-1 .3l-.8.9 7.4 4.5-3.3 3.4-2.7-.4-.9.9 3 1.9 1.9 3 .9-.9-.4-2.7 3.4-3.3 4.5 7.4.9-.8a1 1 0 0 0 .3-1l-2.4-9.3z"/></svg>Flight tracking on airport pickups';
+  const INC_FLIGHT_HTML = '<svg viewBox="0 0 24 24"><path d="M21.5 4.6c.8-.8.6-2-.5-2.1-.9-.1-1.9.2-2.6.9l-3.5 3.4-9.3-2.4a1 1 0 0 0-1 .3l-.8.9 7.4 4.5-3.3 3.4-2.7-.4-.9.9 3 1.9 1.9 3 .9-.9-.4-2.7 3.4-3.3 4.5 7.4.9-.8a1 1 0 0 0 .3-1l-2.4-9.3z"/></svg>Live flight tracking';
   const INC_CONCIERGE_HTML = '<svg viewBox="0 0 24 24"><path d="M4 13v-1a8 8 0 0 1 16 0v1"/><rect x="2.4" y="12.6" width="3.8" height="6.4" rx="1.4"/><rect x="17.8" y="12.6" width="3.8" height="6.4" rx="1.4"/><path d="M20 19v.4a3 3 0 0 1-3 3h-3"/></svg>24/7 concierge support';
 
   function syncConditional(){

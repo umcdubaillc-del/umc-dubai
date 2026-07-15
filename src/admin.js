@@ -4047,6 +4047,18 @@ async function handlePaymentLinkCandidates(env) {
     invoices: docs.filter((d) => d.doc_type === "invoice")
   });
 }
+// UI-3 A — payments not yet attached to a lead or invoice, for the lead-anchored
+// "Link a payment" picker. Same rows the Payments tab offers a "Link" on.
+async function handleUnlinkedPayments(env) {
+  await ensureSchema(env);
+  const { results } = await env.BILLING_DB.prepare(
+    `SELECT id, client_name, client_email, amount_aed, paid_at, payment_status
+       FROM payment_links
+      WHERE lead_id IS NULL AND (invoice_number IS NULL OR invoice_number = '')
+      ORDER BY COALESCE(paid_at, created_at) DESC LIMIT 80`
+  ).all();
+  return json({ ok: true, items: results || [] });
+}
 // Persist a payment→entity association. Feeds Gate H resolution retroactively.
 async function handleLinkPayment(linkId, request, env) {
   await ensureSchema(env);
@@ -6115,6 +6127,13 @@ export async function handleAdmin(request, env) {
     if (!env.BILLING_DB) return dbUnavailable();
     return handlePaymentLinkCandidates(env);
   }
+  // UI-3 A — unlinked payments for the lead-anchored "Link a payment" picker.
+  if (path === "/admin/api/unlinked-payments" && method === "GET") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    return handleUnlinkedPayments(env);
+  }
   {
     const pm = path.match(/^\/admin\/api\/payment-links\/(\d+)\/link$/);
     if (pm && method === "POST") {
@@ -6647,6 +6666,11 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 .history tr.expandable.open .hist-chevron{transform:rotate(180deg);color:var(--ink)}
 .history tr.hist-actions-row > td{padding:0;background:var(--bone2);border-bottom:1px solid var(--hair)}
 .history .hist-actions-panel{display:flex;flex-wrap:wrap;gap:.5rem;padding:.7rem 1rem;justify-content:flex-end}
+/* UI-3 A — leads row sheet grouped into labeled clusters (Contact/Quote/Documents/Payment). */
+.lead-clusters{flex:1 1 100%;width:100%;display:flex;flex-direction:column;gap:.9rem;text-align:left}
+.lead-cluster{display:flex;flex-direction:column;gap:.45rem}
+.lead-cluster__h{font-family:Outfit;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+.lead-cluster__row{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
 .history .hist-actions-panel .btn{margin:0}
 .history tr.hist-actions-row[hidden]{display:none}
 .history tr.excluded > td{opacity:.55}
@@ -7419,6 +7443,11 @@ function appShellHTML() {
             <button type="button" class="seg"    data-leadstat="invoiced">Invoiced</button>
           </div>
         </div>
+        <!-- UI-3 C: Origin/Type/Funnel/Sort collapse behind this toggle to reclaim
+             vertical space. Collapsed by default; a badge shows the active-filter count. -->
+        <button type="button" class="btn btn-small btn-ghost" id="leadsFiltersToggle" aria-expanded="false" aria-controls="leadsAdvFilters" style="margin-left:auto">Filters<span id="leadsFilterBadge" class="filter-badge" hidden style="display:inline-flex;min-width:1.15em;height:1.15em;padding:0 .35em;margin-left:.45em;border-radius:999px;background:var(--ink);color:var(--bone);font-size:.62rem;line-height:1;align-items:center;justify-content:center;vertical-align:middle"></span></button>
+      </div>
+      <div id="leadsAdvFilters" class="hist-advfilters hide" style="display:flex;flex-wrap:wrap;gap:1rem;align-items:center;margin-top:.7rem">
         <div class="hist-ctrl">
           <label class="lbl" for="leadsOriginFilter">Origin</label>
           <select id="leadsOriginFilter" aria-label="Filter by origin">
@@ -7449,7 +7478,7 @@ function appShellHTML() {
             <option value="Paid">Paid</option>
           </select>
         </div>
-        <div class="hist-sort hist-ctrl" style="margin-left:auto">
+        <div class="hist-sort hist-ctrl">
           <label class="lbl" for="leadsSort">Sort</label>
           <select id="leadsSort" aria-label="Sort leads">
             <option value="date-desc" selected>Latest first</option>
@@ -11235,16 +11264,15 @@ const PAGE_SCRIPT = `<script>
         const consent = Number(x.marketing_consent) === 1
           ? '<span style="color:var(--muted)">Yes</span>'
           : '<span style="color:var(--muted)">·</span>';
-        const actionsParts = [];
-        if(status === "new"){
-          actionsParts.push('<button type="button" class="btn btn-small btn-ghost" data-leadquote="'+x.id+'">Create quote</button>');
-          actionsParts.push('<button type="button" class="btn btn-small btn-ink"   data-leadinvoice="'+x.id+'">Create invoice</button>');
-        } else {
-          actionsParts.push('<span style="color:var(--muted)">Converted</span>');
-        }
-        actionsParts.push('<button type="button" class="btn btn-small btn-ghost" data-leadjob="'+x.id+'" title="Create a dispatch job from this lead">Create Job</button>');
-        actionsParts.push('<button type="button" class="btn btn-small btn-danger" data-leaddel="'+x.id+'" title="Delete this lead">&times;</button>');
-        const actions = actionsParts.join(' ');
+        // UI-3 A — the visible row keeps only the destructive delete; every
+        // create / contact / quote / payment action now lives in a LABELED cluster of
+        // the expandable sheet below (fixes the "buttons missing/undiscoverable" reports).
+        const actions = '<button type="button" class="btn btn-small btn-danger" data-leaddel="'+x.id+'" title="Delete this lead">&times;</button>';
+        // DOCUMENTS-cluster create controls (status-aware, same handlers as before).
+        const docCreate = (status === "new")
+          ? '<button type="button" class="btn btn-small btn-ghost" data-leadquote="'+x.id+'">Create quote</button>'
+            + '<button type="button" class="btn btn-small btn-ink" data-leadinvoice="'+x.id+'">Create invoice</button>'
+          : '<span style="color:var(--muted);font-size:.82rem">Converted (see Status)</span>';
         const sortAmount = 0;
         // v99: row-level drawer. The only drawer action is "Open <doctype>";
         // shown enabled when the lead has a linked_doc_number, disabled with
@@ -11277,7 +11305,11 @@ const PAGE_SCRIPT = `<script>
         // email and PDFs are untouched. Default 'none' = No VAT.
         const vatMode = (x.vat_mode === "plus") ? "plus" : "none";
         const isPlusVat = vatMode === "plus";
-        const followupBlock = ''
+        const _disA = ' disabled style="opacity:.55;cursor:not-allowed"';
+        // UI-3 A — QUOTE cluster inner: price + VAT + the send/copy/email-quote actions.
+        // (Email QUOTE = the existing send-quote path via /admin/api/send-quote, which
+        //  already composes + emails the branded quote; only the label changed.)
+        const quoteCluster = ''
           + '<div class="leadq-field" title="Optional quote price (AED)">'
           +   '<span class="leadq-prefix">AED</span>'
           +   '<input type="number" inputmode="decimal" step="0.01" min="0" class="leadq" id="leadq-'+x.id+'" data-leadq="'+x.id+'" placeholder="Quote price" value="'+savedQ+'">'
@@ -11288,15 +11320,21 @@ const PAGE_SCRIPT = `<script>
           +   '<span class="lvs-label" data-leadvat-label="'+x.id+'">'+(isPlusVat?'+VAT':'No VAT')+'</span>'
           + '</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leadsave="'+x.id+'" title="Save this quote price (used by the messages and when generating a quote/invoice)">Save</button>'
-          + '<button type="button" class="btn btn-small btn-ink" data-leadwasend="'+x.id+'"'+(waOk?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="'+(waOk?'Send the quote to the client from the UMC WhatsApp number, with live delivery ticks':'This number cannot be normalized to an international format — check it')+'">WhatsApp via API</button>'
-          + '<button type="button" class="btn btn-small btn-ghost" data-leadwaopen="'+x.id+'"'+(waOk?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="'+(waOk?'Open WhatsApp with the quote prefilled to send it yourself':'This number cannot be normalized to an international format — check it')+'">WhatsApp quote</button>'
+          + '<button type="button" class="btn btn-small btn-ink" data-leadwasend="'+x.id+'"'+(waOk?'':_disA)+' title="'+(waOk?'Send the quote to the client from the UMC WhatsApp number, with live delivery ticks':'This number cannot be normalized to an international format — check it')+'">WhatsApp via API</button>'
+          + '<button type="button" class="btn btn-small btn-ghost" data-leadwaopen="'+x.id+'"'+(waOk?'':_disA)+' title="'+(waOk?'Open WhatsApp with the quote prefilled to send it yourself':'This number cannot be normalized to an international format — check it')+'">WhatsApp quote</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leadcopy="'+x.id+'" title="Copy this follow-up message">Copy quote</button>'
-          + '<button type="button" class="btn btn-small btn-ghost" data-leademail="'+x.id+'"'+(hasEmail?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="Email this follow-up to the client">Email client</button>'
-          // WA-4 §5b — human-initiated payment link (needs a linked Nomod payment; rides WA_SEND_ENABLED).
-          + '<button type="button" class="btn btn-small btn-ghost" data-leadpaylink="'+x.id+'"'+(waOk?'':' disabled style="opacity:.55;cursor:not-allowed"')+' title="'+(waOk?'Send the client their secure payment link on WhatsApp (needs a linked Nomod payment)':'This number cannot be normalized to an international format — check it')+'">Payment link</button>'
-          // WA-2 C — live delivery status for the desktop WhatsApp send (sending →
-          // sent → delivered ✓✓ → read). Populated by sendLeadWhatsApp + polling.
+          + '<button type="button" class="btn btn-small btn-ghost" data-leademail="'+x.id+'"'+(hasEmail?'':_disA)+' title="Email the composed quote to the client (branded email)">Email quote</button>'
           + '<span class="leadwa-status" data-leadwa-status="'+x.id+'" aria-live="polite" style="font-size:.8rem;color:var(--muted);margin-left:.5rem"></span>';
+        // UI-3 A — CONTACT cluster: quick-reach actions (no quote composed).
+        const contactCluster = ''
+          + '<button type="button" class="btn btn-small btn-ghost" data-leadcall="'+x.id+'"'+(hasPhone?'':_disA)+' title="Call the client">Call</button>'
+          + '<button type="button" class="btn btn-small btn-ghost" data-leadmailto="'+x.id+'"'+(hasEmail?'':_disA)+' title="Open your email app to write to the client">Email client</button>'
+          + '<button type="button" class="btn btn-small btn-ghost" data-leadwachat="'+x.id+'"'+(waOk?'':_disA)+' title="Open a WhatsApp chat with the client (no quote)">WhatsApp</button>';
+        // UI-3 A — PAYMENT cluster: send a pay link + link an existing payment (shared
+        // association backend with the Payments-tab "Link" action).
+        const paymentCluster = ''
+          + '<button type="button" class="btn btn-small btn-ghost" data-leadpaylink="'+x.id+'"'+(waOk?'':_disA)+' title="'+(waOk?'Send the client their secure payment link on WhatsApp (needs a linked Nomod payment)':'This number cannot be normalized to an international format — check it')+'">Payment link</button>'
+          + '<button type="button" class="btn btn-small btn-ghost" data-leadlinkpay="'+x.id+'" title="Attach an existing Nomod payment to this lead">Link a payment</button>';
         // item 3 — "NEW" badge persisted in D1: shown until the lead is first
         // opened (viewed_at is NULL). Marked seen server-side on first expand.
         const isUnseen = !x.viewed_at;
@@ -11324,7 +11362,14 @@ const PAGE_SCRIPT = `<script>
           + '<td data-lbl="Actions" style="text-align:right;white-space:nowrap" class="hist-actions">'+actions+'</td>'
           + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
           + '</tr>'
-          + '<tr class="hist-actions-row" hidden><td colspan="10"><div class="hist-actions-panel">'+openBtn+followupBlock+'</div></td></tr>';
+          + '<tr class="hist-actions-row" hidden><td colspan="10"><div class="hist-actions-panel">'
+          +   '<div class="lead-clusters">'
+          +     '<div class="lead-cluster"><span class="lead-cluster__h">Contact</span><div class="lead-cluster__row">'+contactCluster+'</div></div>'
+          +     '<div class="lead-cluster"><span class="lead-cluster__h">Quote</span><div class="lead-cluster__row">'+quoteCluster+'</div></div>'
+          +     '<div class="lead-cluster"><span class="lead-cluster__h">Documents</span><div class="lead-cluster__row">'+openBtn+docCreate+'<button type="button" class="btn btn-small btn-ghost" data-leadjob="'+x.id+'" title="Create a dispatch job from this lead">Create Job</button></div></div>'
+          +     '<div class="lead-cluster"><span class="lead-cluster__h">Payment</span><div class="lead-cluster__row">'+paymentCluster+'</div></div>'
+          +   '</div>'
+          + '</div></td></tr>';
       }).join("");
       applyLeadsFilter();
       loadLeadThreads(); // WA-2 E — response chips (async; fills after the rows render)
@@ -12048,7 +12093,9 @@ const PAGE_SCRIPT = `<script>
     // width (max-width alone never kicks in), so the picker was rendering at
     // ~230px. Give it a concrete width that fills to 520px on desktop and
     // safely shrinks on narrow viewports.
-    shell.style.cssText = "width:min(520px, calc(100vw - 48px));max-width:520px;max-height:none;inset:auto;position:absolute;top:10vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
+    // UI-3 D: viewport-FIXED (not absolute) so centering is always relative to the
+    // viewport and the picker can never clip off an edge; height is capped + scrolls.
+    shell.style.cssText = "width:min(520px, calc(100vw - 48px));max-width:520px;max-height:80vh;overflow:auto;inset:auto;position:fixed;top:10vh;left:50%;transform:translateX(-50%);border-radius:6px;box-shadow:0 24px 80px -24px rgba(34,27,20,.55)";
     shell.innerHTML =
       '<header class="ed-head" style="padding:1.1rem 1.6rem">'
       + '  <h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.22rem">Create</h2>'
@@ -12069,6 +12116,14 @@ const PAGE_SCRIPT = `<script>
     modal.appendChild(backdrop);
     modal.appendChild(shell);
     document.body.appendChild(modal);
+    // UI-3 D: clamp into the viewport after layout — if any ancestor transform or edge
+    // proximity pushes the shell off-screen, pull it back with an 8px margin (both axes).
+    try {
+      var _m = 8, _vw = window.innerWidth, _vh = window.innerHeight, _r = shell.getBoundingClientRect();
+      if(_r.left < _m || _r.right > _vw - _m){ shell.style.left = Math.max(_m, (_vw - _r.width) / 2) + "px"; shell.style.right = "auto"; shell.style.transform = "none"; }
+      var _r2 = shell.getBoundingClientRect();
+      if(_r2.bottom > _vh - _m){ shell.style.top = Math.max(_m, _vh - _r2.height - _m) + "px"; }
+    } catch(_){}
     function close(){ try { document.body.removeChild(modal); } catch(_){} }
     modal.querySelectorAll("[data-cpick-cancel]").forEach(function(b){
       b.addEventListener("click", function(e){ e.preventDefault(); close(); });
@@ -12460,6 +12515,59 @@ const PAGE_SCRIPT = `<script>
 
   // WA-3 — picker to link an unlinked payment to a lead / quote / invoice. Follows
   // the ed-modal pattern; posts to /admin/api/payment-links/{id}/link.
+  // UI-3 A — lead-anchored entry point to the SAME payment association: pick an
+  // unlinked Nomod payment and attach it to this lead (reuses /payment-links/{id}/link).
+  function openLeadPaymentPicker(leadId){
+    const modal = document.createElement("div");
+    modal.className = "ed-modal";
+    modal.style.cssText = "position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center";
+    const close = function(){ if(modal.parentNode) modal.parentNode.removeChild(modal); document.removeEventListener("keydown", esc); };
+    const esc = function(ev){ if(ev.key === "Escape"){ ev.preventDefault(); close(); } };
+    document.addEventListener("keydown", esc);
+    modal.innerHTML =
+      '<div class="ed-backdrop" style="position:absolute;inset:0;background:rgba(20,15,10,.45)"></div>'
+      + '<div class="ed-shell" style="position:relative;background:var(--card,#FBF8F1);max-width:560px;width:92vw;max-height:86vh;display:flex;flex-direction:column;border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)">'
+      + '<header class="ed-head" style="display:flex;justify-content:space-between;align-items:center;padding:.9rem 1.1rem;border-bottom:1px solid var(--line,rgba(34,27,20,.1))">'
+      + '<h2 style="font-family:Marcellus,Georgia,serif;margin:0;font-size:1.15rem">Link a payment</h2>'
+      + '<button type="button" class="btn btn-small btn-ghost" data-lpp-cancel>Close</button></header>'
+      + '<div class="ed-body" style="padding:.9rem 1.1rem 1.1rem;flex:1 1 auto;overflow:auto">'
+      + '<div class="status-line" id="lppStatus" style="min-height:1.1em;margin:0 0 .6rem;color:var(--muted);font-size:.85rem">Loading…</div>'
+      + '<div id="lppList" style="display:flex;flex-direction:column;gap:.4rem"></div>'
+      + '</div></div>';
+    document.body.appendChild(modal);
+    const statusEl = modal.querySelector("#lppStatus");
+    const listEl = modal.querySelector("#lppList");
+    modal.querySelector("[data-lpp-cancel]").addEventListener("click", close);
+    modal.querySelector(".ed-backdrop").addEventListener("click", close);
+    function renderList(items){
+      if(!items.length){ statusEl.textContent = "No unlinked payments to attach."; listEl.innerHTML = ""; return; }
+      statusEl.textContent = "Select a payment to attach to this lead:";
+      listEl.innerHTML = items.map(function(p){
+        const who = String(p.client_name || p.client_email || "").trim() || "Unnamed";
+        const amt = (p.amount_aed != null && p.amount_aed !== "") ? ("AED " + Number(p.amount_aed).toLocaleString()) : "";
+        const when = p.paid_at ? String(p.paid_at).slice(0,10) : "";
+        return '<button type="button" class="btn btn-ghost" data-lpp-id="'+p.id+'" style="text-align:left;display:flex;justify-content:space-between;gap:.6rem;padding:.6rem .8rem"><span>'+esc(who)+(when?' · '+esc(when):'')+'</span><span style="color:var(--muted)">'+esc(amt)+'</span></button>';
+      }).join("");
+      listEl.querySelectorAll("[data-lpp-id]").forEach(function(b){
+        b.addEventListener("click", function(){
+          const pid = b.getAttribute("data-lpp-id");
+          b.disabled = true; statusEl.textContent = "Linking…";
+          fetch("/admin/api/payment-links/"+pid+"/link", { method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: JSON.stringify({ type:"lead", id: leadId }) })
+            .then(function(r){ return r.json(); })
+            .then(function(j){
+              if(j && j.ok){ close(); setStatus("Payment linked to this lead."); loadLeads(); }
+              else { b.disabled = false; statusEl.textContent = (j && j.error) ? j.error : "Could not link."; }
+            })
+            .catch(function(){ b.disabled = false; statusEl.textContent = "Could not link — network error."; });
+        });
+      });
+    }
+    fetch("/admin/api/unlinked-payments", { credentials:"same-origin" })
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if(j && j.ok){ renderList(j.items || []); } else { statusEl.textContent = (j && j.error) || "Could not load payments."; } })
+      .catch(function(){ statusEl.textContent = "Could not load payments."; });
+  }
+
   function openPaymentLinkPicker(linkId){
     const modal = document.createElement("div");
     modal.className = "ed-modal";
@@ -12913,12 +13021,36 @@ const PAGE_SCRIPT = `<script>
     // WA-4 §5c + §ADD5 — origin / type / funnel-stage filters drive body.dataset,
     // then re-apply the combined filter (search + status + these).
     var _lb = function(){ return document.getElementById("leadsBody"); };
+    // UI-3 C — active-filter count badge (Origin/Type/Funnel; Sort is not a row filter).
+    // Shown only while the panel is collapsed, so hidden filters stay visible-at-a-glance.
+    function updateLeadsFilterBadge(){
+      var b = _lb(); if(!b) return;
+      var n = 0;
+      if((b.dataset.originFilter||"all") !== "all") n++;
+      if((b.dataset.kindFilter||"all")   !== "all") n++;
+      if((b.dataset.stageFilter||"all")  !== "all") n++;
+      var badge = document.getElementById("leadsFilterBadge");
+      var panel = document.getElementById("leadsAdvFilters");
+      var collapsed = !panel || panel.classList.contains("hide");
+      if(badge){
+        if(n > 0 && collapsed){ badge.textContent = String(n); badge.hidden = false; }
+        else { badge.hidden = true; }
+      }
+    }
     var oF = root.querySelector("#leadsOriginFilter");
-    if(oF) oF.addEventListener("change", function(){ var b=_lb(); if(b){ b.dataset.originFilter = this.value; } applyLeadsFilter(); });
+    if(oF) oF.addEventListener("change", function(){ var b=_lb(); if(b){ b.dataset.originFilter = this.value; } applyLeadsFilter(); updateLeadsFilterBadge(); });
     var kF = root.querySelector("#leadsKindFilter");
-    if(kF) kF.addEventListener("change", function(){ var b=_lb(); if(b){ b.dataset.kindFilter = this.value; } applyLeadsFilter(); });
+    if(kF) kF.addEventListener("change", function(){ var b=_lb(); if(b){ b.dataset.kindFilter = this.value; } applyLeadsFilter(); updateLeadsFilterBadge(); });
     var sF = root.querySelector("#leadsStageFilter");
-    if(sF) sF.addEventListener("change", function(){ var b=_lb(); if(b){ b.dataset.stageFilter = this.value; } applyLeadsFilter(); });
+    if(sF) sF.addEventListener("change", function(){ var b=_lb(); if(b){ b.dataset.stageFilter = this.value; } applyLeadsFilter(); updateLeadsFilterBadge(); });
+    // UI-3 C — Filters panel expand/collapse.
+    var fTog = root.querySelector("#leadsFiltersToggle");
+    var fPanel = root.querySelector("#leadsAdvFilters");
+    if(fTog && fPanel) fTog.addEventListener("click", function(){
+      var open = fPanel.classList.toggle("hide") === false;
+      fTog.setAttribute("aria-expanded", open ? "true" : "false");
+      updateLeadsFilterBadge();
+    });
     // WA-2 B — lazy-load the alert roster the first time its panel is opened.
     const waT = root.querySelector("#waTeam");
     if(waT) waT.addEventListener("toggle", function(){ if(waT.open) loadWaTeam(); });
@@ -13103,6 +13235,52 @@ const PAGE_SCRIPT = `<script>
         commitLeadQuote(id); // persist the current amount before opening
         const msg = buildLeadMessage(lead, readLeadQuote(id));
         window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(msg), "_blank", "noopener");
+        return;
+      }
+      // UI-3 A — CONTACT: call the client (tel: — works desktop + forwards on mobile).
+      const callBtn = e.target.closest("[data-leadcall]");
+      if(callBtn){
+        e.preventDefault();
+        if(callBtn.disabled) return;
+        const id = Number(callBtn.getAttribute("data-leadcall"));
+        const lead = leadsCache.find(function(z){ return Number(z.id) === id; });
+        if(!lead || !lead.phone){ setStatus("This lead has no phone number."); return; }
+        window.location.href = "tel:" + String(lead.phone).replace(/[^0-9+]/g,"");
+        return;
+      }
+      // UI-3 A — CONTACT: ad-hoc email to the client (mailto; no quote composed).
+      const mailBtn = e.target.closest("[data-leadmailto]");
+      if(mailBtn){
+        e.preventDefault();
+        if(mailBtn.disabled) return;
+        const id = Number(mailBtn.getAttribute("data-leadmailto"));
+        const lead = leadsCache.find(function(z){ return Number(z.id) === id; });
+        if(!lead || !lead.email){ setStatus("This lead has no email."); return; }
+        const first = String(lead.name||"there").trim().split(/\s+/)[0] || "there";
+        window.location.href = "mailto:" + lead.email
+          + "?subject=" + encodeURIComponent("UMC Dubai — your reservation")
+          + "&body=" + encodeURIComponent("Dear " + first + ",\\n\\n");
+        return;
+      }
+      // UI-3 A — CONTACT: open a plain WhatsApp chat with the client (no quote prefill).
+      const waChatBtn = e.target.closest("[data-leadwachat]");
+      if(waChatBtn){
+        e.preventDefault();
+        if(waChatBtn.disabled) return;
+        const id = Number(waChatBtn.getAttribute("data-leadwachat"));
+        const lead = leadsCache.find(function(z){ return Number(z.id) === id; });
+        if(!lead) return;
+        const num = normalizeWaNumber(lead.phone);
+        if(!num){ setStatus("This lead has no usable phone number."); return; }
+        window.open("https://wa.me/" + num, "_blank", "noopener");
+        return;
+      }
+      // UI-3 A — PAYMENT: attach an existing Nomod payment to this lead (shared backend
+      // with the Payments-tab "Link" action, lead-anchored entry point).
+      const linkPayBtn = e.target.closest("[data-leadlinkpay]");
+      if(linkPayBtn){
+        e.preventDefault();
+        openLeadPaymentPicker(Number(linkPayBtn.getAttribute("data-leadlinkpay")));
         return;
       }
       const cpBtn = e.target.closest("[data-leadcopy]");
@@ -13839,7 +14017,10 @@ const PAGE_SCRIPT = `<script>
         sheetEl.appendChild(dl);
       }
       // Primary chooser — one prominent button opening Quote / Invoice / Job.
-      var createBtns = { Quote: row.querySelector('[data-leadquote]'), Invoice: row.querySelector('[data-leadinvoice]'), Job: row.querySelector('[data-leadjob]') };
+      // UI-3 A — create buttons now live in the drawer's Documents cluster (panel),
+      // not the main row; query the panel so the mobile create chooser still finds them.
+      var _cbScope = panel || row;
+      var createBtns = { Quote: _cbScope.querySelector('[data-leadquote]'), Invoice: _cbScope.querySelector('[data-leadinvoice]'), Job: _cbScope.querySelector('[data-leadjob]') };
       if (createBtns.Quote || createBtns.Invoice || createBtns.Job){
         var primary = document.createElement('button');
         primary.type = 'button';
@@ -13925,7 +14106,12 @@ const PAGE_SCRIPT = `<script>
       sheetEl.appendChild(vatSw);
     }
     var src = [];
-    if (panel){ Array.prototype.forEach.call(panel.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ if (b.getAttribute && (b.getAttribute('data-leadsave') != null || b.getAttribute('data-leadvat') != null)) return; src.push(b); }); }
+    if (panel){ Array.prototype.forEach.call(panel.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){
+      if (b.getAttribute && (b.getAttribute('data-leadsave') != null || b.getAttribute('data-leadvat') != null)) return;
+      // UI-3 A — leads' create buttons are promoted into the primary chooser above; keep them out of the flat list.
+      if (isLead && b.getAttribute && (b.getAttribute('data-leadquote') != null || b.getAttribute('data-leadinvoice') != null || b.getAttribute('data-leadjob') != null)) return;
+      src.push(b);
+    }); }
     if (cfg.inline){ Array.prototype.forEach.call(row.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){
       // item 7/8 — for leads the create buttons are promoted into the primary
       // chooser above, so exclude them from the flat secondary list.
