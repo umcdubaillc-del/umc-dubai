@@ -451,8 +451,10 @@ function trackLead(formId, service){
       flight: g("kFlight"), sign: g("kSign"), notes: g("kNotes"),
       page: location.pathname, ts: new Date().toISOString()
     };
-    const waUrl = "https://api.whatsapp.com/send?phone=" + PHONE + "&text=" + encodeURIComponent(m);
+    // WA-3 J: no on-submission auto-open to WhatsApp. The concierge reaches out; the
+    // floating WhatsApp button remains for anyone who wants to message directly.
     const form = $("bkForm"), done = $("bkDone");
+    const hasEmail = !!(g("kEmail") && g("kEmail").trim());
     (async () => {
       let ok = false;
       try {
@@ -462,15 +464,17 @@ function trackLead(formId, service){
       if (ok) trackLead('booking', state.service);
       if (form) form.classList.add("hide");
       if (done) {
-        if (!ok) {
-          // Backend did not confirm — be honest, do not claim receipt.
-          const lede = done.querySelector(".lede");
-          if (lede) lede.textContent = "Please tap Send in WhatsApp to reach our concierge directly — we'll confirm your reservation from there.";
+        // Conditional confirmation: only claim the email summary when an email was given
+        // AND capture succeeded; if capture failed, stay honest (no receipt claim).
+        const lede = done.querySelector(".lede");
+        if (lede) {
+          if (!ok) lede.textContent = "We couldn't confirm your request just now. Please reach our concierge on WhatsApp and we'll take care of it right away.";
+          else if (hasEmail) lede.textContent = "A summary has been sent to your email. Your concierge will be in touch shortly.";
+          else lede.textContent = "Your concierge will be in touch shortly.";
         }
         done.classList.remove("hide");
         done.scrollIntoView({ behavior:"smooth", block:"start" });
       }
-      setTimeout(() => { window.open(waUrl, "_blank", "noopener"); }, 600);
     })();
   });
 
