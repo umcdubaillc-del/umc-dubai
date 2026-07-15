@@ -6324,7 +6324,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260716-popupsys1";
+const ADMIN_BUILD = "20260716-ls2disc";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -6678,10 +6678,19 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 .history tr.expandable.open .hist-chevron{transform:rotate(180deg);color:var(--ink)}
 .history tr.hist-actions-row > td{padding:0;background:var(--bone2);border-bottom:1px solid var(--hair)}
 .history .hist-actions-panel{display:flex;flex-wrap:wrap;gap:.5rem;padding:.7rem 1rem;justify-content:flex-end}
-/* UI-3 A — leads row sheet grouped into labeled clusters (Contact/Quote/Documents/Payment). */
-.lead-clusters{flex:1 1 100%;width:100%;display:flex;flex-direction:column;gap:.9rem;text-align:left}
-.lead-cluster{display:flex;flex-direction:column;gap:.45rem}
-.lead-cluster__h{font-family:Outfit;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+/* LS2-1 — leads row sheet as DISCLOSURE sub-sheets (Contact client / Quote client /
+   Documents). One shared component: a keyboard-accessible head button + chevron that
+   expands its collapsed-by-default body. */
+.lead-discs{flex:1 1 100%;width:100%;display:flex;flex-direction:column;gap:.2rem;text-align:left}
+.lead-disc{border-top:1px solid var(--hair)}
+.lead-disc:first-child{border-top:0}
+.lead-disc__head{display:flex;align-items:center;gap:.55rem;width:100%;background:transparent;border:0;cursor:pointer;
+  padding:.7rem .2rem;font-family:Outfit;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft,#4a4136)}
+.lead-disc__head:hover{color:var(--ink)}
+.lead-disc__head:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:4px}
+.lead-disc__chev{display:inline-block;transition:transform .18s ease;color:var(--muted);font-size:.8em}
+.lead-disc__head.open .lead-disc__chev{transform:rotate(90deg)}
+.lead-disc__body{padding:.1rem .2rem .8rem}
 .lead-cluster__row{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
 .history .hist-actions-panel .btn{margin:0}
 .history tr.hist-actions-row[hidden]{display:none}
@@ -11369,18 +11378,36 @@ const PAGE_SCRIPT = `<script>
           + '<button type="button" class="btn btn-small btn-ghost" data-leadcopy="'+x.id+'" title="Copy this follow-up message">Copy quote</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leademail="'+x.id+'"'+(hasEmail?'':_disA)+' title="Email the composed quote to the client (branded email)">Email quote</button>'
           + '<span class="leadwa-status" data-leadwa-status="'+x.id+'" aria-live="polite" style="font-size:.8rem;color:var(--muted);margin-left:.5rem"></span>';
-        // UI-3 A — CONTACT cluster: quick-reach actions (no quote composed).
-        // UI-3-FIX #3 — owner ruling: exactly TWO WhatsApp buttons (via API + quote,
-        // both in the Quote cluster). The Contact cluster's plain "WhatsApp" chat button
-        // is removed.
+        // LS2-1 — CONTACT CLIENT sub-sheet: the original three-button contact set.
+        // The plain-WhatsApp chat button RETURNS here (owner ruling: under separated
+        // sub-sheets the WhatsApp/Call/Email trio is correct; "exactly two" applied only
+        // to the flat layout). None of these compose a quote.
         const contactCluster = ''
+          + '<button type="button" class="btn btn-small btn-ghost" data-leadwachat="'+x.id+'"'+(waOk?'':_disA)+' title="Open a WhatsApp chat with the client (no quote)">WhatsApp</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leadcall="'+x.id+'"'+(hasPhone?'':_disA)+' title="Call the client">Call</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leadmailto="'+x.id+'"'+(hasEmail?'':_disA)+' title="Open your email app to write to the client">Email client</button>';
-        // UI-3 A — PAYMENT cluster: send a pay link + link an existing payment (shared
-        // association backend with the Payments-tab "Link" action).
+        // LS2-1 — Payment actions FOLD INTO the Documents sub-sheet (reported): a lead's
+        // billing actions (create doc, send/attach payment) read as one group.
         const paymentCluster = ''
           + '<button type="button" class="btn btn-small btn-ghost" data-leadpaylink="'+x.id+'"'+(waOk?'':_disA)+' title="'+(waOk?'Send the client their secure payment link on WhatsApp (needs a linked Nomod payment)':'This number cannot be normalized to an international format — check it')+'">Payment link</button>'
           + '<button type="button" class="btn btn-small btn-ghost" data-leadlinkpay="'+x.id+'" title="Attach an existing Nomod payment to this lead">Link a payment</button>';
+        // LS2-1 — Documents sub-sheet: open the linked doc, create quote/invoice/job,
+        // then the payment actions (folded in).
+        const docsInner = openBtn + docCreate
+          + '<button type="button" class="btn btn-small btn-ghost" data-leadjob="'+x.id+'" title="Create a dispatch job from this lead">Create Job</button>'
+          + paymentCluster;
+        // LS2-1 — ONE shared disclosure component (keyboard-accessible <button> head with
+        // a chevron; sub-sheet collapsed by default; aria-expanded/controls wired).
+        const disc = function(group, title, inner){
+          var bodyId = 'disc-' + group + '-' + x.id;
+          return '<div class="lead-disc">'
+            + '<button type="button" class="lead-disc__head" aria-expanded="false" aria-controls="' + bodyId + '" data-disc="' + bodyId + '">'
+            +   '<span class="lead-disc__chev" aria-hidden="true">&#9656;</span>'
+            +   '<span class="lead-disc__title">' + title + '</span>'
+            + '</button>'
+            + '<div class="lead-disc__body" id="' + bodyId + '" hidden><div class="lead-cluster__row">' + inner + '</div></div>'
+            + '</div>';
+        };
         // item 3 — "NEW" badge persisted in D1: shown until the lead is first
         // opened (viewed_at is NULL). Marked seen server-side on first expand.
         const isUnseen = !x.viewed_at;
@@ -11409,11 +11436,10 @@ const PAGE_SCRIPT = `<script>
           + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
           + '</tr>'
           + '<tr class="hist-actions-row" hidden><td colspan="10"><div class="hist-actions-panel">'
-          +   '<div class="lead-clusters">'
-          +     '<div class="lead-cluster"><span class="lead-cluster__h">Contact</span><div class="lead-cluster__row">'+contactCluster+'</div></div>'
-          +     '<div class="lead-cluster"><span class="lead-cluster__h">Quote</span><div class="lead-cluster__row">'+quoteCluster+'</div></div>'
-          +     '<div class="lead-cluster"><span class="lead-cluster__h">Documents</span><div class="lead-cluster__row">'+openBtn+docCreate+'<button type="button" class="btn btn-small btn-ghost" data-leadjob="'+x.id+'" title="Create a dispatch job from this lead">Create Job</button></div></div>'
-          +     '<div class="lead-cluster"><span class="lead-cluster__h">Payment</span><div class="lead-cluster__row">'+paymentCluster+'</div></div>'
+          +   '<div class="lead-discs">'
+          +     disc('contact', 'Contact client', contactCluster)
+          +     disc('quote', 'Quote client', quoteCluster)
+          +     disc('docs', 'Documents', docsInner)
           +   '</div>'
           + '</div></td></tr>';
       }).join("");
@@ -13283,6 +13309,33 @@ const PAGE_SCRIPT = `<script>
         window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(msg), "_blank", "noopener");
         return;
       }
+      // LS2-1 — disclosure sub-sheet toggle. The head is a real <button>, so Enter/Space
+      // work natively; stopPropagation keeps the click from collapsing the lead row.
+      const discBtn = e.target.closest("[data-disc]");
+      if(discBtn){
+        e.preventDefault(); e.stopPropagation();
+        const body = document.getElementById(discBtn.getAttribute("data-disc"));
+        if(body){
+          const willOpen = body.hasAttribute("hidden");
+          if(willOpen) body.removeAttribute("hidden"); else body.setAttribute("hidden","");
+          discBtn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+          discBtn.classList.toggle("open", willOpen);
+        }
+        return;
+      }
+      // LS2-1 — CONTACT: plain WhatsApp chat with the client (no quote prefill).
+      const waChatBtn = e.target.closest("[data-leadwachat]");
+      if(waChatBtn){
+        e.preventDefault();
+        if(waChatBtn.disabled) return;
+        const id = Number(waChatBtn.getAttribute("data-leadwachat"));
+        const lead = leadsCache.find(function(z){ return Number(z.id) === id; });
+        if(!lead) return;
+        const num = normalizeWaNumber(lead.phone);
+        if(!num){ setStatus("This lead has no usable phone number."); return; }
+        window.open("https://wa.me/" + num, "_blank", "noopener");
+        return;
+      }
       // UI-3 A — CONTACT: call the client (tel: — works desktop + forwards on mobile).
       const callBtn = e.target.closest("[data-leadcall]");
       if(callBtn){
@@ -14140,7 +14193,7 @@ const PAGE_SCRIPT = `<script>
     }
     var src = [];
     if (panel){ Array.prototype.forEach.call(panel.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){
-      if (b.getAttribute && (b.getAttribute('data-leadsave') != null || b.getAttribute('data-leadvat') != null)) return;
+      if (b.getAttribute && (b.getAttribute('data-leadsave') != null || b.getAttribute('data-leadvat') != null || b.getAttribute('data-disc') != null)) return;
       // UI-3 A — leads' create buttons are promoted into the primary chooser above; keep them out of the flat list.
       if (isLead && b.getAttribute && (b.getAttribute('data-leadquote') != null || b.getAttribute('data-leadinvoice') != null || b.getAttribute('data-leadjob') != null)) return;
       src.push(b);
