@@ -1,5 +1,5 @@
 /* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
-/* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v91 (DOSSIER-2-POLISH: stamp, signature, timeline, hover). */
+/* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v92 (DOSSIER-2-NITS: lockup center, script sig, status align). */
 /* P-1: self-hosted fonts (was Google Fonts CDN). Latin subset, OFL-licensed.
    Outfit is a variable font covering 300–500; Marcellus is 400 only. Both are
    font-display:swap so text paints immediately in the fallback then swaps. */
@@ -198,7 +198,7 @@ nav.mainnav .sub-toggle{display:none}
 }
 /* Letterhead: lockup left · title/ref/date right · rotated outline stamp */
 .docsheet .doc-lh{display:flex;justify-content:space-between;align-items:flex-start;gap:1.5rem;padding-bottom:1.1rem;border-bottom:1px solid rgba(34,27,20,.18)}
-.doc-lockup{display:flex;flex-direction:column;align-items:flex-start;line-height:1}
+.doc-lockup{display:flex;flex-direction:column;align-items:center;line-height:1}
 .doc-uni{font-family:var(--serif);font-size:1.5rem;letter-spacing:.34em;color:var(--ink)}
 .doc-dash{width:30px;height:1px;background:var(--amber);margin:.5rem 0}
 .doc-duo{font-family:var(--sans);font-size:9px;letter-spacing:.36em;text-transform:uppercase;color:var(--muted)}
@@ -216,6 +216,7 @@ nav.mainnav .sub-toggle{display:none}
 .fmo-tt{width:100%;border-collapse:collapse;margin:1.2rem 0 .2rem;font-size:.86rem}
 .fmo-tt th{font-family:var(--sans);font-size:8px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500;text-align:left;padding:.55rem .5rem;border-bottom:1px solid rgba(34,27,20,.18)}
 .fmo-tt th.r,.fmo-tt td.r{text-align:right}
+.fmo-tt td.r{vertical-align:middle}
 .fmo-tt td{padding:.72rem .5rem;border-bottom:1px solid rgba(34,27,20,.1);color:var(--ink);vertical-align:top;line-height:1.4}
 .fmo-tt .tt-t{font-family:var(--num);font-variant-numeric:tabular-nums;color:var(--ink);letter-spacing:.02em;white-space:nowrap}
 .fmo-tt .tt-v a{color:var(--ink);border-bottom:1px solid rgba(34,27,20,.14)}
@@ -241,7 +242,7 @@ nav.mainnav .sub-toggle{display:none}
    account side an empty rule with real signing room. Both rules get signing air. */
 .chg-sign{display:grid;grid-template-columns:1fr 1fr;gap:1.6rem 2.6rem;margin:2.1rem 0 .6rem}
 .chg-sig-line{min-height:48px;display:flex;align-items:flex-end;border-bottom:1px solid rgba(34,27,20,.3);padding-bottom:.3rem;margin-bottom:.5rem;overflow:hidden}
-.chg-sig-name{font-family:var(--num);font-style:italic;font-size:1.4rem;line-height:1;color:var(--ink);transform:rotate(-2deg);transform-origin:left bottom;white-space:nowrap}
+.chg-sig-name{font-family:'Great Vibes',Georgia,serif;font-style:italic;font-size:1.6rem;line-height:1;color:var(--ink);transform:rotate(-2deg);transform-origin:left bottom;white-space:nowrap}
 .chg-sig-cap{font-family:var(--sans);font-size:8.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
 /* Footnote */
 .doc-note{font-size:.76rem;color:var(--muted);line-height:1.55;margin:1.3rem 0 0;max-width:66ch}
@@ -257,12 +258,12 @@ nav.mainnav .sub-toggle{display:none}
   .chg-art{grid-template-columns:1fr;gap:.1rem}
   .chg-sign{grid-template-columns:1fr;gap:1.3rem}
   .fmo-tt thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-  .fmo-tt tr{display:grid;grid-template-columns:auto 1fr;gap:.15rem .8rem;padding:.75rem 0;border-bottom:1px solid rgba(34,27,20,.1)}
+  .fmo-tt tr{display:grid;grid-template-columns:auto 1fr auto;gap:.2rem .8rem;padding:.75rem 0;border-bottom:1px solid rgba(34,27,20,.1);align-items:center}
   .fmo-tt td{border:0;padding:0}
   .fmo-tt .tt-t{grid-column:1;grid-row:1;font-size:1.02rem}
   .fmo-tt td:nth-child(2){grid-column:2;grid-row:1;font-weight:500;color:var(--ink)}
+  .fmo-tt .r{grid-column:3;grid-row:1;text-align:right}
   .fmo-tt .tt-v{grid-column:1 / -1;grid-row:2;color:var(--ink-soft);font-size:.82rem}
-  .fmo-tt .r{grid-column:1 / -1;grid-row:3;text-align:left}
 }
 
 /* ---------- sections ---------- */

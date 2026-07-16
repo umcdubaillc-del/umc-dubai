@@ -2156,7 +2156,11 @@ corp_body = header("corporate.html") + f"""
       "Corporate chauffeur programmes in Dubai: consolidated invoicing, book-for-a-guest, vetted chauffeurs and 24/7 support. Live in 48 hours.",
       "corporate",
       webpage_ld("https://umcdubai.ae/corporate", "Corporate Chauffeur Service in Dubai | UMC Dubai")
-      + faq_schema(CORP_FAQS)) + corp_body)
+      + faq_schema(CORP_FAQS)
+      # DOSSIER-2-NITS: Great Vibes for the Account File facsimile signature ONLY,
+      # subset to the glyphs of "UMC Dubai", font-display:swap. Corporate page only.
+      + '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&amp;text=UMC%20Dubai&amp;display=swap">'
+      ) + corp_body)
 
 # ---------- about ----------
 about_body = header("about.html") + f"""
