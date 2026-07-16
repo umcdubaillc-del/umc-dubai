@@ -4919,6 +4919,14 @@ async function sendPaymentConfirmation(env, ctx, info) {
   // WA_SEND_ENABLED; the human tap IS the authorization. WA_CLIENT_SENDS_ENABLED is
   // retired (permanent 0, legacy) — the payment path no longer consults it. All P-gates
   // above were evaluated at raise-time; they are re-checked at send-time on approve.
+  // Assistant OFF for payments → fall back to a plain team alert (no proposal).
+  const asettings = await getAssistantSettings(env);
+  if (asettings.paymentMode === "off") {
+    await teamPaymentAlert(env, lead, amountStr, summary, clientLink, payId + ":assistoff");
+    await finishOutbound(env, lockId, { status: "skipped", errorCode: "assistant_off" });
+    await stampNote("Assistant payment proposals are OFF — plain team alert sent, no proposal." + mirrorTag);
+    return;
+  }
   const prompt = paymentProposalPrompt(clientName, amountStr, summary, maskNumber(to), false);
   const fallbackFor = (mto) => ({
     messaging_product: "whatsapp", to: mto, type: "template",
@@ -5737,9 +5745,30 @@ export async function handleAssistantInbound(env, ctx, change) {
   }
 }
 
+// Per-automation Assistant settings (app_settings). paymentMode/flightMode:
+// 'propose' (default) raises a proposal; 'off' falls back to a plain team alert (no
+// proposal). decisionNumbers = comma/space list overriding the active-team default.
+async function getAssistantSettings(env) {
+  const get = async (k, d) => {
+    try { const r = await env.BILLING_DB.prepare(`SELECT value FROM app_settings WHERE key=?`).bind(k).first();
+      return r && r.value != null ? String(r.value) : d; } catch (e) { return d; }
+  };
+  const norm = (v) => (String(v).toLowerCase() === "off" ? "off" : "propose");
+  return {
+    paymentMode: norm(await get("assistant_payment_mode", "propose")),
+    flightMode: norm(await get("assistant_flight_mode", "propose")),
+    decisionNumbers: await get("assistant_decision_numbers", "")
+  };
+}
+async function setAppSetting(env, key, value) {
+  await env.BILLING_DB.prepare(
+    `INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?`
+  ).bind(key, value, value).run();
+}
+
 // ── WA-5-B1 — Assistant admin rail ───────────────────────────────────────────
-// GET  /admin/api/assistant           → recent proposal ledger (Phase 6 adds settings)
-// POST /admin/api/assistant {action}  → 'raise-test' stages a proposal for E2E testing
+// GET  /admin/api/assistant           → settings + recent proposal ledger
+// POST /admin/api/assistant {action}  → 'raise-test' | 'delivery-status' | 'save-settings'
 export async function handleAssistant(request, env, ctx) {
   if (!(await isAuthed(request, env))) return json({ ok: false, error: "unauthorized" }, 401);
   await ensureSchema(env);
@@ -5749,8 +5778,11 @@ export async function handleAssistant(request, env, ctx) {
       `SELECT id, kind, lead_id, payment_id, target_e164, status, raised_at, decided_at, decided_by, wamid_out
          FROM wa_proposals ORDER BY id DESC LIMIT 50`
     ).all();
+    const settings = await getAssistantSettings(env);
+    // effectiveDecisionNumbers: what the engine will actually authorize right now.
+    const eff = Array.from(await getAuthorizedDecisionNumbers(env));
     // Deploy marker so the running bundle is verifiable at a glance (bump per WA-5 deploy).
-    return json({ ok: true, build: "wa5-phase5-reroute", proposals: results || [] }, 200);
+    return json({ ok: true, build: "wa5-phase6-card", settings, effectiveDecisionNumbers: eff, proposals: results || [] }, 200);
   }
 
   if (request.method === "POST") {
@@ -5812,6 +5844,21 @@ export async function handleAssistant(request, env, ctx) {
         ).bind(prop.wamid_out).first();
       }
       return json({ ok: true, proposal: prop, delivery: delivery || [], clientSend }, 200);
+    }
+    if (body.action === "save-settings") {
+      // Per-automation mode + authorized decision numbers. Modes are 'propose' | 'off'.
+      // decisionNumbers: comma/space E.164 list; blank clears the override (→ active team).
+      const mode = (v) => (String(v).toLowerCase() === "off" ? "off" : "propose");
+      if (body.paymentMode != null) await setAppSetting(env, "assistant_payment_mode", mode(body.paymentMode));
+      if (body.flightMode != null) await setAppSetting(env, "assistant_flight_mode", mode(body.flightMode));
+      if (body.decisionNumbers != null) {
+        // Normalize to a clean space-separated E.164 list; drop un-normalizable entries.
+        const nums = String(body.decisionNumbers).split(/[,\s]+/).map((p) => waMeNumber(p)).filter(Boolean);
+        await setAppSetting(env, "assistant_decision_numbers", nums.join(" "));
+      }
+      const settings = await getAssistantSettings(env);
+      const eff = Array.from(await getAuthorizedDecisionNumbers(env));
+      return json({ ok: true, settings, effectiveDecisionNumbers: eff }, 200);
     }
     return json({ ok: false, error: "unknown action" }, 400);
   }
@@ -5909,6 +5956,14 @@ export async function runFlightWatch(env) {
       // (handleWaProposalDecision → sendProposalApproved). Rides WA_SEND_ENABLED;
       // WA_CLIENT_SENDS_ENABLED is retired (permanent 0, legacy). Delay class only —
       // cancelled / diverted / early stay plain team alerts (handled via teamOnly above).
+      // Assistant OFF for flights → plain team alert (no proposal).
+      const asettings = await getAssistantSettings(env);
+      if (asettings.flightMode === "off") {
+        await teamOnly("delayed ~" + delayMin + " min, new ETA " + eta3 + " (assistant off — send manually)",
+          "your flight " + flightNo + " is now expected around " + eta3 + ". Your chauffeur will adjust; nothing is needed from you.",
+          "delayassistoff:" + delayMin);
+        return false;
+      }
       const prompt = flightProposalPrompt(flightNo, eta3, clientName, maskNumber(clientTo));
       const clientHint = "your flight " + flightNo + " is now expected around " + eta3 + ". Your chauffeur will adjust; nothing is needed from you.";
       const link = await createWaLink(env, { leadId: fw.lead_id, purpose: "flight", toPhone: lead.phone,
@@ -6971,7 +7026,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260716-ls2mob";
+const ADMIN_BUILD = "20260717-wa5-assistant";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -8759,6 +8814,38 @@ function appShellHTML() {
   </div>
 </section><!-- /#tab-fleetprices -->
 
+<!-- WA-5-B1 Phase 6 — Assistant settings + proposal ledger. Per-automation Propose/Off,
+     authorized decision numbers (blank = all active team), and the recent proposals. -->
+<section id="tab-assistant" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnMore" hidden>
+<section class="history-wrap">
+  <div class="history" style="max-width:820px">
+    <div class="hist-head"><h2 style="font-family:Marcellus,Georgia,serif;margin:0">Assistant</h2></div>
+    <p style="color:var(--muted,#6b5d4d);font-size:.85rem;margin:.2rem 0 1.2rem">Client-facing automations raise a proposal into the team WhatsApp; a human tap sends. Nothing auto-sends to a client.</p>
+    <div style="display:flex;flex-direction:column;gap:1.1rem">
+      <label style="display:flex;justify-content:space-between;align-items:center;gap:1rem">
+        <span><b>Payment confirmations</b><br><small style="color:var(--muted,#6b5d4d)">On a paid booking, propose the receipt to the team.</small></span>
+        <select id="asstPaymentMode" style="padding:.5rem;border-radius:6px;border:1px solid var(--line,#e4d9c8)"><option value="propose">Propose</option><option value="off">Off</option></select>
+      </label>
+      <label style="display:flex;justify-content:space-between;align-items:center;gap:1rem">
+        <span><b>Flight delay updates</b><br><small style="color:var(--muted,#6b5d4d)">On a tracked delay, propose the update to the team.</small></span>
+        <select id="asstFlightMode" style="padding:.5rem;border-radius:6px;border:1px solid var(--line,#e4d9c8)"><option value="propose">Propose</option><option value="off">Off</option></select>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:.4rem">
+        <span><b>Authorized decision numbers</b> <small style="color:var(--muted,#6b5d4d)">— who can tap Send / Skip. Blank = all active team.</small></span>
+        <input id="asstDecisionNumbers" type="text" inputmode="tel" placeholder="e.g. 971501234567, 971555555555" style="padding:.55rem;border-radius:6px;border:1px solid var(--line,#e4d9c8)">
+        <small id="asstEffective" style="color:var(--muted,#6b5d4d)"></small>
+      </label>
+      <div style="display:flex;gap:.7rem;align-items:center">
+        <button type="button" id="asstSave" class="btn btn-small">Save settings</button>
+        <span id="asstSaveMsg" aria-live="polite" style="font-size:.82rem;color:var(--muted,#6b5d4d)"></span>
+      </div>
+    </div>
+    <h3 style="font-family:Marcellus,Georgia,serif;margin:1.7rem 0 .5rem">Recent proposals</h3>
+    <div id="asstLedger" style="overflow-x:auto"><p style="color:var(--muted,#6b5d4d)">Loading…</p></div>
+  </div>
+</section>
+</section>
+
 <!-- Calendar — agenda view of our OWN jobs data (GET /admin/api/jobs). This page
      never queries Google; the Google Calendar sync remains one-way sync-out only.
      Days are listed vertically from the anchor date forward; cancelled jobs hide
@@ -10011,7 +10098,7 @@ const PAGE_SCRIPT = `<script>
     // v61: include "payments" — was missing in v60, which is why activating
     // the tab moved the underline but never un-hid #tab-payments.
     // v84: include "sales".
-    ["leads","create","documents","links","sales","fleet","fleetprices","bank","ratecard","calendar"].forEach(function(n){
+    ["leads","create","documents","links","sales","fleet","fleetprices","bank","ratecard","calendar","assistant"].forEach(function(n){
       const el = document.getElementById("tab-" + n);
       if(!el) return;
       const on = n === name;
@@ -10027,6 +10114,7 @@ const PAGE_SCRIPT = `<script>
     if(name === "bank") loadBank();
     if(name === "ratecard") loadRateCard();
     if(name === "calendar") loadCalendar();
+    if(name === "assistant") loadAssistant();
     if(name === "create" && typeof fitDocToViewport === "function") fitDocToViewport();
     // v85: persist active tab in URL hash so refresh stays on the same tab.
     // Use replaceState to avoid pushing every tab click into browser history.
@@ -10037,6 +10125,55 @@ const PAGE_SCRIPT = `<script>
         else location.hash = name;
       }
     } catch(e){}
+  }
+  // WA-5-B1 Phase 6 — Assistant settings card + proposal ledger.
+  function asstMask(n){ n = String(n==null?"":n); return n ? ("••••" + n.slice(-4)) : ""; }
+  function renderAsstLedger(rows){
+    if(!rows || !rows.length) return '<p style="color:var(--muted,#6b5d4d)">No proposals yet.</p>';
+    var esc = function(s){ return String(s==null?"":s).replace(/[&<>]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c]; }); };
+    var head = '<tr style="text-align:left;border-bottom:1px solid var(--line,#e4d9c8)"><th style="padding:.3rem .5rem">#</th><th style="padding:.3rem .5rem">Kind</th><th style="padding:.3rem .5rem">Status</th><th style="padding:.3rem .5rem">Client</th><th style="padding:.3rem .5rem">Raised</th><th style="padding:.3rem .5rem">Decided by</th></tr>';
+    var body = rows.map(function(p){
+      var when = p.raised_at ? String(p.raised_at).slice(5,16).replace("T"," ") : "";
+      var st = esc(p.status);
+      var color = (st==="sent"||st==="edited_sent") ? "#2e7d32" : (st==="skipped" ? "#8a6d3b" : (st==="expired" ? "#b23" : "#6b5d4d"));
+      return '<tr style="border-bottom:1px solid var(--line,#efe7d8)"><td style="padding:.3rem .5rem">'+esc(p.id)+'</td><td style="padding:.3rem .5rem">'+esc(p.kind)+'</td><td style="padding:.3rem .5rem;color:'+color+';font-weight:600">'+st+'</td><td style="padding:.3rem .5rem">'+esc(asstMask(p.target_e164))+'</td><td style="padding:.3rem .5rem">'+esc(when)+'</td><td style="padding:.3rem .5rem">'+esc(asstMask(p.decided_by))+'</td></tr>';
+    }).join("");
+    return '<table style="width:100%;border-collapse:collapse;font-size:.85rem"><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
+  }
+  async function loadAssistant(){
+    var pm = document.getElementById("asstPaymentMode");
+    var fm = document.getElementById("asstFlightMode");
+    var dn = document.getElementById("asstDecisionNumbers");
+    var eff = document.getElementById("asstEffective");
+    var ledger = document.getElementById("asstLedger");
+    var msg = document.getElementById("asstSaveMsg");
+    if(!pm) return;
+    var setEff = function(list){ eff.textContent = (list && list.length) ? ("Active now: " + list.join(", ")) : "No authorized numbers yet — add active team members."; };
+    try {
+      var r = await fetch("/admin/api/assistant", { credentials:"same-origin", headers:{ Accept:"application/json" } });
+      var b = await r.json();
+      if(!b.ok) throw new Error(b.error || "load failed");
+      var s = b.settings || {};
+      pm.value = s.paymentMode === "off" ? "off" : "propose";
+      fm.value = s.flightMode === "off" ? "off" : "propose";
+      dn.value = s.decisionNumbers || "";
+      setEff(b.effectiveDecisionNumbers || []);
+      ledger.innerHTML = renderAsstLedger(b.proposals || []);
+    } catch(e){ if(ledger) ledger.innerHTML = '<p style="color:#b23">Could not load: ' + (e && e.message || e) + '</p>'; }
+    var save = document.getElementById("asstSave");
+    if(save) save.onclick = async function(){
+      msg.textContent = "Saving…";
+      try {
+        var r2 = await fetch("/admin/api/assistant", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify({ action:"save-settings", paymentMode: pm.value, flightMode: fm.value, decisionNumbers: dn.value }) });
+        var b2 = await r2.json();
+        if(!b2.ok) throw new Error(b2.error || "save failed");
+        dn.value = (b2.settings && b2.settings.decisionNumbers) || "";
+        setEff(b2.effectiveDecisionNumbers || []);
+        msg.textContent = "Saved ✓";
+        setTimeout(function(){ msg.textContent = ""; }, 2500);
+      } catch(e){ msg.textContent = "Error: " + (e && e.message || e); }
+    };
   }
   // v57: hoisted to IIFE scope so loadHistory can call it. Was previously
   // defined inside bindForm() — out of scope from loadHistory, causing a
@@ -12723,6 +12860,7 @@ const PAGE_SCRIPT = `<script>
   // and it appears — no structural change. Each entry switches to its existing
   // panel via switchTab (its data/API/logic are untouched).
   var MORE_TABS = [
+    { id: "assistant", label: "Assistant" },
     { id: "sales", label: "Sales" },
     { id: "fleet", label: "Fleet" },
     { id: "fleetprices", label: "Fleet prices" },
