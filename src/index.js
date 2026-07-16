@@ -1226,6 +1226,14 @@ async function captureWhatsAppLead(env, ctx, change) {
   const e164 = waMeNumber(contact.wa_id || msg.from || "");
   if (!e164) return; // un-normalizable → never build a broken lead
 
+  // Freshness gate — never capture a lead from a REPLAYED historical message. A
+  // Dualhook history re-sync re-delivers old inbound as live `messages` events carrying
+  // their original (days/weeks-old) timestamps; a genuine first contact is always
+  // near-real-time. Skip anything older than 2h so a re-sync can't flood Leads with
+  // bare rows. (A missing timestamp is treated as live — never over-skip.)
+  const tsSec = Number(msg.timestamp);
+  if (isFinite(tsSec) && tsSec > 0 && (tsSec * 1000) < (Date.now() - 2 * 60 * 60 * 1000)) return;
+
   // Never auto-create a lead for a team member messaging the business number (once
   // alerts go live, staff will message it). Exclude any active wa_team row. Fail-open
   // if wa_team isn't created yet (fresh DB) — it exists in production.
