@@ -412,6 +412,8 @@ async function ensureSchema(env) {
     // 0015_wa_proposals.sql (column-parity). dedupe_key gives raise-idempotency so
     // one event never raises two proposals; wamid_out records the client send on
     // approval. status: pending | sent | edited_sent | skipped | expired.
+    // meta_json (WA-5-B1 Phase 4) carries per-kind extras — quote amount/vatPlus, the
+    // edited flag, and the transient editing_by pointer for the Edit round.
     await env.BILLING_DB.prepare(
       `CREATE TABLE IF NOT EXISTS wa_proposals (
          id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -426,7 +428,8 @@ async function ensureSchema(env) {
          raised_at TEXT NOT NULL,
          decided_at TEXT,
          decided_by TEXT,
-         wamid_out TEXT
+         wamid_out TEXT,
+         meta_json TEXT
        )`
     ).run();
     // Forward-compat: PRAGMA-diff ALTERs so an already-created table gains any new
@@ -435,7 +438,7 @@ async function ensureSchema(env) {
       "kind TEXT", "lead_id INTEGER", "job_id INTEGER", "payment_id TEXT",
       "composed_message TEXT", "target_e164 TEXT", "status TEXT",
       "dedupe_key TEXT", "raised_at TEXT", "decided_at TEXT",
-      "decided_by TEXT", "wamid_out TEXT",
+      "decided_by TEXT", "wamid_out TEXT", "meta_json TEXT",
     ]);
     await env.BILLING_DB.prepare(
       `CREATE INDEX IF NOT EXISTS idx_wa_proposals_status ON wa_proposals (status)`
@@ -5261,17 +5264,35 @@ async function clientWindowOpen(env, e164) {
   } catch (e) { return false; }
 }
 
+// Small tolerant JSON parse for the proposal meta_json column.
+function safeJson(s) { try { return s ? JSON.parse(s) : null; } catch (e) { return null; } }
+
 // Parse a proposal decision from an inbound message — a template quick-reply
 // (msg.button.payload) or a free-form interactive reply (msg.interactive.button_reply.id).
-// Returns { action:"APPROVE"|"SKIP", proposalId } or null.
+// Returns { action:"APPROVE"|"SKIP"|"EDIT", proposalId } or null.
 export function parseProposalPayload(msg) {
   if (!msg) return null;
   let raw = "";
   if (msg.type === "button" && msg.button) raw = msg.button.payload || "";
   else if (msg.type === "interactive" && msg.interactive && msg.interactive.type === "button_reply" &&
            msg.interactive.button_reply) raw = msg.interactive.button_reply.id || "";
-  const m = /^(APPROVE|SKIP):(\d+)$/.exec(String(raw).trim());
+  const m = /^(APPROVE|SKIP|EDIT):(\d+)$/.exec(String(raw).trim());
   return m ? { action: m[1], proposalId: Number(m[2]) } : null;
+}
+
+// Parse a bare-amount quote reply: a leading/embedded number, plus an optional VAT
+// hint. "650" → { amount:"650", vat:null }; "650 no vat" → vat:false; "650 +vat" or
+// "650 vat" → vat:true. Returns null when there's no positive number.
+function parseAmountReply(text) {
+  const t = String(text || "").trim();
+  const mm = t.match(/(\d[\d,]*(?:\.\d+)?)/);
+  if (!mm) return null;
+  const num = parseFloat(mm[1].replace(/,/g, ""));
+  if (!isFinite(num) || num <= 0) return null;
+  let vat = null;
+  if (/no[\s-]*vat|novat|excl/i.test(t)) vat = false;
+  else if (/\+?\s*vat|incl/i.test(t)) vat = true;
+  return { amount: String(num), vat };
 }
 
 // Deliver a raised proposal to the team as a free-form interactive button message.
@@ -5311,12 +5332,13 @@ export async function raiseProposal(env, opts) {
   try {
     const ins = await env.BILLING_DB.prepare(
       `INSERT INTO wa_proposals
-         (kind, lead_id, job_id, payment_id, composed_message, target_e164, status, dedupe_key, raised_at)
-       VALUES (?,?,?,?,?,?, 'pending', ?, ?)`
+         (kind, lead_id, job_id, payment_id, composed_message, target_e164, status, dedupe_key, raised_at, meta_json)
+       VALUES (?,?,?,?,?,?, 'pending', ?, ?, ?)`
     ).bind(
       opts.kind, opts.leadId == null ? null : opts.leadId, opts.jobId == null ? null : opts.jobId,
       opts.paymentId == null ? null : String(opts.paymentId), opts.composedMessage || null,
-      opts.targetE164 || null, opts.dedupeKey || null, now
+      opts.targetE164 || null, opts.dedupeKey || null, now,
+      opts.metaJson == null ? null : (typeof opts.metaJson === "string" ? opts.metaJson : JSON.stringify(opts.metaJson))
     ).run();
     id = ins.meta ? ins.meta.last_row_id : null;
   } catch (e) {
@@ -5399,13 +5421,36 @@ export async function handleWaProposalDecision(env, ctx, decision) {
     return { status: "skipped" };
   }
 
-  // APPROVE — optimistic claim flips pending→sent so exactly one tap can proceed.
+  if (action === "EDIT") {
+    // Only quote proposals support an Edit round. Mark the proposal awaiting the
+    // sender's next text (stays 'pending'); the webhook's team-text handler applies it.
+    if (prop.kind !== "quote") return { status: "noop" };
+    const meta = safeJson(prop.meta_json) || {};
+    meta.editing_by = fromE164;
+    const up = await env.BILLING_DB.prepare(
+      `UPDATE wa_proposals SET meta_json=? WHERE id=? AND status='pending'`
+    ).bind(JSON.stringify(meta), proposalId).run();
+    if (up.meta && up.meta.changes) {
+      await sendTextTo(env, fromE164,
+        "✏️ Send the corrected quote as your next message and I'll re-preview it. (proposal #" + proposalId + ")");
+    }
+    return { status: "editing" };
+  }
+
+  // APPROVE — optimistic claim flips pending→terminal so exactly one tap can proceed.
+  // An edited quote settles as 'edited_sent' so the ledger records tap-vs-edit.
+  const meta = safeJson(prop.meta_json) || {};
+  const approveStatus = (prop.kind === "quote" && meta.edited) ? "edited_sent" : "sent";
   const claim = await env.BILLING_DB.prepare(
-    `UPDATE wa_proposals SET status='sent', decided_at=?, decided_by=? WHERE id=? AND status='pending'`
-  ).bind(now, fromE164, proposalId).run();
+    `UPDATE wa_proposals SET status=?, decided_at=?, decided_by=? WHERE id=? AND status='pending'`
+  ).bind(approveStatus, now, fromE164, proposalId).run();
   if (!(claim.meta && claim.meta.changes)) return { status: "noop" }; // lost the race / already decided
 
-  const send = await sendProposalApproved(env, prop);
+  // Route the client send: quotes use the window-aware quote path (+ QUOTED stamp);
+  // everything else sends its composed message free-form in-window.
+  const send = prop.kind === "quote"
+    ? await sendQuoteProposal(env, prop)
+    : await sendProposalApproved(env, prop);
   if (send.ok) {
     await env.BILLING_DB.prepare(`UPDATE wa_proposals SET wamid_out=? WHERE id=?`).bind(send.wamid || null, proposalId).run();
     await teamFreeform(env, "✅ Sent to " + client + ". (" + prop.kind + " proposal #" + proposalId + ")",
@@ -5421,6 +5466,197 @@ export async function handleWaProposalDecision(env, ctx, decision) {
     proposalId + " re-opened; send manually from the workspace if needed.",
     "propdecide:" + proposalId + ":failed", "proposal_decision", prop.lead_id);
   return { status: "send_failed", reason: send.reason };
+}
+
+// Send a free-form text to a single number (team-side notes/prompts). Rides WA_SEND_ENABLED.
+async function sendTextTo(env, e164, message) {
+  if (env.WA_SEND_ENABLED !== "1") return false;
+  const to = waMeNumber(e164); if (to.length < 8) return false;
+  const r = await waGraphSend(env, { messaging_product: "whatsapp", to, type: "text", text: { preview_url: false, body: message } });
+  return r.ok;
+}
+
+// Deliver a quote preview to a single team member with [Send ✓][Edit][Skip] buttons.
+// The interactive body caps at 1024 chars, so a long preview is sent as text first and
+// the buttons ride a short prompt. Rides WA_SEND_ENABLED. Returns 1 on delivery.
+async function deliverQuotePreview(env, toMember, proposalId, previewText, isEdit) {
+  if (env.WA_SEND_ENABLED !== "1") return 0;
+  const to = waMeNumber(toMember); if (to.length < 8) return 0;
+  const header = isEdit ? "✏️ Updated quote preview — review before it goes to the client:"
+                        : "📝 Quote ready — review before it goes to the client:";
+  const buttons = {
+    type: "button",
+    body: { text: "" },
+    footer: { text: "UMC Dubai · umcdubai.ae" },
+    action: { buttons: [
+      { type: "reply", reply: { id: "APPROVE:" + proposalId, title: "Send ✓" } },
+      { type: "reply", reply: { id: "EDIT:" + proposalId, title: "Edit" } },
+      { type: "reply", reply: { id: "SKIP:" + proposalId, title: "Skip" } }
+    ] }
+  };
+  const combined = header + "\n\n" + previewText;
+  if (combined.length <= 1000) {
+    buttons.body.text = combined;
+    const r = await waGraphSend(env, { messaging_product: "whatsapp", to, type: "interactive", interactive: buttons });
+    return r.ok ? 1 : 0;
+  }
+  await waGraphSend(env, { messaging_product: "whatsapp", to, type: "text", text: { preview_url: false, body: header + "\n\n" + previewText } });
+  buttons.body.text = "Send this quote to the client?";
+  const r = await waGraphSend(env, { messaging_product: "whatsapp", to, type: "interactive", interactive: buttons });
+  return r.ok ? 1 : 0;
+}
+
+// Raise a quote proposal bound to a lead, previewing to the replying team member.
+// dedupe_key = the reply message id, so a webhook retry of the same reply re-raises nothing.
+async function raiseQuoteProposal(env, opts) {
+  await ensureSchema(env);
+  const now = new Date().toISOString();
+  const meta = { amount: String(opts.amount), vatPlus: !!opts.vatPlus, edited: false };
+  let id = null;
+  try {
+    const ins = await env.BILLING_DB.prepare(
+      `INSERT INTO wa_proposals
+         (kind, lead_id, composed_message, target_e164, status, dedupe_key, raised_at, meta_json)
+       VALUES ('quote', ?, ?, ?, 'pending', ?, ?, ?)`
+    ).bind(opts.lead.id, opts.preview, opts.to, "quote:reply:" + (opts.replyMsgId || now), now, JSON.stringify(meta)).run();
+    id = ins.meta ? ins.meta.last_row_id : null;
+  } catch (e) {
+    return { id: null, duplicate: true };
+  }
+  const delivered = await deliverQuotePreview(env, opts.toMember, id, opts.preview, false);
+  return { id, delivered };
+}
+
+// Window-aware quote send for an approved quote proposal, mirroring the desktop Gate C
+// path: free-form (the previewed body verbatim, honoring any Edit) inside the client's
+// 24h window; the booking_quote / v2 template outside it (only when the quote wasn't
+// hand-edited — a template can't carry arbitrary text). Stamps the lead QUOTED.
+async function sendQuoteProposal(env, proposal) {
+  if (env.WA_SEND_ENABLED !== "1") return { ok: false, reason: "wa_send_off" };
+  const lead = await env.BILLING_DB.prepare(
+    `SELECT id, name, phone, service, vehicle, pickup, destination, date, time, days, flight, sign, notes, vat_mode, vat_mode_set
+       FROM leads WHERE id = ?`
+  ).bind(proposal.lead_id).first();
+  if (!lead) return { ok: false, reason: "no_lead" };
+  const to = waMeNumber(proposal.target_e164 || lead.phone);
+  if (to.length < 8) return { ok: false, reason: "no_number" };
+  const meta = safeJson(proposal.meta_json) || {};
+  const amount = meta.amount ? String(meta.amount) : "";
+  const vatPlus = meta.vatPlus != null ? !!meta.vatPlus : leadVatPlus(lead);
+  const edited = !!meta.edited;
+  const windowOpen = await clientWindowOpen(env, to);
+
+  let sendPayload, mode, template;
+  if (windowOpen) {
+    mode = "freeform"; template = "freeform";
+    const bodyText = (proposal.composed_message || "").trim() || composeQuoteText(lead, { amount, vatPlus });
+    sendPayload = { messaging_product: "whatsapp", to, type: "text", text: { preview_url: false, body: bodyText } };
+  } else {
+    if (edited) return { ok: false, reason: "edited_out_of_window" };
+    if (!amount) return { ok: false, reason: "no_amount_out_of_window" };
+    if (env.WA_QUOTE_V2_ENABLED === "1") {
+      const v2 = quoteTemplateV2Payload(lead, { to, amount, vatPlus });
+      mode = "template"; template = v2.template; sendPayload = v2.payload;
+    } else {
+      mode = "template"; template = "booking_quote";
+      const firstName = (waNz(lead.name) || "there").split(/\s+/)[0];
+      const summary = waLeadSummary(lead) || "Your reservation";
+      sendPayload = {
+        messaging_product: "whatsapp", to, type: "template",
+        template: { name: "booking_quote", language: { code: "en" },
+          components: [{ type: "body", parameters: [
+            { type: "text", text: firstName }, { type: "text", text: summary }, { type: "text", text: amount }
+          ] }] }
+      };
+    }
+  }
+  const rowId = await claimOutbound(env, {
+    lead_id: lead.id, kind: "quote", recipient: to, template,
+    dedupe_key: null, meta_json: JSON.stringify({ amount, mode, proposalId: proposal.id })
+  });
+  const result = await waGraphSend(env, sendPayload);
+  if (rowId) await finishOutbound(env, rowId, result);
+  if (!result.ok) return { ok: false, reason: "send_failed", errorCode: result.errorCode };
+  try {
+    await env.BILLING_DB.prepare(`UPDATE leads SET status='quoted' WHERE id=? AND COALESCE(status,'new')='new'`).bind(lead.id).run();
+  } catch (e) { /* stamp best-effort */ }
+  return { ok: true, wamid: result.wamid, mode };
+}
+
+// A text message from an authorized team number. Two behaviors: (1) if a quote proposal
+// is awaiting an Edit from this sender, their text becomes the new quote body and we
+// re-preview; (2) if the text is a bare amount replying to a lead_alert, bind the
+// replied-to wamid → the lead and raise a quote proposal. Otherwise it isn't ours.
+async function handleTeamInboundText(env, ctx, msg) {
+  const { fromE164, text, contextWamid, msgId } = msg;
+  const t = String(text || "").trim();
+  if (!t) return { handled: false };
+
+  // (1) A bare-amount reply to a lead_alert always starts a NEW quote — even mid-edit,
+  // because replying to another alert is a fresh intent, not an edit of the last quote.
+  const parsed = contextWamid ? parseAmountReply(t) : null;
+  const bind = parsed ? await env.BILLING_DB.prepare(
+    `SELECT lead_id FROM wa_outbound WHERE wamid=? AND template='lead_alert' LIMIT 1`
+  ).bind(contextWamid).first() : null;
+  if (bind && bind.lead_id != null) {
+    const lead = await env.BILLING_DB.prepare(
+      `SELECT id, name, phone, service, vehicle, pickup, destination, date, time, days, flight, sign, notes, vat_mode, vat_mode_set
+         FROM leads WHERE id = ?`
+    ).bind(bind.lead_id).first();
+    if (!lead) return { handled: false };
+    const to = waMeNumber(lead.phone);
+    if (to.length < 8) {
+      await sendTextTo(env, fromE164, "⚠️ That lead has no usable WhatsApp number — can't send a quote. (lead #" + lead.id + ")");
+      return { handled: true, action: "no_number" };
+    }
+    const vatPlus = parsed.vat == null ? leadVatPlus(lead) : parsed.vat;
+    const preview = composeQuoteText(lead, { amount: parsed.amount, vatPlus });
+    const res = await raiseQuoteProposal(env, { lead, to, amount: parsed.amount, vatPlus, preview, replyMsgId: msgId, toMember: fromE164 });
+    return { handled: true, action: res.duplicate ? "duplicate" : "raised", id: res.id };
+  }
+
+  // (2) Otherwise, if a quote proposal is awaiting an Edit from this sender, their text
+  // becomes the new quote body and we re-preview.
+  const editing = await env.BILLING_DB.prepare(
+    `SELECT * FROM wa_proposals WHERE kind='quote' AND status='pending' AND meta_json LIKE ? ORDER BY id DESC LIMIT 1`
+  ).bind('%"editing_by":"' + fromE164 + '"%').first();
+  if (editing) {
+    const meta = safeJson(editing.meta_json) || {};
+    delete meta.editing_by; meta.edited = true;
+    await env.BILLING_DB.prepare(`UPDATE wa_proposals SET composed_message=?, meta_json=? WHERE id=? AND status='pending'`)
+      .bind(t, JSON.stringify(meta), editing.id).run();
+    await deliverQuotePreview(env, fromE164, editing.id, t, true);
+    return { handled: true, action: "edited", id: editing.id };
+  }
+
+  return { handled: false };
+}
+
+// Webhook entry for the Assistant. For each inbound message from an AUTHORIZED team
+// number: a button reply resolves a proposal decision; a text drives the quote-by-reply
+// / Edit flow. Non-authorized senders never reach here (their messages fall through to
+// lead capture, which already excludes the team). Non-blocking; called from the webhook.
+export async function handleAssistantInbound(env, ctx, change) {
+  const value = change && change.value;
+  if (!value || !Array.isArray(value.messages) || !value.messages.length) return;
+  if (!env.BILLING_DB) return;
+  await ensureSchema(env);
+  const authed = await getAuthorizedDecisionNumbers(env);
+  for (const m of value.messages) {
+    const fromE164 = waMeNumber((m && m.from) || "");
+    if (!fromE164 || !authed.has(fromE164)) continue;
+    const decision = parseProposalPayload(m);
+    if (decision) {
+      await handleWaProposalDecision(env, ctx, { proposalId: decision.proposalId, action: decision.action, fromE164 });
+      continue;
+    }
+    if (m.type === "text" && m.text && m.text.body) {
+      await handleTeamInboundText(env, ctx, {
+        fromE164, text: m.text.body,
+        contextWamid: (m.context && m.context.id) || null, msgId: m.id || null
+      });
+    }
+  }
 }
 
 // ── WA-5-B1 — Assistant admin rail ───────────────────────────────────────────
