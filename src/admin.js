@@ -6324,7 +6324,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260716-filpop2";
+const ADMIN_BUILD = "20260716-ls2mob";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -14057,7 +14057,7 @@ const PAGE_SCRIPT = `<script>
     sheetEl = document.getElementById('docSheet');
     if (!sheetEl){ sheetEl = document.createElement('div'); sheetEl.id = 'docSheet'; document.body.appendChild(sheetEl); }
   }
-  function bindAction(orig, quiet){
+  function bindAction(orig, quiet, container){
     var label = orig.textContent.trim();
     if (label === '×') label = 'Delete';
     var b = document.createElement('button');
@@ -14082,7 +14082,24 @@ const PAGE_SCRIPT = `<script>
         if (row && row.classList && row.classList.contains('open')){ var c = row.querySelector('td'); if (c) c.click(); }
       }
     });
-    sheetEl.appendChild(b);
+    (container || sheetEl).appendChild(b);
+  }
+  // LS2-1-MOBILE — one disclosure component for the sheet, mirroring the desktop
+  // .lead-disc (keyboard-accessible head + chevron; collapsed body). Returns the
+  // wrap to append and the body to fill with forwarded actions.
+  function sheetDisc(title){
+    var wrap = document.createElement('div'); wrap.className = 'lead-disc';
+    var head = document.createElement('button'); head.type = 'button'; head.className = 'lead-disc__head'; head.setAttribute('aria-expanded', 'false');
+    head.innerHTML = '<span class="lead-disc__chev" aria-hidden="true">&#9656;</span><span class="lead-disc__title">' + title + '</span>';
+    var body = document.createElement('div'); body.className = 'lead-disc__body'; body.hidden = true;
+    head.addEventListener('click', function(){
+      var willOpen = body.hidden;
+      body.hidden = !willOpen;
+      head.classList.toggle('open', willOpen);
+      head.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    });
+    wrap.appendChild(head); wrap.appendChild(body);
+    return { wrap: wrap, body: body };
   }
   function buildSheet(row, cfg){
     var drawer = row.nextElementSibling;
@@ -14134,33 +14151,50 @@ const PAGE_SCRIPT = `<script>
         dl.innerHTML = dlHtml;
         sheetEl.appendChild(dl);
       }
-      // Primary chooser — one prominent button opening Quote / Invoice / Job.
-      // UI-3 A — create buttons now live in the drawer's Documents cluster (panel),
-      // not the main row; query the panel so the mobile create chooser still finds them.
-      var _cbScope = panel || row;
-      var createBtns = { Quote: _cbScope.querySelector('[data-leadquote]'), Invoice: _cbScope.querySelector('[data-leadinvoice]'), Job: _cbScope.querySelector('[data-leadjob]') };
-      if (createBtns.Quote || createBtns.Invoice || createBtns.Job){
-        var primary = document.createElement('button');
-        primary.type = 'button';
-        primary.className = 'doc-sheet-action doc-sheet-primary';
-        primary.textContent = 'Create quote / invoice / job';
-        var chooser = document.createElement('div');
-        chooser.className = 'lead-sheet-chooser';
-        chooser.hidden = true;
-        ['Quote', 'Invoice', 'Job'].forEach(function(kind){
-          var orig = createBtns[kind];
-          if (!orig) return;
-          var cb = document.createElement('button');
-          cb.type = 'button';
-          cb.className = 'doc-sheet-action doc-sheet-choose';
-          cb.textContent = kind;
-          cb.addEventListener('click', function(){ hide(); orig.click(); });
-          chooser.appendChild(cb);
-        });
-        primary.addEventListener('click', function(){ chooser.hidden = !chooser.hidden; primary.classList.toggle('open', !chooser.hidden); });
-        sheetEl.appendChild(primary);
-        sheetEl.appendChild(chooser);
-      }
+    }
+    // LS2-1-MOBILE — build the three-group disclosure shells from the desktop
+    // panel's .lead-disc bodies (Contact client / Quote client / Documents). The
+    // create chooser and quote mirror mount into their groups; forwarded action
+    // buttons drop into the group they came from. Non-lead sheets stay flat.
+    var _discEls = (isLead && panel) ? panel.querySelectorAll('.lead-disc') : [];
+    var _grouped = _discEls.length > 0;
+    var _gBody = {}, _gWraps = [];
+    if (_grouped){
+      Array.prototype.forEach.call(_discEls, function(d){
+        var hb = d.querySelector('.lead-disc__head');
+        var te = d.querySelector('.lead-disc__title');
+        var did = hb ? (hb.getAttribute('data-disc') || '') : '';
+        var key = /disc-contact-/.test(did) ? 'contact' : (/disc-quote-/.test(did) ? 'quote' : (/disc-docs-/.test(did) ? 'docs' : 'g' + _gWraps.length));
+        var g = sheetDisc(te ? te.textContent : 'More');
+        _gBody[key] = g.body; g.__disc = d; _gWraps.push(g);
+      });
+    }
+    // Primary chooser — one prominent button opening Quote / Invoice / Job. Mounts
+    // into the Documents group when grouped, else top-level.
+    var _cbScope = panel || row;
+    var createBtns = { Quote: _cbScope.querySelector('[data-leadquote]'), Invoice: _cbScope.querySelector('[data-leadinvoice]'), Job: _cbScope.querySelector('[data-leadjob]') };
+    if (isLead && (createBtns.Quote || createBtns.Invoice || createBtns.Job)){
+      var primary = document.createElement('button');
+      primary.type = 'button';
+      primary.className = 'doc-sheet-action doc-sheet-primary';
+      primary.textContent = 'Create quote / invoice / job';
+      var chooser = document.createElement('div');
+      chooser.className = 'lead-sheet-chooser';
+      chooser.hidden = true;
+      ['Quote', 'Invoice', 'Job'].forEach(function(kind){
+        var orig = createBtns[kind];
+        if (!orig) return;
+        var cb = document.createElement('button');
+        cb.type = 'button';
+        cb.className = 'doc-sheet-action doc-sheet-choose';
+        cb.textContent = kind;
+        cb.addEventListener('click', function(){ hide(); orig.click(); });
+        chooser.appendChild(cb);
+      });
+      primary.addEventListener('click', function(){ chooser.hidden = !chooser.hidden; primary.classList.toggle('open', !chooser.hidden); });
+      var _ct = (_grouped && _gBody.docs) ? _gBody.docs : sheetEl;
+      _ct.appendChild(primary);
+      _ct.appendChild(chooser);
     }
     // v104 — leads quote-price: the sheet shows its OWN mirror input, prefilled
     // from the canonical drawer input. There is NO per-keystroke writeback (that
@@ -14205,7 +14239,8 @@ const PAGE_SCRIPT = `<script>
       qsuf.textContent = '+VAT';
       if (!vatPlus) qsuf.hidden = true;
       qf.appendChild(qpre); qf.appendChild(qin); qf.appendChild(qsuf); qf.appendChild(qsave);
-      sheetEl.appendChild(qf);
+      var _qt = (_grouped && _gBody.quote) ? _gBody.quote : sheetEl;
+      _qt.appendChild(qf);
       var vatSw = document.createElement('button');
       vatSw.type = 'button';
       vatSw.className = 'leadvat-switch doc-sheet-vat' + (vatPlus ? ' on' : '');
@@ -14221,7 +14256,35 @@ const PAGE_SCRIPT = `<script>
         var fn = window.__umcSetLeadVatMode;
         if (typeof fn === 'function') fn(Number(qid), isOn ? 'none' : 'plus');
       });
-      sheetEl.appendChild(vatSw);
+      _qt.appendChild(vatSw);
+    }
+    // LS2-1-MOBILE — forward action buttons into their source group (leads) or a
+    // flat list (non-lead sheets). Same exclusions as before (save/vat/disc, and
+    // for leads the create buttons already promoted into the chooser).
+    var seen = {};
+    function forwardBtn(b, container){
+      if (b.getAttribute && (b.getAttribute('data-leadsave') != null || b.getAttribute('data-leadvat') != null || b.getAttribute('data-disc') != null)) return;
+      if (isLead && b.getAttribute && (b.getAttribute('data-leadquote') != null || b.getAttribute('data-leadinvoice') != null || b.getAttribute('data-leadjob') != null)) return;
+      var k = b.textContent.trim();
+      if (!k || seen[k]) return;
+      seen[k] = 1;
+      bindAction(b, isLead, container);
+    }
+    if (_grouped){
+      _gWraps.forEach(function(g){
+        Array.prototype.forEach.call(g.__disc.querySelectorAll('.lead-disc__body button, .lead-disc__body a.hist-btn, .lead-disc__body .hist-btn'), function(b){ forwardBtn(b, g.body); });
+      });
+      _gWraps.forEach(function(g){ sheetEl.appendChild(g.wrap); });
+      // Row-level actions (e.g. delete) live outside the disclosures — keep them
+      // top-level, as they sit outside the .lead-disc groups on desktop too.
+      if (cfg.inline){ Array.prototype.forEach.call(row.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ forwardBtn(b, sheetEl); }); }
+      var _cancelG = document.createElement('button');
+      _cancelG.type = 'button';
+      _cancelG.className = 'doc-sheet-action doc-sheet-cancel';
+      _cancelG.textContent = 'Cancel';
+      _cancelG.addEventListener('click', dismiss);
+      sheetEl.appendChild(_cancelG);
+      return true;
     }
     var src = [];
     if (panel){ Array.prototype.forEach.call(panel.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){
@@ -14236,8 +14299,7 @@ const PAGE_SCRIPT = `<script>
       if (isLead && b.getAttribute && (b.getAttribute('data-leadquote') != null || b.getAttribute('data-leadinvoice') != null || b.getAttribute('data-leadjob') != null)) return;
       src.push(b);
     }); }
-    var seen = {};
-    for (var i = 0; i < src.length; i++){ var k = src[i].textContent.trim(); if (k && !seen[k]){ seen[k] = 1; bindAction(src[i], isLead); } }
+    for (var i = 0; i < src.length; i++){ forwardBtn(src[i], sheetEl); }
     var cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
     cancelBtn.className = 'doc-sheet-action doc-sheet-cancel';
