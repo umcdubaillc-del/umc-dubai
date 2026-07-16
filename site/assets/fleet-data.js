@@ -291,7 +291,7 @@ function renderFleet(el, opts){
       `<option value="${p[0]}"${p[0]===defaultEm?" selected":""}>${p[1]}</option>`
     ).join("");
     return `<article class="vcard rv" data-cat="${esc(v.category)}" data-vid="${esc(v.id)}" data-vehicle="${esc(v.name)}">
-      <div class="vimg${v.photo?" photo":""}${v.flipImg?" flip":""}">${cardImg(v)}</div>
+      <div class="vimg${v.photo?" photo":""}${v.flipImg?" flip":""}">${v.page?`<a class="vimg-link" href="${esc(v.page)}" tabindex="-1" aria-hidden="true">${cardImg(v)}</a>`:cardImg(v)}</div>
       <div class="vbody">
         <div class="vtitle"><h3>${v.page?`<a href="${esc(v.page)}">${esc(v.name)}</a>`:esc(v.name)}</h3>${marqueImg(v.marque)}</div>
         <div class="vmeta"><span>${esc(v.category)}</span><span>${v.seats} guests</span><span>${v.luggage} cases</span></div>

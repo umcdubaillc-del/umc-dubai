@@ -1101,6 +1101,11 @@ def _fleet_card_html(v):
         "(max-width:560px) 92vw, (max-width:980px) 45vw, 380px",
         extra_attrs=' width="1200" height="750" decoding="async"')
     vimg_cls = "vimg" + (" photo" if v["photo"] else "") + (" flip" if v["flip"] else "")
+    # UI-4: the card image links to the vehicle page — a redundant mouse affordance
+    # (tabindex=-1, aria-hidden) so it adds no duplicate tab stop; the title <a>
+    # below stays the keyboard/AT path. No nested anchors (siblings, not nested).
+    vimg_inner = (f'<a class="vimg-link" href="{e(v["page"])}" tabindex="-1" aria-hidden="true">{img}</a>'
+                  if v.get("page") else img)
     title = f'<a href="{e(v["page"])}">{e(v["name"])}</a>' if v.get("page") else e(v["name"])
     marque = f'<img class="marque" src="{e(v["marque"])}" alt=""{_dims_attr(v["marque"])} loading="lazy">' if v.get("marque") else ""
     price_html = (f'<span class="from">From</span><b>{from_price}</b><span class="from">all-inclusive</span>'
@@ -1108,7 +1113,7 @@ def _fleet_card_html(v):
     wa = _urlparse.quote(f'Hello UMC Dubai, I would like to reserve the {v["name"]}.', safe="")
     return (
       f'<article class="vcard rv" data-cat="{e(v["category"])}" data-vid="{e(v["id"])}" data-vehicle="{e(v["name"])}" data-fit-guests="{_fit[0]}" data-fit-cases="{_fit[1]}">'
-      f'<div class="{vimg_cls}">{img}</div>'
+      f'<div class="{vimg_cls}">{vimg_inner}</div>'
       f'<div class="vbody">'
       f'<div class="vtitle"><h3>{title}</h3>{marque}</div>'
       f'<div class="vmeta"><span>{e(v["category"])}</span><span>{v["seats"]} guests</span><span>{v["luggage"]} cases</span></div>'
@@ -3064,7 +3069,7 @@ sc_body = header("fleet.html") + f"""
   </div>
   <div class="sc-also__grid">
     <article class="acard">
-      <div class="marque-row"><span class="mk">Bayerische Motoren Werke</span><span class="dash"></span><span>Flagship Sedan</span></div>
+      <div class="marque-row"><span class="mk">BMW</span><span class="dash"></span><span>Flagship Sedan</span></div>
       <h3>BMW 7 Series</h3>
       <div class="strap">The same standard, a different marque.</div>
       <p>An equally composed flagship sedan for clients who prefer the seven to the star. Identical seating, identical luggage, identical chauffeur.</p>
@@ -3191,7 +3196,7 @@ ALL_CARS = {
     "pax": 3, "luggage": "2 medium", "reserve_label": "Reserve the S Class",
   },
   "bmw-7": {
-    "name": "BMW 7 Series", "marque": "Bayerische Motoren Werke", "category": "Flagship Sedan",
+    "name": "BMW 7 Series", "marque": "BMW", "category": "Flagship Sedan",
     "page": "fleet/bmw-7-series", "strap": "Composure, engineered.",
     "ac_body": "An equally composed flagship sedan for clients who prefer the seven to the star.",
     "pax": 3, "luggage": "2 medium", "reserve_label": "Reserve the 7 Series",

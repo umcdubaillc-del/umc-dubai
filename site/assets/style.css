@@ -1,5 +1,5 @@
 /* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
-/* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v87 (DOSSIER-1: events/corporate document grammar). */
+/* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v88 (UI-4: clickable card images). */
 /* P-1: self-hosted fonts (was Google Fonts CDN). Latin subset, OFL-licensed.
    Outfit is a variable font covering 300–500; Marcellus is 400 only. Both are
    font-display:swap so text paints immediately in the fallback then swaps. */
@@ -291,6 +291,8 @@ nav.mainnav .sub-toggle{display:none}
    rule already combines scaleX(-1) with the hover scale, so the .6s
    transition runs on hover only, not on initial render. */
 .vcard .vimg img{width:100%;height:100%;object-fit:cover;mix-blend-mode:multiply;transition:transform .6s ease}
+/* UI-4: card image links to the vehicle page — anchor fills the .vimg flex cell. */
+.vcard .vimg .vimg-link{display:block;width:100%;height:100%}
 .vcard .vimg.photo img{mix-blend-mode:normal}
 .vcard .vimg.flip img{transform:scaleX(-1)}
 /* The shared .vcard:hover .vimg img zoom would otherwise REPLACE scaleX(-1)
