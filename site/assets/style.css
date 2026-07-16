@@ -1,5 +1,5 @@
 /* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
-/* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v90 (corp FAQ reorder + events FAQ section). */
+/* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v91 (DOSSIER-2-POLISH: stamp, signature, timeline, hover). */
 /* P-1: self-hosted fonts (was Google Fonts CDN). Latin subset, OFL-licensed.
    Outfit is a variable font covering 300–500; Marcellus is 400 only. Both are
    font-display:swap so text paints immediately in the fallback then swaps. */
@@ -188,8 +188,14 @@ nav.mainnav .sub-toggle{display:none}
    The sheet is a cream artifact lifted off the page by a border + shadow. */
 .docsheet{--pad:clamp(1.35rem,4vw,2.6rem);max-width:52rem;margin:0 auto;position:relative;overflow:hidden;
   background:var(--bone);color:var(--ink-soft);border:1px solid rgba(34,27,20,.14);border-radius:4px;
-  box-shadow:0 34px 64px -40px rgba(34,27,20,.34);
+  box-shadow:0 30px 60px -36px rgba(34,27,20,.25);
+  transition:transform .35s ease-out, box-shadow .35s ease-out;
   padding:clamp(1.7rem,4vw,2.6rem) var(--pad) 0;font-size:1rem;line-height:1.65}
+.docsheet:hover{transform:translateY(-3px);box-shadow:0 44px 84px -44px rgba(34,27,20,.32)}
+@media(prefers-reduced-motion:reduce){
+  .docsheet{transition:none}
+  .docsheet:hover{transform:none;box-shadow:0 30px 60px -36px rgba(34,27,20,.25)}
+}
 /* Letterhead: lockup left · title/ref/date right · rotated outline stamp */
 .docsheet .doc-lh{display:flex;justify-content:space-between;align-items:flex-start;gap:1.5rem;padding-bottom:1.1rem;border-bottom:1px solid rgba(34,27,20,.18)}
 .doc-lockup{display:flex;flex-direction:column;align-items:flex-start;line-height:1}
@@ -200,7 +206,7 @@ nav.mainnav .sub-toggle{display:none}
 .doc-title{font-family:var(--serif);font-size:clamp(1.35rem,3.6vw,1.9rem);letter-spacing:.16em;text-transform:uppercase;color:var(--ink);line-height:1}
 .doc-ref{font-family:var(--num);font-size:1.02rem;letter-spacing:.05em;color:var(--amber-deep)}
 .doc-date{font-family:var(--sans);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
-.doc-stamp{position:absolute;top:2.1rem;left:38%;transform:rotate(-8deg);font-family:var(--sans);font-size:.7rem;letter-spacing:.28em;text-transform:uppercase;font-weight:500;color:var(--amber-deep);border:1.5px solid var(--amber-deep);border-radius:4px;padding:.26rem .6rem;opacity:.66;pointer-events:none}
+.doc-stamp{align-self:flex-end;margin-top:.55rem;transform:rotate(-6deg);transform-origin:right center;font-family:var(--sans);font-size:.68rem;letter-spacing:.26em;text-transform:uppercase;font-weight:500;color:var(--amber-deep);border:1.5px solid var(--amber-deep);border-radius:4px;padding:.24rem .55rem;opacity:.72;pointer-events:none;white-space:nowrap}
 .doc-stamp--active{color:#2E7D54;border-color:#2E7D54}
 /* Meta label row */
 .doc-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:.9rem;padding:1rem 0;border-bottom:1px solid rgba(34,27,20,.12)}
@@ -231,9 +237,11 @@ nav.mainnav .sub-toggle{display:none}
 .doc-panel-set{display:flex;flex-wrap:wrap;gap:.75rem 2rem}
 .doc-panel-set .dp-i{font-size:.86rem;color:var(--ink)}
 .doc-panel-set .dp-k{display:block;font-family:var(--sans);font-size:8px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin-bottom:.15rem}
-/* Two blank signature rules (corporate) */
-.chg-sign{display:grid;grid-template-columns:1fr 1fr;gap:1.4rem 2.2rem;margin:1.7rem 0 .5rem}
-.chg-sig-rule{display:block;height:1px;background:rgba(34,27,20,.28);margin-bottom:.45rem}
+/* Signature block (corporate) — asymmetric by design: UMC facsimile ON the rule,
+   account side an empty rule with real signing room. Both rules get signing air. */
+.chg-sign{display:grid;grid-template-columns:1fr 1fr;gap:1.6rem 2.6rem;margin:2.1rem 0 .6rem}
+.chg-sig-line{min-height:48px;display:flex;align-items:flex-end;border-bottom:1px solid rgba(34,27,20,.3);padding-bottom:.3rem;margin-bottom:.5rem;overflow:hidden}
+.chg-sig-name{font-family:var(--num);font-style:italic;font-size:1.4rem;line-height:1;color:var(--ink);transform:rotate(-2deg);transform-origin:left bottom;white-space:nowrap}
 .chg-sig-cap{font-family:var(--sans);font-size:8.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
 /* Footnote */
 .doc-note{font-size:.76rem;color:var(--muted);line-height:1.55;margin:1.3rem 0 0;max-width:66ch}
@@ -246,7 +254,6 @@ nav.mainnav .sub-toggle{display:none}
   .docsheet{max-width:none}
   .doc-lh{flex-wrap:wrap}
   .doc-meta{grid-template-columns:repeat(2,1fr);gap:.85rem}
-  .doc-stamp{left:auto;right:1rem;top:1.4rem}
   .chg-art{grid-template-columns:1fr;gap:.1rem}
   .chg-sign{grid-template-columns:1fr;gap:1.3rem}
   .fmo-tt thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}

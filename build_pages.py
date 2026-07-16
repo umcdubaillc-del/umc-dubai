@@ -2080,8 +2080,8 @@ corp_body = header("corporate.html") + f"""
           <div class="doc-title">Account File</div>
           <div class="doc-ref">UMC-CA-2026</div>
           <div class="doc-date">{REVIEWED_LABEL}</div>
+          <span class="doc-stamp doc-stamp--active" aria-hidden="true">Active</span>
         </div>
-        <span class="doc-stamp doc-stamp--active" aria-hidden="true">Active</span>
       </div>
 
       <div class="doc-meta">
@@ -2105,8 +2105,14 @@ corp_body = header("corporate.html") + f"""
       </div>
 
       <div class="chg-sign">
-        <div class="chg-sig"><span class="chg-sig-rule" aria-hidden="true"></span><span class="chg-sig-cap">For UMC In Bound Tour Operator LLC</span></div>
-        <div class="chg-sig"><span class="chg-sig-rule" aria-hidden="true"></span><span class="chg-sig-cap">For the account</span></div>
+        <div class="chg-sig">
+          <div class="chg-sig-line"><span class="chg-sig-name" aria-hidden="true">UMC Dubai</span></div>
+          <span class="chg-sig-cap">Authorised &middot; Concierge desk</span>
+        </div>
+        <div class="chg-sig">
+          <div class="chg-sig-line"></div>
+          <span class="chg-sig-cap">For the account &middot; Authorised signatory</span>
+        </div>
       </div>
 
       <div class="doc-foot">UMCDUBAI.AE</div>
@@ -2237,8 +2243,8 @@ events_body = header("events.html") + f"""
           <div class="doc-title">Movement Order</div>
           <div class="doc-ref">UMC-MO-0147</div>
           <div class="doc-date">{REVIEWED_LABEL}</div>
+          <span class="doc-stamp" aria-hidden="true">Confirmed</span>
         </div>
-        <span class="doc-stamp" aria-hidden="true">Confirmed</span>
       </div>
 
       <div class="doc-meta">
@@ -2252,8 +2258,8 @@ events_body = header("events.html") + f"""
         <thead><tr><th>Time</th><th>Movement</th><th>Vehicle</th><th class="r">Status</th></tr></thead>
         <tbody>
           <tr><td class="tt-t">16:30</td><td>Staging &amp; inspection</td><td class="tt-v">Fleet staged and dressed on site</td><td class="r"><span class="tt-st">Staged</span></td></tr>
-          <tr><td class="tt-t">17:15</td><td>Principal collection</td><td class="tt-v"><a href="/fleet/s-class">S&nbsp;Class</a> &middot; <a href="/fleet/bmw-7-series">7&nbsp;Series</a> <span class="tt-seat">3 seats</span></td><td class="r"><span class="tt-st tt-live">En route</span></td></tr>
-          <tr><td class="tt-t">18:00</td><td>Guest waves</td><td class="tt-v"><a href="/fleet/v-class">V&nbsp;Class</a> &middot; <a href="/fleet/luxury-coach">Coach</a> <span class="tt-seat">7 &middot; 55 seats</span></td><td class="r"><span class="tt-st">Scheduled</span></td></tr>
+          <tr><td class="tt-t">17:15</td><td>Principal collection</td><td class="tt-v"><a href="/fleet/s-class">S&nbsp;Class</a> &middot; <a href="/fleet/bmw-7-series">7&nbsp;Series</a> &middot; <a href="/fleet/rolls-royce">Rolls-Royce</a> <span class="tt-seat">3 seats</span></td><td class="r"><span class="tt-st tt-live">En route</span></td></tr>
+          <tr><td class="tt-t">18:00</td><td>Guest waves</td><td class="tt-v"><a href="/fleet/v-class">V&nbsp;Class</a> &middot; <a href="/fleet/cadillac-escalade">Cadillac&nbsp;Escalade</a> &middot; <a href="/fleet/luxury-coach">Coach</a> <span class="tt-seat">6&ndash;55 seats</span></td><td class="r"><span class="tt-st">Scheduled</span></td></tr>
           <tr><td class="tt-t">&mdash;</td><td>Contingency hold</td><td class="tt-v">Reserve vehicle standing</td><td class="r"><span class="tt-st">Standing</span></td></tr>
         </tbody>
       </table>
