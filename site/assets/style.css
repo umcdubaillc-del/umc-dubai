@@ -1,5 +1,5 @@
 /* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
-/* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v92 (DOSSIER-2-NITS: lockup center, script sig, status align). */
+/* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v93 (DOSSIER-NIT-4: mobile status first-line anchor). */
 /* P-1: self-hosted fonts (was Google Fonts CDN). Latin subset, OFL-licensed.
    Outfit is a variable font covering 300–500; Marcellus is 400 only. Both are
    font-display:swap so text paints immediately in the fallback then swaps. */
@@ -258,11 +258,15 @@ nav.mainnav .sub-toggle{display:none}
   .chg-art{grid-template-columns:1fr;gap:.1rem}
   .chg-sign{grid-template-columns:1fr;gap:1.3rem}
   .fmo-tt thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-  .fmo-tt tr{display:grid;grid-template-columns:auto 1fr auto;gap:.2rem .8rem;padding:.75rem 0;border-bottom:1px solid rgba(34,27,20,.1);align-items:center}
+  /* Row-1 items top-align so the status anchors to the FIRST line (time + movement
+     title) and never drifts when the movement title wraps to a 2nd line. The status
+     gets a line-box equal to the time's (1.02rem × 1.4 = 1.428rem) so, top-aligned,
+     its micro-caps centre on the first line exactly as the time does — uniform. */
+  .fmo-tt tr{display:grid;grid-template-columns:auto 1fr auto;gap:.2rem .8rem;padding:.75rem 0;border-bottom:1px solid rgba(34,27,20,.1);align-items:start}
   .fmo-tt td{border:0;padding:0}
-  .fmo-tt .tt-t{grid-column:1;grid-row:1;font-size:1.02rem}
-  .fmo-tt td:nth-child(2){grid-column:2;grid-row:1;font-weight:500;color:var(--ink)}
-  .fmo-tt .r{grid-column:3;grid-row:1;text-align:right}
+  .fmo-tt .tt-t{grid-column:1;grid-row:1;font-size:1.02rem;line-height:1.4}
+  .fmo-tt td:nth-child(2){grid-column:2;grid-row:1;font-weight:500;color:var(--ink);line-height:1.4}
+  .fmo-tt .r{grid-column:3;grid-row:1;text-align:right;line-height:1.428rem}
   .fmo-tt .tt-v{grid-column:1 / -1;grid-row:2;color:var(--ink-soft);font-size:.82rem}
 }
 
