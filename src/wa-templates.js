@@ -331,6 +331,72 @@ export const WA_TEMPLATES = {
       },
       { type: "FOOTER", text: "UMC Dubai · umcdubai.ae" }
     ]
+  },
+
+  // WA-5-B1 §2 — Assistant PAYMENT PROPOSAL to the TEAM (not the client). Nothing
+  // auto-sends: this template RAISES a proposal into the wa_team channel with two
+  // quick-reply buttons; a human tap approves the client send. Used as the
+  // closed-window fallback — inside the 24h team window the assistant raises the same
+  // proposal free-form (interactive buttons, no template). Quick-reply buttons carry
+  // NO payload at creation; the per-proposal payload (APPROVE:{id} / SKIP:{id}) is
+  // supplied at SEND time via the button component. Body must not end on a variable.
+  // {{1}} client name, {{2}} amount (AED), {{3}} one-line summary, {{4}} masked number.
+  payment_proposal: {
+    name: "payment_proposal",
+    category: "UTILITY",
+    language: "en",
+    components: [
+      {
+        type: "BODY",
+        text:
+          "💳 Payment received — {{1}} · AED {{2}}. {{3}}. Send the confirmation to {{4}}?",
+        example: {
+          body_text: [[
+            "Sarah Wells", "450",
+            "Mercedes S-Class · 12 Jun, 14:30 · DXB T3 → Downtown Dubai",
+            "•••• 1234"
+          ]]
+        }
+      },
+      { type: "FOOTER", text: "UMC Dubai · umcdubai.ae" },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "QUICK_REPLY", text: "Send ✓" },
+          { type: "QUICK_REPLY", text: "Skip" }
+        ]
+      }
+    ]
+  },
+
+  // WA-5-B1 §2 — Assistant FLIGHT PROPOSAL to the TEAM (not the client). Raised only
+  // for a delay-class change once the F-gates pass; cancelled/diverted/early stay plain
+  // team alerts (never a proposal). Same ask-first mechanics as payment_proposal: a
+  // human tap approves the client delay update. Quick-reply payloads
+  // (APPROVE:{id} / SKIP:{id}) are supplied at SEND time. Body must not end on a variable.
+  // {{1}} flight code, {{2}} new ETA (Dubai time), {{3}} client name.
+  flight_proposal: {
+    name: "flight_proposal",
+    category: "UTILITY",
+    language: "en",
+    components: [
+      {
+        type: "BODY",
+        text:
+          "✈️ {{1}} delayed — new ETA {{2}} (Dubai time) · affects {{3}}'s pickup. Send the update?",
+        example: {
+          body_text: [["EK203", "18:45", "Sarah Wells"]]
+        }
+      },
+      { type: "FOOTER", text: "UMC Dubai · umcdubai.ae" },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "QUICK_REPLY", text: "Send ✓" },
+          { type: "QUICK_REPLY", text: "Skip" }
+        ]
+      }
+    ]
   }
 };
 
