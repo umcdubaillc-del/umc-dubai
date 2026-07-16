@@ -5295,36 +5295,63 @@ function parseAmountReply(text) {
   return { amount: String(num), vat };
 }
 
-// Deliver a raised proposal to the team as a free-form interactive button message.
-// Buttons carry APPROVE:{id} / SKIP:{id} so a tap round-trips to the decision handler.
-// Rides WA_SEND_ENABLED (team messages). Returns the count delivered.
-async function deliverProposalToTeam(env, proposalId, promptText) {
-  if (env.WA_SEND_ENABLED !== "1") return 0;
+// Interactive [Send ✓][Skip] button payload for a proposal (free-form; in-window only).
+function proposalInteractive(to, proposalId, promptText) {
+  return {
+    messaging_product: "whatsapp", to, type: "interactive",
+    interactive: {
+      type: "button", body: { text: promptText }, footer: { text: "UMC Dubai · umcdubai.ae" },
+      action: { buttons: [
+        { type: "reply", reply: { id: "APPROVE:" + proposalId, title: "Send ✓" } },
+        { type: "reply", reply: { id: "SKIP:" + proposalId, title: "Skip" } }
+      ] }
+    }
+  };
+}
+
+// Deliver a raised proposal to each active team member — STATUS-VERIFIABLE and never
+// silent. A free-form interactive message only reaches a member whose 24h window is
+// open, and WhatsApp *accepts* one for a closed window then fails it async (131047), so
+// acceptance is not delivery. We therefore decide per member from our own inbound
+// record (clientWindowOpen): open → interactive buttons; closed → an approved fallback
+// template (opts.fallbackFor) so the team is still notified and can act manually until
+// payment_proposal/flight_proposal clear Meta review. Every send is ledgered in
+// wa_outbound (kind 'proposal_deliver') so the status webhook confirms real delivery.
+// Rides WA_SEND_ENABLED. Returns { accepted, results:[{to,mode,ok,wamid,errorCode}] }.
+async function deliverProposalToTeam(env, proposalId, promptText, opts) {
+  opts = opts || {};
+  if (env.WA_SEND_ENABLED !== "1") return { accepted: 0, results: [] };
   const team = await getActiveWaTeam(env);
-  let delivered = 0;
+  const results = [];
   for (const m of team) {
     const to = waMeNumber(m.phone); if (to.length < 8) continue;
-    const r = await waGraphSend(env, {
-      messaging_product: "whatsapp", to, type: "interactive",
-      interactive: {
-        type: "button",
-        body: { text: promptText },
-        footer: { text: "UMC Dubai · umcdubai.ae" },
-        action: { buttons: [
-          { type: "reply", reply: { id: "APPROVE:" + proposalId, title: "Send ✓" } },
-          { type: "reply", reply: { id: "SKIP:" + proposalId, title: "Skip" } }
-        ] }
-      }
+    const open = await clientWindowOpen(env, to);
+    let payload = null, mode;
+    if (open) { mode = "interactive"; payload = proposalInteractive(to, proposalId, promptText); }
+    else { payload = opts.fallbackFor ? opts.fallbackFor(to) : null; mode = payload ? "fallback_template" : "undeliverable"; }
+    const rowId = await claimOutbound(env, {
+      lead_id: opts.leadId == null ? null : opts.leadId, kind: "proposal_deliver",
+      recipient: to, template: mode, dedupe_key: "propdeliver:" + proposalId + ":" + to,
+      meta_json: JSON.stringify({ proposalId, mode })
     });
-    if (r.ok) delivered++;
+    if (!payload) {
+      if (rowId) await finishOutbound(env, rowId, { status: "skipped", errorCode: "out_of_window_no_template" });
+      results.push({ to, mode, ok: false });
+      continue;
+    }
+    const r = await waGraphSend(env, payload);
+    if (rowId) await finishOutbound(env, rowId, r);
+    results.push({ to, mode, ok: r.ok, wamid: r.wamid, errorCode: r.errorCode });
   }
-  return delivered;
+  return { accepted: results.filter((x) => x.ok).length, results };
 }
 
 // Raise a proposal: insert the ledger row (pending), then deliver it to the team.
 // A UNIQUE dedupe_key makes raises idempotent (a webhook retry re-raises nothing).
-// opts: { kind, leadId, jobId, paymentId, promptText, composedMessage, targetE164, dedupeKey }
-// Returns { id, delivered, duplicate }.
+// opts: { kind, leadId, jobId, paymentId, promptText, composedMessage, targetE164,
+//         dedupeKey, metaJson, fallbackFor }  — fallbackFor(to) builds an APPROVED
+// template payload for out-of-window team members (see deliverProposalToTeam).
+// Returns { id, accepted, results, duplicate }.
 export async function raiseProposal(env, opts) {
   await ensureSchema(env);
   const now = new Date().toISOString();
@@ -5342,10 +5369,11 @@ export async function raiseProposal(env, opts) {
     ).run();
     id = ins.meta ? ins.meta.last_row_id : null;
   } catch (e) {
-    return { id: null, delivered: 0, duplicate: true }; // dedupe_key collision → already raised
+    return { id: null, accepted: 0, results: [], duplicate: true }; // dedupe_key collision → already raised
   }
-  const delivered = await deliverProposalToTeam(env, id, opts.promptText || opts.composedMessage || "");
-  return { id, delivered, duplicate: false };
+  const del = await deliverProposalToTeam(env, id, opts.promptText || opts.composedMessage || "",
+    { leadId: opts.leadId, fallbackFor: opts.fallbackFor });
+  return { id, accepted: del.accepted, results: del.results, duplicate: false };
 }
 
 // Send the approved client message for a proposal. Window-aware: free-form text inside
@@ -5495,14 +5523,20 @@ async function deliverQuotePreview(env, toMember, proposalId, previewText, isEdi
     ] }
   };
   const combined = header + "\n\n" + previewText;
-  if (combined.length <= 1000) {
-    buttons.body.text = combined;
-    const r = await waGraphSend(env, { messaging_product: "whatsapp", to, type: "interactive", interactive: buttons });
-    return r.ok ? 1 : 0;
+  const buttonBody = combined.length <= 1000 ? combined : "Send this quote to the client?";
+  if (combined.length > 1000) {
+    await waGraphSend(env, { messaging_product: "whatsapp", to, type: "text", text: { preview_url: false, body: header + "\n\n" + previewText } });
   }
-  await waGraphSend(env, { messaging_product: "whatsapp", to, type: "text", text: { preview_url: false, body: header + "\n\n" + previewText } });
-  buttons.body.text = "Send this quote to the client?";
+  buttons.body.text = buttonBody;
+  // Ledger the preview send (kind 'proposal_deliver') so its delivery is status-verifiable
+  // like every other proposal send. dedupe_key holds only the latest attempt's edit-round.
+  const rowId = await claimOutbound(env, {
+    lead_id: null, kind: "proposal_deliver", recipient: to, template: "quote_preview",
+    dedupe_key: "propdeliver:" + proposalId + ":" + to + ":" + (isEdit ? "edit" : "new"),
+    meta_json: JSON.stringify({ proposalId, mode: "quote_preview", isEdit: !!isEdit })
+  });
   const r = await waGraphSend(env, { messaging_product: "whatsapp", to, type: "interactive", interactive: buttons });
+  if (rowId) await finishOutbound(env, rowId, r);
   return r.ok ? 1 : 0;
 }
 
@@ -5696,12 +5730,43 @@ export async function handleAssistant(request, env, ctx) {
         "\nThe client is on " + maskNumber(to) + " — send the confirmation? [TEST]";
       const composed = "Dear " + firstName + ", thank you — we have received your payment of AED " + amountStr +
         ". Your booking is confirmed and your concierge will share the final arrangements shortly.\n\nWarm regards,\nUMC Dubai";
+      // Structural fallback for out-of-window team members (payment_proposal still PENDING
+      // at Meta): the approved payment_alert template with a tap-to-send client link.
+      const clientLink = (await createWaLink(env, { leadId: lead.id, purpose: "payment", toPhone: lead.phone, prefill: composed }))
+        || "No WhatsApp number on file";
+      const fallbackFor = (mto) => ({
+        messaging_product: "whatsapp", to: mto, type: "template",
+        template: { name: "payment_alert", language: { code: "en" }, components: [{ type: "body", parameters: [
+          { type: "text", text: name }, { type: "text", text: amountStr },
+          { type: "text", text: summary }, { type: "text", text: clientLink }
+        ] }] }
+      });
       const res = await raiseProposal(env, {
         kind: "payment", leadId: lead.id, paymentId: "TEST-" + new Date().toISOString(),
         promptText: prompt, composedMessage: composed, targetE164: to,
-        dedupeKey: "proposal:test:" + lead.id + ":" + new Date().toISOString()
+        dedupeKey: "proposal:test:" + lead.id + ":" + new Date().toISOString(), fallbackFor
       });
       return json({ ok: true, raised: res }, 200);
+    }
+    if (body.action === "delivery-status") {
+      // Verify a proposal's delivery + client send against the STATUS webhook truth
+      // (never acceptance): reads the ledgered proposal_deliver rows and the client send.
+      const pid = Number(body.proposal_id);
+      if (!pid) return json({ ok: false, error: "proposal_id required" }, 400);
+      const prop = await env.BILLING_DB.prepare(
+        `SELECT id, kind, lead_id, target_e164, status, raised_at, decided_at, decided_by, wamid_out FROM wa_proposals WHERE id=?`
+      ).bind(pid).first();
+      const { results: delivery } = await env.BILLING_DB.prepare(
+        `SELECT recipient, template AS mode, status, error_code, wamid, updated_at
+           FROM wa_outbound WHERE kind='proposal_deliver' AND dedupe_key LIKE ? ORDER BY id`
+      ).bind("propdeliver:" + pid + ":%").all();
+      let clientSend = null;
+      if (prop && prop.wamid_out) {
+        clientSend = await env.BILLING_DB.prepare(
+          `SELECT recipient, kind, status, error_code, wamid, updated_at FROM wa_outbound WHERE wamid=?`
+        ).bind(prop.wamid_out).first();
+      }
+      return json({ ok: true, proposal: prop, delivery: delivery || [], clientSend }, 200);
     }
     return json({ ok: false, error: "unknown action" }, 400);
   }
