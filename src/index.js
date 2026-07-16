@@ -1292,14 +1292,29 @@ async function captureWhatsAppLead(env, ctx, change) {
   if (env.SHEETS_WEBHOOK_URL) ctx.waitUntil(appendSheet(env, payload).catch(() => {}));
 }
 
+// D1 statements are capped (~100 KB); a WhatsApp history re-sync delivers very large
+// phased chunks (whole conversations in one change), so payload_json is size-guarded and
+// each row is written independently — an oversized/odd chunk is truncated (never lost
+// wholesale) and one bad row never aborts the rest of the batch or the webhook's 200.
+const WA_EVENT_MAX = 80000; // chars of payload_json kept; margin under the D1 limit.
 async function storeWaEvents(env, rows) {
   if (!env.BILLING_DB || !rows || !rows.length) return;
   await ensureWaEventsSchema(env);
   const now = new Date().toISOString();
   for (const r of rows) {
-    await env.BILLING_DB.prepare(
-      `INSERT INTO wa_events (event_type, wa_id, waba_id, payload_json, received_at) VALUES (?,?,?,?,?)`
-    ).bind(r.eventType || "unknown", r.waId || "", r.waba || "", r.payload || "", now).run();
+    let payload = r.payload || "";
+    if (payload.length > WA_EVENT_MAX) {
+      payload = payload.slice(0, WA_EVENT_MAX) + "…[truncated " + (payload.length - WA_EVENT_MAX) + " chars]";
+    }
+    try {
+      await env.BILLING_DB.prepare(
+        `INSERT INTO wa_events (event_type, wa_id, waba_id, payload_json, received_at) VALUES (?,?,?,?,?)`
+      ).bind(r.eventType || "unknown", r.waId || "", r.waba || "", payload, now).run();
+    } catch (e) {
+      // Never let one row fail the batch — log and continue so history sync + the live
+      // events in the same delivery are still stored.
+      console.error("WA storeWaEvents row failed", r.eventType, e && (e.message || String(e)));
+    }
   }
 }
 
