@@ -5234,6 +5234,15 @@ function maskNumber(e164) {
   return "•••• " + d.slice(-4);
 }
 
+// Canonical payment-proposal prompt for the team. The interactive variant MUST carry the
+// target line ("The client is on ••••XXXX") exactly like the template's {{4}} so the
+// decider always sees WHERE Send will fire before tapping. Used by the staged-test raise
+// and the Phase 5 payment reroute so both read identically. maskedTarget = maskNumber(to).
+function paymentProposalPrompt(name, amount, summary, maskedTarget, test) {
+  return "💳 Payment received — " + name + " · AED " + amount + ".\n" + summary +
+    "\nThe client is on " + maskedTarget + " — send the confirmation?" + (test ? " [TEST]" : "");
+}
+
 // Authorized decision numbers. Default: every active wa_team member. Phase 6 can
 // narrow this with app_settings key 'assistant_decision_numbers' (comma/space list).
 async function getAuthorizedDecisionNumbers(env) {
@@ -5376,25 +5385,52 @@ export async function raiseProposal(env, opts) {
   return { id, accepted: del.accepted, results: del.results, duplicate: false };
 }
 
-// Send the approved client message for a proposal. Window-aware: free-form text inside
-// the client's 24h window (out-of-window falls back to a team prefill via the caller).
-// Rides WA_SEND_ENABLED (human-initiated). Records the send in the wa_outbound ledger.
-// The single-send guarantee comes from the caller's pending→sent status claim, so the
-// ledger row uses no blocking dedupe key. Returns { ok, wamid, reason }.
+// Send the approved CLIENT message for a proposal. FOOTER RULING (owner): client-facing
+// confirmations ALWAYS go as TEMPLATES (the brand footer "UMC Dubai · umcdubai.ae" is
+// mandatory and only templates carry it), regardless of the 24h window. So a payment
+// approval sends the footer-bearing payment_received TEMPLATE (P1 reachability gate; no
+// window needed — templates deliver anytime). Free-form stays only for non-confirmation
+// kinds. Rides WA_SEND_ENABLED. The single-send guarantee comes from the caller's
+// pending→sent status claim, so the ledger row uses no blocking dedupe key.
+// Returns { ok, wamid, reason }.
 async function sendProposalApproved(env, proposal) {
+  if (env.WA_SEND_ENABLED !== "1") return { ok: false, reason: "wa_send_off" };
   const to = waMeNumber(proposal.target_e164 || "");
   if (!to) return { ok: false, reason: "no_number" };
-  if (env.WA_SEND_ENABLED !== "1") return { ok: false, reason: "wa_send_off" };
-  if (!(await clientWindowOpen(env, to))) return { ok: false, reason: "window_closed" };
-  const body = (proposal.composed_message || "").trim();
-  if (!body) return { ok: false, reason: "empty_message" };
+  const meta = safeJson(proposal.meta_json) || {};
+
+  let sendPayload, template;
+  if (proposal.kind === "payment") {
+    const lead = proposal.lead_id ? await env.BILLING_DB.prepare(
+      `SELECT id, name, phone, whatsapp_reachable, vehicle, pickup, destination, date, time FROM leads WHERE id=?`
+    ).bind(proposal.lead_id).first() : null;
+    // P1 reachability — never blind-send: number proven the client's (flag or prior inbound).
+    const reachable = (lead && lead.whatsapp_reachable === "yes") || await leadHasInboundHistory(env, to);
+    if (!reachable) return { ok: false, reason: "unreachable" };
+    const firstName = ((lead && waNz(lead.name)) || "there").split(/\s+/)[0];
+    const amount = meta.amount ? String(meta.amount) : "";
+    const summary = meta.summary || (lead ? waLeadSummary(lead) : "") || "Your booking";
+    template = "payment_received";
+    sendPayload = {
+      messaging_product: "whatsapp", to, type: "template",
+      template: { name: "payment_received", language: { code: "en" }, components: [{ type: "body", parameters: [
+        { type: "text", text: firstName }, { type: "text", text: amount }, { type: "text", text: summary }
+      ] }] }
+    };
+  } else {
+    // Non-confirmation kinds (team/conversational): free-form, window-gated.
+    if (!(await clientWindowOpen(env, to))) return { ok: false, reason: "window_closed" };
+    const body = (proposal.composed_message || "").trim();
+    if (!body) return { ok: false, reason: "empty_message" };
+    template = "freeform";
+    sendPayload = { messaging_product: "whatsapp", to, type: "text", text: { preview_url: false, body } };
+  }
+
   const rowId = await claimOutbound(env, {
-    lead_id: proposal.lead_id, kind: "proposal_" + proposal.kind, recipient: to, template: "freeform",
+    lead_id: proposal.lead_id, kind: "proposal_" + proposal.kind, recipient: to, template,
     dedupe_key: null, meta_json: JSON.stringify({ proposalId: proposal.id })
   });
-  const result = await waGraphSend(env, {
-    messaging_product: "whatsapp", to, type: "text", text: { preview_url: false, body }
-  });
+  const result = await waGraphSend(env, sendPayload);
   if (rowId) await finishOutbound(env, rowId, {
     status: result.ok ? "sent" : "failed", wamid: result.wamid,
     errorCode: result.ok ? null : (result.errorCode || "send_failed")
@@ -5706,7 +5742,7 @@ export async function handleAssistant(request, env, ctx) {
          FROM wa_proposals ORDER BY id DESC LIMIT 50`
     ).all();
     // Deploy marker so the running bundle is verifiable at a glance (bump per WA-5 deploy).
-    return json({ ok: true, build: "wa5-histguard", proposals: results || [] }, 200);
+    return json({ ok: true, build: "wa5-footer-target", proposals: results || [] }, 200);
   }
 
   if (request.method === "POST") {
@@ -5724,16 +5760,16 @@ export async function handleAssistant(request, env, ctx) {
       const to = waMeNumber(lead.phone);
       if (!to) return json({ ok: false, error: "lead has no usable WhatsApp number" }, 400);
       const name = waNz(lead.name) || "the client";
-      const firstName = name.split(/\s+/)[0];
       const summary = waLeadSummary(lead) || "Booking";
       const amountStr = body.amount ? String(body.amount) : "1";
-      const prompt = "💳 Payment received — " + name + " · AED " + amountStr + ".\n" + summary +
-        "\nThe client is on " + maskNumber(to) + " — send the confirmation? [TEST]";
-      const composed = "Dear " + firstName + ", thank you — we have received your payment of AED " + amountStr +
-        ". Your booking is confirmed and your concierge will share the final arrangements shortly.\n\nWarm regards,\nUMC Dubai";
+      const prompt = paymentProposalPrompt(name, amountStr, summary, maskNumber(to), true);
       // Structural fallback for out-of-window team members (payment_proposal still PENDING
-      // at Meta): the approved payment_alert template with a tap-to-send client link.
-      const clientLink = (await createWaLink(env, { leadId: lead.id, purpose: "payment", toPhone: lead.phone, prefill: composed }))
+      // at Meta): the approved payment_alert template with a tap-to-send client link. The
+      // client confirmation itself goes as the payment_received TEMPLATE on approve
+      // (FOOTER RULING) — amount + summary are stored in meta for that send.
+      const clientPrefill = "Dear " + name.split(/\s+/)[0] + ", thank you — we have received your payment of AED " +
+        amountStr + ". Your booking is confirmed and your concierge will share the final arrangements shortly.";
+      const clientLink = (await createWaLink(env, { leadId: lead.id, purpose: "payment", toPhone: lead.phone, prefill: clientPrefill }))
         || "No WhatsApp number on file";
       const fallbackFor = (mto) => ({
         messaging_product: "whatsapp", to: mto, type: "template",
@@ -5744,7 +5780,7 @@ export async function handleAssistant(request, env, ctx) {
       });
       const res = await raiseProposal(env, {
         kind: "payment", leadId: lead.id, paymentId: "TEST-" + new Date().toISOString(),
-        promptText: prompt, composedMessage: composed, targetE164: to,
+        promptText: prompt, targetE164: to, metaJson: { amount: amountStr, summary },
         dedupeKey: "proposal:test:" + lead.id + ":" + new Date().toISOString(), fallbackFor
       });
       return json({ ok: true, raised: res }, 200);
