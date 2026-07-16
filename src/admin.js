@@ -4851,13 +4851,14 @@ async function resolvePaidLead(env, linkId, chargeId) {
   ).bind(leadId).first();
 }
 
-// WA-3-AMEND — payment_received CLIENT auto-send (hardened), mirrored to the team.
-// Gates: P1 reachability (whatsapp_reachable='yes' OR prior inbound), P2 idempotent
-// per payment id forever, P3 only a genuine PAID event, P4 actual charged amount +
-// AED-only, P5 team mirror/alert carries name+amount+link id, P6 no quiet hours.
-// A never-reachable number gets a TEAM prefill alert instead of a client send (privacy).
-// A failed client send falls back to a team prefill alert. Client send rides
-// WA_CLIENT_SENDS_ENABLED; team messages ride WA_SEND_ENABLED.
+// WA-3-AMEND / WA-5-B1 Phase 5 — payment path on a Nomod PAID event. Gates: P1
+// reachability (whatsapp_reachable='yes' OR prior inbound), P2 idempotent per payment id
+// forever, P3 only a genuine PAID event, P4 actual charged amount + AED-only, P5 team
+// mirror/alert carries name+amount+link id. A never-reachable number gets a TEAM prefill
+// alert instead (privacy). Once the gates pass, the receipt is NOT auto-sent — a payment
+// PROPOSAL is raised into the team channel and a human tap fires payment_received. Team
+// messages + the proposal ride WA_SEND_ENABLED; WA_CLIENT_SENDS_ENABLED is retired
+// (permanent 0, legacy) — the human tap is the authorization.
 async function sendPaymentConfirmation(env, ctx, info) {
   if (!env.BILLING_DB) return;
   const stampNote = async (note) => {
@@ -4912,39 +4913,32 @@ async function sendPaymentConfirmation(env, ctx, info) {
     return;
   }
 
-  // Client auto-send (rides WA_CLIENT_SENDS_ENABLED). Inert otherwise.
-  if (env.WA_CLIENT_SENDS_ENABLED !== "1") {
-    await finishOutbound(env, lockId, { status: "skipped", errorCode: "client_disabled" });
-    await stampNote("Client receipt ready (client sending is off)." + mirrorTag);
-    return;
-  }
-  const clientRow = await claimOutbound(env, {
-    lead_id: lead.id, kind: "payment", recipient: to, template: "payment_received",
-    dedupe_key: "payment:" + payId + ":client", meta_json: JSON.stringify({ amount: amountStr })
+  // WA-5-B1 Phase 5 — REROUTE: never auto-send the client receipt. Raise a payment
+  // PROPOSAL into the team channel; a human tap fires the footer-bearing payment_received
+  // template (handleWaProposalDecision → sendProposalApproved). The proposal rides
+  // WA_SEND_ENABLED; the human tap IS the authorization. WA_CLIENT_SENDS_ENABLED is
+  // retired (permanent 0, legacy) — the payment path no longer consults it. All P-gates
+  // above were evaluated at raise-time; they are re-checked at send-time on approve.
+  const prompt = paymentProposalPrompt(clientName, amountStr, summary, maskNumber(to), false);
+  const fallbackFor = (mto) => ({
+    messaging_product: "whatsapp", to: mto, type: "template",
+    template: { name: "payment_alert", language: { code: "en" }, components: [{ type: "body", parameters: [
+      { type: "text", text: clientName }, { type: "text", text: amountStr },
+      { type: "text", text: summary }, { type: "text", text: clientLink }
+    ] }] }
   });
-  const result = await waGraphSend(env, {
-    messaging_product: "whatsapp", to, type: "template",
-    template: { name: "payment_received", language: { code: "en" },
-      components: [{ type: "body", parameters: [
-        { type: "text", text: firstName },
-        { type: "text", text: amountStr },
-        { type: "text", text: summary }
-      ] }] }
+  const raised = await raiseProposal(env, {
+    kind: "payment", leadId: lead.id, paymentId: payId,
+    promptText: prompt, composedMessage: clientPrefill, targetE164: to,
+    metaJson: { amount: amountStr, summary }, dedupeKey: "payment:" + payId, fallbackFor
   });
-  if (clientRow) await finishOutbound(env, clientRow, result);
-  await finishOutbound(env, lockId, { status: result.ok ? "sent" : "failed", errorCode: result.ok ? null : (result.errorCode || "send_failed") });
-  if (result.ok) {
-    // Team MIRROR — the team sees exactly what the client saw, the moment they saw it.
-    await teamFreeform(env,
-      "Receipt sent to " + clientName + ": AED " + amountStr + " received — " + summary + "." + mirrorTag,
-      "paymirror:" + payId, "payment_mirror", lead.id);
-    await stampNote("Payment receipt sent to the client + mirrored to team." + mirrorTag);
-    if (ctx && ctx.waitUntil) ctx.waitUntil(maybeQuotaAlert(env).catch(() => {})); else await maybeQuotaAlert(env);
-  } else {
-    // Failed client send → team prefill fallback so a human can send it manually.
-    await teamPaymentAlert(env, lead, amountStr, summary, clientLink, payId + ":fail");
-    await stampNote("Client receipt FAILED (code " + (result.errorCode || "?") + ") — team prefill fallback sent." + mirrorTag);
-  }
+  await finishOutbound(env, lockId, {
+    status: raised.duplicate ? "skipped" : "sent",
+    errorCode: raised.duplicate ? "dupe_proposal" : null
+  });
+  await stampNote(raised.duplicate
+    ? ("Payment proposal already raised for this payment — no duplicate." + mirrorTag)
+    : ("Payment proposal raised to the team (" + raised.accepted + " delivered) — awaiting a human tap to send the receipt." + mirrorTag));
 }
 
 // ── Gate H rider — monthly template-send cost guard ──────────────────────────
@@ -5243,6 +5237,14 @@ function paymentProposalPrompt(name, amount, summary, maskedTarget, test) {
     "\nThe client is on " + maskedTarget + " — send the confirmation?" + (test ? " [TEST]" : "");
 }
 
+// Canonical flight-proposal prompt for the team. Carries the target line too (fix-1
+// principle: the decider always sees WHERE Send will fire). etaWithTz already includes
+// "(Dubai time)". maskedTarget = maskNumber(clientTo).
+function flightProposalPrompt(flight, etaWithTz, name, maskedTarget) {
+  return "✈️ " + flight + " delayed — new ETA " + etaWithTz + " · affects " + name + "'s pickup.\n" +
+    "The client is on " + maskedTarget + " — send the update?";
+}
+
 // Authorized decision numbers. Default: every active wa_team member. Phase 6 can
 // narrow this with app_settings key 'assistant_decision_numbers' (comma/space list).
 async function getAuthorizedDecisionNumbers(env) {
@@ -5400,22 +5402,28 @@ async function sendProposalApproved(env, proposal) {
   const meta = safeJson(proposal.meta_json) || {};
 
   let sendPayload, template;
-  if (proposal.kind === "payment") {
+  if (proposal.kind === "payment" || proposal.kind === "flight") {
+    // FOOTER RULING — client confirmations always go as footer-bearing templates,
+    // P1/F8-reachability-gated, window-independent (templates deliver anytime).
     const lead = proposal.lead_id ? await env.BILLING_DB.prepare(
       `SELECT id, name, phone, whatsapp_reachable, vehicle, pickup, destination, date, time FROM leads WHERE id=?`
     ).bind(proposal.lead_id).first() : null;
-    // P1 reachability — never blind-send: number proven the client's (flag or prior inbound).
     const reachable = (lead && lead.whatsapp_reachable === "yes") || await leadHasInboundHistory(env, to);
     if (!reachable) return { ok: false, reason: "unreachable" };
     const firstName = ((lead && waNz(lead.name)) || "there").split(/\s+/)[0];
-    const amount = meta.amount ? String(meta.amount) : "";
-    const summary = meta.summary || (lead ? waLeadSummary(lead) : "") || "Your booking";
-    template = "payment_received";
+    let params;
+    if (proposal.kind === "payment") {
+      const amount = meta.amount ? String(meta.amount) : "";
+      const summary = meta.summary || (lead ? waLeadSummary(lead) : "") || "Your booking";
+      template = "payment_received"; params = [firstName, amount, summary];
+    } else {
+      // flight_delay_update: {{1}} first name, {{2}} flight code, {{3}} new local ETA "(Dubai time)".
+      template = "flight_delay_update"; params = [firstName, meta.flight || "", meta.eta || ""];
+    }
     sendPayload = {
       messaging_product: "whatsapp", to, type: "template",
-      template: { name: "payment_received", language: { code: "en" }, components: [{ type: "body", parameters: [
-        { type: "text", text: firstName }, { type: "text", text: amount }, { type: "text", text: summary }
-      ] }] }
+      template: { name: template, language: { code: "en" },
+        components: [{ type: "body", parameters: params.map((t) => ({ type: "text", text: String(t) })) }] }
     };
   } else {
     // Non-confirmation kinds (team/conversational): free-form, window-gated.
@@ -5742,7 +5750,7 @@ export async function handleAssistant(request, env, ctx) {
          FROM wa_proposals ORDER BY id DESC LIMIT 50`
     ).all();
     // Deploy marker so the running bundle is verifiable at a glance (bump per WA-5 deploy).
-    return json({ ok: true, build: "wa5-footer-target", proposals: results || [] }, 200);
+    return json({ ok: true, build: "wa5-phase5-reroute", proposals: results || [] }, 200);
   }
 
   if (request.method === "POST") {
@@ -5896,23 +5904,32 @@ export async function runFlightWatch(env) {
           "delayunreach:" + delayMin);
         return false;
       }
-      if (env.WA_CLIENT_SENDS_ENABLED !== "1") { console.log("FLIGHT dry-run: would send delay to client lead#" + fw.lead_id + " " + flightNo + " " + delayMin + "min ETA " + eta3); return false; }
-      const row = await claimOutbound(env, { lead_id: fw.lead_id, kind: "flight", recipient: clientTo, template: "flight_delay_update",
-        dedupe_key: "flightclient:" + fw.lead_id + ":" + delayMin, meta_json: JSON.stringify({ flight: flightNo, eta: eta3, delayMin }) });
-      if (!row) return false;
-      const result = await waGraphSend(env, { messaging_product: "whatsapp", to: clientTo, type: "template",
-        template: { name: "flight_delay_update", language: { code: "en" },
-          components: [{ type: "body", parameters: [
-            { type: "text", text: firstName }, { type: "text", text: flightNo }, { type: "text", text: eta3 } ] }] } });
-      await finishOutbound(env, row, result);
-      if (result.ok) {
-        await teamFreeform(env, "Client told: " + flightNo + " delayed ~" + delayMin + " min, ETA " + eta3 + " (" + clientName + ").", "flightmirror:" + fw.lead_id + ":" + delayMin, "flight_mirror", fw.lead_id);
-        await maybeQuotaAlert(env);
-        return true;
-      }
-      await teamOnly("delay message to the client FAILED (code " + (result.errorCode || "?") + ") — send manually. ETA " + eta3,
-        "your flight " + flightNo + " is now expected around " + eta3 + ".", "delayfail:" + delayMin);
-      return false;
+      // WA-5-B1 Phase 5 — REROUTE: raise a flight PROPOSAL instead of auto-sending; a
+      // human tap fires the footer-bearing flight_delay_update template
+      // (handleWaProposalDecision → sendProposalApproved). Rides WA_SEND_ENABLED;
+      // WA_CLIENT_SENDS_ENABLED is retired (permanent 0, legacy). Delay class only —
+      // cancelled / diverted / early stay plain team alerts (handled via teamOnly above).
+      const prompt = flightProposalPrompt(flightNo, eta3, clientName, maskNumber(clientTo));
+      const clientHint = "your flight " + flightNo + " is now expected around " + eta3 + ". Your chauffeur will adjust; nothing is needed from you.";
+      const link = await createWaLink(env, { leadId: fw.lead_id, purpose: "flight", toPhone: lead.phone,
+        prefill: "Dear " + firstName + ", " + clientHint + "\n\nWarm regards,\nUMC Dubai" });
+      const fallbackFor = (mto) => ({
+        messaging_product: "whatsapp", to: mto, type: "template",
+        template: { name: "flight_alert", language: { code: "en" }, components: [{ type: "body", parameters: [
+          { type: "text", text: clientName }, { type: "text", text: flightNo },
+          { type: "text", text: eta3 }, { type: "text", text: link || "No WhatsApp number on file" }
+        ] }] }
+      });
+      const raised = await raiseProposal(env, {
+        kind: "flight", leadId: fw.lead_id, promptText: prompt, targetE164: clientTo,
+        metaJson: { flight: flightNo, eta: eta3, delayMin },
+        dedupeKey: "flightclient:" + fw.lead_id + ":" + delayMin, fallbackFor
+      });
+      if (raised.duplicate) return false;
+      await teamFreeform(env, "✈️ Flight proposal raised: " + flightNo + " delayed ~" + delayMin + " min, ETA " + eta3 +
+        " (" + clientName + ") — awaiting a tap to update the client.",
+        "flightprop:" + fw.lead_id + ":" + delayMin, "flight_proposal", fw.lead_id);
+      return true;
     };
 
     if (r.ok === false) {
@@ -6204,9 +6221,10 @@ export async function sendLeadAlerts(env, leadId, lead, opts) {
 async function handleSendLeadWhatsApp(request, env) {
   await ensureSchema(env);
   // WA-3 staged go-live (owner 2026-07-15): the HUMAN-INITIATED desktop quote send
-  // (booking_quote) rides WA_SEND_ENABLED (Tier A, live with team alerts). Only the
-  // AUTOMATED client sends (payment_received, flight_delay_update) ride
-  // WA_CLIENT_SENDS_ENABLED.
+  // (booking_quote) rides WA_SEND_ENABLED (Tier A, live with team alerts). The former
+  // AUTOMATED client sends (payment_received, flight_delay_update) no longer auto-fire —
+  // they are raised as proposals and sent on a human tap (WA-5-B1 Phase 5). Their old
+  // gate WA_CLIENT_SENDS_ENABLED is retired (permanent 0, legacy).
   if (env.WA_SEND_ENABLED !== "1") {
     return json({ ok: false, disabled: true, error: "WhatsApp sending is off (WA_SEND_ENABLED=0). Use Copy quote or Open in WhatsApp." }, 409);
   }
