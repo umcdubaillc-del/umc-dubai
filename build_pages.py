@@ -2036,112 +2036,82 @@ render_rentacar_hub()
 # </section>
 # --- end revert block ---
 corp_body = header("corporate.html") + f"""
-<section class="phero">
-  <div class="wrap">
-    <span class="lbl">DIFC &middot; Business Bay &middot; Downtown</span>
-    <h1>Corporate chauffeur in Dubai &amp; the UAE</h1>
-    <p class="lede">Ground transport your company can rely on. Confirmed cars, vetted chauffeurs, consolidated invoicing and a human on the line at any hour.</p>
-    <div style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
-      <a class="btn btn-ink" href="/contact?vehicle=Corporate%20Account">Open a corporate account</a>
+<div class="dossier-page">
+<article class="dossier-doc" aria-label="Corporate Dossier">
+  <div class="dd-head">
+    <hr class="dd-rule">
+    <div class="dd-lockup"><span class="dd-wm">UMC Dubai</span><span class="dd-doctitle">Corporate Dossier</span></div>
+    <hr class="dd-rule">
+  </div>
+  <div class="dd-meta">
+    <div><span class="k">Ref</span><span class="v">UMC-CO-01</span></div>
+    <div><span class="k">Issued</span><span class="v">{REVIEWED_LABEL}</span></div>
+    <div><span class="k">Prepared for</span><span class="v">Private circulation</span></div>
+    <div><span class="k">Desk</span><span class="v">Concierge &middot; 24/7</span></div>
+  </div>
+
+  <section class="dd-sec">
+    <span class="dd-sec__no">01</span>
+    <h2 class="dd-sec__h">The account</h2>
+    <div class="dd-sec__body">
+      <p>A corporate account is a relationship, not a set of rides. One agreement covers how your company moves &mdash; airport pickups, executive travel, guest transfers and events across the UAE &mdash; held on your account and applied to every journey, for every traveller you send.</p>
+      <p>It changes how your company books rather than what it books. Anyone you authorise reserves in minutes by phone, WhatsApp or email, and the desk already holds your preferences, cost-centre references and billing details, so no journey starts from a blank form.</p>
     </div>
-  </div>
-</section>
-{JL}
-<section class="sec">
-  <div class="wrap">
-    {capsule("UMC Dubai's corporate chauffeur programme gives your company one account for all ground transport &mdash; airport pickups, executive travel, guest transfers and events across the UAE. Billing is consolidated into a single monthly invoice at all-inclusive rates that cover fuel, tolls and parking, so costs are predictable and every booking runs to one standard, 24 hours a day.")}
-    {reviewed_line()}
-    <div class="dossier acctfile rv">
-      <div class="ca-bar" aria-hidden="true">
-        <span class="ca-bar-l"><span class="ca-punch"></span>Corporate account · File UMC-CA-2026-041</span>
-        <span class="ca-bar-r">Private &amp; confidential</span>
-      </div>
+  </section>
 
-      <header class="ds-head">
-        <div class="ds-headL">
-          <span class="ds-kicker">UMC Dubai, Corporate Account</span>
-          <h2 class="ds-title">Your account, on file.</h2>
-          <p class="ds-intro">One agreement covers how your company moves. Everything in this file is held on your account and applied to every journey, for every traveller you send.</p>
-        </div>
-        <div class="ca-seal" aria-hidden="true">
-          <svg viewBox="0 0 88 88">
-            <defs><path id="caCirc" d="M44,44 m-31,0 a31,31 0 1,1 62,0 a31,31 0 1,1 -62,0"/></defs>
-            <text class="ca-seal-ring"><textPath href="#caCirc">UMC DUBAI · CORPORATE DESK · 24/7 ·</textPath></text>
-          </svg>
-          <span class="ca-seal-mark">UMC</span>
-        </div>
-      </header>
-
-      <div class="ca-registry">
-        <div class="ca-field"><span class="ca-k">Account holder</span><span class="ca-v">Your company</span></div>
-        <div class="ca-field"><span class="ca-k">Account contact</span><span class="ca-v">Dedicated, named</span></div>
-        <div class="ca-field"><span class="ca-k">Invoicing</span><span class="ca-v">Monthly, consolidated</span></div>
-        <div class="ca-field"><span class="ca-k">Status</span><span class="ca-v ca-open"><span class="ca-dot"></span>Open in 48 hours</span></div>
-      </div>
-
-      <div class="ca-sched-head"><span class="ca-sched-t">Schedule of services</span><span class="ca-sched-n">Applies to every journey on the account</span></div>
-
-      <div class="ca-clauses">
-        <div class="ca-clause"><span class="ca-no">01</span><div><h3 class="ca-ct">One account, one invoice</h3><p class="ca-cd">A dedicated account contact, consolidated monthly invoicing with per-journey breakdowns, and cost-centre references on request.</p></div></div>
-        <div class="ca-clause"><span class="ca-no">02</span><div><h3 class="ca-ct">Booking authority</h3><p class="ca-cd">Assistants and travel managers reserve for executives and guests in minutes by phone, WhatsApp or email. A name board waits at every arrival.</p></div></div>
-        <div class="ca-clause"><span class="ca-no">03</span><div><h3 class="ca-ct">Duty of care</h3><p class="ca-cd">Employed and background-checked chauffeurs in maintained late-model vehicles, with live flight tracking and a human escalation path at any hour.</p></div></div>
-        <div class="ca-clause"><span class="ca-no">04</span><div><h3 class="ca-ct">Roadshows &amp; movements</h3><p class="ca-cd">Investor roadshows, delegations and multi-car convoys coordinated to the minute under a single point of contact.</p></div></div>
-        <div class="ca-clause"><span class="ca-no">05</span><div><h3 class="ca-ct">Discretion</h3><p class="ca-cd">Our chauffeurs serve senior executives daily. Conversations, documents and itineraries stay in the car.</p></div></div>
-        <div class="ca-clause"><span class="ca-no">06</span><div><h3 class="ca-ct">Fixed corporate rates</h3><p class="ca-cd">Agreed rates that include the chauffeur, fuel, Salik and parking, so finance sees no surprises.</p></div></div>
-      </div>
-
-      <div class="ca-approval">
-        <div class="ca-sig">
-          <div class="ca-sigline"><span class="ca-signame">Awaiting your signature</span></div>
-          <span class="ca-sigcap">Authorised signatory · Your company</span>
-        </div>
-        <div class="ca-stamp" aria-hidden="true">Account opens<b>Within 48 hrs</b>of company details</div>
-      </div>
-
-      <footer class="ds-foot">
-        <span class="ds-foot-line">Held in confidence · One account · One standard</span>
-        <a class="ds-foot-cta" href="/contact?vehicle=Corporate%20Account">Open an account →</a>
-      </footer>
+  <section class="dd-sec">
+    <span class="dd-sec__no">02</span>
+    <h2 class="dd-sec__h">Terms</h2>
+    <div class="dd-sec__body">
+      <p>Billing is consolidated into a single monthly invoice at agreed, all-inclusive rates that cover the chauffeur, fuel, Salik and parking &mdash; with per-journey breakdowns and cost-centre references on request. VAT invoices are issued for reconciliation, so finance sees no surprises and reconciles once instead of chasing dozens of receipts.</p>
     </div>
-  </div>
-</section>
-{JL}
-<section class="sec">
-  <div class="wrap">
-    <div class="shead rv"><span class="lbl">The account fleet</span><h2>The cars on your account.</h2></div>
-    <p class="lede rv" style="max-width:64ch;margin:0 auto">Executive travel usually means a {vlink('s-class')}, {vlink('bmw-7')} or {vlink('e-class')}; a {vlink('lexus-es')} for daily business runs; and a {vlink('sprinter')} or {vlink('coach')} when a delegation moves together.</p>
-  </div>
-</section>
-{JL}
-<section class="sec">
-  <div class="wrap">
-    <div class="shead rv"><span class="lbl">Good to know</span><h2>Corporate account questions</h2></div>
-    <div class="faq rv">{faq_details(CORP_FAQS)}</div>
-  </div>
-</section>
-{JL}
-<section class="sec">
-  <div class="wrap">
-    <div class="shead rv"><span class="lbl">The account</span><h2>How the account works day to day.</h2></div>
-    <div class="rv sec-prose" style="max-width:68ch;margin:0 auto;text-align:left">
-      <p>An account changes how your company books rather than what it books. Once it is open &mdash; usually within 48 hours of receiving your company details &mdash; anyone you authorise reserves in minutes by phone, WhatsApp or email, and the desk already holds your preferences, cost-centre references and billing details, so no journey starts from a blank form.</p>
-      <p>Priority sits with account holders. When demand is high around event weeks or early-morning airport peaks, account bookings are dispatched ahead of ad-hoc requests, and a dedicated, named contact owns your account rather than a rotating queue. Every journey on the account runs to one standard, and every traveller you send is treated as the account holder would be.</p>
-      <p>Billing is consolidated into a single monthly statement, so finance reconciles once instead of chasing dozens of receipts. Confidentiality is assumed throughout: our chauffeurs serve senior executives daily, and conversations, documents and itineraries stay in the car.</p>
+  </section>
+
+  <section class="dd-sec">
+    <span class="dd-sec__no">03</span>
+    <h2 class="dd-sec__h">Priority availability</h2>
+    <div class="dd-sec__body">
+      <p>Priority sits with account holders. When demand peaks around event weeks or early-morning airport runs, account bookings are dispatched ahead of ad-hoc requests. Your class is held: a {vlink('s-class')}, {vlink('bmw-7')} or {vlink('e-class')} for executive travel, a {vlink('lexus-es')} for daily business runs, and a {vlink('sprinter')} or {vlink('coach')} when a delegation moves together.</p>
     </div>
+  </section>
+
+  <section class="dd-sec">
+    <span class="dd-sec__no">04</span>
+    <h2 class="dd-sec__h">Governance</h2>
+    <div class="dd-sec__body">
+      <p>A dedicated, named contact owns your account rather than a rotating queue, on a single desk line around the clock. Chauffeurs are employed and background-checked, with live flight tracking and a human escalation path at any hour. Conversations, documents and itineraries stay in the car.</p>
+      <p>A consolidated monthly statement with per-journey detail keeps every movement on the account accountable.</p>
+    </div>
+  </section>
+
+  <section class="dd-sec">
+    <span class="dd-sec__no">05</span>
+    <h2 class="dd-sec__h">Onboarding</h2>
+    <div class="dd-sec__body">
+      <p>An account opens within 48 hours of receiving your company details. Send the company name, billing entity and the people authorised to book; we set up your cost-centre references and preferences, and your named contact confirms the account is live.</p>
+      <div class="dd-fig"><span class="dd-fig__n">48</span><span class="dd-fig__k">hours to open an account, from company details to live</span></div>
+    </div>
+  </section>
+
+  <div class="dd-close">
+    <p class="dd-close__line">Engage the concierge desk.</p>
+    <div class="dd-close__set">
+      <div><span class="k">WhatsApp</span><a href="https://api.whatsapp.com/send?phone=971586497861">+971 58 649 7861</a></div>
+      <div><span class="k">Email</span><a href="mailto:contact@umcdubai.ae">contact@umcdubai.ae</a></div>
+      <div><span class="k">Web</span><span class="v">umcdubai.ae</span></div>
+    </div>
+    <p class="dd-legal">UMC In Bound Tour Operator LLC &middot; TRN 104201356300003</p>
   </div>
-</section>
-{JLB}
-<section class="closing band-dark">
-  <div class="wrap"><span class="lbl">Corporate accounts</span><h2 class="rv">Your executives, moved without friction.</h2>
-  <div class="btns rv"><a class="btn btn-ink" href="/contact?vehicle=Corporate%20Account">Open a corporate account</a><a class="btn btn-ghost" href="tel:+971586497861">Call the desk</a></div></div>
-</section>
+
+  <div class="dd-printfoot">UMC In Bound Tour Operator LLC &middot; TRN 104201356300003 &middot; umcdubai.ae</div>
+</article>
+</div>
 """ + FOOTER + "</body></html>"
 (SITE/"corporate.html").write_text(
  head("Corporate Chauffeur Service in Dubai | UMC Dubai",
       "Corporate chauffeur programmes in Dubai: consolidated invoicing, book-for-a-guest, vetted chauffeurs and 24/7 support. Live in 48 hours.",
       "corporate",
-      webpage_ld("https://umcdubai.ae/corporate", "Corporate Chauffeur Service in Dubai | UMC Dubai")
-      + faq_schema(CORP_FAQS)) + corp_body)
+      webpage_ld("https://umcdubai.ae/corporate", "Corporate Chauffeur Service in Dubai | UMC Dubai")) + corp_body)
 
 # ---------- about ----------
 about_body = header("about.html") + f"""
@@ -2207,106 +2177,87 @@ about_body = header("about.html") + f"""
 # ---------- events / occasions ----------
 EVENTS_WA = "https://api.whatsapp.com/send?phone=971586497861&text=Hello%20UMC%20Dubai%2C%20I%20would%20like%20to%20discuss%20chauffeur%20service%20for%20an%20event."
 events_body = header("events.html") + f"""
-<section class="phero">
-  <div class="wrap">
-    <span class="lbl">Weddings &middot; Galas &middot; Private celebrations</span>
-    <h1>Wedding &amp; event chauffeur service in Dubai.</h1>
-    <p class="lede">Arrivals worth remembering. For the occasions that deserve more than a car: a coordinated fleet, one point of contact and a standard that holds from the first arrival to the last.</p>
-    <div class="btns rv" style="display:flex;gap:.9rem;justify-content:center;margin-top:1.8rem">
-      <a class="btn btn-ink" href="/contact">Plan your occasion</a>
-    </div>
+<div class="dossier-page">
+<article class="dossier-doc" aria-label="Events Dossier">
+  <div class="dd-head">
+    <hr class="dd-rule">
+    <div class="dd-lockup"><span class="dd-wm">UMC Dubai</span><span class="dd-doctitle">Events Dossier</span></div>
+    <hr class="dd-rule">
   </div>
-</section>
-{JL}
-<section class="sec">
-  <div class="wrap">
-    {capsule("UMC Dubai provides chauffeur service for weddings, celebrations and corporate events &mdash; a maintained luxury car and a vetted chauffeur for the arrival that matters. Rates are all-inclusive and quoted per occasion around your schedule, vehicle and route, covering fuel, tolls and parking, and confirmed in advance so the day carries no meter and no surprises.")}
-    <div class="dossier flmove rv">
-      <header class="ds-head">
-        <div class="ds-headL">
-          <span class="ds-kicker">UMC Dubai, Fleet Movement Order</span>
-          <h2 class="ds-title">A fleet in formation, however large.</h2>
-          <p class="ds-intro">From a single car to a convoy of more than a hundred, across one day or many. Every vehicle planned, staged and timed as one movement, your coordinator working alongside ours.</p>
-        </div>
-        <div class="mo-no" aria-hidden="true">Order No. <b>MO-2026-117</b><span>Issued by the concierge desk</span></div>
-      </header>
-
-      <div class="mo-strength">
-        <div class="mo-cell"><span class="mo-k">Fleet assigned</span><span class="mo-v">1–100+ vehicles</span></div>
-        <div class="mo-cell"><span class="mo-k">Duration</span><span class="mo-v">Single or multi-day</span></div>
-        <div class="mo-cell"><span class="mo-k">Status</span><span class="mo-v mo-ready"><span class="mo-dot"></span>Ready to plan</span></div>
-      </div>
-
-      <div class="mo-timeline">
-        <div class="mo-move">
-          <div class="mo-t">14 days before<small>Enquiry</small></div>
-          <div class="mo-node" aria-hidden="true"></div>
-          <div class="mo-card"><div class="mo-row"><h3>You tell us the occasion</h3><span class="mo-stamp">Quoted</span></div><p>The occasion, the guests, the venues. We quote the fleet, and add cars as the plan grows.</p></div>
-        </div>
-        <div class="mo-move">
-          <div class="mo-t">7 days before<small>Planning</small></div>
-          <div class="mo-node" aria-hidden="true"></div>
-          <div class="mo-card"><div class="mo-row"><h3>Every movement agreed</h3><span class="mo-stamp">Scheduled</span></div><p>Your coordinator and ours settle each movement: airport arrivals, shuttles, every car assigned to its party, hour by hour.</p></div>
-        </div>
-        <div class="mo-move">
-          <div class="mo-t">90 min before<small>Staging</small></div>
-          <div class="mo-node" aria-hidden="true"></div>
-          <div class="mo-card"><div class="mo-row"><h3>Cars staged on site</h3><span class="mo-stamp">Staged</span></div><p>Every vehicle positioned, inspected and dressed before the first guest is anywhere near a kerb.</p></div>
-        </div>
-        <div class="mo-move mo-hhour">
-          <div class="mo-t">On the hour<small>First arrival</small></div>
-          <div class="mo-node" aria-hidden="true"></div>
-          <div class="mo-card"><div class="mo-row"><h3>The fleet moves as one</h3><span class="mo-stamp mo-hot">Underway</span></div><p>Arrivals to the minute, convoys in formation, one point of contact through to the last departure.</p></div>
-        </div>
-      </div>
-
-      <div class="mo-reserve">
-        <span class="mo-rk">Held in reserve</span>
-        <p>Spare cars stand by throughout for the unplanned, so a change of guest or schedule is never a problem you see. <a href="/fleet/rolls-royce">Rolls-Royce</a>, limousines, <a href="/fleet/s-class">S&nbsp;Class</a> — a matched fleet of any marque, from a <a href="/fleet/v-class">V-Class</a> for the wedding party to a <a href="/fleet/luxury-coach">coach</a> for the guests.</p>
-      </div>
-
-      <footer class="ds-foot">
-        <span class="ds-foot-line">One movement · One point of contact · Nothing your guests see go wrong</span>
-        <a class="ds-foot-cta" href="/contact">Plan your event →</a>
-      </footer>
-    </div>
+  <div class="dd-meta">
+    <div><span class="k">Ref</span><span class="v">UMC-EV-01</span></div>
+    <div><span class="k">Issued</span><span class="v">{REVIEWED_LABEL}</span></div>
+    <div><span class="k">Prepared for</span><span class="v">Private circulation</span></div>
+    <div><span class="k">Desk</span><span class="v">Concierge &middot; 24/7</span></div>
   </div>
-</section>
-{JL}
-<section class="occ">
-  <div class="wrap">
-    <div class="shead rv"><span class="lbl">Occasions</span><h2>For the days that matter most.</h2></div>
-    <div class="occ-list rv">
-      <div class="occ-row">
-        <div class="occ-txt"><div class="on">01</div><h3>Weddings</h3><p>A matched fleet for the couple and their guests, coordinated to the ceremony&rsquo;s timing. Ribboned cars on request, and a single chauffeur lead who answers to your planner, not to a dispatch line.</p></div>
-        <div class="occ-side"><div class="li">Bridal car, dressed to your palette</div><div class="li">Guest shuttles between venues</div><div class="li">One coordinator across every vehicle</div></div>
-      </div>
-      <div class="occ-row">
-        <div class="occ-txt"><div class="on">02</div><h3>Corporate &amp; galas</h3><p>Arrivals timed to the minute for conferences, award nights and delegations. Multiple cars moved as one convoy, with a manifest your office approves in advance.</p></div>
-        <div class="occ-side"><div class="li">Convoy movements, single contact</div><div class="li">Branded welcome signage</div><div class="li">Monthly invoice, no per-trip admin</div></div>
-      </div>
-      <div class="occ-row">
-        <div class="occ-txt"><div class="on">03</div><h3>Private celebrations</h3><p>Birthdays, anniversaries and family milestones, given the same discretion as a head-of-state movement. The cabin prepared to your preferences before you step in.</p></div>
-        <div class="occ-side"><div class="li">Cabin prepared to your taste</div><div class="li">Child seats on request</div><div class="li">Discreet, vetted chauffeurs</div></div>
-      </div>
+
+  <section class="dd-sec">
+    <span class="dd-sec__no">01</span>
+    <h2 class="dd-sec__h">The brief</h2>
+    <div class="dd-sec__body">
+      <p>For the occasions that deserve more than a car: a coordinated fleet, one point of contact, and a standard that holds from the first arrival to the last departure. UMC Dubai plans event movements as a single operation &mdash; one coordinator working alongside yours, and a written manifest of every car and every party.</p>
+      <p>Rates are all-inclusive and quoted per occasion around your schedule, vehicle and route, covering fuel, tolls and parking, and confirmed in advance &mdash; so the day carries no meter and no surprises.</p>
     </div>
-  </div>
-</section>
-<section class="sec">
-  <div class="wrap">
-    <div class="shead rv"><span class="lbl">The operation</span><h2>Built for Dubai&rsquo;s event calendar.</h2></div>
-    <div class="rv sec-prose" style="max-width:68ch;margin:0 auto;text-align:left">
-      <p>Dubai&rsquo;s biggest weeks are logistics problems as much as celebrations, and a chauffeur operation is only as good as its coordination. UMC plans event movements as a single operation: one coordinator working alongside yours, a written manifest of every car and every party, and a standard that holds from the first arrival to the last departure.</p>
-      <p>The city&rsquo;s calendar shapes the demand. Weeks like GITEX and Gulfood fill the business hotels and move delegations on tight schedules; Art Dubai and the IIFA weekend bring guests who expect discretion; and the Formula 1 weekend turns the whole city into a movement exercise, with road closures and surge demand that reward planning made well in advance. For each, vehicles are readied and routed ahead of the first arrival, chauffeurs are briefed on the closures, and a held reserve of cars absorbs the unplanned, so a late change rarely reaches your guests at all.</p>
-      <p>Staffing is the quiet part. Chauffeurs are employed, vetted and briefed as a team under one lead who answers to your planner rather than a dispatch line &mdash; which is what lets a convoy of many cars move as one, hour by hour, without the seams showing. At full stretch UMC has fielded up to 102 vehicles for a single event week, planned and staged as one movement.</p>
+  </section>
+
+  <section class="dd-sec">
+    <span class="dd-sec__no">02</span>
+    <h2 class="dd-sec__h">Fleet at scale</h2>
+    <div class="dd-sec__body">
+      <p>From a single car to a convoy of more than a hundred, across one day or many &mdash; every vehicle planned, staged and timed as one movement. Classes and seat counts below are drawn from the <a href="/fleet">operating fleet</a>; roles indicate typical deployment.</p>
+      <table class="dd-table">
+        <thead><tr><th>Role</th><th>Class</th><th class="r">Seats</th></tr></thead>
+        <tbody>
+          <tr><td>Principal</td><td class="cls">Flagship sedan &mdash; S&nbsp;Class, 7&nbsp;Series</td><td class="r num">3</td></tr>
+          <tr><td>Entourage</td><td class="cls">Luxury van &mdash; V&nbsp;Class</td><td class="r num">7</td></tr>
+          <tr><td>Security &amp; logistics</td><td class="cls">SUV &mdash; Escalade, Yukon&nbsp;XL</td><td class="r num">6&ndash;7</td></tr>
+          <tr><td>Group movement</td><td class="cls">Executive van &mdash; Sprinter</td><td class="r num">to 19</td></tr>
+          <tr><td>Guest transport</td><td class="cls">Luxury coach</td><td class="r num">to 55</td></tr>
+        </tbody>
+      </table>
+      <div class="dd-fig"><span class="dd-fig__n">102</span><span class="dd-fig__k">vehicles fielded for a single event week, planned and staged as one movement</span></div>
     </div>
+  </section>
+
+  <section class="dd-sec">
+    <span class="dd-sec__no">03</span>
+    <h2 class="dd-sec__h">Orchestration</h2>
+    <div class="dd-sec__body">
+      <p>One coordinator works alongside yours from enquiry to the last departure. Every movement is agreed in advance &mdash; airport arrivals, inter-venue shuttles, each car assigned to its party, hour by hour.</p>
+      <p>Cars are staged, inspected and dressed on site before the first guest is near a kerb; arrivals run to the minute and convoys hold formation. A reserve of cars stands by throughout, so a change of guest or schedule is absorbed before it reaches your guests.</p>
+    </div>
+  </section>
+
+  <section class="dd-sec">
+    <span class="dd-sec__no">04</span>
+    <h2 class="dd-sec__h">Discretion</h2>
+    <div class="dd-sec__body">
+      <p>Movements run to protocol: unmarked staging, chauffeurs briefed to protocol, and guest anonymity as standard. Conversations, documents and itineraries stay in the car.</p>
+      <p>Confidentiality agreements are available on request.</p>
+    </div>
+  </section>
+
+  <section class="dd-sec">
+    <span class="dd-sec__no">05</span>
+    <h2 class="dd-sec__h">Engagement</h2>
+    <div class="dd-sec__body">
+      <p>Tell us the occasion, the guests and the venues, and we quote the fleet &mdash; adding cars as the plan grows. Programmes are typically confirmed within 24 hours of the brief; 72 hours&rsquo; notice is recommended for multi-vehicle movements.</p>
+    </div>
+  </section>
+
+  <div class="dd-close">
+    <p class="dd-close__line">Engage the concierge desk.</p>
+    <div class="dd-close__set">
+      <div><span class="k">WhatsApp</span><a href="{EVENTS_WA}" target="_blank" rel="noopener">+971 58 649 7861</a></div>
+      <div><span class="k">Email</span><a href="mailto:contact@umcdubai.ae">contact@umcdubai.ae</a></div>
+      <div><span class="k">Web</span><span class="v">umcdubai.ae</span></div>
+    </div>
+    <p class="dd-legal">UMC In Bound Tour Operator LLC &middot; TRN 104201356300003</p>
   </div>
-</section>
-{JLB}
-<section class="closing band-dark">
-  <div class="wrap"><span class="lbl">Occasions</span><h2 class="rv">Begin with the standard.</h2>
-  <div class="btns rv"><a class="btn btn-ink" href="/contact">Plan your occasion</a><a class="btn btn-ghost" target="_blank" rel="noopener" href="{EVENTS_WA}">WhatsApp concierge</a></div></div>
-</section>
+
+  <div class="dd-printfoot">UMC In Bound Tour Operator LLC &middot; TRN 104201356300003 &middot; umcdubai.ae</div>
+</article>
+</div>
 """ + FOOTER + "</body></html>"
 (SITE/"events.html").write_text(
  head("Wedding & Event Chauffeur Service Dubai | UMC Dubai",

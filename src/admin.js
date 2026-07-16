@@ -6324,7 +6324,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260716-filpop";
+const ADMIN_BUILD = "20260716-filpop2";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -13130,6 +13130,7 @@ const PAGE_SCRIPT = `<script>
     function closeLeadsFilters(){
       if(!fPanel) return;
       fPanel.style.display = "none";
+      fPanel.removeAttribute("data-open"); // FIL-3 rider: stable open-state hook for probing
       if(fTog) fTog.setAttribute("aria-expanded", "false");
       if(_fpReposition){ window.removeEventListener("resize", _fpReposition); _fpReposition = null; }
       if(_fpOnKey){ document.removeEventListener("keydown", _fpOnKey); _fpOnKey = null; }
@@ -13139,6 +13140,7 @@ const PAGE_SCRIPT = `<script>
     function openLeadsFilters(){
       if(!fPanel || !fTog) return;
       fPanel.style.display = "flex";
+      fPanel.setAttribute("data-open", "true"); // FIL-3 rider: query #leadsAdvFilters[data-open]
       positionPopover(fPanel, fTog, { width: 232, align: "right" });
       fTog.setAttribute("aria-expanded", "true");
       _fpReposition = function(){ positionPopover(fPanel, fTog, { width: 232, align: "right" }); };

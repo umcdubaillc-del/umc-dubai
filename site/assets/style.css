@@ -1,5 +1,5 @@
 /* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
-/* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v86 (DIV-4: --jline-gap divider rhythm). */
+/* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v87 (DOSSIER-1: events/corporate document grammar). */
 /* P-1: self-hosted fonts (was Google Fonts CDN). Latin subset, OFL-licensed.
    Outfit is a variable font covering 300–500; Marcellus is 400 only. Both are
    font-display:swap so text paints immediately in the fallback then swaps. */
@@ -18,6 +18,9 @@
   --jline-gap:clamp(2.8rem,7vw,4.6rem);
   --serif:'Marcellus',Georgia,serif; --sans:'Outfit',system-ui,sans-serif;
   --mono:ui-monospace,'SF Mono','Cascadia Mono',Menlo,Consolas,monospace;
+  /* DOSSIER-1: document numerals — mirrors the invoice PDF's Fraunces,Georgia
+     stack; Fraunces isn't self-hosted on the public site so it renders Georgia. */
+  --num:'Fraunces',Georgia,serif;
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth;scrollbar-color:#B9AC95 var(--bone-2);scrollbar-width:thin}
@@ -176,6 +179,70 @@ nav.mainnav .sub-toggle{display:none}
    homepage motif it has no flanking .sec padding, so it carries its own
    symmetric --jline-gap breathing to match the homepage divider rhythm. */
 .jline--article{padding-top:var(--jline-gap);padding-bottom:var(--jline-gap)}
+
+/* ============ DOSSIER-1: document grammar (invoice language) ============
+   Events + Corporate render as a white sheet raised on the ivory page — the
+   SAME paper as the admin invoice PDF, same faces (Marcellus display · Fraunces/
+   Georgia numerals · Outfit body). Gold budget is limited to section numerals,
+   rule accents and one key figure — no gold floods, no buttons in the body. */
+.dossier-page{padding:clamp(1.4rem,5vw,3.4rem) 0 clamp(2.6rem,7vw,4.6rem)}
+.dossier-doc{max-width:47rem;margin:0 auto;background:#fff;color:var(--ink-soft);
+  border:1px solid var(--hair);border-radius:3px;box-shadow:0 30px 60px -36px rgba(34,27,20,.25);
+  padding:clamp(1.7rem,5vw,3.2rem) clamp(1.4rem,5vw,3rem);font-size:1rem;line-height:1.7}
+/* Letterhead — wordmark left, doc title right, hairline above and below */
+.dd-rule{height:1px;background:var(--hair);border:0;margin:0}
+.dd-lockup{display:flex;justify-content:space-between;align-items:baseline;gap:1.2rem;padding:1.1rem 0}
+.dd-wm{font-family:var(--serif);font-size:1.12rem;letter-spacing:.34em;text-transform:uppercase;color:var(--ink);white-space:nowrap}
+.dd-doctitle{font-family:var(--serif);font-size:clamp(1.45rem,4.4vw,2.1rem);color:var(--ink);line-height:1.05;text-align:right}
+/* Meta strip — one ruled row of label/value pairs */
+.dd-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:.9rem;padding:.95rem 0;border-bottom:1px solid var(--hair)}
+.dd-meta .k{display:block;font-family:var(--sans);font-size:8.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500;margin-bottom:.35rem}
+.dd-meta .v{font-size:.8rem;color:var(--ink);letter-spacing:.01em;line-height:1.35}
+@media(max-width:560px){.dd-meta{grid-template-columns:repeat(2,1fr);gap:1rem .9rem}
+  .dd-lockup{flex-direction:column;align-items:flex-start;gap:.45rem}.dd-doctitle{text-align:left}}
+/* Numbered sections 01–05 — gold numeral, serif heading, hairline + jline-gap air */
+.dd-sec{padding-top:var(--jline-gap)}
+.dd-sec+.dd-sec{border-top:1px solid var(--hair)}
+.dd-sec__no{font-family:var(--num);font-size:.95rem;color:var(--amber-deep);letter-spacing:.08em}
+.dd-sec__h{font-family:var(--serif);font-size:clamp(1.2rem,3.4vw,1.55rem);color:var(--ink);line-height:1.2;margin:.1rem 0 .85rem}
+.dd-sec__body{max-width:66ch}
+.dd-sec__body p{margin:0 0 .8rem}
+.dd-sec__body p:last-child{margin-bottom:0}
+.dd-sec__body a{color:var(--ink);border-bottom:1px solid var(--hair)}
+.dd-sec__body a:hover{border-bottom-color:var(--amber)}
+/* Compact ruled table (Events · fleet at scale) */
+.dd-table{width:100%;border-collapse:collapse;margin:.2rem 0 .4rem;font-size:.85rem}
+.dd-table th{font-family:var(--sans);font-size:8.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500;text-align:left;padding:.5rem .5rem;border-top:1px solid var(--ink-soft);border-bottom:1px solid var(--ink-soft)}
+.dd-table th.r,.dd-table td.r{text-align:right}
+.dd-table td{padding:.6rem .5rem;border-bottom:1px solid var(--hair);color:var(--ink);vertical-align:top;line-height:1.35}
+.dd-table .cls{color:var(--ink-soft)}
+.dd-table .num{font-family:var(--num);font-variant-numeric:tabular-nums;color:var(--ink-soft);white-space:nowrap}
+/* Key figure — one per document (serif numeral, thin gold underline, micro-caps label) */
+.dd-fig{margin:1.3rem 0 .3rem}
+.dd-fig__n{font-family:var(--num);font-size:2.6rem;color:var(--ink);line-height:1;display:inline-block;padding-bottom:.3rem;border-bottom:2px solid var(--amber)}
+.dd-fig__k{display:block;font-family:var(--sans);font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin-top:.65rem;max-width:34ch;line-height:1.5}
+/* Closing block — the only ask; contact set in the meta treatment, legal tail */
+.dd-close{margin-top:var(--jline-gap);border-top:1px solid var(--ink-soft);padding-top:1.5rem}
+.dd-close__line{font-family:var(--serif);font-size:clamp(1.15rem,3vw,1.45rem);color:var(--ink);margin:0 0 1.1rem}
+.dd-close__set{display:flex;flex-wrap:wrap;gap:.7rem 1.8rem;margin:0 0 1.3rem}
+.dd-close__set .k{display:block;font-family:var(--sans);font-size:8.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin-bottom:.2rem}
+.dd-close__set .v,.dd-close__set a{font-size:.85rem;color:var(--ink)}
+.dd-legal{font-family:var(--sans);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+.dd-printfoot{display:none}
+/* ---- PRINT / PDF: A4, 18mm margins, document only, repeating entity/TRN foot ---- */
+@media print{
+  /* Page number via paged-media margin box — honored by Firefox / print engines;
+     Chrome print-to-PDF ignores margin-box counters, falling back to the entity
+     line in .dd-printfoot below (which repeats on every page). */
+  @page{size:A4;margin:18mm;@bottom-right{content:counter(page) " / " counter(pages);font-family:'Outfit',sans-serif;font-size:8pt;letter-spacing:.14em;color:#7A6F5F}}
+  header.site,nav.mainnav,footer.site,.rev-foot{display:none!important}
+  body{background:#fff}
+  .dossier-page{padding:0}
+  .dossier-doc{max-width:none;margin:0;border:0;border-radius:0;box-shadow:none;padding:0;font-size:10.5pt}
+  .dd-sec,.dd-close,.dd-fig,.dd-table tr{break-inside:avoid}
+  .dd-printfoot{display:block;position:fixed;left:0;right:0;bottom:0;text-align:center;
+    font-family:var(--sans);font-size:7.5pt;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+}
 
 /* ---------- sections ---------- */
 .sec{padding:var(--jline-gap) 0}
