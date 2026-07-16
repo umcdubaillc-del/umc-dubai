@@ -340,6 +340,9 @@ export const WA_TEMPLATES = {
   // proposal free-form (interactive buttons, no template). Quick-reply buttons carry
   // NO payload at creation; the per-proposal payload (APPROVE:{id} / SKIP:{id}) is
   // supplied at SEND time via the button component. Body must not end on a variable.
+  // Meta forbids a variable at the very start or end (a variable followed only by
+  // punctuation counts as trailing), so the body closes on the fixed "send the
+  // confirmation?" tail with the masked number mid-line. Owner-approved wording, verbatim.
   // {{1}} client name, {{2}} amount (AED), {{3}} one-line summary, {{4}} masked number.
   payment_proposal: {
     name: "payment_proposal",
@@ -349,7 +352,9 @@ export const WA_TEMPLATES = {
       {
         type: "BODY",
         text:
-          "💳 Payment received — {{1}} · AED {{2}}. {{3}}. Send the confirmation to {{4}}?",
+          "💳 Payment received — {{1}} · AED {{2}}.\n" +
+          "{{3}}\n" +
+          "The client is on {{4}} — send the confirmation?",
         example: {
           body_text: [[
             "Sarah Wells", "450",
