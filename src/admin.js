@@ -407,6 +407,42 @@ async function ensureSchema(env) {
     await env.BILLING_DB.prepare(
       `CREATE INDEX IF NOT EXISTS idx_wa_outbound_lead ON wa_outbound (lead_id)`
     ).run();
+    // WA-5-B1 — Assistant proposal ledger. Every client-facing automation raises a
+    // PROPOSAL into the team channel; a human tap sends. Columns mirror migration
+    // 0015_wa_proposals.sql (column-parity). dedupe_key gives raise-idempotency so
+    // one event never raises two proposals; wamid_out records the client send on
+    // approval. status: pending | sent | edited_sent | skipped | expired.
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS wa_proposals (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         kind TEXT NOT NULL,
+         lead_id INTEGER,
+         job_id INTEGER,
+         payment_id TEXT,
+         composed_message TEXT,
+         target_e164 TEXT,
+         status TEXT NOT NULL DEFAULT 'pending',
+         dedupe_key TEXT UNIQUE,
+         raised_at TEXT NOT NULL,
+         decided_at TEXT,
+         decided_by TEXT,
+         wamid_out TEXT
+       )`
+    ).run();
+    // Forward-compat: PRAGMA-diff ALTERs so an already-created table gains any new
+    // column without a fresh migration (same guard used for leads/jobs/etc).
+    await addMissingColumns(env, "wa_proposals", [
+      "kind TEXT", "lead_id INTEGER", "job_id INTEGER", "payment_id TEXT",
+      "composed_message TEXT", "target_e164 TEXT", "status TEXT",
+      "dedupe_key TEXT", "raised_at TEXT", "decided_at TEXT",
+      "decided_by TEXT", "wamid_out TEXT",
+    ]);
+    await env.BILLING_DB.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_wa_proposals_status ON wa_proposals (status)`
+    ).run();
+    await env.BILLING_DB.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_wa_proposals_lead ON wa_proposals (lead_id)`
+    ).run();
     // WA-2 H cost guard — small key/value settings store (owner-adjustable monthly
     // template-send threshold lives here; default applied in code when unset).
     await env.BILLING_DB.prepare(
