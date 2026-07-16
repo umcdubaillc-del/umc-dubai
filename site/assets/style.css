@@ -1,5 +1,5 @@
 /* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
-/* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v88 (UI-4: clickable card images). */
+/* UMC Dubai, design system v2 "Bone & Espresso". Cache-bust verify v89 (DOSSIER-2: FMO + Account File document sections). */
 /* P-1: self-hosted fonts (was Google Fonts CDN). Latin subset, OFL-licensed.
    Outfit is a variable font covering 300–500; Marcellus is 400 only. Both are
    font-display:swap so text paints immediately in the fallback then swaps. */
@@ -180,68 +180,82 @@ nav.mainnav .sub-toggle{display:none}
    symmetric --jline-gap breathing to match the homepage divider rhythm. */
 .jline--article{padding-top:var(--jline-gap);padding-bottom:var(--jline-gap)}
 
-/* ============ DOSSIER-1: document grammar (invoice language) ============
-   Events + Corporate render as a white sheet raised on the ivory page — the
-   SAME paper as the admin invoice PDF, same faces (Marcellus display · Fraunces/
-   Georgia numerals · Outfit body). Gold budget is limited to section numerals,
-   rule accents and one key figure — no gold floods, no buttons in the body. */
-.dossier-page{padding:clamp(1.4rem,5vw,3.4rem) 0 clamp(2.6rem,7vw,4.6rem)}
-.dossier-doc{max-width:47rem;margin:0 auto;background:#fff;color:var(--ink-soft);
-  border:1px solid var(--hair);border-radius:3px;box-shadow:0 30px 60px -36px rgba(34,27,20,.25);
-  padding:clamp(1.7rem,5vw,3.2rem) clamp(1.4rem,5vw,3rem);font-size:1rem;line-height:1.7}
-/* Letterhead — wordmark left, doc title right, hairline above and below */
-.dd-rule{height:1px;background:var(--hair);border:0;margin:0}
-.dd-lockup{display:flex;justify-content:space-between;align-items:baseline;gap:1.2rem;padding:1.1rem 0}
-.dd-wm{font-family:var(--serif);font-size:1.12rem;letter-spacing:.34em;text-transform:uppercase;color:var(--ink);white-space:nowrap}
-.dd-doctitle{font-family:var(--serif);font-size:clamp(1.45rem,4.4vw,2.1rem);color:var(--ink);line-height:1.05;text-align:right}
-/* Meta strip — one ruled row of label/value pairs */
-.dd-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:.9rem;padding:.95rem 0;border-bottom:1px solid var(--hair)}
-.dd-meta .k{display:block;font-family:var(--sans);font-size:8.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500;margin-bottom:.35rem}
-.dd-meta .v{font-size:.8rem;color:var(--ink);letter-spacing:.01em;line-height:1.35}
-@media(max-width:560px){.dd-meta{grid-template-columns:repeat(2,1fr);gap:1rem .9rem}
-  .dd-lockup{flex-direction:column;align-items:flex-start;gap:.45rem}.dd-doctitle{text-align:left}}
-/* Numbered sections 01–05 — gold numeral, serif heading, hairline + jline-gap air */
-.dd-sec{padding-top:var(--jline-gap)}
-.dd-sec+.dd-sec{border-top:1px solid var(--hair)}
-.dd-sec__no{font-family:var(--num);font-size:.95rem;color:var(--amber-deep);letter-spacing:.08em}
-.dd-sec__h{font-family:var(--serif);font-size:clamp(1.2rem,3.4vw,1.55rem);color:var(--ink);line-height:1.2;margin:.1rem 0 .85rem}
-.dd-sec__body{max-width:66ch}
-.dd-sec__body p{margin:0 0 .8rem}
-.dd-sec__body p:last-child{margin-bottom:0}
-.dd-sec__body a{color:var(--ink);border-bottom:1px solid var(--hair)}
-.dd-sec__body a:hover{border-bottom-color:var(--amber)}
-/* Compact ruled table (Events · fleet at scale) */
-.dd-table{width:100%;border-collapse:collapse;margin:.2rem 0 .4rem;font-size:.85rem}
-.dd-table th{font-family:var(--sans);font-size:8.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500;text-align:left;padding:.5rem .5rem;border-top:1px solid var(--ink-soft);border-bottom:1px solid var(--ink-soft)}
-.dd-table th.r,.dd-table td.r{text-align:right}
-.dd-table td{padding:.6rem .5rem;border-bottom:1px solid var(--hair);color:var(--ink);vertical-align:top;line-height:1.35}
-.dd-table .cls{color:var(--ink-soft)}
-.dd-table .num{font-family:var(--num);font-variant-numeric:tabular-nums;color:var(--ink-soft);white-space:nowrap}
-/* Key figure — one per document (serif numeral, thin gold underline, micro-caps label) */
-.dd-fig{margin:1.3rem 0 .3rem}
-.dd-fig__n{font-family:var(--num);font-size:2.6rem;color:var(--ink);line-height:1;display:inline-block;padding-bottom:.3rem;border-bottom:2px solid var(--amber)}
-.dd-fig__k{display:block;font-family:var(--sans);font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin-top:.65rem;max-width:34ch;line-height:1.5}
-/* Closing block — the only ask; contact set in the meta treatment, legal tail */
-.dd-close{margin-top:var(--jline-gap);border-top:1px solid var(--ink-soft);padding-top:1.5rem}
-.dd-close__line{font-family:var(--serif);font-size:clamp(1.15rem,3vw,1.45rem);color:var(--ink);margin:0 0 1.1rem}
-.dd-close__set{display:flex;flex-wrap:wrap;gap:.7rem 1.8rem;margin:0 0 1.3rem}
-.dd-close__set .k{display:block;font-family:var(--sans);font-size:8.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin-bottom:.2rem}
-.dd-close__set .v,.dd-close__set a{font-size:.85rem;color:var(--ink)}
-.dd-legal{font-family:var(--sans);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
-.dd-printfoot{display:none}
-/* ---- PRINT / PDF: A4, 18mm margins, document only, repeating entity/TRN foot ---- */
-@media print{
-  /* Page number via paged-media margin box — honored by Firefox / print engines;
-     Chrome print-to-PDF ignores margin-box counters, falling back to the entity
-     line in .dd-printfoot below (which repeats on every page). */
-  @page{size:A4;margin:18mm;@bottom-right{content:counter(page) " / " counter(pages);font-family:'Outfit',sans-serif;font-size:8pt;letter-spacing:.14em;color:#7A6F5F}}
-  header.site,nav.mainnav,footer.site,.rev-foot{display:none!important}
-  body{background:#fff}
-  .dossier-page{padding:0}
-  .dossier-doc{max-width:none;margin:0;border:0;border-radius:0;box-shadow:none;padding:0;font-size:10.5pt}
-  .dd-sec,.dd-close,.dd-fig,.dd-table tr{break-inside:avoid}
-  .dd-printfoot{display:block;position:fixed;left:0;right:0;bottom:0;text-align:center;
-    font-family:var(--sans);font-size:7.5pt;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+/* ============ DOSSIER-2: in-place document sections (events "Fleet Movement
+   Order", corporate "Account File"). Palette EXTRACTED from the server PDF
+   generator src/pdf.js (const C): cream paper #F6F1E7 (--bone), near-white
+   #FBF8F1 (--card) raised panels, amber/amber-deep accents, espresso footer,
+   hairline (~12–14%) + strong (~18%) rules; Marcellus/Fraunces(→Georgia)/Outfit.
+   The sheet is a cream artifact lifted off the page by a border + shadow. */
+.docsheet{--pad:clamp(1.35rem,4vw,2.6rem);max-width:52rem;margin:0 auto;position:relative;overflow:hidden;
+  background:var(--bone);color:var(--ink-soft);border:1px solid rgba(34,27,20,.14);border-radius:4px;
+  box-shadow:0 34px 64px -40px rgba(34,27,20,.34);
+  padding:clamp(1.7rem,4vw,2.6rem) var(--pad) 0;font-size:1rem;line-height:1.65}
+/* Letterhead: lockup left · title/ref/date right · rotated outline stamp */
+.docsheet .doc-lh{display:flex;justify-content:space-between;align-items:flex-start;gap:1.5rem;padding-bottom:1.1rem;border-bottom:1px solid rgba(34,27,20,.18)}
+.doc-lockup{display:flex;flex-direction:column;align-items:flex-start;line-height:1}
+.doc-uni{font-family:var(--serif);font-size:1.5rem;letter-spacing:.34em;color:var(--ink)}
+.doc-dash{width:30px;height:1px;background:var(--amber);margin:.5rem 0}
+.doc-duo{font-family:var(--sans);font-size:9px;letter-spacing:.36em;text-transform:uppercase;color:var(--muted)}
+.doc-lh-r{display:flex;flex-direction:column;align-items:flex-end;gap:.28rem;text-align:right}
+.doc-title{font-family:var(--serif);font-size:clamp(1.35rem,3.6vw,1.9rem);letter-spacing:.16em;text-transform:uppercase;color:var(--ink);line-height:1}
+.doc-ref{font-family:var(--num);font-size:1.02rem;letter-spacing:.05em;color:var(--amber-deep)}
+.doc-date{font-family:var(--sans);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+.doc-stamp{position:absolute;top:2.1rem;left:38%;transform:rotate(-8deg);font-family:var(--sans);font-size:.7rem;letter-spacing:.28em;text-transform:uppercase;font-weight:500;color:var(--amber-deep);border:1.5px solid var(--amber-deep);border-radius:4px;padding:.26rem .6rem;opacity:.66;pointer-events:none}
+.doc-stamp--active{color:#2E7D54;border-color:#2E7D54}
+/* Meta label row */
+.doc-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:.9rem;padding:1rem 0;border-bottom:1px solid rgba(34,27,20,.12)}
+.doc-meta-i .k{display:block;font-family:var(--sans);font-size:8px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500;margin-bottom:.3rem}
+.doc-meta-i .v{font-size:.82rem;color:var(--ink);line-height:1.35}
+/* Timeline table (events) — Fraunces times, hairline rows, one amber live status */
+.fmo-tt{width:100%;border-collapse:collapse;margin:1.2rem 0 .2rem;font-size:.86rem}
+.fmo-tt th{font-family:var(--sans);font-size:8px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500;text-align:left;padding:.55rem .5rem;border-bottom:1px solid rgba(34,27,20,.18)}
+.fmo-tt th.r,.fmo-tt td.r{text-align:right}
+.fmo-tt td{padding:.72rem .5rem;border-bottom:1px solid rgba(34,27,20,.1);color:var(--ink);vertical-align:top;line-height:1.4}
+.fmo-tt .tt-t{font-family:var(--num);font-variant-numeric:tabular-nums;color:var(--ink);letter-spacing:.02em;white-space:nowrap}
+.fmo-tt .tt-v a{color:var(--ink);border-bottom:1px solid rgba(34,27,20,.14)}
+.fmo-tt .tt-v a:hover{border-bottom-color:var(--amber)}
+.fmo-tt .tt-seat{font-family:var(--num);color:var(--muted);font-size:.78rem;margin-left:.3rem;white-space:nowrap}
+.fmo-tt .tt-st{font-family:var(--sans);font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+.fmo-tt .tt-st.tt-live{color:var(--amber-deep);font-weight:500}
+/* Charter articles (corporate) */
+.chg-arts{margin:1.1rem 0 .2rem;display:flex;flex-direction:column}
+.chg-art{display:grid;grid-template-columns:4.4rem 1fr;gap:.15rem 1rem;padding:.95rem 0;border-bottom:1px solid rgba(34,27,20,.1)}
+.chg-art:first-child{border-top:1px solid rgba(34,27,20,.1)}
+.chg-no{font-family:var(--num);font-size:.82rem;letter-spacing:.04em;color:var(--amber-deep);padding-top:.2rem}
+.chg-art h3{font-family:var(--serif);font-weight:400;font-size:1.12rem;color:var(--ink);margin:0 0 .3rem;line-height:1.2}
+.chg-art p{font-size:.88rem;color:var(--ink-soft);line-height:1.6;margin:0;max-width:62ch}
+/* Near-white raised panel (#FBF8F1) — Coordination / Schedule A */
+.doc-panel{background:var(--card);border:1px solid rgba(34,27,20,.12);border-radius:4px;padding:1rem 1.1rem;margin:1.4rem 0}
+.doc-panel-h{display:block;font-family:var(--sans);font-size:8px;letter-spacing:.24em;text-transform:uppercase;color:var(--amber-deep);font-weight:500;margin-bottom:.55rem}
+.doc-panel p{font-size:.86rem;color:var(--ink-soft);line-height:1.6;margin:0;max-width:64ch}
+.doc-panel-set{display:flex;flex-wrap:wrap;gap:.75rem 2rem}
+.doc-panel-set .dp-i{font-size:.86rem;color:var(--ink)}
+.doc-panel-set .dp-k{display:block;font-family:var(--sans);font-size:8px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin-bottom:.15rem}
+/* Two blank signature rules (corporate) */
+.chg-sign{display:grid;grid-template-columns:1fr 1fr;gap:1.4rem 2.2rem;margin:1.7rem 0 .5rem}
+.chg-sig-rule{display:block;height:1px;background:rgba(34,27,20,.28);margin-bottom:.45rem}
+.chg-sig-cap{font-family:var(--sans);font-size:8.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+/* Footnote */
+.doc-note{font-size:.76rem;color:var(--muted);line-height:1.55;margin:1.3rem 0 0;max-width:66ch}
+/* Espresso footer band — full-bleed to the sheet edges (cancels --pad) */
+.doc-foot{margin:1.6rem calc(var(--pad) * -1) 0;padding:.85rem var(--pad);background:var(--espresso);color:#D9D0C0;font-family:var(--sans);font-size:9px;letter-spacing:.28em;text-transform:uppercase;text-align:center}
+/* Corner specimen micro-tag — top-left, above the lockup */
+.doc-specimen{position:absolute;top:.55rem;left:.9rem;font-family:var(--sans);font-size:7px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);opacity:.68;pointer-events:none}
+/* Mobile: timeline stacks TIME+MOVEMENT over VEHICLE+STATUS; articles/sign stack */
+@media(max-width:640px){
+  .docsheet{max-width:none}
+  .doc-lh{flex-wrap:wrap}
+  .doc-meta{grid-template-columns:repeat(2,1fr);gap:.85rem}
+  .doc-stamp{left:auto;right:1rem;top:1.4rem}
+  .chg-art{grid-template-columns:1fr;gap:.1rem}
+  .chg-sign{grid-template-columns:1fr;gap:1.3rem}
+  .fmo-tt thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  .fmo-tt tr{display:grid;grid-template-columns:auto 1fr;gap:.15rem .8rem;padding:.75rem 0;border-bottom:1px solid rgba(34,27,20,.1)}
+  .fmo-tt td{border:0;padding:0}
+  .fmo-tt .tt-t{grid-column:1;grid-row:1;font-size:1.02rem}
+  .fmo-tt td:nth-child(2){grid-column:2;grid-row:1;font-weight:500;color:var(--ink)}
+  .fmo-tt .tt-v{grid-column:1 / -1;grid-row:2;color:var(--ink-soft);font-size:.82rem}
+  .fmo-tt .r{grid-column:1 / -1;grid-row:3;text-align:left}
 }
 
 /* ---------- sections ---------- */
@@ -1196,209 +1210,10 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .occ-row:nth-child(even) .occ-side{order:1}
 @media(max-width:760px){.occ-row{grid-template-columns:1fr}.occ-row:nth-child(even) .occ-txt,.occ-row:nth-child(even) .occ-side{order:initial}}
 
-/* ===================== v27 ===================== */
-/* signature dossier: shared shell for Corporate Account File + Fleet Movement Order
-   institutional document language,espresso 2px frame, bone inner, mono clerical labels */
-.dossier{max-width:980px;margin:0 auto;background:var(--card);border:2px solid var(--espresso);border-radius:11px;padding:clamp(1.6rem,3.5vw,2.4rem);position:relative}
-.dossier .ds-head{display:flex;justify-content:space-between;align-items:flex-start;gap:2rem;flex-wrap:wrap;margin-bottom:1.7rem}
-.dossier .ds-headL{flex:1 1 360px;min-width:0}
-.dossier .ds-kicker{display:block;font-family:var(--mono);font-size:.66rem;letter-spacing:.22em;color:var(--amber-deep);text-transform:uppercase;margin-bottom:.85rem}
-.dossier .ds-title{font-family:var(--serif);font-weight:400;color:var(--ink);font-size:clamp(1.55rem,3.4vw,2.05rem);line-height:1.18;letter-spacing:.01em;margin-bottom:.7rem}
-.dossier .ds-intro{font-size:.95rem;color:var(--muted);line-height:1.62;max-width:50ch}
-.dossier .ds-stamp{flex:0 0 auto;border:1px solid var(--line);border-radius:4px;padding:.7rem 1rem;min-width:212px;background:rgba(34,27,20,.025)}
-.dossier .ds-stamp-row{display:flex;justify-content:space-between;align-items:baseline;gap:1.4rem;font-family:var(--mono);font-size:.64rem;letter-spacing:.18em;text-transform:uppercase;padding:.34rem 0}
-.dossier .ds-stamp-row + .ds-stamp-row{border-top:1px dashed var(--hair)}
-.dossier .ds-stamp-row .k{color:var(--muted)}
-.dossier .ds-stamp-row .v{color:var(--ink)}
-.dossier .ds-stamp-row .v.amb{color:var(--amber-deep)}
-.dossier .ds-foot{display:flex;justify-content:space-between;align-items:center;gap:1.5rem;flex-wrap:wrap;margin-top:1.7rem;padding-top:1.25rem;border-top:1px solid var(--line)}
-.dossier .ds-foot-line{font-family:var(--mono);font-size:.6rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);line-height:1.5}
-.dossier .ds-foot-cta{font-family:var(--mono);font-size:.7rem;letter-spacing:.22em;text-transform:uppercase;color:var(--amber-deep);border-bottom:1px solid var(--amber);padding-bottom:2px;transition:color .25s cubic-bezier(.32,.72,0,1),letter-spacing .25s cubic-bezier(.32,.72,0,1);white-space:nowrap}
-.dossier .ds-foot-cta:hover{color:var(--amber);letter-spacing:.24em}
-
-/* ============================================================
-   CORPORATE — Account File (ca-*)
-   ============================================================ */
-.acctfile{padding-top:0}
-.ca-bar{
-  display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;
-  margin:0 calc(-1 * clamp(1.6rem,3.5vw,2.4rem)) 1.7rem;
-  padding:.75rem clamp(1.6rem,3.5vw,2.4rem);
-  background:var(--bone-2);border-bottom:1px solid var(--line);
-  border-radius:9px 9px 0 0;
-  font-family:var(--mono);font-size:.64rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink);
-}
-.ca-bar-l{display:inline-flex;align-items:center;gap:12px;min-width:0}
-.ca-bar-r{color:var(--muted);letter-spacing:.16em}
-.ca-punch{width:8px;height:8px;border-radius:50%;background:var(--espresso);opacity:.85;flex:none}
-.ca-seal{
-  width:88px;height:88px;border-radius:50%;flex:none;
-  border:1.5px solid var(--amber);color:var(--amber);
-  display:grid;place-items:center;position:relative;transform:rotate(8deg);
-}
-.ca-seal::after{content:"";position:absolute;inset:7px;border-radius:50%;border:1px solid var(--amber);opacity:.55}
-.ca-seal svg{position:absolute;inset:0;width:100%;height:100%}
-.ca-seal-ring{font-family:var(--mono);font-size:7.2px;letter-spacing:2.6px;fill:currentColor}
-.ca-seal-mark{font-family:var(--serif);font-size:1.25rem;letter-spacing:.06em}
-
-.ca-registry{
-  display:grid;grid-template-columns:repeat(4,1fr);
-  border:1px solid var(--line);border-radius:8px;overflow:hidden;
-  margin-bottom:1.6rem;background:var(--card);
-}
-.ca-field{padding:.9rem 1.1rem;border-right:1px solid var(--hair);display:flex;flex-direction:column;gap:.4rem;min-width:0}
-.ca-field:last-child{border-right:none}
-.ca-k{font-family:var(--mono);font-size:.6rem;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
-.ca-v{font-family:var(--serif);font-size:.95rem;color:var(--ink)}
-.ca-open{display:inline-flex;align-items:center;gap:.5rem;color:var(--amber-deep)}
-.ca-dot{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 3px rgba(199,91,18,.16)}
-
-.ca-sched-head{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap;margin-bottom:.2rem}
-.ca-sched-t{font-family:var(--mono);font-size:.66rem;letter-spacing:.24em;text-transform:uppercase;color:var(--ink-soft)}
-.ca-sched-n{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;color:var(--muted)}
-
-.ca-clauses{display:grid;grid-template-columns:1fr 1fr;column-gap:3rem;position:relative;margin-bottom:1.5rem}
-.ca-clauses::before{content:"";position:absolute;top:.9rem;bottom:.9rem;left:50%;width:1px;background:var(--hair)}
-.ca-clause{display:grid;grid-template-columns:44px 1fr;gap:0 .9rem;padding:1.05rem 0;border-bottom:1px dotted var(--line)}
-.ca-clause:nth-last-child(-n+2){border-bottom:none}
-.ca-no{font-family:var(--mono);font-size:.78rem;color:var(--amber);letter-spacing:.04em;padding-top:3px}
-.ca-ct{font-family:var(--serif);font-weight:400;font-size:1.05rem;color:var(--ink);margin-bottom:.35rem}
-.ca-cd{font-size:.85rem;line-height:1.6;color:var(--ink-soft)}
-
-.ca-approval{
-  display:grid;grid-template-columns:1.3fr 1fr;gap:2rem;align-items:end;
-  padding:1.4rem 0 .5rem;border-top:1px solid var(--line);
-}
-.ca-sigline{border-bottom:1px solid var(--ink);height:42px;display:flex;align-items:flex-end;padding-bottom:5px}
-.ca-signame{font-family:var(--serif);font-style:italic;font-size:1.1rem;color:var(--ink);transform:rotate(-1.2deg)}
-.ca-sigcap{display:block;font-family:var(--mono);font-size:.58rem;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-top:.5rem}
-.ca-stamp{
-  justify-self:end;transform:rotate(-5deg);
-  border:2px solid var(--amber);color:var(--amber);border-radius:6px;
-  padding:.55rem 1.05rem;text-align:center;
-  font-family:var(--mono);font-size:.62rem;letter-spacing:.2em;text-transform:uppercase;line-height:1.7;
-  mix-blend-mode:multiply;opacity:.92;
-}
-.ca-stamp b{display:block;font-size:.8rem;letter-spacing:.26em}
-
-@media (max-width:760px){
-  .ca-registry{grid-template-columns:1fr 1fr}
-  .ca-field:nth-child(2n){border-right:none}
-  .ca-field:nth-child(-n+2){border-bottom:1px solid var(--hair)}
-  .ca-clauses{grid-template-columns:1fr}
-  .ca-clauses::before{display:none}
-  .ca-clause:nth-last-child(-n+2){border-bottom:1px dotted var(--line)}
-  .ca-clause:last-child{border-bottom:none}
-  .ca-approval{grid-template-columns:1fr;gap:1.4rem}
-  .ca-stamp{justify-self:center}
-  /* Mobile drops the round UMC seal entirely; display:none removes it from the
-     ds-head flex flow so no gap is left behind. Desktop (>=761px) keeps it. */
-  .ca-seal{display:none}
-}
-
-/* ============================================================
-   EVENTS — Fleet Movement Order (mo-*)
-   ============================================================ */
-.mo-no{
-  font-family:var(--mono);font-size:.66rem;letter-spacing:.16em;text-transform:uppercase;
-  color:var(--ink-soft);text-align:right;line-height:2;flex:none;
-}
-.mo-no b{color:var(--amber);font-weight:600}
-.mo-no span{display:block;color:var(--muted);font-size:.58rem;letter-spacing:.18em}
-
-.mo-strength{
-  display:grid;grid-template-columns:repeat(3,1fr);
-  border:1px solid var(--line);border-radius:8px;overflow:hidden;
-  background:var(--bone-2);margin-bottom:1.7rem;
-}
-.mo-cell{padding:.85rem 1.1rem;border-right:1px solid var(--hair);display:flex;flex-direction:column;gap:.4rem;min-width:0}
-.mo-cell:last-child{border-right:none}
-.mo-k{font-family:var(--mono);font-size:.6rem;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
-.mo-v{font-family:var(--serif);font-size:.98rem;color:var(--ink);display:flex;align-items:center;gap:.7rem;flex-wrap:wrap}
-.mo-ready{color:var(--amber-deep)}
-.mo-dot{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 3px rgba(199,91,18,.16)}
-
-.mo-timeline{position:relative;padding:.4rem 0 .2rem}
-.mo-move{display:grid;grid-template-columns:104px 36px 1fr;gap:0 .6rem;padding-bottom:1.9rem;position:relative}
-.mo-move:last-of-type{padding-bottom:1.4rem}
-.mo-t{font-family:var(--mono);font-size:.76rem;letter-spacing:.08em;color:var(--amber);text-align:right;padding-top:2px;white-space:nowrap}
-.mo-t small{display:block;color:var(--muted);font-size:.56rem;letter-spacing:.18em;text-transform:uppercase;margin-top:.3rem}
-.mo-node{position:relative}
-.mo-node::before{
-  content:"";position:absolute;left:22px;top:5px;width:9px;height:9px;border-radius:50%;
-  background:var(--card);border:2px solid var(--ink);transform:translateX(-50%);z-index:1;
-}
-.mo-node::after{
-  content:"";position:absolute;left:22px;top:18px;bottom:-1.9rem;width:1px;
-  transform:translateX(-50%);
-  background:repeating-linear-gradient(180deg,var(--ink) 0 5px,transparent 5px 10px);opacity:.4;
-}
-.mo-move:last-of-type .mo-node::after{display:none}
-.mo-hhour .mo-node::before{background:var(--amber);border-color:var(--amber);box-shadow:0 0 0 4px rgba(199,91,18,.16)}
-.mo-card .mo-row{display:flex;align-items:baseline;justify-content:space-between;gap:1rem}
-.mo-card h3{font-family:var(--serif);font-weight:400;font-size:1.08rem;color:var(--ink)}
-.mo-card p{font-size:.85rem;line-height:1.6;color:var(--ink-soft);margin-top:.35rem;max-width:52ch}
-.mo-stamp{
-  flex:none;transform:rotate(-4deg);
-  border:1.5px solid var(--ink-soft);color:var(--ink-soft);border-radius:4px;
-  font-family:var(--mono);font-size:.56rem;letter-spacing:.24em;text-transform:uppercase;
-  padding:3px 9px;opacity:.75;mix-blend-mode:multiply;
-}
-.mo-stamp.mo-hot,.mo-hhour .mo-stamp{border-color:var(--amber);color:var(--amber);opacity:.95}
-
-.mo-reserve{
-  border:1px dashed var(--line);border-radius:8px;background:var(--bone-2);
-  display:flex;align-items:center;gap:1rem;padding:.85rem 1.1rem;margin-bottom:1.6rem;
-}
-.mo-rk{font-family:var(--mono);font-size:.6rem;letter-spacing:.2em;text-transform:uppercase;color:var(--amber);white-space:nowrap}
-.mo-reserve p{font-size:.82rem;line-height:1.55;color:var(--ink-soft)}
-
-@media (max-width:760px){
-  .mo-no{text-align:left}
-  .mo-strength{grid-template-columns:1fr}
-  .mo-cell{border-right:none;border-bottom:1px solid var(--hair)}
-  .mo-cell:last-child{border-bottom:none}
-  /* Left-rail timeline: the dotted line + dots get their own fixed 20px lane;
-     the time label and card share the content column, stacked. By construction
-     the absolutely-positioned rail (max x ~15px) never reaches the text column
-     (starts ~35px), so nothing renders over the phase labels at any width. */
-  .mo-move{grid-template-columns:20px 1fr;grid-template-rows:auto auto;gap:0 .95rem;padding-bottom:1.7rem}
-  .mo-move .mo-node{grid-column:1;grid-row:1 / span 2}
-  .mo-move .mo-t{grid-column:2;grid-row:1;display:flex;align-items:baseline;gap:.5rem;text-align:left;white-space:normal;padding-top:0;margin-bottom:.5rem;font-size:.72rem}
-  .mo-move .mo-t small{display:inline;margin-top:0}
-  .mo-move .mo-card{grid-column:2;grid-row:2}
-  .mo-node::before{left:10px;top:3px}
-  .mo-node::after{left:10px;top:16px;bottom:-1.7rem}
-  .mo-row{flex-direction:column;gap:.5rem}
-  .mo-reserve{flex-direction:column;align-items:flex-start;gap:.5rem}
-  /* Status stamps sit upright on mobile (desktop keeps the -4deg slant). */
-  .mo-stamp{transform:none}
-}
-
-/* mobile collapse (T2 + T3),most traffic is mobile; this stack must look deliberate */
-@media(max-width:720px){
-  .dossier{border-radius:8px;padding:1.25rem 1.1rem 1.35rem;border-width:1.5px;max-width:none}
-  /* The confidential bar full-bleeds to the card edge via a negative margin equal
-     to the dossier padding. When that padding drops to 1.1rem here, the bar's
-     margin/padding must follow — otherwise it keeps the clamp() value (1.6rem)
-     and spills ~8px past the card on each side, breaking the header at ≤390px. */
-  .acctfile .ca-bar{margin-left:-1.1rem;margin-right:-1.1rem;padding-left:1.1rem;padding-right:1.1rem}
-  /* The account-file card full-bleeds its confidential bar to the very top, so it
-     must have no top padding (as on desktop via .acctfile{padding-top:0}). The
-     mobile .dossier padding shorthand above re-adds 1.25rem top, leaving a band of
-     card colour above the bar — zero it at the root here, not with a margin nudge. */
-  .acctfile{padding-top:0}
-  .dossier .ds-head{flex-direction:column;gap:1.05rem;margin-bottom:1.25rem}
-  .dossier .ds-headL{flex:1 1 100%}
-  .dossier .ds-kicker{margin-bottom:.7rem;font-size:.62rem;letter-spacing:.2em}
-  .dossier .ds-title{font-size:1.5rem;margin-bottom:.55rem}
-  .dossier .ds-intro{font-size:.9rem;max-width:none}
-  .dossier .ds-stamp{align-self:stretch;min-width:0;padding:.55rem .8rem}
-  .dossier .ds-stamp-row{font-size:.6rem;letter-spacing:.16em;gap:1rem;padding:.28rem 0}
-  .dossier .ds-foot{flex-direction:column;align-items:flex-start;gap:.9rem;margin-top:1.25rem;padding-top:1rem}
-  .dossier .ds-foot-line{font-size:.56rem;letter-spacing:.2em}
-  .dossier .ds-foot-cta{font-size:.66rem}
-}
+/* DOSSIER-2 (v-doc2): the old .dossier/.ds-*/.ca-*/.mo-* signature-dossier CSS
+   was removed here — superseded by the .docsheet document anatomy above, which
+   both the events "Fleet Movement Order" and corporate "Account File" sections
+   now use. */
 
 /* ============================================================
    Blog (Phase A),calm institutional article layout. Mobile-
