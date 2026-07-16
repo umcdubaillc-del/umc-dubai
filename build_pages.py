@@ -563,6 +563,23 @@ CORP_FAQS = [
   "Every chauffeur holds a valid UAE licence and a clean driving record, and is trained to our standards of presentation, discretion and route knowledge before carrying a corporate guest. All speak English, and Arabic-speaking chauffeurs can be arranged on request. The same standard applies to every booking."),
 ]
 
+# Events FAQ (owner-approved copy, verbatim). Rendered via faq_details() and
+# emitted as FAQPage schema via faq_schema() — same pattern as CORP_FAQS.
+EVENTS_FAQS = [
+ ("How far in advance should event transport be booked?",
+  "Programmes are typically confirmed within 24 hours of the brief. For multi-vehicle movements — galas, weddings, conferences — 72 hours' notice is recommended so vehicles and chauffeurs can be staged as one operation."),
+ ("Can UMC Dubai handle guest shuttles and VIP cars at the same event?",
+  "Yes. A single movement order covers principal cars, guest waves, and logistics runs — S-Class and 7 Series for principals, V-Class for entourage and shuttle waves — under one coordinator on one channel."),
+ ("What does event chauffeur hire cost in Dubai?",
+  "Every programme is quoted as one all-inclusive figure — chauffeur, fuel, tolls, and waiting time included. Rates depend on fleet mix and duration; the concierge desk returns a firm quote the same day."),
+ ("Who coordinates the vehicles on the night?",
+  "A dedicated duty coordinator runs every movement from staging to final departure — one point of contact for the organiser, with a contingency vehicle standing by as standard."),
+ ("How is discretion handled for private events?",
+  "Unmarked staging, chauffeurs briefed to protocol, and guest anonymity as standard. Confidentiality agreements are available on request."),
+ ("Can event transport include airport pickups for arriving guests?",
+  "Yes — arrivals are folded into the same movement order, with flights tracked and welcome boards at the terminal, so out-of-town guests join the programme seamlessly."),
+]
+
 COUNTRIES_PREF = [("AE","971"),("SA","966"),("QA","974"),("KW","965"),("BH","973"),("OM","968"),
  ("GB","44"),("US","1"),("IN","91"),("PK","92"),("RU","7"),("CN","86")]
 COUNTRIES_REST = sorted([("Afghanistan","AF","93"),("Argentina","AR","54"),("Armenia","AM","374"),("Australia","AU","61"),("Austria","AT","43"),
@@ -2107,19 +2124,19 @@ corp_body = header("corporate.html") + f"""
 {JL}
 <section class="sec">
   <div class="wrap">
-    <div class="shead rv"><span class="lbl">Good to know</span><h2>Corporate account questions</h2></div>
-    <div class="faq rv">{faq_details(CORP_FAQS)}</div>
-  </div>
-</section>
-{JL}
-<section class="sec">
-  <div class="wrap">
     <div class="shead rv"><span class="lbl">The account</span><h2>How the account works day to day.</h2></div>
     <div class="rv sec-prose" style="max-width:68ch;margin:0 auto;text-align:left">
       <p>An account changes how your company books rather than what it books. Once it is open &mdash; usually within 48 hours of receiving your company details &mdash; anyone you authorise reserves in minutes by phone, WhatsApp or email, and the desk already holds your preferences, cost-centre references and billing details, so no journey starts from a blank form.</p>
       <p>Priority sits with account holders. When demand is high around event weeks or early-morning airport peaks, account bookings are dispatched ahead of ad-hoc requests, and a dedicated, named contact owns your account rather than a rotating queue. Every journey on the account runs to one standard, and every traveller you send is treated as the account holder would be.</p>
       <p>Billing is consolidated into a single monthly statement, so finance reconciles once instead of chasing dozens of receipts. Confidentiality is assumed throughout: our chauffeurs serve senior executives daily, and conversations, documents and itineraries stay in the car.</p>
     </div>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">Good to know</span><h2>Corporate account questions</h2></div>
+    <div class="faq rv">{faq_details(CORP_FAQS)}</div>
   </div>
 </section>
 {JLB}
@@ -2283,6 +2300,13 @@ events_body = header("events.html") + f"""
     </div>
   </div>
 </section>
+{JL}
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">Good to know</span><h2>Event chauffeur questions</h2></div>
+    <div class="faq rv">{faq_details(EVENTS_FAQS)}</div>
+  </div>
+</section>
 {JLB}
 <section class="closing band-dark">
   <div class="wrap"><span class="lbl">Occasions</span><h2 class="rv">Begin with the standard.</h2>
@@ -2293,7 +2317,8 @@ events_body = header("events.html") + f"""
  head("Wedding & Event Chauffeur Service Dubai | UMC Dubai",
       "Chauffeur service for weddings, galas and private events across the UAE. A coordinated fleet, one point of contact and a standard that never changes.",
       "events",
-      webpage_ld("https://umcdubai.ae/events", "Wedding & Event Chauffeur Service Dubai | UMC Dubai")) + events_body)
+      webpage_ld("https://umcdubai.ae/events", "Wedding & Event Chauffeur Service Dubai | UMC Dubai")
+      + faq_schema(EVENTS_FAQS)) + events_body)
 
 # ---------- contact (with verbatim terms) ----------
 contact_body = header("contact.html") + f"""
