@@ -5705,7 +5705,8 @@ export async function handleAssistant(request, env, ctx) {
       `SELECT id, kind, lead_id, payment_id, target_e164, status, raised_at, decided_at, decided_by, wamid_out
          FROM wa_proposals ORDER BY id DESC LIMIT 50`
     ).all();
-    return json({ ok: true, proposals: results || [] }, 200);
+    // Deploy marker so the running bundle is verifiable at a glance (bump per WA-5 deploy).
+    return json({ ok: true, build: "wa5-histguard", proposals: results || [] }, 200);
   }
 
   if (request.method === "POST") {
