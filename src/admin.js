@@ -5217,6 +5217,261 @@ async function teamPaymentAlert(env, lead, amountStr, summary, clientLink, dedup
   }
   return sent;
 }
+
+// ── WA-5-B1 — Assistant proposal engine (raise + decide) ─────────────────────
+// Client-facing automations never auto-send. They RAISE a proposal into the
+// wa_team channel with tap-to-send buttons; a human tap resolves it. Nothing
+// reaches a client without a human decision. An approved send is human-initiated,
+// so it rides WA_SEND_ENABLED (not the retired WA_CLIENT_SENDS_ENABLED).
+
+// Mask a client number for the team prompt — keep only the last 4 digits.
+function maskNumber(e164) {
+  const d = String(e164 || "").replace(/\D/g, "");
+  if (d.length < 4) return "the client";
+  return "•••• " + d.slice(-4);
+}
+
+// Authorized decision numbers. Default: every active wa_team member. Phase 6 can
+// narrow this with app_settings key 'assistant_decision_numbers' (comma/space list).
+async function getAuthorizedDecisionNumbers(env) {
+  const set = new Set();
+  try {
+    const r = await env.BILLING_DB.prepare(
+      `SELECT value FROM app_settings WHERE key='assistant_decision_numbers'`
+    ).first();
+    const raw = r && r.value ? String(r.value).trim() : "";
+    if (raw) for (const p of raw.split(/[,\s]+/)) { const n = waMeNumber(p); if (n) set.add(n); }
+  } catch (e) { /* setting absent → fall through to the active team */ }
+  if (set.size === 0) {
+    for (const m of await getActiveWaTeam(env)) { const n = waMeNumber(m.phone); if (n) set.add(n); }
+  }
+  return set;
+}
+
+// Is the client's 24h WhatsApp window open? True when we have an inbound message from
+// this number within the last 24h — a free-form text send is only allowed then.
+async function clientWindowOpen(env, e164) {
+  if (!e164) return false;
+  try {
+    const r = await env.BILLING_DB.prepare(
+      `SELECT received_at FROM wa_events WHERE event_type='messages' AND wa_id=? ORDER BY received_at DESC LIMIT 1`
+    ).bind(e164).first();
+    if (!r || !r.received_at) return false;
+    return (Date.now() - Date.parse(r.received_at)) < 24 * 3600 * 1000;
+  } catch (e) { return false; }
+}
+
+// Parse a proposal decision from an inbound message — a template quick-reply
+// (msg.button.payload) or a free-form interactive reply (msg.interactive.button_reply.id).
+// Returns { action:"APPROVE"|"SKIP", proposalId } or null.
+export function parseProposalPayload(msg) {
+  if (!msg) return null;
+  let raw = "";
+  if (msg.type === "button" && msg.button) raw = msg.button.payload || "";
+  else if (msg.type === "interactive" && msg.interactive && msg.interactive.type === "button_reply" &&
+           msg.interactive.button_reply) raw = msg.interactive.button_reply.id || "";
+  const m = /^(APPROVE|SKIP):(\d+)$/.exec(String(raw).trim());
+  return m ? { action: m[1], proposalId: Number(m[2]) } : null;
+}
+
+// Deliver a raised proposal to the team as a free-form interactive button message.
+// Buttons carry APPROVE:{id} / SKIP:{id} so a tap round-trips to the decision handler.
+// Rides WA_SEND_ENABLED (team messages). Returns the count delivered.
+async function deliverProposalToTeam(env, proposalId, promptText) {
+  if (env.WA_SEND_ENABLED !== "1") return 0;
+  const team = await getActiveWaTeam(env);
+  let delivered = 0;
+  for (const m of team) {
+    const to = waMeNumber(m.phone); if (to.length < 8) continue;
+    const r = await waGraphSend(env, {
+      messaging_product: "whatsapp", to, type: "interactive",
+      interactive: {
+        type: "button",
+        body: { text: promptText },
+        footer: { text: "UMC Dubai · umcdubai.ae" },
+        action: { buttons: [
+          { type: "reply", reply: { id: "APPROVE:" + proposalId, title: "Send ✓" } },
+          { type: "reply", reply: { id: "SKIP:" + proposalId, title: "Skip" } }
+        ] }
+      }
+    });
+    if (r.ok) delivered++;
+  }
+  return delivered;
+}
+
+// Raise a proposal: insert the ledger row (pending), then deliver it to the team.
+// A UNIQUE dedupe_key makes raises idempotent (a webhook retry re-raises nothing).
+// opts: { kind, leadId, jobId, paymentId, promptText, composedMessage, targetE164, dedupeKey }
+// Returns { id, delivered, duplicate }.
+export async function raiseProposal(env, opts) {
+  await ensureSchema(env);
+  const now = new Date().toISOString();
+  let id = null;
+  try {
+    const ins = await env.BILLING_DB.prepare(
+      `INSERT INTO wa_proposals
+         (kind, lead_id, job_id, payment_id, composed_message, target_e164, status, dedupe_key, raised_at)
+       VALUES (?,?,?,?,?,?, 'pending', ?, ?)`
+    ).bind(
+      opts.kind, opts.leadId == null ? null : opts.leadId, opts.jobId == null ? null : opts.jobId,
+      opts.paymentId == null ? null : String(opts.paymentId), opts.composedMessage || null,
+      opts.targetE164 || null, opts.dedupeKey || null, now
+    ).run();
+    id = ins.meta ? ins.meta.last_row_id : null;
+  } catch (e) {
+    return { id: null, delivered: 0, duplicate: true }; // dedupe_key collision → already raised
+  }
+  const delivered = await deliverProposalToTeam(env, id, opts.promptText || opts.composedMessage || "");
+  return { id, delivered, duplicate: false };
+}
+
+// Send the approved client message for a proposal. Window-aware: free-form text inside
+// the client's 24h window (out-of-window falls back to a team prefill via the caller).
+// Rides WA_SEND_ENABLED (human-initiated). Records the send in the wa_outbound ledger.
+// The single-send guarantee comes from the caller's pending→sent status claim, so the
+// ledger row uses no blocking dedupe key. Returns { ok, wamid, reason }.
+async function sendProposalApproved(env, proposal) {
+  const to = waMeNumber(proposal.target_e164 || "");
+  if (!to) return { ok: false, reason: "no_number" };
+  if (env.WA_SEND_ENABLED !== "1") return { ok: false, reason: "wa_send_off" };
+  if (!(await clientWindowOpen(env, to))) return { ok: false, reason: "window_closed" };
+  const body = (proposal.composed_message || "").trim();
+  if (!body) return { ok: false, reason: "empty_message" };
+  const rowId = await claimOutbound(env, {
+    lead_id: proposal.lead_id, kind: "proposal_" + proposal.kind, recipient: to, template: "freeform",
+    dedupe_key: null, meta_json: JSON.stringify({ proposalId: proposal.id })
+  });
+  const result = await waGraphSend(env, {
+    messaging_product: "whatsapp", to, type: "text", text: { preview_url: false, body }
+  });
+  if (rowId) await finishOutbound(env, rowId, {
+    status: result.ok ? "sent" : "failed", wamid: result.wamid,
+    errorCode: result.ok ? null : (result.errorCode || "send_failed")
+  });
+  return { ok: result.ok, wamid: result.wamid, reason: result.ok ? null : "send_failed" };
+}
+
+// Resolve a team button tap into a proposal decision. First decision wins; duplicate
+// taps and taps on an already-settled proposal are silent no-ops. A proposal untouched
+// for >24h is expired (marked, never sent). APPROVE fires the client send through the
+// hardened primitives; SKIP logs a quiet note. Either outcome is mirrored to the thread.
+// decision: { proposalId, action, fromE164 }
+export async function handleWaProposalDecision(env, ctx, decision) {
+  if (!env.BILLING_DB) return { status: "no_db" };
+  await ensureSchema(env);
+  const { proposalId, action, fromE164 } = decision;
+  const prop = await env.BILLING_DB.prepare(`SELECT * FROM wa_proposals WHERE id=?`).bind(proposalId).first();
+  if (!prop) { console.warn("WA-5 decision on missing proposal #" + proposalId); return { status: "unknown" }; }
+
+  // Authorize: only an active / allow-listed decision number can resolve a proposal.
+  const authed = await getAuthorizedDecisionNumbers(env);
+  if (!authed.has(fromE164)) {
+    console.warn("WA-5 unauthorized decision from " + maskNumber(fromE164) + " on #" + proposalId);
+    return { status: "unauthorized" };
+  }
+
+  // Already settled (first decision won, or a duplicate tap) → no-op.
+  if (prop.status !== "pending") return { status: "noop", prior: prop.status };
+
+  const now = new Date().toISOString();
+  const client = prop.target_e164 ? maskNumber(prop.target_e164) : "the client";
+
+  // Expiry: an untouched proposal older than 24h is dead — mark expired, never send.
+  if (Date.now() - Date.parse(prop.raised_at || now) > 24 * 3600 * 1000) {
+    const up = await env.BILLING_DB.prepare(
+      `UPDATE wa_proposals SET status='expired', decided_at=?, decided_by=? WHERE id=? AND status='pending'`
+    ).bind(now, fromE164, proposalId).run();
+    if (up.meta && up.meta.changes) {
+      await teamFreeform(env, "⏳ Proposal #" + proposalId + " expired (older than 24h) — nothing sent to " + client + ".",
+        "propdecide:" + proposalId + ":expired", "proposal_decision", prop.lead_id);
+    }
+    return { status: "expired" };
+  }
+
+  if (action === "SKIP") {
+    const up = await env.BILLING_DB.prepare(
+      `UPDATE wa_proposals SET status='skipped', decided_at=?, decided_by=? WHERE id=? AND status='pending'`
+    ).bind(now, fromE164, proposalId).run();
+    if (!(up.meta && up.meta.changes)) return { status: "noop" }; // lost the race
+    await teamFreeform(env, "⏭️ Skipped — nothing sent to " + client + ". (" + prop.kind + " proposal #" + proposalId + ")",
+      "propdecide:" + proposalId + ":skipped", "proposal_decision", prop.lead_id);
+    return { status: "skipped" };
+  }
+
+  // APPROVE — optimistic claim flips pending→sent so exactly one tap can proceed.
+  const claim = await env.BILLING_DB.prepare(
+    `UPDATE wa_proposals SET status='sent', decided_at=?, decided_by=? WHERE id=? AND status='pending'`
+  ).bind(now, fromE164, proposalId).run();
+  if (!(claim.meta && claim.meta.changes)) return { status: "noop" }; // lost the race / already decided
+
+  const send = await sendProposalApproved(env, prop);
+  if (send.ok) {
+    await env.BILLING_DB.prepare(`UPDATE wa_proposals SET wamid_out=? WHERE id=?`).bind(send.wamid || null, proposalId).run();
+    await teamFreeform(env, "✅ Sent to " + client + ". (" + prop.kind + " proposal #" + proposalId + ")",
+      "propdecide:" + proposalId + ":sent", "proposal_decision", prop.lead_id);
+    return { status: "sent", wamid: send.wamid };
+  }
+  // Send failed → REOPEN the proposal (first-decision-wins applies only to successful
+  // sends) and prefill the team once so a human can send manually.
+  await env.BILLING_DB.prepare(
+    `UPDATE wa_proposals SET status='pending', decided_at=NULL, decided_by=NULL WHERE id=?`
+  ).bind(proposalId).run();
+  await teamFreeform(env, "⚠️ Approved but the send did not go out (" + (send.reason || "error") + ") — proposal #" +
+    proposalId + " re-opened; send manually from the workspace if needed.",
+    "propdecide:" + proposalId + ":failed", "proposal_decision", prop.lead_id);
+  return { status: "send_failed", reason: send.reason };
+}
+
+// ── WA-5-B1 — Assistant admin rail ───────────────────────────────────────────
+// GET  /admin/api/assistant           → recent proposal ledger (Phase 6 adds settings)
+// POST /admin/api/assistant {action}  → 'raise-test' stages a proposal for E2E testing
+export async function handleAssistant(request, env, ctx) {
+  if (!(await isAuthed(request, env))) return json({ ok: false, error: "unauthorized" }, 401);
+  await ensureSchema(env);
+
+  if (request.method === "GET") {
+    const { results } = await env.BILLING_DB.prepare(
+      `SELECT id, kind, lead_id, payment_id, target_e164, status, raised_at, decided_at, decided_by, wamid_out
+         FROM wa_proposals ORDER BY id DESC LIMIT 50`
+    ).all();
+    return json({ ok: true, proposals: results || [] }, 200);
+  }
+
+  if (request.method === "POST") {
+    let body = {};
+    try { body = await request.json(); } catch { /* empty */ }
+    if (body.action === "raise-test") {
+      // Stage a real payment proposal for a lead so the decision side can be exercised on
+      // the owner's phone before the Phase 5 reroute is live. Rides WA_SEND_ENABLED.
+      const leadId = Number(body.lead_id);
+      if (!leadId) return json({ ok: false, error: "lead_id required" }, 400);
+      const lead = await env.BILLING_DB.prepare(
+        `SELECT id, name, phone, service, vehicle, pickup, destination, date, time FROM leads WHERE id=?`
+      ).bind(leadId).first();
+      if (!lead) return json({ ok: false, error: "lead not found" }, 404);
+      const to = waMeNumber(lead.phone);
+      if (!to) return json({ ok: false, error: "lead has no usable WhatsApp number" }, 400);
+      const name = waNz(lead.name) || "the client";
+      const firstName = name.split(/\s+/)[0];
+      const summary = waLeadSummary(lead) || "Booking";
+      const amountStr = body.amount ? String(body.amount) : "1";
+      const prompt = "💳 Payment received — " + name + " · AED " + amountStr + ".\n" + summary +
+        "\nThe client is on " + maskNumber(to) + " — send the confirmation? [TEST]";
+      const composed = "Dear " + firstName + ", thank you — we have received your payment of AED " + amountStr +
+        ". Your booking is confirmed and your concierge will share the final arrangements shortly.\n\nWarm regards,\nUMC Dubai";
+      const res = await raiseProposal(env, {
+        kind: "payment", leadId: lead.id, paymentId: "TEST-" + new Date().toISOString(),
+        promptText: prompt, composedMessage: composed, targetE164: to,
+        dedupeKey: "proposal:test:" + lead.id + ":" + new Date().toISOString()
+      });
+      return json({ ok: true, raised: res }, 200);
+    }
+    return json({ ok: false, error: "unknown action" }, 400);
+  }
+  return json({ ok: false, error: "method not allowed" }, 405);
+}
+
 export async function runFlightWatch(env) {
   if (!env.BILLING_DB || env.FLIGHT_WATCH_ENABLED !== "1" || !env.FLIGHT_API_KEY) return { polled: 0, notified: 0, skipped: "disabled" };
   try { await ensureSchema(env); } catch (e) { return { polled: 0, notified: 0 }; }

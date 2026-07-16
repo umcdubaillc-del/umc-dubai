@@ -3,7 +3,8 @@
 import {
   handleAdmin, handleFleetRatesPublic, isAuthed,
   sendLeadAlerts, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runLeadWatchdog, runFlightWatch,
-  createWaLink, handleWaRedirect, composeQuoteText, runQuoteNudge, runOpsDigest
+  createWaLink, handleWaRedirect, composeQuoteText, runQuoteNudge, runOpsDigest,
+  handleAssistant, handleWaProposalDecision, parseProposalPayload
 } from "./admin.js";
 import { handleWaTemplates } from "./wa-templates.js";
 
@@ -137,6 +138,10 @@ export default {
     // server-side; WA_ACCESS_TOKEN never leaves the Worker).
     if (url.pathname === "/admin/api/wa-templates") {
       return handleWaTemplates(request, env);
+    }
+    // WA-5-B1: Assistant proposal engine rail (ledger + staged-test raise).
+    if (url.pathname === "/admin/api/assistant") {
+      return handleAssistant(request, env, ctx);
     }
 
     if (url.pathname === "/admin/billing" ||
@@ -1183,6 +1188,24 @@ async function handleWaWebhook(request, env, ctx, url) {
     }
   } catch (e) {
     console.error("WA store/status failed", e && (e.message || String(e)));
+  }
+  // WA-5-B1 — Assistant proposal decisions: a team button tap (template quick-reply or
+  // free-form interactive reply) carrying APPROVE:/SKIP:{id} resolves the proposal. The
+  // decision handler authorizes the sender itself. Runs before lead capture (which
+  // already excludes team members), non-blocking, after the 200.
+  for (const entry of entries) {
+    for (const change of (Array.isArray(entry.changes) ? entry.changes : [])) {
+      const msgs = change && change.value && change.value.messages;
+      if (!Array.isArray(msgs)) continue;
+      for (const m of msgs) {
+        const decision = parseProposalPayload(m);
+        if (!decision) continue;
+        const fromE164 = waMeNumber((m && m.from) || "");
+        ctx.waitUntil(handleWaProposalDecision(env, ctx, {
+          proposalId: decision.proposalId, action: decision.action, fromE164
+        }).catch(() => {}));
+      }
+    }
   }
   // Gate F — capture unknown-number inbound messages as leads (non-blocking, after 200).
   for (const entry of entries) {
