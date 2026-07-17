@@ -13204,6 +13204,19 @@ const PAGE_SCRIPT = `<script>
     } else {
       state.line_items = [{ description: desc, qty: 1, rate: 0 }];
     }
+    // WA-5-B2 VAT bridge — carry the lead's VAT choice into the billing form's
+    // VAT selector, but ONLY when the operator explicitly set one on the lead
+    // (vat_mode_set==1). The lead vocabulary ('plus'/'incl') maps to the form's
+    // ('exclusive'/'inclusive'). 'none'/unset assert no VAT stance; the form has
+    // no "no-VAT" option, so we leave its default untouched rather than invent one.
+    if(Number(lead.vat_mode_set) === 1){
+      const bridgedVat = lead.vat_mode === "plus" ? "exclusive"
+                       : lead.vat_mode === "incl" ? "inclusive" : null;
+      if(bridgedVat){
+        state.vat_mode = bridgedVat;
+        if($("fVatMode")) $("fVatMode").value = bridgedVat;
+      }
+    }
     state.discount = 0;
     // Phase 1.2 — lineage + chauffeur notes go into internal_notes, NEVER
     // into the client-facing notes field that prints on the PDF.
