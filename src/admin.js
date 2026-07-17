@@ -5557,8 +5557,10 @@ async function resolveCancelTarget(env, query) {
     service: waNz(l.service), date: waNz(l.date), time: waNz(l.time), flight: waNz(l.flight) }));
   const sys = "You match a UMC Dubai team member's booking cancel/restore request to bookings in the list. " +
     "Output ONLY JSON {\"ids\":[...]} with the id(s) that match the request (by name, vehicle, date, time, service, flight). " +
-    "If exactly one clearly matches, return just that id. If several plausibly match, return all of them. If none match, return []. " +
-    "NEVER invent an id not in the list. Today is " + dxb.toISOString().slice(0, 10) + " (Asia/Dubai). Bookings: " + JSON.stringify(catalog);
+    "If exactly ONE booking clearly and unambiguously matches, return just that id (the caller confirms it before acting). " +
+    "Otherwise err toward SURFACING every booking that plausibly matches so the team can pick — return all plausible ids. " +
+    "Return [] only when nothing is even plausibly related. NEVER invent an id not in the list. " +
+    "Today is " + dxb.toISOString().slice(0, 10) + " (Asia/Dubai). Bookings: " + JSON.stringify(catalog);
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -6528,7 +6530,7 @@ export async function handleAssistant(request, env, ctx) {
     // effectiveDecisionNumbers: what the engine will actually authorize right now.
     const eff = Array.from(await getAuthorizedDecisionNumbers(env));
     // Deploy marker so the running bundle is verifiable at a glance (bump per WA-5 deploy).
-    return json({ ok: true, build: "wa5-b2-cxnl", settings, effectiveDecisionNumbers: eff, proposals: results || [] }, 200);
+    return json({ ok: true, build: "wa5-b2-cxnl2", settings, effectiveDecisionNumbers: eff, proposals: results || [] }, 200);
   }
 
   if (request.method === "POST") {
@@ -7797,7 +7799,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260717-wa5-b2-cxnl";
+const ADMIN_BUILD = "20260717-wa5-b2-cxnl2";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
