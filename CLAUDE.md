@@ -124,6 +124,16 @@ into Gmail/Outlook and attaches the PDF himself. Wiring it to the
 existing Resend integration is a follow-up (use the
 `sendClientReceipt`-style pattern in `src/index.js`).
 
+## WhatsApp assistant invariants (WA-5)
+### READ-TRUTH (permanent, owner ruling 2026-07-17)
+NEVER call WhatsApp's mark-as-read / read-receipt API on any inbound message.
+Webhook processing must leave every client message **UNREAD** in the Business App
+until a human opens it — blue ticks always mean human eyes. Our receiving a webhook
+copy is invisible to the phone (the app still notifies normally). Enforced at the
+single outbound Graph choke point `waGraphSend` (`src/admin.js`), which hard-refuses
+any `{ status: "read", message_id }` payload. Do not remove that guard; no build may
+introduce a mark-as-read call.
+
 ## Standing image-sourcing rule (v42)
 When replacing or adding any site image (fleet cards, fleet-page heroes, interior
 shots, homepage hero, partner logos), use this preference order:

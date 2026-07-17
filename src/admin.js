@@ -4633,6 +4633,14 @@ export async function getActiveWaTeam(env) {
 
 // ── Low-level send + wa_outbound bookkeeping ─────────────────────────────────
 async function waGraphSend(env, payload) {
+  // READ-TRUTH invariant (owner ruling 2026-07-17, PERMANENT): we NEVER mark an inbound
+  // client message as read — blue ticks must mean a human opened it in the Business App.
+  // This is the only outbound Graph choke point, so we hard-refuse any mark-as-read
+  // payload ({ status: "read", message_id }) here. Do not remove; no build may add one.
+  if (payload && payload.status === "read") {
+    console.warn("READ-TRUTH: refused a mark-as-read Graph call");
+    return { ok: false, status: "failed", errorCode: "read_receipt_forbidden" };
+  }
   if (!env.WA_PHONE_NUMBER_ID || !env.WA_ACCESS_TOKEN) {
     return { ok: false, status: "failed", errorCode: "unconfigured" };
   }
