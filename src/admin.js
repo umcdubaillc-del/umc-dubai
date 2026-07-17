@@ -5863,16 +5863,43 @@ async function setAppSetting(env, key, value) {
 
 // UAE-default phone normalizer: keep an explicit country code, but default local UAE
 // shapes (05XXXXXXXX / 5XXXXXXXX) to +971. Falls through to waMeNumber for validation.
+// Country codes we recognize on a BARE number (no + and no 00). Owner ruling
+// 2026-07-17 (B2-INTL): auto-accept a bare number as international ONLY when it leads
+// with one of these AND is long enough to be a full number; UAE local shapes default
+// to 971; everything else is left UN-NORMALIZABLE so the preview flags "country code?"
+// and asks — we never guess a country. GCC + the common source markets for UMC clients.
+const KNOWN_DIAL_CODES = [
+  "971", "966", "974", "973", "965", "968", "962", "961", "20",   // UAE, KSA, QA, BH, KW, OM, JO, LB, EG
+  "44", "1", "91", "92", "880", "977", "93", "98",                 // UK, US/CA, IN, PK, BD, NP, AF, IR
+  "63", "62", "60", "65", "66", "94", "249", "251", "234",         // PH, ID, MY, SG, TH, LK, SD, ET, NG
+  "7", "33", "49", "39", "34", "31", "41", "46", "61", "64", "27", "90", "254", "255"
+];
+// A bare digit string that plausibly already carries a country code: long enough to be a
+// full international number and leading with a code we know. Floor is 11 digits — a real
+// number is code (1–3) + a 7–10 digit national number; a bare 10-digit string (e.g. a NANP
+// number missing a digit, or a mistyped local one) is genuinely ambiguous, so we flag it
+// rather than assume a country. Explicit +/00 numbers bypass this and are always trusted.
+function leadsWithKnownDialCode(d) {
+  if (d.length < 11) return false;
+  return KNOWN_DIAL_CODES.some((c) => d.indexOf(c) === 0);
+}
+// Resolve a raw phone to E.164 digits (no +), or "" when the country cannot be placed.
+// "" with digits present is surfaced by callers as a "country code?" flag + one question.
 function normalizeLeadPhone(raw) {
   let s = String(raw == null ? "" : raw).trim();
   const hadPlus = s.indexOf("+") === 0;
   let d = s.replace(/\D/g, "");
-  if (d.indexOf("00") === 0) d = d.slice(2);
-  if (!hadPlus) {
-    if (d.length === 10 && d.charAt(0) === "0" && d.charAt(1) === "5") d = "971" + d.slice(1);
-    else if (d.length === 9 && d.charAt(0) === "5") d = "971" + d;
-  }
-  return waMeNumber(d);
+  const had00 = d.indexOf("00") === 0;
+  if (had00) d = d.slice(2);
+  // Explicit international notation (+cc or 00cc) → trust it as written.
+  if (hadPlus || had00) return waMeNumber(d);
+  // Bare UAE local shapes → default to 971 (owner ruling: only when clearly local).
+  if (d.length === 10 && d.charAt(0) === "0" && d.charAt(1) === "5") return waMeNumber("971" + d.slice(1));
+  if (d.length === 9 && d.charAt(0) === "5") return waMeNumber("971" + d);
+  // Bare number already carrying a recognized country code → accept as international.
+  if (leadsWithKnownDialCode(d)) return waMeNumber(d);
+  // Otherwise we cannot place the country → un-normalizable (caller flags "country code?").
+  return "";
 }
 
 const LEAD_PARSE_FIELDS = ["name", "phone", "email", "service", "vehicle", "pickup",
@@ -5945,6 +5972,8 @@ function finalizeLeadFields(f) {
   const g = {};
   for (const k of LEAD_PARSE_FIELDS) g[k] = f && f[k] != null ? String(f[k]).trim() : "";
   g.phoneE164 = g.phone ? normalizeLeadPhone(g.phone) : "";
+  // A number is present (≥7 digits) but we couldn't place its country → ask, don't guess.
+  g.phoneAmbiguous = !g.phoneE164 && g.phone.replace(/\D/g, "").length >= 7;
   g.vat = (g.vat === "plus" || g.vat === "none") ? g.vat : "";
   return g;
 }
@@ -5952,7 +5981,8 @@ function leadPreviewText(f, dedupe) {
   const row = (label, v) => label + ": " + (waNz(v) ? v : "—");
   const L = ["📝 New lead — review before creating:"];
   L.push(row("Name", f.name));
-  L.push(row("Phone", f.phoneE164 ? ("+" + f.phoneE164) : (f.phone || "—")));
+  L.push(row("Phone", f.phoneE164 ? ("+" + f.phoneE164)
+    : (f.phoneAmbiguous ? ((f.phone || "").trim() + "  ⚠️ country code?") : (f.phone || "—"))));
   L.push(row("Service", f.service));
   L.push(row("Vehicle", f.vehicle));
   L.push(row("Pickup", f.pickup));
@@ -5965,6 +5995,7 @@ function leadPreviewText(f, dedupe) {
   if (waNz(f.email)) L.push(row("Email", f.email));
   if (waNz(f.notes)) L.push(row("Notes", f.notes));
   if (dedupe) L.push("\n⚠️ Matches lead #" + dedupe.id + (dedupe.name ? (" (" + dedupe.name + ")") : "") + " — update it, or create a separate lead?");
+  else if (f.phoneAmbiguous) L.push("\n📱 I can't tell which country that number is — reply with it including the code (e.g. +44…), or tap Create to save it without a number.");
   else L.push("\nType any correction, or tap below.");
   return L.join("\n");
 }
@@ -6007,8 +6038,9 @@ async function startLeadDraft(env, fromE164, rawText) {
   }
   const f = finalizeLeadFields(parsed.fields);
   const noNumber = /no\s*(number|phone|mobile|contact)/i.test(rawText);
-  // Minimum: a usable phone, OR an explicit "no number" together with a name.
-  if (!f.phoneE164 && !(noNumber && waNz(f.name))) {
+  // Minimum: a usable phone, OR a number we can't country-place (ambiguous → drafts with a
+  // "country code?" flag), OR an explicit "no number" together with a name.
+  if (!f.phoneE164 && !f.phoneAmbiguous && !(noNumber && waNz(f.name))) {
     await sendTextTo(env, fromE164, waNz(f.name)
       ? ("📱 What's " + f.name.split(/\s+/)[0] + "'s number? (or reply \"no number\")")
       : "👤 Who's the lead — name and number?");
@@ -6133,7 +6165,7 @@ export async function handleAssistant(request, env, ctx) {
     // effectiveDecisionNumbers: what the engine will actually authorize right now.
     const eff = Array.from(await getAuthorizedDecisionNumbers(env));
     // Deploy marker so the running bundle is verifiable at a glance (bump per WA-5 deploy).
-    return json({ ok: true, build: "wa5-b2-leadcreate", settings, effectiveDecisionNumbers: eff, proposals: results || [] }, 200);
+    return json({ ok: true, build: "wa5-b2-intl", settings, effectiveDecisionNumbers: eff, proposals: results || [] }, 200);
   }
 
   if (request.method === "POST") {
@@ -7391,7 +7423,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260717-wa5-assistant";
+const ADMIN_BUILD = "20260717-wa5-b2-intl";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
