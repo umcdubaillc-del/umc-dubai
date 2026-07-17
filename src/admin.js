@@ -5537,6 +5537,63 @@ async function appendLeadNote(env, leadId, text) {
   try { await env.BILLING_DB.prepare(`UPDATE leads SET notes = TRIM(COALESCE(notes,'') || ?) WHERE id=?`).bind("\n\n" + String(text || "").trim(), leadId).run(); } catch (e) { /* best-effort */ }
 }
 
+// Ship B — NL target resolution (scope pin (b), 2026-07-17). Claude matches a free-text
+// cancel/restore request to OPEN bookings and returns READ-ONLY candidate ids; the mutation
+// still sits behind a confirm tap. Never guesses: 0 or >1 → the caller lists candidates.
+async function resolveCancelTarget(env, query) {
+  if (!env.ANTHROPIC_API_KEY) return { ok: false, error: "no_key" };
+  let open = [];
+  try {
+    const { results } = await env.BILLING_DB.prepare(
+      `SELECT id, name, vehicle, service, date, time, flight FROM leads
+        WHERE COALESCE(status,'new') != 'cancelled'
+        ORDER BY id DESC LIMIT 60`
+    ).all();
+    open = results || [];
+  } catch (e) { return { ok: false, error: "db" }; }
+  if (!open.length) return { ok: true, candidates: [] };
+  const dxb = new Date(Date.now() + 4 * 3600 * 1000);
+  const catalog = open.map((l) => ({ id: l.id, name: waNz(l.name), vehicle: waNz(l.vehicle),
+    service: waNz(l.service), date: waNz(l.date), time: waNz(l.time), flight: waNz(l.flight) }));
+  const sys = "You match a UMC Dubai team member's booking cancel/restore request to bookings in the list. " +
+    "Output ONLY JSON {\"ids\":[...]} with the id(s) that match the request (by name, vehicle, date, time, service, flight). " +
+    "If exactly one clearly matches, return just that id. If several plausibly match, return all of them. If none match, return []. " +
+    "NEVER invent an id not in the list. Today is " + dxb.toISOString().slice(0, 10) + " (Asia/Dubai). Bookings: " + JSON.stringify(catalog);
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5", max_tokens: 256, temperature: 0, system: sys,
+        messages: [{ role: "user", content: String(query || "").slice(0, 500) }],
+        output_config: { format: { type: "json_schema", schema: {
+          type: "object", properties: { ids: { type: "array", items: { type: "number" } } },
+          required: ["ids"], additionalProperties: false } } }
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: "api" };
+    const txt = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+    let parsed; try { parsed = JSON.parse(txt); } catch (e) { return { ok: false, error: "badjson" }; }
+    const wanted = Array.isArray(parsed.ids) ? parsed.ids : [];
+    const candidates = wanted.map((id) => open.find((l) => Number(l.id) === Number(id))).filter(Boolean)
+      .map((l) => ({ id: l.id, name: waNz(l.name), vehicle: waNz(l.vehicle), date: waNz(l.date), time: waNz(l.time) }));
+    return { ok: true, candidates };
+  } catch (e) { return { ok: false, error: "exception" }; }
+}
+// Numbered candidate list for an ambiguous / zero NL match — the pick stays deterministic ("cancel #id").
+function buildCandidateList(op, candidates, error) {
+  if (error === "no_key") return "⚙️ Natural-language matching isn't configured — reply \"" + op + " #<number>\".";
+  if (!candidates.length) return "No open booking matches that. Reply \"" + op + " #<number>\" with the booking id.";
+  const L = ["Which booking to " + op + "?"];
+  candidates.slice(0, 8).forEach((c) => {
+    const bits = [c.vehicle, [c.date, c.time].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+    L.push("#" + c.id + " — " + (c.name || "—") + (bits ? " · " + bits : ""));
+  });
+  L.push("Reply \"" + op + " #<id>\".");
+  return L.join("\n");
+}
+
 // Interactive [Send ✓][Skip] button payload for a proposal (free-form; in-window only).
 function proposalInteractive(to, proposalId, promptText) {
   return {
@@ -5986,7 +6043,23 @@ async function handleTeamInboundText(env, ctx, msg) {
       if (b && b.lead_id != null) leadId = Number(b.lead_id);
     }
     if (!leadId) { const idM = t.match(/#?\s*(\d{1,7})\b/); if (idM) leadId = Number(idM[1]); }
-    if (!leadId) leadId = await recentAssistantLead(env, fromE164);
+    // No id/reply binding. Descriptive text ("cancel kamran's airport run") → Claude resolves
+    // to read-only candidates (Ship B, scope pin (b)); bare "cancel"/"cancel this" → last booking.
+    if (!leadId) {
+      const descr = t.replace(/^\s*(cancel|restore)\b/i, "").replace(/#?\s*\d{1,7}\b/, "")
+        .replace(/\b(this|that|the|booking|job|please|pls|last|my|it)\b/gi, "").trim();
+      if (descr.length >= 3) {
+        const res = await resolveCancelTarget(env, t);
+        if (res.ok && res.candidates && res.candidates.length === 1) {
+          leadId = res.candidates[0].id;
+        } else {
+          await sendTextTo(env, fromE164, buildCandidateList(op, (res && res.candidates) || [], res && res.error));
+          return { handled: true, action: "cx_candidates" };
+        }
+      } else {
+        leadId = await recentAssistantLead(env, fromE164);
+      }
+    }
     if (!leadId) {
       await sendTextTo(env, fromE164, "Which booking? Reply \"" + op + " #<number>\" — the number is in the booking confirmation.");
       return { handled: true, action: "cx_need_id" };
@@ -6455,7 +6528,7 @@ export async function handleAssistant(request, env, ctx) {
     // effectiveDecisionNumbers: what the engine will actually authorize right now.
     const eff = Array.from(await getAuthorizedDecisionNumbers(env));
     // Deploy marker so the running bundle is verifiable at a glance (bump per WA-5 deploy).
-    return json({ ok: true, build: "wa5-b2-cancel", settings, effectiveDecisionNumbers: eff, proposals: results || [] }, 200);
+    return json({ ok: true, build: "wa5-b2-cxnl", settings, effectiveDecisionNumbers: eff, proposals: results || [] }, 200);
   }
 
   if (request.method === "POST") {
@@ -6531,6 +6604,11 @@ export async function handleAssistant(request, env, ctx) {
         if (hit) dedupe = { id: hit.id, name: waNz(hit.name) };
       }
       return json({ ok: true, fields: f, dedupe, preview: leadPreviewText(f, dedupe) }, 200);
+    }
+    if (body.action === "cancel-resolve-test") {
+      // Verify NL cancel-target resolution in isolation (no WhatsApp). Returns read-only candidates.
+      const res = await resolveCancelTarget(env, String(body.text || ""));
+      return json(res, 200);
     }
     if (body.action === "save-settings") {
       // Per-automation mode + authorized decision numbers. Modes are 'propose' | 'off'.
@@ -7719,7 +7797,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260717-wa5-b2-cancel";
+const ADMIN_BUILD = "20260717-wa5-b2-cxnl";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
