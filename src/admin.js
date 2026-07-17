@@ -7843,7 +7843,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260717-wa5-b2-cxadmin";
+const ADMIN_BUILD = "20260718-wa5-b2-vat";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
