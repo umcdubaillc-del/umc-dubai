@@ -5501,29 +5501,22 @@ async function applyBookingCancel(env, fromE164, leadId, op, meta) {
   if (!lead) { await sendTextTo(env, fromE164, "No booking #" + leadId + " found."); return; }
   const nm = waNz(lead.name);
   const who = nm ? (" (" + nm + ")") : "";
-  const isCancelled = String(lead.status) === "cancelled";
-  // Idempotency across duplicate cards: a second confirm must not re-stamp state.
-  if (op === "cancel" && isCancelled) { await sendTextTo(env, fromE164, "Booking #" + leadId + who + " is already cancelled."); return; }
-  if (op === "restore" && !isCancelled) { await sendTextTo(env, fromE164, "Booking #" + leadId + who + " isn't cancelled."); return; }
+  const byLabel = "assistant · " + maskNumber(fromE164);
   if (op === "restore") {
-    const back = (lead.status_before_cancel && lead.status_before_cancel !== "cancelled") ? lead.status_before_cancel : "new";
-    await env.BILLING_DB.prepare(
-      `UPDATE leads SET status=?, cancelled_at=NULL, cancelled_by=NULL, cancel_reason=NULL, status_before_cancel=NULL, cancel_refund_flag=0 WHERE id=?`
-    ).bind(back, leadId).run();
-    await appendLeadNote(env, leadId, "[restored via assistant by " + maskNumber(fromE164) + "] " + (meta.rawTrigger || ""));
-    await sendTextTo(env, fromE164, "♻️ Booking #" + leadId + who + " restored.");
+    const r = await restoreLeadRow(env, leadId, byLabel, meta.rawTrigger);
+    await sendTextTo(env, fromE164, r.ok
+      ? ("♻️ Booking #" + leadId + who + " restored.")
+      : (r.error === "not_cancelled" ? ("Booking #" + leadId + who + " isn't cancelled.") : ("No booking #" + leadId + " found.")));
     return;
   }
-  const paid = await env.BILLING_DB.prepare(
-    `SELECT amount FROM payment_links WHERE lead_id=? AND payment_status='paid' LIMIT 1`
-  ).bind(leadId).first();
-  const refundFlag = paid ? 1 : 0;
-  await env.BILLING_DB.prepare(
-    `UPDATE leads SET status='cancelled', status_before_cancel=?, cancelled_at=?, cancelled_by=?, cancel_reason=?, cancel_refund_flag=? WHERE id=?`
-  ).bind(String(lead.status || "new"), now, fromE164, waNz(meta.reason) || null, refundFlag, leadId).run();
-  await appendLeadNote(env, leadId, "[cancelled via assistant by " + maskNumber(fromE164) + "]" + (waNz(meta.reason) ? " reason: " + meta.reason : "") + (meta.rawTrigger ? "\n" + meta.rawTrigger : ""));
+  const r = await cancelLeadRow(env, leadId, byLabel, meta.reason, meta.rawTrigger);
+  if (!r.ok) {
+    await sendTextTo(env, fromE164, r.error === "already"
+      ? ("Booking #" + leadId + who + " is already cancelled.") : ("No booking #" + leadId + " found."));
+    return;
+  }
   let msg = "🚫 Booking #" + leadId + who + " cancelled.";
-  if (refundFlag) msg += "\n⚠️ AED " + (paid.amount != null ? paid.amount : (lead.quote_price != null ? lead.quote_price : "?")) + " was already paid — handle the refund manually.";
+  if (r.refundFlag) msg += "\n⚠️ AED " + (r.paidAmount != null ? r.paidAmount : (lead.quote_price != null ? lead.quote_price : "?")) + " was already paid — handle the refund manually.";
   const to = waMeNumber(lead.phone);
   if (to.length >= 8) {
     const first = nm ? nm.split(/\s+/)[0] : "Guest";
@@ -5531,6 +5524,48 @@ async function applyBookingCancel(env, fromE164, leadId, op, meta) {
     msg += "\nTo notify " + (nm ? first : "the client") + " (optional — you send): " + link;
   }
   await sendTextTo(env, fromE164, msg);
+}
+// Shared soft-status engine — chat AND admin write identical truth through these.
+// Cancel: records who/when/why + pre-cancel status (clean restore) + a refund flag when
+// money was paid. Restore: reverts to the pre-cancel status. status-never-delete.
+async function cancelLeadRow(env, leadId, byWho, reason, extraNote) {
+  const lead = await env.BILLING_DB.prepare(
+    `SELECT id, name, phone, status, quote_price, status_before_cancel FROM leads WHERE id=?`
+  ).bind(leadId).first();
+  if (!lead) return { ok: false, error: "not_found" };
+  if (String(lead.status) === "cancelled") return { ok: false, error: "already", lead };
+  const now = new Date().toISOString();
+  const paid = await env.BILLING_DB.prepare(
+    `SELECT amount FROM payment_links WHERE lead_id=? AND payment_status='paid' LIMIT 1`
+  ).bind(leadId).first();
+  const refundFlag = paid ? 1 : 0;
+  await env.BILLING_DB.prepare(
+    `UPDATE leads SET status='cancelled', status_before_cancel=?, cancelled_at=?, cancelled_by=?, cancel_reason=?, cancel_refund_flag=? WHERE id=?`
+  ).bind(String(lead.status || "new"), now, byWho, waNz(reason) || null, refundFlag, leadId).run();
+  await appendLeadNote(env, leadId, "[cancelled by " + byWho + "]" + (waNz(reason) ? " reason: " + reason : "") + (extraNote ? "\n" + extraNote : ""));
+  return { ok: true, refundFlag, paidAmount: paid ? paid.amount : null, lead };
+}
+async function restoreLeadRow(env, leadId, byWho, extraNote) {
+  const lead = await env.BILLING_DB.prepare(
+    `SELECT id, name, status, status_before_cancel FROM leads WHERE id=?`
+  ).bind(leadId).first();
+  if (!lead) return { ok: false, error: "not_found" };
+  if (String(lead.status) !== "cancelled") return { ok: false, error: "not_cancelled", lead };
+  const back = (lead.status_before_cancel && lead.status_before_cancel !== "cancelled") ? lead.status_before_cancel : "new";
+  await env.BILLING_DB.prepare(
+    `UPDATE leads SET status=?, cancelled_at=NULL, cancelled_by=NULL, cancel_reason=NULL, status_before_cancel=NULL, cancel_refund_flag=0 WHERE id=?`
+  ).bind(back, leadId).run();
+  await appendLeadNote(env, leadId, "[restored by " + byWho + "]" + (extraNote ? " " + extraNote : ""));
+  return { ok: true, back, lead };
+}
+// Admin-path Cancel/Restore — same engine, from the workspace Leads sheet.
+async function handleAdminCancelLead(id, request, env, op) {
+  let body = {}; try { body = await request.json(); } catch (e) { body = {}; }
+  const r = op === "restore"
+    ? await restoreLeadRow(env, id, "admin", null)
+    : await cancelLeadRow(env, id, "admin", body && body.reason, null);
+  if (!r.ok) return json({ ok: false, error: r.error }, r.error === "not_found" ? 404 : 409);
+  return json({ ok: true, id, status: op === "restore" ? r.back : "cancelled", refundFlag: r.refundFlag || 0 });
 }
 // Append a line to a lead's notes (audit trail; never overwrites).
 async function appendLeadNote(env, leadId, text) {
@@ -6530,7 +6565,7 @@ export async function handleAssistant(request, env, ctx) {
     // effectiveDecisionNumbers: what the engine will actually authorize right now.
     const eff = Array.from(await getAuthorizedDecisionNumbers(env));
     // Deploy marker so the running bundle is verifiable at a glance (bump per WA-5 deploy).
-    return json({ ok: true, build: "wa5-b2-cxnl2", settings, effectiveDecisionNumbers: eff, proposals: results || [] }, 200);
+    return json({ ok: true, build: "wa5-b2-cxadmin", settings, effectiveDecisionNumbers: eff, proposals: results || [] }, 200);
   }
 
   if (request.method === "POST") {
@@ -7546,6 +7581,15 @@ export async function handleAdmin(request, env) {
       if (!env.BILLING_DB) return dbUnavailable();
       return handleMarkLeadViewed(parseInt(vm[1], 10), env);
     }
+    // WA-5-B2-CANCEL — admin parity: Cancel/Restore a booking from the Leads sheet,
+    // through the SAME soft-status engine the chat grammar uses.
+    const cm = path.match(/^\/admin\/api\/leads\/(\d+)\/(cancel|restore)$/);
+    if (cm && method === "POST") {
+      const authed = await isAuthed(request, env);
+      if (!authed) return json({ ok: false, error: "auth required" }, 401);
+      if (!env.BILLING_DB) return dbUnavailable();
+      return handleAdminCancelLead(parseInt(cm[1], 10), request, env, cm[2]);
+    }
     // WA-2 C — latest quote-send status for a lead's row ticks (polled by the UI).
     const wm = path.match(/^\/admin\/api\/leads\/(\d+)\/wa-status$/);
     if (wm && method === "GET") {
@@ -7799,7 +7843,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260717-wa5-b2-cxnl2";
+const ADMIN_BUILD = "20260717-wa5-b2-cxadmin";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -12883,7 +12927,11 @@ const PAGE_SCRIPT = `<script>
         // UI-3 A — the visible row keeps only the destructive delete; every
         // create / contact / quote / payment action now lives in a LABELED cluster of
         // the expandable sheet below (fixes the "buttons missing/undiscoverable" reports).
-        const actions = '<button type="button" class="btn btn-small btn-danger" data-leaddel="'+x.id+'" title="Delete this lead">&times;</button>';
+        // WA-5-B2-CANCEL — admin parity: soft Cancel/Restore (same status engine as chat).
+        const cxAction = (status === "cancelled")
+          ? '<button type="button" class="btn btn-small" data-leadrestore="'+x.id+'" title="Restore this booking">Restore</button> '
+          : '<button type="button" class="btn btn-small" data-leadcancel="'+x.id+'" title="Cancel this booking (kept on file, reversible)">Cancel</button> ';
+        const actions = cxAction + '<button type="button" class="btn btn-small btn-danger" data-leaddel="'+x.id+'" title="Delete this lead">&times;</button>';
         // DOCUMENTS-cluster create controls (status-aware, same handlers as before).
         const docCreate = (status === "new")
           ? '<button type="button" class="btn btn-small btn-ghost" data-leadquote="'+x.id+'">Create quote</button>'
@@ -15037,6 +15085,34 @@ const PAGE_SCRIPT = `<script>
             else { setStatus("Delete failed: " + ((j && j.error) || "")); }
           })
           .catch(function(err){ setStatus("Delete failed: " + (err.message || err)); });
+        return;
+      }
+      // WA-5-B2-CANCEL — soft Cancel/Restore from the row (same status engine as chat).
+      const cxBtn = e.target.closest("[data-leadcancel]");
+      if(cxBtn){
+        e.preventDefault(); e.stopPropagation();
+        const id = cxBtn.getAttribute("data-leadcancel");
+        if(!confirm("Cancel booking #"+id+"? It stays on file and can be restored.")) return;
+        fetch("/admin/api/leads/" + id + "/cancel", { method:"POST", headers:{"content-type":"application/json"}, body:"{}" })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if(j && j.ok){ setStatus("Booking #"+id+" cancelled." + (j.refundFlag ? " (was PAID — refund manually)" : "")); loadLeads(); }
+            else { setStatus("Cancel failed: " + ((j && j.error) || "")); }
+          })
+          .catch(function(err){ setStatus("Cancel failed: " + (err.message || err)); });
+        return;
+      }
+      const rxBtn = e.target.closest("[data-leadrestore]");
+      if(rxBtn){
+        e.preventDefault(); e.stopPropagation();
+        const id = rxBtn.getAttribute("data-leadrestore");
+        fetch("/admin/api/leads/" + id + "/restore", { method:"POST", headers:{"content-type":"application/json"}, body:"{}" })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if(j && j.ok){ setStatus("Booking #"+id+" restored."); loadLeads(); }
+            else { setStatus("Restore failed: " + ((j && j.error) || "")); }
+          })
+          .catch(function(err){ setStatus("Restore failed: " + (err.message || err)); });
         return;
       }
       // v99: drawer button — switch to Documents and open the linked doc by
