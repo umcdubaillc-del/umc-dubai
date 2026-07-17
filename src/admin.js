@@ -356,6 +356,14 @@ async function ensureSchema(env) {
       // column the leads SELECT references.
       "verified INTEGER DEFAULT 1",
       "whatsapp_reachable TEXT",
+      // WA-5-B2-CANCEL — soft-cancel lifecycle (status-never-delete). status flips to
+      // 'cancelled'; these record who/when/why, the pre-cancel status for a clean restore,
+      // and a refund flag raised when money was already paid on the booking.
+      "cancelled_at TEXT",
+      "cancelled_by TEXT",
+      "cancel_reason TEXT",
+      "status_before_cancel TEXT",
+      "cancel_refund_flag INTEGER DEFAULT 0",
     ]);
     // v110 (item 3) — one-time seed so the feature doesn't paint a wall of NEW
     // badges across the whole history on first deploy. A lead that is already
@@ -3962,6 +3970,7 @@ async function handleListLeads(env) {
     return s || "—";
   };
   const stageFor = (lead) => {
+    if (String(lead.status) === "cancelled") return "Cancelled";
     if (paidIds.has(Number(lead.id))) return "Paid";
     if (["quoted", "invoiced"].includes(String(lead.status)) || lead.linked_doc_number || lead.quote_price != null) return "Quoted";
     if (lead.phone && inbound.has(waMeNumber(lead.phone))) return "Responded";
@@ -5063,6 +5072,7 @@ export async function runLeadWatchdog(env) {
   for (const row of rows) {
     const lead = await env.BILLING_DB.prepare(`SELECT * FROM leads WHERE id = ?`).bind(row.lead_id).first();
     if (!lead) continue;
+    if (String(lead.status) === "cancelled") continue; // WA-5-B2-CANCEL — never chase a cancelled booking
     if (isInquiryLead(lead)) continue; // WA-4 §5c: inquiries alert but are never escalated
     const to = waMeNumber(lead.phone);
     if (!to) continue;
@@ -5403,6 +5413,130 @@ async function afterBookingSaved(env, fromE164, leadId, f, first, verb) {
   await deliverVatConfirm(env, fromE164, leadId, String(price));
 }
 
+// ── WA-5-B2-CANCEL — cancel/restore a booking (deterministic; confirm-before-act) ──────
+// Raise a kind='cancel' proposal previewing exactly what changes + a downstream audit line,
+// then deliver [Cancel booking / Restore ✓][Keep] to the sender. Status-never-delete.
+async function startBookingCancel(env, fromE164, leadId, op, reason, rawTrigger) {
+  const lead = await env.BILLING_DB.prepare(
+    `SELECT id, name, phone, vehicle, service, date, time, quote_price, vat_mode, status, flight, linked_doc_number FROM leads WHERE id=?`
+  ).bind(leadId).first();
+  if (!lead) { await sendTextTo(env, fromE164, "No booking #" + leadId + " found."); return { handled: true, action: "cx_not_found" }; }
+  const isCancelled = String(lead.status) === "cancelled";
+  if (op === "cancel" && isCancelled) {
+    await sendTextTo(env, fromE164, "Booking #" + leadId + " is already cancelled. Reply \"restore #" + leadId + "\" to reinstate it.");
+    return { handled: true, action: "cx_already" };
+  }
+  if (op === "restore" && !isCancelled) {
+    await sendTextTo(env, fromE164, "Booking #" + leadId + " isn't cancelled — nothing to restore.");
+    return { handled: true, action: "cx_not_cancelled" };
+  }
+  const preview = await buildCancelPreview(env, lead, op);
+  const now = new Date().toISOString();
+  let pid = null;
+  try {
+    const ins = await env.BILLING_DB.prepare(
+      `INSERT INTO wa_proposals (kind, lead_id, composed_message, target_e164, status, dedupe_key, raised_at, meta_json)
+       VALUES ('cancel', ?, ?, NULL, 'pending', ?, ?, ?)`
+    ).bind(leadId, preview, op + ":" + leadId + ":" + fromE164 + ":" + now, now,
+      JSON.stringify({ op, reason: reason || null, rawTrigger: rawTrigger || null, createdBy: fromE164 })).run();
+    pid = ins.meta ? ins.meta.last_row_id : null;
+  } catch (e) { return { handled: true, action: "cx_insert_failed" }; }
+  await deliverCancelProposal(env, fromE164, pid, preview, op);
+  return { handled: true, action: op + "_confirm", id: pid };
+}
+// Preview text: what will change + a one-line downstream audit (docs · payment · flight).
+async function buildCancelPreview(env, lead, op) {
+  const nm = waNz(lead.name) || "—";
+  const line = [waNz(lead.vehicle), [waNz(lead.date), waNz(lead.time)].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  const price = lead.quote_price != null ? ("AED " + lead.quote_price + vatLabel(lead.vat_mode)) : "";
+  const L = [(op === "restore" ? "Restore booking #" : "Cancel booking #") + lead.id + " — " + nm];
+  const detail = [line, price].filter(Boolean).join(" · ");
+  if (detail) L.push(detail);
+  L.push(await buildAuditLine(env, lead));
+  L.push(op === "restore" ? "Reinstate this booking?" : "Marks it cancelled — kept on file, reversible with \"restore #" + lead.id + "\". Confirm?");
+  return L.join("\n");
+}
+// One-line downstream audit: latest doc, payment state (loud if PAID), flight watch.
+async function buildAuditLine(env, lead) {
+  const parts = [];
+  let doc = null;
+  try { doc = await env.BILLING_DB.prepare(`SELECT number, doc_type FROM billing_documents WHERE lead_id=? ORDER BY id DESC LIMIT 1`).bind(lead.id).first(); } catch (e) { /* table may be absent */ }
+  parts.push(doc ? (doc.doc_type + " " + doc.number) : (waNz(lead.linked_doc_number) || "no quote/invoice"));
+  let paid = null;
+  try { paid = await env.BILLING_DB.prepare(`SELECT amount FROM payment_links WHERE lead_id=? AND payment_status='paid' LIMIT 1`).bind(lead.id).first(); } catch (e) { /* ignore */ }
+  parts.push(paid ? ("⚠️ PAID AED " + (paid.amount != null ? paid.amount : "?")) : "unpaid");
+  parts.push(waNz(lead.flight) ? ("flight " + lead.flight) : "no flight");
+  return "On file: " + parts.join(" · ");
+}
+// Deliver the confirm card. Buttons reuse APPROVE/SKIP so the shared decision handler
+// (kind='cancel') applies the change on APPROVE and keeps on SKIP.
+async function deliverCancelProposal(env, toMember, proposalId, previewText, op) {
+  if (env.WA_SEND_ENABLED !== "1" || !proposalId) return 0;
+  const to = waMeNumber(toMember); if (to.length < 8) return 0;
+  const rowId = await claimOutbound(env, {
+    lead_id: null, kind: "proposal_deliver", recipient: to, template: "cancel_" + op,
+    dedupe_key: "propdeliver:" + proposalId + ":" + to + ":" + Date.now(),
+    meta_json: JSON.stringify({ proposalId, mode: "cancel_" + op })
+  });
+  const body = previewText.length <= 1000 ? previewText : (previewText.slice(0, 990) + "…");
+  const r = await waGraphSend(env, {
+    messaging_product: "whatsapp", to, type: "interactive",
+    interactive: { type: "button", body: { text: body }, footer: { text: "UMC Dubai · umcdubai.ae" },
+      action: { buttons: [
+        { type: "reply", reply: { id: "APPROVE:" + proposalId, title: op === "restore" ? "Restore ✓" : "Cancel booking" } },
+        { type: "reply", reply: { id: "SKIP:" + proposalId, title: "Keep" } }
+      ] } }
+  });
+  if (rowId) await finishOutbound(env, rowId, r);
+  return r.ok ? 1 : 0;
+}
+// Apply the confirmed cancel/restore. SOFT (status only) — never deletes. Cancel records
+// who/when/why + pre-cancel status, raises a refund flag when money was paid, and hands the
+// sender a wa.me PREFILL to notify the client (never auto-sent). Restore reverts the status.
+async function applyBookingCancel(env, fromE164, leadId, op, meta) {
+  const now = new Date().toISOString();
+  const lead = await env.BILLING_DB.prepare(
+    `SELECT id, name, phone, status, quote_price, vat_mode, status_before_cancel FROM leads WHERE id=?`
+  ).bind(leadId).first();
+  if (!lead) { await sendTextTo(env, fromE164, "No booking #" + leadId + " found."); return; }
+  const nm = waNz(lead.name);
+  const who = nm ? (" (" + nm + ")") : "";
+  const isCancelled = String(lead.status) === "cancelled";
+  // Idempotency across duplicate cards: a second confirm must not re-stamp state.
+  if (op === "cancel" && isCancelled) { await sendTextTo(env, fromE164, "Booking #" + leadId + who + " is already cancelled."); return; }
+  if (op === "restore" && !isCancelled) { await sendTextTo(env, fromE164, "Booking #" + leadId + who + " isn't cancelled."); return; }
+  if (op === "restore") {
+    const back = (lead.status_before_cancel && lead.status_before_cancel !== "cancelled") ? lead.status_before_cancel : "new";
+    await env.BILLING_DB.prepare(
+      `UPDATE leads SET status=?, cancelled_at=NULL, cancelled_by=NULL, cancel_reason=NULL, status_before_cancel=NULL, cancel_refund_flag=0 WHERE id=?`
+    ).bind(back, leadId).run();
+    await appendLeadNote(env, leadId, "[restored via assistant by " + maskNumber(fromE164) + "] " + (meta.rawTrigger || ""));
+    await sendTextTo(env, fromE164, "♻️ Booking #" + leadId + who + " restored.");
+    return;
+  }
+  const paid = await env.BILLING_DB.prepare(
+    `SELECT amount FROM payment_links WHERE lead_id=? AND payment_status='paid' LIMIT 1`
+  ).bind(leadId).first();
+  const refundFlag = paid ? 1 : 0;
+  await env.BILLING_DB.prepare(
+    `UPDATE leads SET status='cancelled', status_before_cancel=?, cancelled_at=?, cancelled_by=?, cancel_reason=?, cancel_refund_flag=? WHERE id=?`
+  ).bind(String(lead.status || "new"), now, fromE164, waNz(meta.reason) || null, refundFlag, leadId).run();
+  await appendLeadNote(env, leadId, "[cancelled via assistant by " + maskNumber(fromE164) + "]" + (waNz(meta.reason) ? " reason: " + meta.reason : "") + (meta.rawTrigger ? "\n" + meta.rawTrigger : ""));
+  let msg = "🚫 Booking #" + leadId + who + " cancelled.";
+  if (refundFlag) msg += "\n⚠️ AED " + (paid.amount != null ? paid.amount : (lead.quote_price != null ? lead.quote_price : "?")) + " was already paid — handle the refund manually.";
+  const to = waMeNumber(lead.phone);
+  if (to.length >= 8) {
+    const first = nm ? nm.split(/\s+/)[0] : "Guest";
+    const link = "https://wa.me/" + to + "?text=" + encodeURIComponent("Dear " + first + ", we're confirming your booking with UMC Dubai has been cancelled as requested. Warm regards, UMC Dubai");
+    msg += "\nTo notify " + (nm ? first : "the client") + " (optional — you send): " + link;
+  }
+  await sendTextTo(env, fromE164, msg);
+}
+// Append a line to a lead's notes (audit trail; never overwrites).
+async function appendLeadNote(env, leadId, text) {
+  try { await env.BILLING_DB.prepare(`UPDATE leads SET notes = TRIM(COALESCE(notes,'') || ?) WHERE id=?`).bind("\n\n" + String(text || "").trim(), leadId).run(); } catch (e) { /* best-effort */ }
+}
+
 // Interactive [Send ✓][Skip] button payload for a proposal (free-form; in-window only).
 function proposalInteractive(to, proposalId, promptText) {
   return {
@@ -5621,6 +5755,33 @@ export async function handleWaProposalDecision(env, ctx, decision) {
     return { status: "noop" };
   }
 
+  // WA-5-B2-CANCEL — cancel/restore a booking (kind='cancel'; meta.op = cancel|restore).
+  // APPROVE applies the soft status change; SKIP keeps it as-is. Writes D1 only; the client
+  // is never auto-messaged. Reuses the shared expiry + first-decision-wins + auth above.
+  if (prop.kind === "cancel") {
+    const cmeta = safeJson(prop.meta_json) || {};
+    const op = cmeta.op === "restore" ? "restore" : "cancel";
+    if (action === "APPROVE") {
+      const claim = await env.BILLING_DB.prepare(
+        `UPDATE wa_proposals SET status='sent', decided_at=?, decided_by=? WHERE id=? AND status='pending'`
+      ).bind(now, fromE164, proposalId).run();
+      if (!(claim.meta && claim.meta.changes)) return { status: "noop" }; // first-decision-wins
+      await applyBookingCancel(env, fromE164, prop.lead_id, op, cmeta);
+      return { status: op === "restore" ? "restored" : "cancelled", leadId: prop.lead_id };
+    }
+    if (action === "SKIP") {
+      const up = await env.BILLING_DB.prepare(
+        `UPDATE wa_proposals SET status='skipped', decided_at=?, decided_by=? WHERE id=? AND status='pending'`
+      ).bind(now, fromE164, proposalId).run();
+      if (!(up.meta && up.meta.changes)) return { status: "noop" };
+      await sendTextTo(env, fromE164, op === "restore"
+        ? ("Booking #" + prop.lead_id + " left cancelled.")
+        : ("👍 Kept booking #" + prop.lead_id + "."));
+      return { status: "kept" };
+    }
+    return { status: "noop" };
+  }
+
   if (action === "SKIP") {
     const up = await env.BILLING_DB.prepare(
       `UPDATE wa_proposals SET status='skipped', decided_at=?, decided_by=? WHERE id=? AND status='pending'`
@@ -5811,6 +5972,29 @@ async function handleTeamInboundText(env, ctx, msg) {
   const { fromE164, text, contextWamid, msgId } = msg;
   const t = String(text || "").trim();
   if (!t) return { handled: false };
+
+  // (0) Cancel / restore a booking. Deterministic targeting (scope pin — no LLM): reply-bound
+  // via the replied-to wamid, else an explicit "#id", else the sender's most-recent booking.
+  // NL targeting ("cancel kamran's run") is Ship B. The mutation always sits behind a confirm tap.
+  if (/^\s*(cancel|restore)\b/i.test(t)) {
+    const op = /^\s*restore\b/i.test(t) ? "restore" : "cancel";
+    let leadId = null;
+    if (contextWamid) {
+      const b = await env.BILLING_DB.prepare(
+        `SELECT lead_id FROM wa_outbound WHERE wamid=? AND lead_id IS NOT NULL ORDER BY id DESC LIMIT 1`
+      ).bind(contextWamid).first();
+      if (b && b.lead_id != null) leadId = Number(b.lead_id);
+    }
+    if (!leadId) { const idM = t.match(/#?\s*(\d{1,7})\b/); if (idM) leadId = Number(idM[1]); }
+    if (!leadId) leadId = await recentAssistantLead(env, fromE164);
+    if (!leadId) {
+      await sendTextTo(env, fromE164, "Which booking? Reply \"" + op + " #<number>\" — the number is in the booking confirmation.");
+      return { handled: true, action: "cx_need_id" };
+    }
+    const reason = t.replace(/^\s*(cancel|restore)\b/i, "").replace(/#?\s*\d{1,7}\b/, "")
+      .replace(/\b(this|that|the|booking|job|please|pls)\b/gi, "").trim();
+    return await startBookingCancel(env, fromE164, leadId, op, reason || null, t.slice(0, 300));
+  }
 
   // (1) A bare-amount reply to a lead_alert always starts a NEW quote — even mid-edit,
   // because replying to another alert is a fresh intent, not an edit of the last quote.
@@ -6271,7 +6455,7 @@ export async function handleAssistant(request, env, ctx) {
     // effectiveDecisionNumbers: what the engine will actually authorize right now.
     const eff = Array.from(await getAuthorizedDecisionNumbers(env));
     // Deploy marker so the running bundle is verifiable at a glance (bump per WA-5 deploy).
-    return json({ ok: true, build: "wa5-b2-book", settings, effectiveDecisionNumbers: eff, proposals: results || [] }, 200);
+    return json({ ok: true, build: "wa5-b2-cancel", settings, effectiveDecisionNumbers: eff, proposals: results || [] }, 200);
   }
 
   if (request.method === "POST") {
@@ -6380,6 +6564,7 @@ export async function runFlightWatch(env) {
       `SELECT id, name, phone, flight, date, time, pickup, destination FROM leads
         WHERE flight IS NOT NULL AND TRIM(flight) <> ''
           AND phone IS NOT NULL
+          AND COALESCE(status,'') != 'cancelled'
           AND (COALESCE(status,'') = 'invoiced' OR linked_doc_number LIKE 'UMC-INV-%')
           AND id NOT IN (SELECT lead_id FROM flight_watch)`
     ).all();
@@ -6411,6 +6596,10 @@ export async function runFlightWatch(env) {
     `SELECT * FROM flight_watch WHERE done = 0 AND next_poll_at <= ? ORDER BY next_poll_at LIMIT 20`
   ).bind(nowIso).all();
   for (const fw of (due || [])) {
+    // WA-5-B2-CANCEL — a booking cancelled after enrollment goes silent: skip before the
+    // API poll so no units are spent. Restore lifts this automatically (status flips back).
+    const lst = await env.BILLING_DB.prepare(`SELECT status FROM leads WHERE id=?`).bind(fw.lead_id).first();
+    if (lst && String(lst.status) === "cancelled") continue;
     if (units + 2 > budget) { // exhausted — pause, log once
       await teamFreeform(env, "UMC flight watch: monthly unit budget reached (" + budget + "). Polling paused until next month or a higher budget.", "flight_quota100:" + waMonthKey());
       break;
@@ -6591,6 +6780,7 @@ export async function runQuoteNudge(env) {
     const r = await env.BILLING_DB.prepare(
       `SELECT id, name, phone, date, wa_opened_at FROM leads
         WHERE wa_opened_at IS NOT NULL AND wa_opened_at <= ?
+          AND COALESCE(status,'new') != 'cancelled'
           AND id NOT IN (SELECT lead_id FROM wa_outbound WHERE kind='nudge' AND lead_id IS NOT NULL)
         LIMIT 50`
     ).bind(cutoff).all();
@@ -7529,7 +7719,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260717-wa5-b2-book";
+const ADMIN_BUILD = "20260717-wa5-b2-cancel";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
