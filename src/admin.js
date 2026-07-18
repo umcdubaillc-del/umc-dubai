@@ -4040,6 +4040,22 @@ async function handleListLeads(env) {
     lead.lead_kind = isInquiryLead(lead) ? "inquiry" : "lead";
     lead.funnel_stage = stageFor(lead);
   }
+  // B2b Slice 1 — attach each lead's active (non-cancelled) job id so the Leads
+  // list shows "Job #N · Open" instead of a duplicate "Create Job". SEPARATE query
+  // (NOT a subquery inside the FROM leads SELECT) so check-schema-columns' naive
+  // leads-column scan never sees jobs columns.
+  try {
+    const jr = await env.BILLING_DB.prepare(
+      `SELECT source_id AS lead_id, MAX(id) AS job_id FROM jobs
+         WHERE source_type='lead' AND source_id IS NOT NULL AND COALESCE(status,'new') <> 'cancelled'
+         GROUP BY source_id`
+    ).all();
+    const jm = new Map();
+    for (const r of (jr.results || [])) jm.set(Number(r.lead_id), Number(r.job_id));
+    for (const lead of items) { const jid = jm.get(Number(lead.id)); lead.active_job_id = (jid != null ? jid : null); }
+  } catch (e) {
+    for (const lead of items) lead.active_job_id = null;
+  }
   return json({ ok: true, items });
 }
 
@@ -13241,7 +13257,9 @@ const PAGE_SCRIPT = `<script>
         // LS2-1 — Documents sub-sheet: open the linked doc, create quote/invoice/job,
         // then the payment actions (folded in).
         const docsInner = openBtn + docCreate
-          + '<button type="button" class="btn btn-small btn-ghost" data-leadjob="'+x.id+'" title="Create a dispatch job from this lead">Create Job</button>'
+          + (x.active_job_id
+              ? '<button type="button" class="btn btn-small btn-ghost" data-leadjobopen="'+x.active_job_id+'" title="Open the dispatch job for this lead">Job #'+x.active_job_id+' &middot; Open</button>'
+              : '<button type="button" class="btn btn-small btn-ghost" data-leadjob="'+x.id+'" title="Create a dispatch job from this lead">Create Job</button>')
           + paymentCluster;
         // LS2-1 — ONE shared disclosure component (keyboard-accessible <button> head with
         // a chevron; sub-sheet collapsed by default; aria-expanded/controls wired).
@@ -15162,6 +15180,20 @@ const PAGE_SCRIPT = `<script>
         const id = Number(ljBtn.getAttribute("data-leadjob"));
         const lead = leadsCache.find(function(x){ return Number(x.id) === id; });
         if(lead && typeof openJobForm === "function") openJobForm(jobPrefillFromLead(lead));
+        return;
+      }
+      const ljoBtn = e.target.closest("[data-leadjobopen]");
+      if(ljoBtn){
+        e.preventDefault();
+        const jid = Number(ljoBtn.getAttribute("data-leadjobopen"));
+        (async function(){
+          try {
+            const r = await fetch("/admin/api/jobs");
+            const jd = await r.json();
+            const job = jd && jd.ok && Array.isArray(jd.items) ? jd.items.find(function(j){ return Number(j.id) === jid; }) : null;
+            if(job && typeof openJobSheet === "function") openJobSheet(job);
+          } catch (err) { /* non-fatal: the list refresh will still show the job */ }
+        })();
         return;
       }
       // v104 — Save the quote price (desktop drawer). Commits the drawer input
