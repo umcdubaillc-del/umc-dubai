@@ -7445,7 +7445,7 @@ export async function applyWaOutboundStatuses(env, statuses) {
 async function handleListWaTeam(env) {
   await ensureSchema(env);
   const { results } = await env.BILLING_DB.prepare(
-    `SELECT id, name, phone, active, created_at FROM wa_team ORDER BY id`
+    `SELECT id, name, phone, active, cap_lead_alerts, cap_approve, cap_watchdog, created_at FROM wa_team ORDER BY id`
   ).all();
   return json({ ok: true, items: results || [] });
 }
@@ -7476,6 +7476,9 @@ async function handleUpdateWaTeam(id, request, env) {
     if (p.length < 8) return json({ ok: false, error: "Invalid phone number." }, 400);
     sets.push("phone=?"); binds.push(p);
   }
+  if (Object.prototype.hasOwnProperty.call(body, "cap_lead_alerts")) { sets.push("cap_lead_alerts=?"); binds.push(body.cap_lead_alerts ? 1 : 0); }
+  if (Object.prototype.hasOwnProperty.call(body, "cap_approve")) { sets.push("cap_approve=?"); binds.push(body.cap_approve ? 1 : 0); }
+  if (Object.prototype.hasOwnProperty.call(body, "cap_watchdog")) { sets.push("cap_watchdog=?"); binds.push(body.cap_watchdog ? 1 : 0); }
   if (!sets.length) return json({ ok: false, error: "Nothing to update." }, 400);
   binds.push(id);
   try {
@@ -9705,7 +9708,7 @@ function appShellHTML() {
         <select id="asstFlightMode" style="padding:.5rem;border-radius:6px;border:1px solid var(--line,#e4d9c8)"><option value="propose">Propose</option><option value="off">Off</option></select>
       </label>
       <label style="display:flex;flex-direction:column;gap:.4rem">
-        <span><b>Authorized decision numbers</b> <small style="color:var(--muted,#6b5d4d)">— who can tap Send / Skip. Blank = all active team.</small></span>
+        <span><b>Authorized decision numbers</b> <small style="color:var(--muted,#6b5d4d)">— extra numbers that may approve, on top of team members with Approve enabled. Adds to the roster, never replaces it. Blank = just the Approve roster.</small></span>
         <input id="asstDecisionNumbers" type="text" inputmode="tel" placeholder="e.g. 971501234567, 971555555555" style="padding:.55rem;border-radius:6px;border:1px solid var(--line,#e4d9c8)">
         <small id="asstEffective" style="color:var(--muted,#6b5d4d)"></small>
       </label>
@@ -14732,9 +14735,18 @@ const PAGE_SCRIPT = `<script>
     if(!items || !items.length){ box.innerHTML = '<p class="hist-sub" style="margin:0">No recipients yet — add one below.</p>'; return; }
     box.innerHTML = items.map(function(m){
       var active = Number(m.active) === 1;
-      return '<div class="wa-team-row" data-wateam="'+m.id+'" style="display:flex;align-items:center;gap:.6rem;padding:.35rem 0;border-bottom:1px solid var(--line,rgba(34,27,20,.06))">'
+      function capBox(field, label){
+        var on = Number(m[field]) === 1;
+        return '<label class="wa-cap" style="display:inline-flex;align-items:center;gap:.25rem;font-size:.82rem;color:var(--muted)">'
+          + '<input type="checkbox" data-wateam-cap="'+m.id+'" data-cap-field="'+field+'"'+(on?' checked':'')+'>'
+          + label + '</label>';
+      }
+      return '<div class="wa-team-row" data-wateam="'+m.id+'" style="display:flex;align-items:center;flex-wrap:wrap;gap:.6rem;padding:.35rem 0;border-bottom:1px solid var(--line,rgba(34,27,20,.06))">'
         + '<span style="flex:0 0 auto;font-variant-numeric:tabular-nums">'+esc(m.phone)+'</span>'
         + '<span style="flex:1 1 auto;color:var(--muted)">'+esc(m.name||"")+'</span>'
+        + '<span class="wa-caps" style="flex:0 0 auto;display:inline-flex;align-items:center;gap:.6rem">'
+          + capBox("cap_lead_alerts","Lead alerts") + capBox("cap_approve","Approve") + capBox("cap_watchdog","Watchdog")
+          + '</span>'
         + '<button type="button" class="btn btn-small btn-ghost" data-wateam-toggle="'+m.id+'" data-active="'+(active?1:0)+'" title="'+(active?"Muting stops alerts to this number":"Activate to resume alerts")+'">'+(active?"Active":"Muted")+'</button>'
         + '<button type="button" class="btn btn-small btn-ghost" data-wateam-del="'+m.id+'" title="Remove recipient">&times;</button>'
         + '</div>';
@@ -14837,6 +14849,21 @@ const PAGE_SCRIPT = `<script>
     // WA-2 G — Add-lead form submit (native dialog submit intercepted to POST first).
     const addForm = root.querySelector("#addLeadForm");
     if(addForm) addForm.addEventListener("submit", function(ev){ ev.preventDefault(); submitAddLead(); });
+    // ROSTER-2 — per-member capability toggles (Lead alerts / Approve / Watchdog).
+    // Each checkbox PATCHes only its own cap field; mirrors the Active toggle's fetch.
+    root.addEventListener("change", function(e){
+      const cap = e.target.closest("[data-wateam-cap]");
+      if(!cap) return;
+      const id = cap.getAttribute("data-wateam-cap");
+      const field = cap.getAttribute("data-cap-field");
+      const val = cap.checked ? 1 : 0;
+      var patch = {}; patch[field] = val;
+      fetch("/admin/api/wa-team/"+id, { method:"PATCH", headers:{"Content-Type":"application/json"}, credentials:"same-origin",
+        body: JSON.stringify(patch) })
+        .then(function(r){ return r.json(); })
+        .then(function(j){ if(j.ok){ loadWaTeam(true); } else { waTeamMsg(j.error||"Could not update.", true); } })
+        .catch(function(){ waTeamMsg("Could not update.", true); });
+    });
     root.addEventListener("click", function(e){
       const refresh = e.target.closest("#leadsRefresh");
       if(refresh){ e.preventDefault(); loadLeads(); return; }
