@@ -633,6 +633,10 @@ async function ensureSchema(env) {
       "driver_assigned_at TEXT",
       "driver_informed_at TEXT", "driver_informed_src TEXT",
       "client_informed_at TEXT", "client_informed_src TEXT",
+      // B2b Slice 1 — stamped mirror of the lead/invoice document number (quote OR
+      // invoice, prefix tells which). Money stays on the lead/invoice; this is a
+      // read-side convenience so a job knows its document. Kept in sync server-side.
+      "linked_doc_number TEXT",
     ]);
     await env.BILLING_DB.prepare(
       `CREATE TABLE IF NOT EXISTS job_drivers (
@@ -952,6 +956,19 @@ async function handleCreate(request, env) {
         ).bind(stamp, String(b.number), new Date().toISOString(), leadId).run();
       } catch (e) {
         console.error("LEADS stamp failed", e && (e.message || String(e)));
+      }
+      // B2b Slice 1 — mirror the document number onto the lead's active job.
+      // Independent try so a job-stamp failure never undoes the lead stamp. Targets
+      // only the non-cancelled job (there is at most one; guard enforces it) — an
+      // invoice issued while the only job is cancelled stamps nothing, and the later
+      // re-dispatch re-seeds from the lead (spec §3.3 self-healing property).
+      try {
+        await env.BILLING_DB.prepare(
+          `UPDATE jobs SET linked_doc_number = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE source_type = 'lead' AND source_id = ? AND COALESCE(status,'new') <> 'cancelled'`
+        ).bind(String(b.number), leadId).run();
+      } catch (e) {
+        console.error("JOB stamp failed", e && (e.message || String(e)));
       }
     }
     // v86 — when the create was seeded from a standalone payment_links row,
@@ -1835,18 +1852,50 @@ async function handleListJobs(env) {
   });
   return json({ ok: true, items });
 }
+// B2b Slice 1 — the single active (non-cancelled) job for a lead, or null.
+// "one active job per lead": a cancelled job frees the lead to be re-dispatched.
+// MAX(id) via ORDER BY id DESC guards against legacy pre-guard duplicates.
+async function activeJobForLead(env, leadId) {
+  if (leadId == null) return null;
+  return await env.BILLING_DB.prepare(
+    `SELECT * FROM jobs
+       WHERE source_type = 'lead' AND source_id = ? AND COALESCE(status,'new') <> 'cancelled'
+       ORDER BY id DESC LIMIT 1`
+  ).bind(leadId).first();
+}
 async function handleCreateJob(request, env) {
   await ensureSchema(env);
   let b; try { b = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
   const f = jobFieldsFromBody(b);
+  // B2b Slice 1 §3.2 — one active job per lead. Guard is scoped by SOURCE, not
+  // endpoint: only lead-originated creations are deduped. Invoice/quote/manual
+  // jobs pass untouched. The 409 body carries the existing job id so the UI can
+  // open it instead of silently creating a duplicate (double-click / race safe).
+  if (f.source_type === "lead" && f.source_id != null) {
+    const existing = await activeJobForLead(env, f.source_id);
+    if (existing) {
+      return json({ ok: false, error: "active_job_exists", existing_job_id: existing.id }, 409);
+    }
+  }
+  // B2b Slice 1 — seed the mirror at creation so a job made AFTER its lead was
+  // documented already knows the document. Lead → its linked_doc_number; job made
+  // directly from a quote/invoice → that document's number; otherwise null.
+  let linkedDoc = null;
+  if (f.source_type === "lead" && f.source_id != null) {
+    const lr = await env.BILLING_DB.prepare(`SELECT linked_doc_number FROM leads WHERE id = ?`).bind(f.source_id).first();
+    linkedDoc = lr && lr.linked_doc_number ? String(lr.linked_doc_number) : null;
+  } else if ((f.source_type === "invoice" || f.source_type === "quote") && f.source_id != null) {
+    const dr = await env.BILLING_DB.prepare(`SELECT number FROM billing_documents WHERE id = ?`).bind(f.source_id).first();
+    linkedDoc = dr && dr.number ? String(dr.number) : null;
+  }
   const res = await env.BILLING_DB.prepare(
     `INSERT INTO jobs (status, source_type, source_id, client_name, client_phone, client_email,
        service, vehicle_text, pickup, destination, date, time, days, flight, sign,
-       driver_notes, requirements, client_informed, cancelled_reason, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`
+       driver_notes, requirements, client_informed, cancelled_reason, linked_doc_number, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`
   ).bind("new", f.source_type, f.source_id, f.client_name, f.client_phone, f.client_email,
     f.service, f.vehicle_text, f.pickup, f.destination, f.date, f.time, f.days, f.flight, f.sign,
-    f.driver_notes, f.requirements, f.client_informed, f.cancelled_reason).run();
+    f.driver_notes, f.requirements, f.client_informed, f.cancelled_reason, linkedDoc).run();
   const jobId = res.meta.last_row_id;
   const asg = await setJobAssignments(env, jobId, b.driver_ids, b.vehicle_ids);
   const job = await finalizeJob(env, jobId);
@@ -3990,6 +4039,22 @@ async function handleListLeads(env) {
     lead.origin_label = originLabel(lead.source);
     lead.lead_kind = isInquiryLead(lead) ? "inquiry" : "lead";
     lead.funnel_stage = stageFor(lead);
+  }
+  // B2b Slice 1 — attach each lead's active (non-cancelled) job id so the Leads
+  // list shows "Job #N · Open" instead of a duplicate "Create Job". SEPARATE query
+  // (NOT a subquery inside the FROM leads SELECT) so check-schema-columns' naive
+  // leads-column scan never sees jobs columns.
+  try {
+    const jr = await env.BILLING_DB.prepare(
+      `SELECT source_id AS lead_id, MAX(id) AS job_id FROM jobs
+         WHERE source_type='lead' AND source_id IS NOT NULL AND COALESCE(status,'new') <> 'cancelled'
+         GROUP BY source_id`
+    ).all();
+    const jm = new Map();
+    for (const r of (jr.results || [])) jm.set(Number(r.lead_id), Number(r.job_id));
+    for (const lead of items) { const jid = jm.get(Number(lead.id)); lead.active_job_id = (jid != null ? jid : null); }
+  } catch (e) {
+    for (const lead of items) lead.active_job_id = null;
   }
   return json({ ok: true, items });
 }
@@ -7965,7 +8030,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260718-qo1a";
+const ADMIN_BUILD = "20260718-b2b-slice1";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -11878,7 +11943,12 @@ const PAGE_SCRIPT = `<script>
       service:jobServiceText(job), vehicle:job.vehicle_text||"",
       pickup:job.pickup||"", destination:job.destination||"",
       date:job.date||"", time:job.time||"", days:job.days||"",
-      flight:job.flight||"", sign:job.sign||"", notes:job.driver_notes||"", quote_price:null
+      flight:job.flight||"", sign:job.sign||"", notes:job.driver_notes||"", quote_price:null,
+      // B2b Slice 1 — the invoice must attach to the SOURCE LEAD, not the job. A
+      // job-shape carries id:job.id; without this, prefillFromLead would POST
+      // lead_id = job.id (a job id in the lead_id column). Explicit null when the
+      // job has no lead so the invoice stays standalone, exactly as today.
+      lead_id:(job.source_type === "lead" ? (job.source_id || null) : null)
     };
   }
   function openJobForm(seed){ jobFormModal(seed || {}, false); }
@@ -12215,6 +12285,12 @@ const PAGE_SCRIPT = `<script>
         + '<div class="js-actions">'
         +   '<button type="button" class="btn btn-small btn-ink" id="jsOpen">Open / edit</button>'
         +   '<button type="button" class="btn btn-small btn-ghost" id="jsQuote">Create quote</button>'
+        +   (cur.linked_doc_number
+            ? '<span class="pill" style="margin-right:.4rem">'
+                + (String(cur.linked_doc_number).indexOf("UMC-INV-") === 0 ? "Invoiced" : "Quoted")
+                + ' &middot; ' + esc(cur.linked_doc_number) + '</span>'
+              + '<button type="button" class="btn btn-small btn-ghost" id="jsOpenDoc">Open ' + esc(cur.linked_doc_number) + '</button>'
+            : '')
         +   '<button type="button" class="btn btn-small btn-ghost" id="jsInvoice">Create invoice</button>'
         + '</div>'
         + '<div class="js-actions">'
@@ -12252,6 +12328,8 @@ const PAGE_SCRIPT = `<script>
       shell.querySelector("#jsOpen").addEventListener("click", function(){ close(); openJobEdit(cur); });
       shell.querySelector("#jsQuote").addEventListener("click", function(){ close(); if(typeof prefillFromLead === "function") prefillFromLead(jobToLeadShape(cur), "quote"); });
       shell.querySelector("#jsInvoice").addEventListener("click", function(){ close(); if(typeof prefillFromLead === "function") prefillFromLead(jobToLeadShape(cur), "invoice"); });
+      var jod = shell.querySelector("#jsOpenDoc");
+      if(jod) jod.addEventListener("click", function(){ close(); openDocByNumber(cur.linked_doc_number || "", setStat); });
       var cp = shell.querySelector("#jsComplete");
       if(cp) cp.addEventListener("click", async function(){ if(!confirm("Mark this job completed?")) return; var ok = await patchJob({ status:"completed" }); if(ok) render(); });
       var cc = shell.querySelector("#jsCancel");
@@ -13187,7 +13265,9 @@ const PAGE_SCRIPT = `<script>
         // LS2-1 — Documents sub-sheet: open the linked doc, create quote/invoice/job,
         // then the payment actions (folded in).
         const docsInner = openBtn + docCreate
-          + '<button type="button" class="btn btn-small btn-ghost" data-leadjob="'+x.id+'" title="Create a dispatch job from this lead">Create Job</button>'
+          + (x.active_job_id
+              ? '<button type="button" class="btn btn-small btn-ghost" data-leadjobopen="'+x.active_job_id+'" title="Open the dispatch job for this lead">Job #'+x.active_job_id+' &middot; Open</button>'
+              : '<button type="button" class="btn btn-small btn-ghost" data-leadjob="'+x.id+'" title="Create a dispatch job from this lead">Create Job</button>')
           + paymentCluster;
         // LS2-1 — ONE shared disclosure component (keyboard-accessible <button> head with
         // a chevron; sub-sheet collapsed by default; aria-expanded/controls wired).
@@ -13343,7 +13423,10 @@ const PAGE_SCRIPT = `<script>
     if(!lead) return;
     // v99: starting a brand-new document from a lead; clear any prior id.
     state.id = null;
-    state.lead_id = lead.id;
+    // B2b Slice 1 — a job-shape passes an explicit lead_id (the source lead, or
+    // null); a real lead object has no lead_id property → fall back to its id.
+    // Real-lead callers are unchanged (they never carry a lead_id property).
+    state.lead_id = ("lead_id" in lead) ? lead.lead_id : lead.id;
     // doc type — direct toggle manipulation (mirrors loadDoc pattern;
     // setType is bindForm-scoped so we replicate its visible effects here).
     state.doc_type = docType === "invoice" ? "invoice" : "quote";
@@ -15107,6 +15190,20 @@ const PAGE_SCRIPT = `<script>
         if(lead && typeof openJobForm === "function") openJobForm(jobPrefillFromLead(lead));
         return;
       }
+      const ljoBtn = e.target.closest("[data-leadjobopen]");
+      if(ljoBtn){
+        e.preventDefault();
+        const jid = Number(ljoBtn.getAttribute("data-leadjobopen"));
+        (async function(){
+          try {
+            const r = await fetch("/admin/api/jobs");
+            const jd = await r.json();
+            const job = jd && jd.ok && Array.isArray(jd.items) ? jd.items.find(function(j){ return Number(j.id) === jid; }) : null;
+            if(job && typeof openJobSheet === "function") openJobSheet(job);
+          } catch (err) { /* non-fatal: the list refresh will still show the job */ }
+        })();
+        return;
+      }
       // v104 — Save the quote price (desktop drawer). Commits the drawer input
       // into the canonical value + leadsCache, then briefly confirms.
       const svBtn = e.target.closest("[data-leadsave]");
@@ -15363,23 +15460,7 @@ const PAGE_SCRIPT = `<script>
       if(oBtn){
         e.preventDefault();
         e.stopPropagation();
-        const num = oBtn.getAttribute("data-leadopen") || "";
-        if(!num) return;
-        (async function(){
-          setStatus("Opening " + num + " …");
-          try {
-            const lr = await fetch("/admin/api/billing");
-            const lj = await lr.json();
-            const row = lj && lj.ok && Array.isArray(lj.items)
-              ? lj.items.find(function(rr){ return String(rr.number) === String(num); })
-              : null;
-            if (!row) { setStatus("Document " + num + " not found."); return; }
-            switchTab("documents");
-            if (typeof loadDoc === "function") loadDoc(row.id);
-          } catch (err) {
-            setStatus("Open failed: " + (err && (err.message || err)));
-          }
-        })();
+        openDocByNumber(oBtn.getAttribute("data-leadopen") || "", setStatus);
         return;
       }
       // v99: row click toggles the drawer; skip when the click landed on a
@@ -15712,6 +15793,25 @@ const PAGE_SCRIPT = `<script>
       if(j.ok){ setStatus("Deleted " + (num || id) + "."); loadHistory(); }
       else { setStatus("Delete failed: " + (j.error || r.status)); }
     } catch(e){ setStatus("Delete failed: " + (e.message || e)); }
+  }
+  // B2b Slice 1 — open a billing document by its NUMBER (resolve → id → loadDoc).
+  // Shared by the Leads "Open <doc>" button and the job-sheet invoice readout.
+  async function openDocByNumber(num, setMsg){
+    var say = (typeof setMsg === "function") ? setMsg : function(){};
+    if(!num) return;
+    say("Opening " + num + " ...");
+    try {
+      var lr = await fetch("/admin/api/billing");
+      var lj = await lr.json();
+      var row = lj && lj.ok && Array.isArray(lj.items)
+        ? lj.items.find(function(rr){ return String(rr.number) === String(num); })
+        : null;
+      if(!row){ say("Document " + num + " not found."); return; }
+      switchTab("documents");
+      if(typeof loadDoc === "function") loadDoc(row.id);
+    } catch (err) {
+      say("Open failed: " + (err && (err.message || err)));
+    }
   }
   async function loadDoc(id){
     setStatus("Loading " + id + " …");
