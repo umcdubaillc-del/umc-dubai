@@ -505,6 +505,25 @@ def unify_article_faq(html):
              f'<div class="faq rv">{details}</div>')
     return html[:idx] + block + after[pos:]
 
+def extract_article_faqs(html):
+    """Return [(q, a), ...] for an article body's FAQ section, or [] when the
+    piece ships no FAQ. Mirrors unify_article_faq's parse (same marker + regex)
+    so the FAQPage schema and the rendered <details> accordion come from ONE
+    source and can never drift apart."""
+    marker = '<h2>Frequently asked questions</h2>'
+    idx = html.find(marker)
+    if idx == -1:
+        return []
+    after = html[idx + len(marker):]
+    pairs, pos = [], 0
+    while True:
+        m = _FAQ_PAIR_RE.match(after, pos)
+        if not m:
+            break
+        pairs.append((m.group(1).strip(), m.group(2).strip()))
+        pos = m.end()
+    return pairs
+
 def faq_schema(faqs):
     import re
     items = [{"@type":"Question","name":re.sub('<[^>]+>','',q),
@@ -4029,6 +4048,52 @@ BLOG_AUTHOR_DEFAULT = "UMC Dubai"
 BLOG_PUBLISHED_DEFAULT = "2024-08-15"
 BLOG_POSTS = [
   {
+    "slug": "airport-meet-and-greet-chauffeur-service-dubai",
+    "title": "What to Expect from Airport Meet and Greet Chauffeur Service in Dubai",
+    "meta": "A meet and greet chauffeur service should mean more than a sign at arrivals. Here is what a proper airport pickup in Dubai actually looks like.",
+    "date": "2026-07-18",
+    "date_label": "18 July 2026",
+    "author": BLOG_AUTHOR_DEFAULT,
+    "excerpt": "What a real airport meet and greet includes: a chauffeur inside the terminal, flight tracking by default, and a pickup timed to your actual landing.",
+    "kicker": "Airport transfers",
+    "body": """
+<p class="lede">Landing in Dubai after a long flight is not the moment to start worrying about how you will get into the city. That is the entire point of a meet and greet chauffeur service, and it is worth knowing exactly what should be included before you book one.</p>
+
+<h2>What meet and greet actually means</h2>
+<p>The phrase gets used loosely across the industry, so it helps to be specific. A proper meet and greet service includes a chauffeur waiting inside the terminal, past the arrivals gate, holding a sign with your name. Flight tracking should already be built in, so a delay on your end does not mean a wasted trip on theirs, and does not mean you step out to find nobody there.</p>
+<p>Anything less than that, a driver waiting outside the terminal doors or in the car park, is a transfer, not a meet and greet. Both are useful, but they are not the same service, and the difference matters most when you are travelling with luggage, jet lagged, or arriving somewhere unfamiliar for the first time.</p>
+
+<h2>Where the chauffeur should actually be standing</h2>
+<p>Dubai International Airport has three terminals, and each one has its own arrivals hall. A chauffeur who does not know which terminal your flight lands at, or who needs you to find them rather than the other way around, is not offering a real meet and greet. Confirm this before you book: the chauffeur should already have your terminal, flight number and expected arrival time on file, not asking for it by text after you land.</p>
+
+<h2>What should be included without being asked</h2>
+<p>A few things separate a well-run airport transfer from an average one.</p>
+<ul>
+  <li>Flight tracking, so the chauffeur adjusts to early or delayed arrivals automatically</li>
+  <li>A waiting period inside the terminal that covers baggage collection and customs, not just the flight landing time</li>
+  <li>Help with luggage from the terminal to the car</li>
+  <li>A vehicle that matches what was booked, not a downgrade because "something came up"</li>
+</ul>
+<p>None of this should require a special request. It should be the default.</p>
+
+<h2>Why this matters more for business and first-time travellers</h2>
+<p>For a business traveller landing for a single meeting, a smooth arrival is not a luxury, it is the difference between walking into the meeting composed or walking in flustered. For a first-time visitor to Dubai, a chauffeur who already knows the fastest route out of the airport and into the city removes the one part of international travel that tends to go wrong.</p>
+<p>UMC Dubai runs its <a href="/airport-transfers">airport transfers</a> on this standard, flight tracking as default and a chauffeur inside the terminal rather than the car park. It is the same fleet standard used across <a href="/corporate">corporate</a> and <a href="/events">event</a> bookings.</p>
+
+<h2>Frequently asked questions</h2>
+<h3>Does a meet and greet chauffeur wait if my flight is delayed?</h3>
+<p>Yes, if flight tracking is genuinely part of the service. The chauffeur's arrival time should be tied to your actual landing time, not the original scheduled one, so a delay on the airline's end does not cost you a missed pickup.</p>
+<h3>Is meet and greet chauffeur service more expensive than a standard taxi from Dubai Airport?</h3>
+<p>It costs more than a metered taxi, but the rate is fixed and known before you land, which removes the risk of surge pricing or a meter running while you sit in arrivals traffic.</p>
+<h3>Can I book a meet and greet chauffeur for a connecting flight or short layover in Dubai?</h3>
+<p>Yes, though it depends on how much time is available between flights. A chauffeur service that already tracks your inbound flight can advise honestly on whether a layover leaves enough time for a trip into the city and back.</p>
+""",
+    "cta_heading": "A pickup that starts inside the terminal.",
+    "cta_body": "Flight tracking as default, a chauffeur past arrivals holding your name, and one all-inclusive rate agreed before you land.",
+    "cta_primary": ("/booking?service=airport", "Reserve your transfer"),
+    "cta_secondary": ("/airport-transfers", "Airport transfers"),
+  },
+  {
     "slug": "what-actually-makes-a-luxury-chauffeur-service-in-dubai",
     "title": "What Actually Makes a Luxury Chauffeur Service in Dubai",
     "meta": "Not every “luxury chauffeur service” in Dubai lives up to the name. Here is what separates a genuine one from a rental car with a driver attached.",
@@ -4677,12 +4742,13 @@ ARTICLE_DESC[COMPARISON_ARTICLE["slug"]]  = COMPARISON_ARTICLE["excerpt"]
 # "Keep reading" + 2 sibling-article hairline cards + an optional quiet money-page
 # link-row. slug -> ([sib_slug, sib_slug], (money_href, money_label)).
 BLOG_RELATED = {
+  "airport-meet-and-greet-chauffeur-service-dubai": (["emirates-chauffeur-tips", "private-car-service-vs-uber"], ("/airport-transfers", "Airport transfers")),
   "what-actually-makes-a-luxury-chauffeur-service-in-dubai": (["safe-driver-service-dubai", "private-car-service-vs-uber"], ("/fleet", "See the fleet")),
   "guide-salik-dubai": (["private-car-service-vs-uber", "dubai-to-abu-dhabi-trip"], ("/airport-transfers", "Airport transfers")),
   "private-car-service-vs-uber": (["what-actually-makes-a-luxury-chauffeur-service-in-dubai", "safe-driver-service-dubai"], ("/fleet", "See the fleet")),
   "usman-hanif-pioneering-luxury-chauffeur-services-in-dubai": (["what-actually-makes-a-luxury-chauffeur-service-in-dubai", "safe-driver-service-dubai"], ("/corporate", "Corporate accounts")),
   "safe-driver-service-dubai": (["what-actually-makes-a-luxury-chauffeur-service-in-dubai", "private-car-service-vs-uber"], ("/fleet", "See the fleet")),
-  "emirates-chauffeur-tips": (["safe-driver-service-dubai", "private-car-service-vs-uber"], ("/airport-transfers", "Airport transfers")),
+  "emirates-chauffeur-tips": (["airport-meet-and-greet-chauffeur-service-dubai", "safe-driver-service-dubai"], ("/airport-transfers", "Airport transfers")),
   "dubai-to-abu-dhabi-trip": (["guide-salik-dubai", "abu-dhabi-city-tour-private-driver"], ("/inter-emirate", "Inter-emirate transfers")),
   "dubai-date-night-ideas": (["dubai-shopping-with-driver", "half-day-city-tour-dubai"], ("/fleet", "See the fleet")),
   "failure-of-a-light-vehicle-to-abide-by-lane-discipline": (["guide-salik-dubai", "safe-driver-service-dubai"], ("/airport-transfers", "Airport transfers")),
@@ -4726,7 +4792,14 @@ def render_keep_reading(slug):
 def render_post(p):
     """Render a single blog post at site/<slug>/index.html."""
     canon = f"{p['slug']}/"
+    # Article JSON-LD always; FAQPage JSON-LD only when the piece ships an FAQ
+    # (parsed from the same body section that renders the <details> accordion),
+    # so every FAQ-carrying article — new and existing — advertises the same
+    # rich schema.
     head_extra = render_article_schema(p)
+    _post_faqs = extract_article_faqs(p['body'])
+    if _post_faqs:
+        head_extra += faq_schema(_post_faqs)
     primary_href, primary_label = p["cta_primary"]
     sec_href, sec_label = p["cta_secondary"]
     # Link the byline to the founder's personal site — only on the Usman Hanif
