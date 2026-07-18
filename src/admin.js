@@ -4522,6 +4522,12 @@ async function handleSendLeadQuote(request, env) {
 // Consumed by: index.js (internal-email "WhatsApp the client" button + team
 // lead_alert link + the /api/lead alert fan-out), and the desktop API-send below.
 const WA_GRAPH = (env) => `https://graph.facebook.com/${env.WA_GRAPH_VERSION || "v21.0"}`;
+// SETTINGS-2 — the ONE config point for the assistant's outbound sending identity
+// (the WhatsApp phone_number_id every send routes through). Today it is the business
+// number from env; the B3 cutover to the dedicated line is a single value change here
+// (or the WA_PHONE_NUMBER_ID env var it reads). Both outbound send paths — waGraphSend
+// (admin) and sendBookingWhatsApp (index) — read the sending number from this accessor.
+export const waSendingNumber = (env) => env.WA_PHONE_NUMBER_ID || "";
 function waNz(v) { return (v == null ? "" : String(v)).trim(); }
 
 // E.164 digits (no +), INTERNATIONAL. Mirror of PAGE_SCRIPT normalizeWaNumber.
@@ -4666,7 +4672,7 @@ async function waGraphSend(env, payload) {
     return { ok: false, status: "failed", errorCode: "unconfigured" };
   }
   try {
-    const res = await fetch(`${WA_GRAPH(env)}/${env.WA_PHONE_NUMBER_ID}/messages`, {
+    const res = await fetch(`${WA_GRAPH(env)}/${waSendingNumber(env)}/messages`, {
       method: "POST",
       headers: { Authorization: "Bearer " + env.WA_ACCESS_TOKEN, "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -6621,7 +6627,7 @@ export async function handleAssistant(request, env, ctx) {
     // effectiveDecisionNumbers: what the engine will actually authorize right now.
     const eff = Array.from(await getAuthorizedDecisionNumbers(env));
     // Deploy marker so the running bundle is verifiable at a glance (bump per WA-5 deploy).
-    return json({ ok: true, build: "wa5-b2-cxadmin", settings, effectiveDecisionNumbers: eff, proposals: results || [] }, 200);
+    return json({ ok: true, build: "wa5-b2-cxadmin", settings, effectiveDecisionNumbers: eff, sendingNumber: waSendingNumber(env), proposals: results || [] }, 200);
   }
 
   if (request.method === "POST") {
@@ -9759,7 +9765,11 @@ function appShellHTML() {
       <label style="display:flex;flex-direction:column;gap:.4rem">
         <span><b>Authorized decision numbers</b> <small style="color:var(--muted,#6b5d4d)">— extra numbers that may approve, on top of team members with Approve enabled. Adds to the roster, never replaces it. Blank = just the Approve roster.</small></span>
         <input id="asstDecisionNumbers" type="text" inputmode="tel" placeholder="e.g. 971501234567, 971555555555" style="padding:.55rem;border-radius:6px;border:1px solid var(--line,#e4d9c8)">
+        <small style="color:var(--muted,#6b5d4d);font-weight:600">Team roster</small>
+        <div id="asstRosterList" class="wa-team-list"></div>
         <small id="asstEffective" style="color:var(--muted,#6b5d4d)"></small>
+        <small id="asstIdentity" style="color:var(--muted,#6b5d4d)"></small>
+        <small style="color:var(--muted,#6b5d4d)">All conversation data lives in the workspace (Cloudflare) — changing the assistant number never loses history.</small>
       </label>
       <div style="display:flex;gap:.7rem;align-items:center">
         <button type="button" id="asstSave" class="btn btn-small">Save settings</button>
@@ -11066,15 +11076,32 @@ const PAGE_SCRIPT = `<script>
     }).join("");
     return '<table style="width:100%;border-collapse:collapse;font-size:.85rem"><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
   }
+  // SETTINGS-2 — hoisted so the delegated roster PATCH handlers can refresh the
+  // effective-approvers read-out (which only /admin/api/assistant knows) after a
+  // cap/active toggle. No-ops if the Assistant card isn't mounted.
+  function setAsstEff(list){
+    var eff = document.getElementById("asstEffective");
+    if(eff) eff.textContent = (list && list.length) ? ("Active now: " + list.join(", ")) : "No authorized numbers yet — add active team members.";
+  }
+  function setAsstIdentity(num){
+    var id = document.getElementById("asstIdentity");
+    if(id) id.textContent = "Assistant number: " + (num || "not configured");
+  }
+  function refreshAssistantEffective(){
+    if(!document.getElementById("asstEffective") && !document.getElementById("asstIdentity")) return;
+    fetch("/admin/api/assistant", { credentials:"same-origin", headers:{ Accept:"application/json" } })
+      .then(function(r){ return r.json(); })
+      .then(function(b){ if(b && b.ok){ setAsstEff(b.effectiveDecisionNumbers || []); setAsstIdentity(b.sendingNumber); } })
+      .catch(function(){});
+  }
   async function loadAssistant(){
     var pm = document.getElementById("asstPaymentMode");
     var fm = document.getElementById("asstFlightMode");
     var dn = document.getElementById("asstDecisionNumbers");
-    var eff = document.getElementById("asstEffective");
     var ledger = document.getElementById("asstLedger");
     var msg = document.getElementById("asstSaveMsg");
     if(!pm) return;
-    var setEff = function(list){ eff.textContent = (list && list.length) ? ("Active now: " + list.join(", ")) : "No authorized numbers yet — add active team members."; };
+    var setEff = setAsstEff;
     try {
       var r = await fetch("/admin/api/assistant", { credentials:"same-origin", headers:{ Accept:"application/json" } });
       var b = await r.json();
@@ -11084,6 +11111,8 @@ const PAGE_SCRIPT = `<script>
       fm.value = s.flightMode === "off" ? "off" : "propose";
       dn.value = s.decisionNumbers || "";
       setEff(b.effectiveDecisionNumbers || []);
+      setAsstIdentity(b.sendingNumber);
+      loadWaTeam(true);
       ledger.innerHTML = renderAsstLedger(b.proposals || []);
     } catch(e){ if(ledger) ledger.innerHTML = '<p style="color:#b23">Could not load: ' + (e && e.message || e) + '</p>'; }
     var save = document.getElementById("asstSave");
@@ -14778,28 +14807,32 @@ const PAGE_SCRIPT = `<script>
     const el = document.getElementById("waTeamMsg");
     if(el){ el.textContent = t || ""; el.style.color = err ? "var(--danger,#b23)" : "var(--muted)"; }
   }
+  // ROSTER-2 / SETTINGS-2 — ONE shared per-row markup. Rendered into BOTH the
+  // "WhatsApp alert recipients" panel (#waTeamList) and the inline Assistant-card
+  // roster (#asstRosterList). Delegated handlers on root work in either place.
+  function rosterRowHtml(m){
+    var active = Number(m.active) === 1;
+    function capBox(field, label){
+      var on = Number(m[field]) === 1;
+      return '<label class="wa-cap" style="display:inline-flex;align-items:center;gap:.25rem;font-size:.82rem;color:var(--muted)">'
+        + '<input type="checkbox" data-wateam-cap="'+m.id+'" data-cap-field="'+field+'"'+(on?' checked':'')+'>'
+        + label + '</label>';
+    }
+    return '<div class="wa-team-row" data-wateam="'+m.id+'" style="display:flex;align-items:center;flex-wrap:wrap;gap:.6rem;padding:.35rem 0;border-bottom:1px solid var(--line,rgba(34,27,20,.06))">'
+      + '<span style="flex:0 0 auto;font-variant-numeric:tabular-nums">'+esc(m.phone)+'</span>'
+      + '<span style="flex:1 1 auto;color:var(--muted)">'+esc(m.name||"")+'</span>'
+      + '<span class="wa-caps" style="flex:0 0 auto;display:inline-flex;align-items:center;gap:.6rem">'
+        + capBox("cap_lead_alerts","Lead alerts") + capBox("cap_approve","Approve") + capBox("cap_watchdog","Watchdog")
+        + '</span>'
+      + '<button type="button" class="btn btn-small btn-ghost" data-wateam-toggle="'+m.id+'" data-active="'+(active?1:0)+'" title="'+(active?"Muting stops alerts to this number":"Activate to resume alerts")+'">'+(active?"Active":"Muted")+'</button>'
+      + '<button type="button" class="btn btn-small btn-ghost" data-wateam-del="'+m.id+'" title="Remove recipient">&times;</button>'
+      + '</div>';
+  }
   function renderWaTeam(items){
-    const box = document.getElementById("waTeamList");
-    if(!box) return;
-    if(!items || !items.length){ box.innerHTML = '<p class="hist-sub" style="margin:0">No recipients yet — add one below.</p>'; return; }
-    box.innerHTML = items.map(function(m){
-      var active = Number(m.active) === 1;
-      function capBox(field, label){
-        var on = Number(m[field]) === 1;
-        return '<label class="wa-cap" style="display:inline-flex;align-items:center;gap:.25rem;font-size:.82rem;color:var(--muted)">'
-          + '<input type="checkbox" data-wateam-cap="'+m.id+'" data-cap-field="'+field+'"'+(on?' checked':'')+'>'
-          + label + '</label>';
-      }
-      return '<div class="wa-team-row" data-wateam="'+m.id+'" style="display:flex;align-items:center;flex-wrap:wrap;gap:.6rem;padding:.35rem 0;border-bottom:1px solid var(--line,rgba(34,27,20,.06))">'
-        + '<span style="flex:0 0 auto;font-variant-numeric:tabular-nums">'+esc(m.phone)+'</span>'
-        + '<span style="flex:1 1 auto;color:var(--muted)">'+esc(m.name||"")+'</span>'
-        + '<span class="wa-caps" style="flex:0 0 auto;display:inline-flex;align-items:center;gap:.6rem">'
-          + capBox("cap_lead_alerts","Lead alerts") + capBox("cap_approve","Approve") + capBox("cap_watchdog","Watchdog")
-          + '</span>'
-        + '<button type="button" class="btn btn-small btn-ghost" data-wateam-toggle="'+m.id+'" data-active="'+(active?1:0)+'" title="'+(active?"Muting stops alerts to this number":"Activate to resume alerts")+'">'+(active?"Active":"Muted")+'</button>'
-        + '<button type="button" class="btn btn-small btn-ghost" data-wateam-del="'+m.id+'" title="Remove recipient">&times;</button>'
-        + '</div>';
-    }).join("");
+    var boxes = [document.getElementById("waTeamList"), document.getElementById("asstRosterList")];
+    var empty = '<p class="hist-sub" style="margin:0">No recipients yet — add one below.</p>';
+    var html = (items && items.length) ? items.map(rosterRowHtml).join("") : empty;
+    boxes.forEach(function(box){ if(box) box.innerHTML = html; });
   }
   var _waTeamLoaded = false;
   function loadWaTeam(force){
@@ -14945,7 +14978,7 @@ const PAGE_SCRIPT = `<script>
       fetch("/admin/api/wa-team/"+id, { method:"PATCH", headers:{"Content-Type":"application/json"}, credentials:"same-origin",
         body: JSON.stringify(patch) })
         .then(function(r){ return r.json(); })
-        .then(function(j){ if(j.ok){ loadWaTeam(true); } else { waTeamMsg(j.error||"Could not update.", true); } })
+        .then(function(j){ if(j.ok){ loadWaTeam(true); refreshAssistantEffective(); } else { waTeamMsg(j.error||"Could not update.", true); } })
         .catch(function(){ waTeamMsg("Could not update.", true); });
     });
     root.addEventListener("click", function(e){
@@ -14986,7 +15019,7 @@ const PAGE_SCRIPT = `<script>
         fetch("/admin/api/wa-team/"+id, { method:"PATCH", headers:{"Content-Type":"application/json"}, credentials:"same-origin",
           body: JSON.stringify({ active: !cur }) })
           .then(function(r){ return r.json(); })
-          .then(function(j){ if(j.ok){ loadWaTeam(true); } else { waTeamMsg(j.error||"Could not update.", true); } })
+          .then(function(j){ if(j.ok){ loadWaTeam(true); refreshAssistantEffective(); } else { waTeamMsg(j.error||"Could not update.", true); } })
           .catch(function(){ waTeamMsg("Could not update.", true); });
         return;
       }

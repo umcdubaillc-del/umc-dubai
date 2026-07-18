@@ -4,7 +4,7 @@ import {
   handleAdmin, handleFleetRatesPublic, isAuthed,
   sendLeadAlerts, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runLeadWatchdog, runFlightWatch,
   createWaLink, handleWaRedirect, composeQuoteText, runQuoteNudge, runOpsDigest,
-  handleAssistant, handleAssistantInbound
+  handleAssistant, handleAssistantInbound, waSendingNumber
 } from "./admin.js";
 import { handleWaTemplates } from "./wa-templates.js";
 
@@ -1407,7 +1407,7 @@ async function sendBookingWhatsApp(env, leadId, payload) {
   let wamid = null, status = "failed", errorCode = null;
   try {
     const res = await fetch(
-      `https://graph.facebook.com/${env.WA_GRAPH_VERSION || "v21.0"}/${env.WA_PHONE_NUMBER_ID}/messages`,
+      `https://graph.facebook.com/${env.WA_GRAPH_VERSION || "v21.0"}/${waSendingNumber(env)}/messages`,
       {
         method: "POST",
         headers: { Authorization: "Bearer " + env.WA_ACCESS_TOKEN, "Content-Type": "application/json" },
