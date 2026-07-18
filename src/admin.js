@@ -11927,7 +11927,12 @@ const PAGE_SCRIPT = `<script>
       service:jobServiceText(job), vehicle:job.vehicle_text||"",
       pickup:job.pickup||"", destination:job.destination||"",
       date:job.date||"", time:job.time||"", days:job.days||"",
-      flight:job.flight||"", sign:job.sign||"", notes:job.driver_notes||"", quote_price:null
+      flight:job.flight||"", sign:job.sign||"", notes:job.driver_notes||"", quote_price:null,
+      // B2b Slice 1 — the invoice must attach to the SOURCE LEAD, not the job. A
+      // job-shape carries id:job.id; without this, prefillFromLead would POST
+      // lead_id = job.id (a job id in the lead_id column). Explicit null when the
+      // job has no lead so the invoice stays standalone, exactly as today.
+      lead_id:(job.source_type === "lead" ? (job.source_id || null) : null)
     };
   }
   function openJobForm(seed){ jobFormModal(seed || {}, false); }
@@ -13392,7 +13397,10 @@ const PAGE_SCRIPT = `<script>
     if(!lead) return;
     // v99: starting a brand-new document from a lead; clear any prior id.
     state.id = null;
-    state.lead_id = lead.id;
+    // B2b Slice 1 — a job-shape passes an explicit lead_id (the source lead, or
+    // null); a real lead object has no lead_id property → fall back to its id.
+    // Real-lead callers are unchanged (they never carry a lead_id property).
+    state.lead_id = ("lead_id" in lead) ? lead.lead_id : lead.id;
     // doc type — direct toggle manipulation (mirrors loadDoc pattern;
     // setType is bindForm-scoped so we replicate its visible effects here).
     state.doc_type = docType === "invoice" ? "invoice" : "quote";
