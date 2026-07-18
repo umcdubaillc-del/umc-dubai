@@ -4963,12 +4963,20 @@ async function sendPaymentConfirmation(env, ctx, info) {
     return;
   }
   const prompt = paymentProposalPrompt(clientName, amountStr, summary, maskNumber(to), false);
-  const fallbackFor = (mto) => ({
+  // Closed-window fallback now uses the APPROVED payment_proposal template (buttons =
+  // the action; quick-reply payloads APPROVE:{id}/SKIP:{id} supplied at send time,
+  // parsed back via msg.button.payload). {{4}} is the masked client number (not a link —
+  // the Send ✓ button, not a manual link, drives the client confirmation on approve).
+  const fallbackFor = (mto, proposalId) => ({
     messaging_product: "whatsapp", to: mto, type: "template",
-    template: { name: "payment_alert", language: { code: "en" }, components: [{ type: "body", parameters: [
-      { type: "text", text: clientName }, { type: "text", text: amountStr },
-      { type: "text", text: summary }, { type: "text", text: clientLink }
-    ] }] }
+    template: { name: "payment_proposal", language: { code: "en" }, components: [
+      { type: "body", parameters: [
+        { type: "text", text: clientName }, { type: "text", text: amountStr },
+        { type: "text", text: summary }, { type: "text", text: maskNumber(to) }
+      ] },
+      { type: "button", sub_type: "quick_reply", index: "0", parameters: [{ type: "payload", payload: "APPROVE:" + proposalId }] },
+      { type: "button", sub_type: "quick_reply", index: "1", parameters: [{ type: "payload", payload: "SKIP:" + proposalId }] }
+    ] }
   });
   const raised = await raiseProposal(env, {
     kind: "payment", leadId: lead.id, paymentId: payId,
@@ -5726,7 +5734,7 @@ async function deliverProposalToTeam(env, proposalId, promptText, opts) {
     const open = await clientWindowOpen(env, to);
     let payload = null, mode;
     if (open) { mode = "interactive"; payload = proposalInteractive(to, proposalId, promptText); }
-    else { payload = opts.fallbackFor ? opts.fallbackFor(to) : null; mode = payload ? "fallback_template" : "undeliverable"; }
+    else { payload = opts.fallbackFor ? opts.fallbackFor(to, proposalId) : null; mode = payload ? "fallback_template" : "undeliverable"; }
     const rowId = await claimOutbound(env, {
       lead_id: opts.leadId == null ? null : opts.leadId, kind: "proposal_deliver",
       recipient: to, template: mode, dedupe_key: "propdeliver:" + proposalId + ":" + to,
@@ -6648,20 +6656,19 @@ export async function handleAssistant(request, env, ctx) {
       const summary = waLeadSummary(lead) || "Booking";
       const amountStr = body.amount ? String(body.amount) : "1";
       const prompt = paymentProposalPrompt(name, amountStr, summary, maskNumber(to), true);
-      // Structural fallback for out-of-window team members (payment_proposal still PENDING
-      // at Meta): the approved payment_alert template with a tap-to-send client link. The
-      // client confirmation itself goes as the payment_received TEMPLATE on approve
-      // (FOOTER RULING) — amount + summary are stored in meta for that send.
-      const clientPrefill = "Dear " + name.split(/\s+/)[0] + ", thank you — we have received your payment of AED " +
-        amountStr + ". Your booking is confirmed and your concierge will share the final arrangements shortly.";
-      const clientLink = (await createWaLink(env, { leadId: lead.id, purpose: "payment", toPhone: lead.phone, prefill: clientPrefill }))
-        || "No WhatsApp number on file";
-      const fallbackFor = (mto) => ({
+      // Out-of-window team members get the APPROVED payment_proposal template (buttons =
+      // the action; APPROVE:{id}/SKIP:{id} payloads supplied at send time). The client
+      // confirmation itself goes as the payment_received TEMPLATE on approve.
+      const fallbackFor = (mto, proposalId) => ({
         messaging_product: "whatsapp", to: mto, type: "template",
-        template: { name: "payment_alert", language: { code: "en" }, components: [{ type: "body", parameters: [
-          { type: "text", text: name }, { type: "text", text: amountStr },
-          { type: "text", text: summary }, { type: "text", text: clientLink }
-        ] }] }
+        template: { name: "payment_proposal", language: { code: "en" }, components: [
+          { type: "body", parameters: [
+            { type: "text", text: name }, { type: "text", text: amountStr },
+            { type: "text", text: summary }, { type: "text", text: maskNumber(to) }
+          ] },
+          { type: "button", sub_type: "quick_reply", index: "0", parameters: [{ type: "payload", payload: "APPROVE:" + proposalId }] },
+          { type: "button", sub_type: "quick_reply", index: "1", parameters: [{ type: "payload", payload: "SKIP:" + proposalId }] }
+        ] }
       });
       const res = await raiseProposal(env, {
         kind: "payment", leadId: lead.id, paymentId: "TEST-" + new Date().toISOString(),
@@ -6834,15 +6841,19 @@ export async function runFlightWatch(env) {
         return false;
       }
       const prompt = flightProposalPrompt(flightNo, eta3, clientName, maskNumber(clientTo));
-      const clientHint = "your flight " + flightNo + " is now expected around " + eta3 + ". Your chauffeur will adjust; nothing is needed from you.";
-      const link = await createWaLink(env, { leadId: fw.lead_id, purpose: "flight", toPhone: lead.phone,
-        prefill: "Dear " + firstName + ", " + clientHint + "\n\nWarm regards,\nUMC Dubai" });
-      const fallbackFor = (mto) => ({
+      // Closed-window fallback now uses the APPROVED flight_proposal template. Body params
+      // follow that template's schema ({{1}} flight, {{2}} ETA, {{3}} client) — a reorder
+      // from flight_alert. Quick-reply payloads APPROVE:{id}/SKIP:{id} at send time.
+      const fallbackFor = (mto, proposalId) => ({
         messaging_product: "whatsapp", to: mto, type: "template",
-        template: { name: "flight_alert", language: { code: "en" }, components: [{ type: "body", parameters: [
-          { type: "text", text: clientName }, { type: "text", text: flightNo },
-          { type: "text", text: eta3 }, { type: "text", text: link || "No WhatsApp number on file" }
-        ] }] }
+        template: { name: "flight_proposal", language: { code: "en" }, components: [
+          { type: "body", parameters: [
+            { type: "text", text: flightNo }, { type: "text", text: eta3 },
+            { type: "text", text: clientName }
+          ] },
+          { type: "button", sub_type: "quick_reply", index: "0", parameters: [{ type: "payload", payload: "APPROVE:" + proposalId }] },
+          { type: "button", sub_type: "quick_reply", index: "1", parameters: [{ type: "payload", payload: "SKIP:" + proposalId }] }
+        ] }
       });
       const raised = await raiseProposal(env, {
         kind: "flight", leadId: fw.lead_id, promptText: prompt, targetE164: clientTo,
