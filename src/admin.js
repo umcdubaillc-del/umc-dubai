@@ -9175,6 +9175,14 @@ function appShellHTML() {
         </div>
       </div>
     </details>
+    <!-- QO-1d — read-only WhatsApp template approval status. Mirrors the roster
+         panel's <details> disclosure + lazy-load-on-open pattern. -->
+    <details class="wa-team" id="waTemplates" style="margin-top:1.25rem;border-top:1px solid var(--line,rgba(34,27,20,.1));padding-top:.9rem">
+      <summary style="cursor:pointer;font-weight:600;font-size:.9rem">Template status</summary>
+      <p class="hist-sub" style="margin:.4rem 0 .7rem">Meta's approval verdict for each WhatsApp message template. Read-only.</p>
+      <div id="waTemplatesList" class="wa-team-list"></div>
+      <p class="wa-team-msg" id="waTemplatesMsg" aria-live="polite" style="font-size:.8rem;color:var(--muted);margin-top:.5rem"></p>
+    </details>
     <!-- WA-2 G — manual Add lead dialog. -->
     <dialog id="addLeadDialog" style="border:none;border-radius:10px;padding:0;max-width:560px;width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.28)">
       <form id="addLeadForm" method="dialog" style="padding:1.25rem 1.25rem 1.1rem;background:var(--card,#FBF8F1);color:var(--ink,#221B14)">
@@ -14803,6 +14811,38 @@ const PAGE_SCRIPT = `<script>
       .catch(function(){ waTeamMsg("Could not load recipients.", true); });
     loadWaUsage();
   }
+  // QO-1d — read-only template approval status. Mirrors renderWaTeam/loadWaTeam.
+  function waTemplatesMsg(t, err){
+    const el = document.getElementById("waTemplatesMsg");
+    if(el){ el.textContent = t || ""; el.style.color = err ? "var(--danger,#b23)" : "var(--muted)"; }
+  }
+  function renderWaTemplates(items){
+    const box = document.getElementById("waTemplatesList");
+    if(!box) return;
+    if(!items || !items.length){ box.innerHTML = '<p class="hist-sub" style="margin:0">No templates found.</p>'; return; }
+    box.innerHTML = items.map(function(t){
+      var status = String(t.status || "").toUpperCase();
+      var ok = status === "APPROVED";
+      var tone = ok ? "var(--ok,#2e7d32)" : "var(--amber,#C75B12)";
+      var reason = t.reason && String(t.reason).toUpperCase() !== "NONE" ? String(t.reason) : "";
+      return '<div class="wa-team-row" style="display:flex;align-items:center;flex-wrap:wrap;gap:.6rem;padding:.35rem 0;border-bottom:1px solid var(--line,rgba(34,27,20,.06))">'
+        + '<span style="flex:1 1 auto;min-width:0">'
+          + esc(t.template_name || "")
+          + (reason ? '<br><span class="hist-sub" style="font-size:.75rem">'+esc(reason)+'</span>' : "")
+          + '</span>'
+        + '<span style="flex:0 0 auto;font-size:.82rem;font-weight:600;color:'+tone+'">'+esc(status||"—")+'</span>'
+        + '</div>';
+    }).join("");
+  }
+  var _waTemplatesLoaded = false;
+  function loadWaTemplates(force){
+    if(_waTemplatesLoaded && !force) return;
+    _waTemplatesLoaded = true;
+    fetch("/admin/api/wa-template-status", { credentials:"same-origin" })
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if(j && j.ok) renderWaTemplates(j.templates); else waTemplatesMsg("Could not load template status.", true); })
+      .catch(function(){ waTemplatesMsg("Could not load template status.", true); });
+  }
   // WA-2 H rider — monthly usage counter + threshold.
   function loadWaUsage(){
     fetch("/admin/api/wa-usage", { credentials:"same-origin" })
@@ -14887,6 +14927,9 @@ const PAGE_SCRIPT = `<script>
     // WA-2 B — lazy-load the alert roster the first time its panel is opened.
     const waT = root.querySelector("#waTeam");
     if(waT) waT.addEventListener("toggle", function(){ if(waT.open) loadWaTeam(); });
+    // QO-1d — lazy-load template status the first time its panel is opened.
+    const waTpl = root.querySelector("#waTemplates");
+    if(waTpl) waTpl.addEventListener("toggle", function(){ if(waTpl.open) loadWaTemplates(); });
     // WA-2 G — Add-lead form submit (native dialog submit intercepted to POST first).
     const addForm = root.querySelector("#addLeadForm");
     if(addForm) addForm.addEventListener("submit", function(ev){ ev.preventDefault(); submitAddLead(); });
