@@ -1854,6 +1854,16 @@ async function handleCreateJob(request, env) {
   await ensureSchema(env);
   let b; try { b = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
   const f = jobFieldsFromBody(b);
+  // B2b Slice 1 §3.2 — one active job per lead. Guard is scoped by SOURCE, not
+  // endpoint: only lead-originated creations are deduped. Invoice/quote/manual
+  // jobs pass untouched. The 409 body carries the existing job id so the UI can
+  // open it instead of silently creating a duplicate (double-click / race safe).
+  if (f.source_type === "lead" && f.source_id != null) {
+    const existing = await activeJobForLead(env, f.source_id);
+    if (existing) {
+      return json({ ok: false, error: "active_job_exists", existing_job_id: existing.id }, 409);
+    }
+  }
   const res = await env.BILLING_DB.prepare(
     `INSERT INTO jobs (status, source_type, source_id, client_name, client_phone, client_email,
        service, vehicle_text, pickup, destination, date, time, days, flight, sign,
