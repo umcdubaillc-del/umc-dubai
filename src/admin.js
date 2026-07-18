@@ -5701,6 +5701,20 @@ async function deliverProposalToTeam(env, proposalId, promptText, opts) {
   opts = opts || {};
   if (env.WA_SEND_ENABLED !== "1") return { accepted: 0, results: [] };
   const team = await getWaTeamByCap(env, "cap_approve");
+  // ROSTER-2 — never raise a proposal no one can approve. If the approver set is
+  // empty (no cap_approve number and empty override), alert the always-on watchdog
+  // channel instead of leaving the proposal silently un-approvable.
+  const approvers = await getAuthorizedDecisionNumbers(env);
+  if (approvers.size === 0) {
+    await teamFreeform(
+      env,
+      "⚠️ Proposal #" + proposalId + " was raised but NO authorized approver is configured " +
+        "(no wa_team number has Approve enabled and the override list is empty). " +
+        "Enable Approve on a team number in the admin roster.",
+      { cap: "cap_watchdog", dedupeKey: "noapprover:" + proposalId, leadId: opts.leadId }
+    );
+    return { accepted: 0, results: [], undeliverable: true, reason: "no_approver" };
+  }
   const results = [];
   for (const m of team) {
     const to = waMeNumber(m.phone); if (to.length < 8) continue;
