@@ -8924,6 +8924,24 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
      the next agenda row. */
   .cal-lights{ margin-left:auto; padding-top:.15rem; }
 }
+/* ---- SETTINGS-3 — WhatsApp roster row (shared #asstRosterList markup).
+   Responsive 2x2 capability grid; every label sits beside its own checkbox
+   via flex gap (never absolutely positioned over it). At <=620px the id line
+   and the toggle grid each take full width and stack; remove pins top-right. */
+.wa-team-row{ display:flex; flex-wrap:wrap; align-items:center; gap:.5rem .9rem; padding:.6rem 0; border-bottom:1px solid var(--line,rgba(34,27,20,.06)); }
+.wa-team-id{ flex:1 1 12rem; min-width:0; font-size:.9rem; }
+.wa-team-phone{ font-variant-numeric:tabular-nums; }
+.wa-team-name{ color:var(--muted); margin-left:.35rem; }
+.wa-cap-grid{ display:grid; grid-template-columns:repeat(2, minmax(6.5rem, auto)); gap:.35rem .9rem; flex:0 0 auto; }
+.wa-cap{ display:inline-flex; align-items:center; gap:.4rem; font-size:.82rem; color:var(--muted); white-space:nowrap; cursor:pointer; }
+.wa-cap input{ flex:0 0 auto; margin:0; width:auto; }
+.wa-team-del{ flex:0 0 auto; margin-left:auto; }
+@media (max-width:620px){
+  .wa-team-row{ align-items:flex-start; gap:.45rem; position:relative; padding-right:2rem; }
+  .wa-team-id{ flex:1 1 100%; }
+  .wa-cap-grid{ flex:1 1 100%; grid-template-columns:1fr 1fr; }
+  .wa-team-del{ position:absolute; top:.5rem; right:0; margin:0; }
+}
 /* ---- Jobs "tomorrow needs assignment" callout. Same tinted-card visual
    language as the Sales fx_unreconciled note; green calm variant for the good
    outcome, muted for nothing-scheduled. ---- */
@@ -9156,39 +9174,6 @@ function appShellHTML() {
       </table>
     </div>
     <div class="empty" id="leadsEmpty" hidden>No leads yet.</div>
-    <!-- WA-2 B — team-alert roster editor. Recipients who get a WhatsApp alert on
-         every new booking (and watchdog escalations). Seeded with the owner's two
-         numbers; this editor is for future changes. -->
-    <details class="wa-team" id="waTeam" style="margin-top:1.25rem;border-top:1px solid var(--line,rgba(34,27,20,.1));padding-top:.9rem">
-      <summary style="cursor:pointer;font-weight:600;font-size:.9rem">WhatsApp alert recipients</summary>
-      <p class="hist-sub" style="margin:.4rem 0 .7rem">These team members receive a WhatsApp alert on every new booking, and any watchdog escalation. Stored with country code, digits only.</p>
-      <div id="waTeamList" class="wa-team-list"></div>
-      <div class="wa-team-add" style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.6rem;align-items:flex-end">
-        <div><label class="lbl" for="waTeamName">Name</label><input id="waTeamName" type="text" autocomplete="off" placeholder="e.g. Dispatch" style="max-width:9rem"></div>
-        <div><label class="lbl" for="waTeamPhone">Phone (with country code)</label><input id="waTeamPhone" type="tel" inputmode="tel" autocomplete="off" placeholder="9715XXXXXXXX"></div>
-        <button type="button" class="btn btn-small btn-ink" id="waTeamAdd">Add member</button>
-      </div>
-      <p class="wa-team-msg" id="waTeamMsg" aria-live="polite" style="font-size:.8rem;color:var(--muted);margin-top:.5rem"></p>
-      <!-- WA-2 H rider — monthly template-send cost guard. -->
-      <div class="wa-usage" style="margin-top:1rem;padding-top:.8rem;border-top:1px solid var(--line,rgba(34,27,20,.08))">
-        <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
-          <strong style="font-size:.9rem">WhatsApp sends this month:</strong>
-          <span id="waUsageCount" style="font-variant-numeric:tabular-nums">—</span>
-          <span style="color:var(--muted)">of</span>
-          <input id="waUsageThreshold" type="number" min="1" step="1" style="width:6rem" title="Alert threshold — a team alert fires when monthly template sends reach this">
-          <button type="button" class="btn btn-small btn-ghost" id="waUsageSave" title="Save the monthly send-alert threshold">Save threshold</button>
-          <span id="waUsageMsg" aria-live="polite" style="font-size:.8rem;color:var(--muted)"></span>
-        </div>
-      </div>
-    </details>
-    <!-- QO-1d — read-only WhatsApp template approval status. Mirrors the roster
-         panel's <details> disclosure + lazy-load-on-open pattern. -->
-    <details class="wa-team" id="waTemplates" style="margin-top:1.25rem;border-top:1px solid var(--line,rgba(34,27,20,.1));padding-top:.9rem">
-      <summary style="cursor:pointer;font-weight:600;font-size:.9rem">Template status</summary>
-      <p class="hist-sub" style="margin:.4rem 0 .7rem">Meta's approval verdict for each WhatsApp message template. Read-only.</p>
-      <div id="waTemplatesList" class="wa-team-list"></div>
-      <p class="wa-team-msg" id="waTemplatesMsg" aria-live="polite" style="font-size:.8rem;color:var(--muted);margin-top:.5rem"></p>
-    </details>
     <!-- WA-2 G — manual Add lead dialog. -->
     <dialog id="addLeadDialog" style="border:none;border-radius:10px;padding:0;max-width:560px;width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.28)">
       <form id="addLeadForm" method="dialog" style="padding:1.25rem 1.25rem 1.1rem;background:var(--card,#FBF8F1);color:var(--ink,#221B14)">
@@ -9766,7 +9751,14 @@ function appShellHTML() {
         <span><b>Authorized decision numbers</b> <small style="color:var(--muted,#6b5d4d)">— extra numbers that may approve, on top of team members with Approve enabled. Adds to the roster, never replaces it. Blank = just the Approve roster.</small></span>
         <input id="asstDecisionNumbers" type="text" inputmode="tel" placeholder="e.g. 971501234567, 971555555555" style="padding:.55rem;border-radius:6px;border:1px solid var(--line,#e4d9c8)">
         <small style="color:var(--muted,#6b5d4d);font-weight:600">Team roster</small>
+        <p class="hist-sub" style="margin:.2rem 0 .4rem">These team members receive a WhatsApp alert on every new booking, and any watchdog escalation. Stored with country code, digits only.</p>
         <div id="asstRosterList" class="wa-team-list"></div>
+        <div class="wa-team-add" style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.6rem;align-items:flex-end">
+          <div><label class="lbl" for="waTeamName">Name</label><input id="waTeamName" type="text" autocomplete="off" placeholder="e.g. Dispatch" style="max-width:9rem"></div>
+          <div><label class="lbl" for="waTeamPhone">Phone (with country code)</label><input id="waTeamPhone" type="tel" inputmode="tel" autocomplete="off" placeholder="9715XXXXXXXX"></div>
+          <button type="button" class="btn btn-small btn-ink" id="waTeamAdd">Add member</button>
+        </div>
+        <p class="wa-team-msg" id="waTeamMsg" aria-live="polite" style="font-size:.8rem;color:var(--muted);margin-top:.5rem"></p>
         <small id="asstEffective" style="color:var(--muted,#6b5d4d)"></small>
         <small id="asstIdentity" style="color:var(--muted,#6b5d4d)"></small>
         <small style="color:var(--muted,#6b5d4d)">All conversation data lives in the workspace (Cloudflare) — changing the assistant number never loses history.</small>
@@ -9776,6 +9768,24 @@ function appShellHTML() {
         <span id="asstSaveMsg" aria-live="polite" style="font-size:.82rem;color:var(--muted,#6b5d4d)"></span>
       </div>
     </div>
+    <!-- WA-2 H rider — monthly template-send cost guard (relocated from Leads). -->
+    <div class="wa-usage" style="margin-top:1.3rem;padding-top:.8rem;border-top:1px solid var(--line,rgba(34,27,20,.08))">
+      <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+        <strong style="font-size:.9rem">WhatsApp sends this month:</strong>
+        <span id="waUsageCount" style="font-variant-numeric:tabular-nums">—</span>
+        <span style="color:var(--muted)">of</span>
+        <input id="waUsageThreshold" type="number" min="1" step="1" style="width:6rem" title="Alert threshold — a team alert fires when monthly template sends reach this">
+        <button type="button" class="btn btn-small btn-ghost" id="waUsageSave" title="Save the monthly send-alert threshold">Save threshold</button>
+        <span id="waUsageMsg" aria-live="polite" style="font-size:.8rem;color:var(--muted)"></span>
+      </div>
+    </div>
+    <!-- QO-1d — read-only WhatsApp template approval status (relocated from Leads). -->
+    <details class="wa-team" id="waTemplates" style="margin-top:1.25rem;border-top:1px solid var(--line,rgba(34,27,20,.1));padding-top:.9rem">
+      <summary style="cursor:pointer;font-weight:600;font-size:.9rem">Template status</summary>
+      <p class="hist-sub" style="margin:.4rem 0 .7rem">Meta's approval verdict for each WhatsApp message template. Read-only.</p>
+      <div id="waTemplatesList" class="wa-team-list"></div>
+      <p class="wa-team-msg" id="waTemplatesMsg" aria-live="polite" style="font-size:.8rem;color:var(--muted);margin-top:.5rem"></p>
+    </details>
     <h3 style="font-family:Marcellus,Georgia,serif;margin:1.7rem 0 .5rem">Recent proposals</h3>
     <div id="asstLedger" style="overflow-x:auto"><p style="color:var(--muted,#6b5d4d)">Loading…</p></div>
   </div>
@@ -11113,6 +11123,8 @@ const PAGE_SCRIPT = `<script>
       setEff(b.effectiveDecisionNumbers || []);
       setAsstIdentity(b.sendingNumber);
       loadWaTeam(true);
+      loadWaUsage();
+      loadWaTemplates();
       ledger.innerHTML = renderAsstLedger(b.proposals || []);
     } catch(e){ if(ledger) ledger.innerHTML = '<p style="color:#b23">Could not load: ' + (e && e.message || e) + '</p>'; }
     var save = document.getElementById("asstSave");
@@ -14811,25 +14823,23 @@ const PAGE_SCRIPT = `<script>
   // "WhatsApp alert recipients" panel (#waTeamList) and the inline Assistant-card
   // roster (#asstRosterList). Delegated handlers on root work in either place.
   function rosterRowHtml(m){
-    var active = Number(m.active) === 1;
-    function capBox(field, label){
+    function cell(field, label){
       var on = Number(m[field]) === 1;
-      return '<label class="wa-cap" style="display:inline-flex;align-items:center;gap:.25rem;font-size:.82rem;color:var(--muted)">'
+      return '<label class="wa-cap">'
         + '<input type="checkbox" data-wateam-cap="'+m.id+'" data-cap-field="'+field+'"'+(on?' checked':'')+'>'
-        + label + '</label>';
+        + '<span>'+label+'</span></label>';
     }
-    return '<div class="wa-team-row" data-wateam="'+m.id+'" style="display:flex;align-items:center;flex-wrap:wrap;gap:.6rem;padding:.35rem 0;border-bottom:1px solid var(--line,rgba(34,27,20,.06))">'
-      + '<span style="flex:0 0 auto;font-variant-numeric:tabular-nums">'+esc(m.phone)+'</span>'
-      + '<span style="flex:1 1 auto;color:var(--muted)">'+esc(m.name||"")+'</span>'
-      + '<span class="wa-caps" style="flex:0 0 auto;display:inline-flex;align-items:center;gap:.6rem">'
-        + capBox("cap_lead_alerts","Lead alerts") + capBox("cap_approve","Approve") + capBox("cap_watchdog","Watchdog")
-        + '</span>'
-      + '<button type="button" class="btn btn-small btn-ghost" data-wateam-toggle="'+m.id+'" data-active="'+(active?1:0)+'" title="'+(active?"Muting stops alerts to this number":"Activate to resume alerts")+'">'+(active?"Active":"Muted")+'</button>'
-      + '<button type="button" class="btn btn-small btn-ghost" data-wateam-del="'+m.id+'" title="Remove recipient">&times;</button>'
+    return '<div class="wa-team-row" data-wateam="'+m.id+'">'
+      + '<div class="wa-team-id"><span class="wa-team-phone">'+esc(m.phone)+'</span> <span class="wa-team-name">'+esc(m.name||"")+'</span></div>'
+      + '<div class="wa-cap-grid">'
+        + cell("active","Active") + cell("cap_lead_alerts","Lead alerts")
+        + cell("cap_approve","Approve") + cell("cap_watchdog","Watchdog")
+        + '</div>'
+      + '<button type="button" class="btn btn-small btn-ghost wa-team-del" data-wateam-del="'+m.id+'" title="Remove recipient">&times;</button>'
       + '</div>';
   }
   function renderWaTeam(items){
-    var boxes = [document.getElementById("waTeamList"), document.getElementById("asstRosterList")];
+    var boxes = [document.getElementById("asstRosterList")];
     var empty = '<p class="hist-sub" style="margin:0">No recipients yet — add one below.</p>';
     var html = (items && items.length) ? items.map(rosterRowHtml).join("") : empty;
     boxes.forEach(function(box){ if(box) box.innerHTML = html; });
@@ -14957,9 +14967,6 @@ const PAGE_SCRIPT = `<script>
     if(fTog && fPanel) fTog.addEventListener("click", function(){
       if(fPanel.style.display === "flex") closeLeadsFilters(); else openLeadsFilters();
     });
-    // WA-2 B — lazy-load the alert roster the first time its panel is opened.
-    const waT = root.querySelector("#waTeam");
-    if(waT) waT.addEventListener("toggle", function(){ if(waT.open) loadWaTeam(); });
     // QO-1d — lazy-load template status the first time its panel is opened.
     const waTpl = root.querySelector("#waTemplates");
     if(waTpl) waTpl.addEventListener("toggle", function(){ if(waTpl.open) loadWaTemplates(); });
@@ -15009,18 +15016,6 @@ const PAGE_SCRIPT = `<script>
             waTeamMsg("Recipient added."); loadWaTeam(true);
           })
           .catch(function(){ wtAdd.disabled = false; waTeamMsg("Could not add — network error.", true); });
-        return;
-      }
-      const wtTog = e.target.closest("[data-wateam-toggle]");
-      if(wtTog){
-        e.preventDefault();
-        const id = wtTog.getAttribute("data-wateam-toggle");
-        const cur = Number(wtTog.getAttribute("data-active")) === 1;
-        fetch("/admin/api/wa-team/"+id, { method:"PATCH", headers:{"Content-Type":"application/json"}, credentials:"same-origin",
-          body: JSON.stringify({ active: !cur }) })
-          .then(function(r){ return r.json(); })
-          .then(function(j){ if(j.ok){ loadWaTeam(true); refreshAssistantEffective(); } else { waTeamMsg(j.error||"Could not update.", true); } })
-          .catch(function(){ waTeamMsg("Could not update.", true); });
         return;
       }
       const wtDel = e.target.closest("[data-wateam-del]");
