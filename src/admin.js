@@ -4648,6 +4648,18 @@ export async function getActiveWaTeam(env) {
   return results || [];
 }
 
+// ROSTER-2 — recipients for ONE stream: active AND the stream's own cap.
+// `capColumn` is always one of the three internal literals below — never user input.
+export async function getWaTeamByCap(env, capColumn) {
+  await ensureSchema(env);
+  const allowed = new Set(["cap_lead_alerts", "cap_approve", "cap_watchdog"]);
+  if (!allowed.has(capColumn)) throw new Error("getWaTeamByCap: bad cap " + capColumn);
+  const { results } = await env.BILLING_DB.prepare(
+    `SELECT id, name, phone FROM wa_team WHERE active = 1 AND ${capColumn} = 1 ORDER BY id`
+  ).all();
+  return results || [];
+}
+
 // ── Low-level send + wa_outbound bookkeeping ─────────────────────────────────
 async function waGraphSend(env, payload) {
   // READ-TRUTH invariant (owner ruling 2026-07-17, PERMANENT): we NEVER mark an inbound
@@ -5013,7 +5025,7 @@ async function maybeQuotaAlert(env) {
     if (!rowId) return; // already alerted this month
     let anyOk = false;
     if (env.WA_SEND_ENABLED === "1") {
-      const team = await getActiveWaTeam(env);
+      const team = await getWaTeamByCap(env, "cap_watchdog");
       const msg = "UMC alert: WhatsApp template sends this month have reached " + count +
         " (threshold " + threshold + "). Review usage in the admin.";
       for (const m of team) {
@@ -5223,7 +5235,7 @@ async function leadHasInboundHistory(env, e164) {
 // Fan out the payment_alert TEMPLATE to the team (used for unreachable / non-AED /
 // client-send-failure paths). {{1}} client, {{2}} amount, {{3}} summary, {{4}} link.
 async function teamPaymentAlert(env, lead, amountStr, summary, clientLink, dedupeSuffix) {
-  const team = await getActiveWaTeam(env);
+  const team = await getWaTeamByCap(env, "cap_approve");
   let sent = 0;
   for (const m of team) {
     const mto = waMeNumber(m.phone); if (mto.length < 8) continue;
@@ -5681,7 +5693,7 @@ function proposalInteractive(to, proposalId, promptText) {
 async function deliverProposalToTeam(env, proposalId, promptText, opts) {
   opts = opts || {};
   if (env.WA_SEND_ENABLED !== "1") return { accepted: 0, results: [] };
-  const team = await getActiveWaTeam(env);
+  const team = await getWaTeamByCap(env, "cap_approve");
   const results = [];
   for (const m of team) {
     const to = waMeNumber(m.phone); if (to.length < 8) continue;
@@ -6948,7 +6960,7 @@ export async function runQuoteNudge(env) {
     const link = await createWaLink(env, { leadId: lead.id, purpose: "nudge", toPhone: lead.phone, prefill });
     let anyOk = false;
     if (env.WA_SEND_ENABLED === "1") {
-      const team = await getActiveWaTeam(env);
+      const team = await getWaTeamByCap(env, "cap_approve");
       const msg = "It's been 24h since the quote to " + (waNz(lead.name) || ("lead #" + lead.id)) +
         " — did it convert to a booking? Send a follow-up: " + link;
       for (const m of team) {
@@ -7027,7 +7039,7 @@ export async function runOpsDigest(env) {
   console.log("[ops-digest] " + line);
   let sent = 0;
   if (env.OPS_DIGEST_ENABLED === "1" && env.WA_SEND_ENABLED === "1") {
-    const team = await getActiveWaTeam(env);
+    const team = await getWaTeamByCap(env, "cap_watchdog");
     for (const m of team) {
       const to = waMeNumber(m.phone); if (to.length < 8) continue;
       const r = await waGraphSend(env, { messaging_product: "whatsapp", to, type: "text", text: { preview_url: false, body: line } });
@@ -7059,7 +7071,7 @@ export async function sendLeadAlerts(env, leadId, lead, opts) {
     if (dupe) return { sent: 0, skipped: 0, duplicate: true };
   }
 
-  const team = await getActiveWaTeam(env);
+  const team = await getWaTeamByCap(env, capForLeadAlerts(opts));
   const clientName = waNz(lead.name) || "a new client";
   // Ruling #1 — the team alert {{2}} carries the request/notes INLINE (one line;
   // Meta forbids newlines in a body variable) so responders never quote blind to a
