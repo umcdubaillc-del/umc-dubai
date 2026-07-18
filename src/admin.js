@@ -957,6 +957,19 @@ async function handleCreate(request, env) {
       } catch (e) {
         console.error("LEADS stamp failed", e && (e.message || String(e)));
       }
+      // B2b Slice 1 — mirror the document number onto the lead's active job.
+      // Independent try so a job-stamp failure never undoes the lead stamp. Targets
+      // only the non-cancelled job (there is at most one; guard enforces it) — an
+      // invoice issued while the only job is cancelled stamps nothing, and the later
+      // re-dispatch re-seeds from the lead (spec §3.3 self-healing property).
+      try {
+        await env.BILLING_DB.prepare(
+          `UPDATE jobs SET linked_doc_number = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE source_type = 'lead' AND source_id = ? AND COALESCE(status,'new') <> 'cancelled'`
+        ).bind(String(b.number), leadId).run();
+      } catch (e) {
+        console.error("JOB stamp failed", e && (e.message || String(e)));
+      }
     }
     // v86 — when the create was seeded from a standalone payment_links row,
     // attach it: copy the link's nomod_link_id/url/created_at onto the new
