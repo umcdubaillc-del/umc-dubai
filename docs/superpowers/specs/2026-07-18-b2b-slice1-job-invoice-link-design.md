@@ -80,6 +80,11 @@ re-dispatched.
   for that lead, return **409 with the existing job id** (defends against double-click / race). The UI
   opens the existing job instead of creating a duplicate.
 
+> **INVARIANT (§3.2, owner-named):** the guard is scoped **by source, not by endpoint** — only
+> `source_type='lead'` creations are guarded; invoice/quote-originated and manual jobs pass **untouched**,
+> even when the same client is involved. The **409 response MUST carry the existing job id** — that
+> contract is what makes the UI's open-instead-of-duplicate behavior honest. Neither half may be dropped.
+
 ### 3.3 Forward-link stamping — lead-anchored mirror
 
 Invoice↔lead is the truth; `jobs.linked_doc_number` is kept in sync:
@@ -91,11 +96,27 @@ Invoice↔lead is the truth; `jobs.linked_doc_number` is kept in sync:
   `lead.linked_doc_number` at insert (extend `jobPrefillFromLead` / the insert path).
 - **Job seeded from an invoice/quote** (`source_type='invoice'/'quote'`, `jobPrefillFromDoc`,
   `admin.js:11833`): seed `job.linked_doc_number` from the source doc number.
-- **Job-sheet Invoice button** (`#jsInvoice`, `admin.js:12233`): when the job has a source lead
-  (`source_type='lead'`), route the prefill **through the real lead** (load it by `source_id`) instead
-  of `jobToLeadShape`, so `billing_documents.lead_id` is set correctly and the standard lead-invoice
-  stamping fires (which now also stamps the job). Jobs with **no** lead keep the current standalone
-  behavior and get `job.linked_doc_number` stamped from the resulting invoice number.
+- **Job-sheet Invoice button** (`#jsInvoice`, `admin.js:12233`): **keep `jobToLeadShape` as the prefill
+  source** so the document content is unchanged. The *only* change is the `lead_id` carried on the POST.
+  Today `prefillFromLead` sets `state.lead_id = lead.id` from the passed object (`admin.js:13346`), and
+  `jobToLeadShape` passes `id:job.id` — so a job-originated invoice currently POSTs
+  `billing_documents.lead_id = job.id`, a **job id in the lead_id column** (latent bug: the WA-2 H stamp
+  at `admin.js:946-952` then updates the wrong lead). Fix: `jobToLeadShape` carries an explicit
+  `lead_id = (job.source_type==='lead' ? job.source_id : null)`, and `prefillFromLead` honors an explicit
+  `lead_id` when the passed object provides one (else falls back to `obj.id`, preserving real-lead
+  callers). Result: correct `billing_documents.lead_id`, standard stamping fires (now also stamping the
+  active job), and **nothing the client sees on paper changes**. Jobs with **no** source lead POST
+  `lead_id=null` — today's standalone behavior, byte-for-byte — and get `job.linked_doc_number` stamped
+  from the resulting invoice number.
+
+> **INVARIANT (§3.3, owner-named):** the reroute-avoidance is the whole point. A job-originated invoice
+> for a lead-linked job must produce the **identical document it produces today** — same prefilled
+> fields, same numbering — with **only** `billing_documents.lead_id` and the stamping now correct.
+> Because a job can be edited after creation (or the lead's `quote_price` set later), sourcing the
+> document fields from the lead would risk changing the paper; therefore the fields stay
+> `jobToLeadShape`-sourced and only `lead_id` is corrected. **The no-lead job path keeps today's
+> behavior byte-for-byte.** If any implementation step would change what the client sees on paper,
+> **stop and surface** rather than proceed.
 
 **Mirror quotes too, last-issued wins (owner-approved).** The mirror reflects whatever
 `linked_doc_number` holds — quote *or* invoice — labeled by prefix (`UMC-Q-` → "Quoted",
@@ -146,9 +167,12 @@ self-heals. This is the cardinality ruling ("one active job per lead") proving i
 
 ## 5. Open risks / notes for the plan
 
-- **`#jsInvoice` reroute** is the one behavioral change to an existing path — confirm loading the source
-  lead reproduces the same prefill fields users expect, and that jobs *without* a source lead still work
-  standalone. This is where a cold diff review matters most.
+- **`#jsInvoice` `lead_id` fix** is the one change to an existing path, and it must be **output-invisible**
+  (see §3.3 invariant). The cold diff review must confirm: (a) the document/PDF/email content is
+  unchanged for a lead-linked job; (b) `prefillFromLead` honoring an explicit `lead_id` does **not**
+  alter behavior for real-lead callers (which pass no `lead_id` and must still resolve `state.lead_id =
+  lead.id`); (c) no-lead jobs POST `lead_id=null` exactly as today. Verify the latent bug is gone:
+  `billing_documents.lead_id` is the *lead* id (or null), never a job id.
 - **Server-side 409 dedupe** must not break the existing "Create Job from invoice/quote" path
-  (`source_type` ≠ 'lead' is unaffected) or manual job creation.
+  (`source_type` ≠ 'lead' is unaffected) or manual job creation — guard is scoped by source, not endpoint.
 - **Migration numbering:** `0017` — re-check `migrations/` at build time in case another lands first.
