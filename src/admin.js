@@ -12285,6 +12285,12 @@ const PAGE_SCRIPT = `<script>
         + '<div class="js-actions">'
         +   '<button type="button" class="btn btn-small btn-ink" id="jsOpen">Open / edit</button>'
         +   '<button type="button" class="btn btn-small btn-ghost" id="jsQuote">Create quote</button>'
+        +   (cur.linked_doc_number
+            ? '<span class="pill" style="margin-right:.4rem">'
+                + (String(cur.linked_doc_number).indexOf("UMC-INV-") === 0 ? "Invoiced" : "Quoted")
+                + ' &middot; ' + esc(cur.linked_doc_number) + '</span>'
+              + '<button type="button" class="btn btn-small btn-ghost" id="jsOpenDoc">Open ' + esc(cur.linked_doc_number) + '</button>'
+            : '')
         +   '<button type="button" class="btn btn-small btn-ghost" id="jsInvoice">Create invoice</button>'
         + '</div>'
         + '<div class="js-actions">'
@@ -12322,6 +12328,8 @@ const PAGE_SCRIPT = `<script>
       shell.querySelector("#jsOpen").addEventListener("click", function(){ close(); openJobEdit(cur); });
       shell.querySelector("#jsQuote").addEventListener("click", function(){ close(); if(typeof prefillFromLead === "function") prefillFromLead(jobToLeadShape(cur), "quote"); });
       shell.querySelector("#jsInvoice").addEventListener("click", function(){ close(); if(typeof prefillFromLead === "function") prefillFromLead(jobToLeadShape(cur), "invoice"); });
+      var jod = shell.querySelector("#jsOpenDoc");
+      if(jod) jod.addEventListener("click", function(){ close(); openDocByNumber(cur.linked_doc_number || "", setStat); });
       var cp = shell.querySelector("#jsComplete");
       if(cp) cp.addEventListener("click", async function(){ if(!confirm("Mark this job completed?")) return; var ok = await patchJob({ status:"completed" }); if(ok) render(); });
       var cc = shell.querySelector("#jsCancel");
@@ -15452,23 +15460,7 @@ const PAGE_SCRIPT = `<script>
       if(oBtn){
         e.preventDefault();
         e.stopPropagation();
-        const num = oBtn.getAttribute("data-leadopen") || "";
-        if(!num) return;
-        (async function(){
-          setStatus("Opening " + num + " …");
-          try {
-            const lr = await fetch("/admin/api/billing");
-            const lj = await lr.json();
-            const row = lj && lj.ok && Array.isArray(lj.items)
-              ? lj.items.find(function(rr){ return String(rr.number) === String(num); })
-              : null;
-            if (!row) { setStatus("Document " + num + " not found."); return; }
-            switchTab("documents");
-            if (typeof loadDoc === "function") loadDoc(row.id);
-          } catch (err) {
-            setStatus("Open failed: " + (err && (err.message || err)));
-          }
-        })();
+        openDocByNumber(oBtn.getAttribute("data-leadopen") || "", setStatus);
         return;
       }
       // v99: row click toggles the drawer; skip when the click landed on a
@@ -15801,6 +15793,25 @@ const PAGE_SCRIPT = `<script>
       if(j.ok){ setStatus("Deleted " + (num || id) + "."); loadHistory(); }
       else { setStatus("Delete failed: " + (j.error || r.status)); }
     } catch(e){ setStatus("Delete failed: " + (e.message || e)); }
+  }
+  // B2b Slice 1 — open a billing document by its NUMBER (resolve → id → loadDoc).
+  // Shared by the Leads "Open <doc>" button and the job-sheet invoice readout.
+  async function openDocByNumber(num, setMsg){
+    var say = (typeof setMsg === "function") ? setMsg : function(){};
+    if(!num) return;
+    say("Opening " + num + " ...");
+    try {
+      var lr = await fetch("/admin/api/billing");
+      var lj = await lr.json();
+      var row = lj && lj.ok && Array.isArray(lj.items)
+        ? lj.items.find(function(rr){ return String(rr.number) === String(num); })
+        : null;
+      if(!row){ say("Document " + num + " not found."); return; }
+      switchTab("documents");
+      if(typeof loadDoc === "function") loadDoc(row.id);
+    } catch (err) {
+      say("Open failed: " + (err && (err.message || err)));
+    }
   }
   async function loadDoc(id){
     setStatus("Loading " + id + " …");
