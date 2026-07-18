@@ -1864,14 +1864,25 @@ async function handleCreateJob(request, env) {
       return json({ ok: false, error: "active_job_exists", existing_job_id: existing.id }, 409);
     }
   }
+  // B2b Slice 1 — seed the mirror at creation so a job made AFTER its lead was
+  // documented already knows the document. Lead → its linked_doc_number; job made
+  // directly from a quote/invoice → that document's number; otherwise null.
+  let linkedDoc = null;
+  if (f.source_type === "lead" && f.source_id != null) {
+    const lr = await env.BILLING_DB.prepare(`SELECT linked_doc_number FROM leads WHERE id = ?`).bind(f.source_id).first();
+    linkedDoc = lr && lr.linked_doc_number ? String(lr.linked_doc_number) : null;
+  } else if ((f.source_type === "invoice" || f.source_type === "quote") && f.source_id != null) {
+    const dr = await env.BILLING_DB.prepare(`SELECT number FROM billing_documents WHERE id = ?`).bind(f.source_id).first();
+    linkedDoc = dr && dr.number ? String(dr.number) : null;
+  }
   const res = await env.BILLING_DB.prepare(
     `INSERT INTO jobs (status, source_type, source_id, client_name, client_phone, client_email,
        service, vehicle_text, pickup, destination, date, time, days, flight, sign,
-       driver_notes, requirements, client_informed, cancelled_reason, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`
+       driver_notes, requirements, client_informed, cancelled_reason, linked_doc_number, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`
   ).bind("new", f.source_type, f.source_id, f.client_name, f.client_phone, f.client_email,
     f.service, f.vehicle_text, f.pickup, f.destination, f.date, f.time, f.days, f.flight, f.sign,
-    f.driver_notes, f.requirements, f.client_informed, f.cancelled_reason).run();
+    f.driver_notes, f.requirements, f.client_informed, f.cancelled_reason, linkedDoc).run();
   const jobId = res.meta.last_row_id;
   const asg = await setJobAssignments(env, jobId, b.driver_ids, b.vehicle_ids);
   const job = await finalizeJob(env, jobId);
