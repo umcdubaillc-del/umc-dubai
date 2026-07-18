@@ -1839,6 +1839,17 @@ async function handleListJobs(env) {
   });
   return json({ ok: true, items });
 }
+// B2b Slice 1 — the single active (non-cancelled) job for a lead, or null.
+// "one active job per lead": a cancelled job frees the lead to be re-dispatched.
+// MAX(id) via ORDER BY id DESC guards against legacy pre-guard duplicates.
+async function activeJobForLead(env, leadId) {
+  if (leadId == null) return null;
+  return await env.BILLING_DB.prepare(
+    `SELECT * FROM jobs
+       WHERE source_type = 'lead' AND source_id = ? AND COALESCE(status,'new') <> 'cancelled'
+       ORDER BY id DESC LIMIT 1`
+  ).bind(leadId).first();
+}
 async function handleCreateJob(request, env) {
   await ensureSchema(env);
   let b; try { b = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
