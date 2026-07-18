@@ -393,6 +393,14 @@ async function ensureSchema(env) {
     await env.BILLING_DB.prepare(
       `INSERT OR IGNORE INTO wa_team (name, phone, active, created_at) VALUES (?,?,1,?)`
     ).bind("Alerts 2", "971555154430", "2026-07-14T00:00:00.000Z").run();
+    // ROSTER-2 — per-number capability flags. Independent gates; each send stream
+    // reads exactly one. Default 1 on existing rows ⇒ behavior unchanged until edited.
+    // `active` remains the master gate (active=0 ⇒ receives nothing anywhere).
+    await addMissingColumns(env, "wa_team", [
+      "cap_lead_alerts INTEGER NOT NULL DEFAULT 1",
+      "cap_approve INTEGER NOT NULL DEFAULT 1",
+      "cap_watchdog INTEGER NOT NULL DEFAULT 1",
+    ]);
     await env.BILLING_DB.prepare(
       `CREATE TABLE IF NOT EXISTS wa_outbound (
          id INTEGER PRIMARY KEY AUTOINCREMENT,
