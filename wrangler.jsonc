@@ -78,7 +78,7 @@
     // are APPROVED by Meta. Then the desktop quote send uses the unified, VAT-toggle-
     // honoring template pair (retiring booking_quote). Stays "0" (keeps sending the
     // already-approved booking_quote) until approval, so the code deploys inert.
-    "WA_QUOTE_V2_ENABLED": "0",
+    "WA_QUOTE_V2_ENABLED": "1",
     // WA-4 §ADD6: the 08:30 Ops Digest logs its weekly line every day; it only SENDS to
     // the team when this is "1". Stays "0" until the owner confirms cadence + channel.
     "OPS_DIGEST_ENABLED": "0"
