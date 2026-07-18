@@ -4640,14 +4640,6 @@ export function waQuoteUrl(lead) {
   return "https://wa.me/" + num + "?text=" + encodeURIComponent(text);
 }
 
-export async function getActiveWaTeam(env) {
-  await ensureSchema(env);
-  const { results } = await env.BILLING_DB.prepare(
-    `SELECT id, name, phone FROM wa_team WHERE active = 1 ORDER BY id`
-  ).all();
-  return results || [];
-}
-
 // ROSTER-2 — recipients for ONE stream: active AND the stream's own cap.
 // `capColumn` is always one of the three internal literals below — never user input.
 export async function getWaTeamByCap(env, capColumn) {
@@ -5313,21 +5305,30 @@ export function mergeAuthorizedNumbers(capApproveNums, overrideRaw, deactivatedN
   if (raw) for (const p of raw.split(/[,\s]+/)) { const x = waMeNumber(p); if (x && !dead.has(x)) set.add(x); }
   return set;
 }
-// Authorized decision numbers. Default: every active wa_team member. Phase 6 can
-// narrow this with app_settings key 'assistant_decision_numbers' (comma/space list).
+// Authorized decision numbers = (wa_team active=1 AND cap_approve=1) UNION the
+// free-text app_settings override 'assistant_decision_numbers', minus any number
+// that is a deactivated (active=0) wa_team row. Empty override ⇒ exactly the
+// cap_approve roster.
 async function getAuthorizedDecisionNumbers(env) {
-  const set = new Set();
+  // Primary source: wa_team with active=1 AND cap_approve=1.
+  const approvers = (await getWaTeamByCap(env, "cap_approve")).map((m) => m.phone);
+  // Deactivated wa_team numbers must be excluded even if they appear in the override.
+  let deactivated = [];
+  try {
+    const { results } = await env.BILLING_DB.prepare(
+      `SELECT phone FROM wa_team WHERE active = 0`
+    ).all();
+    deactivated = (results || []).map((r) => r.phone);
+  } catch (e) { /* table absent → no exclusions */ }
+  // Free-text override ADDS exceptional (non-roster) numbers (union, never replace).
+  let overrideRaw = "";
   try {
     const r = await env.BILLING_DB.prepare(
       `SELECT value FROM app_settings WHERE key='assistant_decision_numbers'`
     ).first();
-    const raw = r && r.value ? String(r.value).trim() : "";
-    if (raw) for (const p of raw.split(/[,\s]+/)) { const n = waMeNumber(p); if (n) set.add(n); }
-  } catch (e) { /* setting absent → fall through to the active team */ }
-  if (set.size === 0) {
-    for (const m of await getActiveWaTeam(env)) { const n = waMeNumber(m.phone); if (n) set.add(n); }
-  }
-  return set;
+    overrideRaw = r && r.value ? String(r.value) : "";
+  } catch (e) { /* setting absent */ }
+  return mergeAuthorizedNumbers(approvers, overrideRaw, deactivated);
 }
 
 // Is the client's 24h WhatsApp window open? True when we have an inbound message from
