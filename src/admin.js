@@ -5279,6 +5279,22 @@ function flightProposalPrompt(flight, etaWithTz, name, maskedTarget) {
     "The client is on " + maskedTarget + " — send the update?";
 }
 
+// ROSTER-2 pure helpers (unit-tested in tests/test-roster2.mjs).
+// Which cap a lead-alert send reads: watchdog for escalations, else lead_alerts.
+export function capForLeadAlerts(opts) {
+  return opts && opts.escalation ? "cap_watchdog" : "cap_lead_alerts";
+}
+// Authorized-approver set = (cap_approve roster) ∪ (override numbers), minus any
+// number that is a deactivated wa_team row. `overrideRaw` is the raw
+// app_settings string; numbers are normalized with waMeNumber.
+export function mergeAuthorizedNumbers(capApproveNums, overrideRaw, deactivatedNums) {
+  const dead = new Set((deactivatedNums || []).map((n) => waMeNumber(n)).filter(Boolean));
+  const set = new Set();
+  for (const n of capApproveNums || []) { const x = waMeNumber(n); if (x && !dead.has(x)) set.add(x); }
+  const raw = overrideRaw ? String(overrideRaw).trim() : "";
+  if (raw) for (const p of raw.split(/[,\s]+/)) { const x = waMeNumber(p); if (x && !dead.has(x)) set.add(x); }
+  return set;
+}
 // Authorized decision numbers. Default: every active wa_team member. Phase 6 can
 // narrow this with app_settings key 'assistant_decision_numbers' (comma/space list).
 async function getAuthorizedDecisionNumbers(env) {
