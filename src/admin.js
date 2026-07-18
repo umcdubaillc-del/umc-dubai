@@ -633,6 +633,10 @@ async function ensureSchema(env) {
       "driver_assigned_at TEXT",
       "driver_informed_at TEXT", "driver_informed_src TEXT",
       "client_informed_at TEXT", "client_informed_src TEXT",
+      // B2b Slice 1 — stamped mirror of the lead/invoice document number (quote OR
+      // invoice, prefix tells which). Money stays on the lead/invoice; this is a
+      // read-side convenience so a job knows its document. Kept in sync server-side.
+      "linked_doc_number TEXT",
     ]);
     await env.BILLING_DB.prepare(
       `CREATE TABLE IF NOT EXISTS job_drivers (
