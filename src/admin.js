@@ -4844,7 +4844,7 @@ async function notifyDriverAssignment(env, job, addedDriverIds) {
       const link = await createWaLink(env, { leadId: job.source_type === "lead" ? job.source_id : null, purpose: "driver", toPhone: job.client_phone, prefill: clientPrefill });
       await teamFreeform(env,
         "Chauffeur confirmed for " + clientName + " (" + dayStr + "): " + driverFirst + " · " + vehicle + ". Message the client: " + link,
-        "driverclient:" + jobId + ":" + did);
+        { cap: "cap_approve", dedupeKey: "driverclient:" + jobId + ":" + did });
     }
   }
 }
@@ -5203,15 +5203,21 @@ async function aeroDataBoxPoll(env, flightNo, dateStr) {
   } catch (e) { return { ok: false, error: "exception" }; }
 }
 // Fire a best-effort team alert (freeform to active team; inert unless WA send on).
-async function teamFreeform(env, message, dedupeKey, kind, leadId) {
+// opts = { cap: "cap_approve"|"cap_watchdog" (REQUIRED), dedupeKey, kind, leadId }
+async function teamFreeform(env, message, opts) {
+  const o = opts || {};
+  if (o.cap !== "cap_approve" && o.cap !== "cap_watchdog") {
+    throw new Error("teamFreeform: missing/invalid cap for message: " + String(message).slice(0, 40));
+  }
   const rowId = await claimOutbound(env, {
-    lead_id: leadId == null ? null : leadId, kind: kind || "flight_team", recipient: null, template: "freeform",
-    dedupe_key: dedupeKey || null, meta_json: JSON.stringify({ message })
+    lead_id: o.leadId == null ? null : o.leadId, kind: o.kind || "flight_team",
+    recipient: null, template: "freeform",
+    dedupe_key: o.dedupeKey || null, meta_json: JSON.stringify({ message })
   });
   if (!rowId) return false;
   let anyOk = false;
   if (env.WA_SEND_ENABLED === "1") {
-    const team = await getActiveWaTeam(env);
+    const team = await getWaTeamByCap(env, o.cap);
     for (const m of team) {
       const to = waMeNumber(m.phone); if (to.length < 8) continue;
       const r = await waGraphSend(env, { messaging_product: "whatsapp", to, type: "text", text: { preview_url: false, body: message } });
@@ -5839,7 +5845,7 @@ export async function handleWaProposalDecision(env, ctx, decision) {
     ).bind(now, fromE164, proposalId).run();
     if (up.meta && up.meta.changes) {
       await teamFreeform(env, "⏳ Proposal #" + proposalId + " expired (older than 24h) — nothing sent to " + client + ".",
-        "propdecide:" + proposalId + ":expired", "proposal_decision", prop.lead_id);
+        { cap: "cap_approve", dedupeKey: "propdecide:" + proposalId + ":expired", kind: "proposal_decision", leadId: prop.lead_id });
     }
     return { status: "expired" };
   }
@@ -5918,7 +5924,7 @@ export async function handleWaProposalDecision(env, ctx, decision) {
     ).bind(now, fromE164, proposalId).run();
     if (!(up.meta && up.meta.changes)) return { status: "noop" }; // lost the race
     await teamFreeform(env, "⏭️ Skipped — nothing sent to " + client + ". (" + prop.kind + " proposal #" + proposalId + ")",
-      "propdecide:" + proposalId + ":skipped", "proposal_decision", prop.lead_id);
+      { cap: "cap_approve", dedupeKey: "propdecide:" + proposalId + ":skipped", kind: "proposal_decision", leadId: prop.lead_id });
     return { status: "skipped" };
   }
 
@@ -5959,7 +5965,7 @@ export async function handleWaProposalDecision(env, ctx, decision) {
   if (send.ok) {
     await env.BILLING_DB.prepare(`UPDATE wa_proposals SET wamid_out=? WHERE id=?`).bind(send.wamid || null, proposalId).run();
     await teamFreeform(env, "✅ Sent to " + client + ". (" + prop.kind + " proposal #" + proposalId + ")",
-      "propdecide:" + proposalId + ":sent", "proposal_decision", prop.lead_id);
+      { cap: "cap_approve", dedupeKey: "propdecide:" + proposalId + ":sent", kind: "proposal_decision", leadId: prop.lead_id });
     return { status: "sent", wamid: send.wamid };
   }
   // Send failed → REOPEN the proposal (first-decision-wins applies only to successful
@@ -5969,7 +5975,7 @@ export async function handleWaProposalDecision(env, ctx, decision) {
   ).bind(proposalId).run();
   await teamFreeform(env, "⚠️ Approved but the send did not go out (" + (send.reason || "error") + ") — proposal #" +
     proposalId + " re-opened; send manually from the workspace if needed.",
-    "propdecide:" + proposalId + ":failed", "proposal_decision", prop.lead_id);
+    { cap: "cap_watchdog", dedupeKey: "propdecide:" + proposalId + ":failed", kind: "proposal_decision", leadId: prop.lead_id });
   return { status: "send_failed", reason: send.reason };
 }
 
@@ -6738,7 +6744,7 @@ export async function runFlightWatch(env) {
   const budget = flightBudget(env);
   let units = await getFlightUnits(env);
   if (units >= Math.floor(budget * 0.8)) {
-    await teamFreeform(env, "UMC flight watch: nearing the monthly quota (" + units + "/" + budget + " units). Polling will pause at the cap.", "flight_quota80:" + waMonthKey());
+    await teamFreeform(env, "UMC flight watch: nearing the monthly quota (" + units + "/" + budget + " units). Polling will pause at the cap.", { cap: "cap_watchdog", dedupeKey: "flight_quota80:" + waMonthKey() });
   }
 
   // Poll due flights (oldest next_poll_at first), within budget.
@@ -6752,7 +6758,7 @@ export async function runFlightWatch(env) {
     const lst = await env.BILLING_DB.prepare(`SELECT status FROM leads WHERE id=?`).bind(fw.lead_id).first();
     if (lst && String(lst.status) === "cancelled") continue;
     if (units + 2 > budget) { // exhausted — pause, log once
-      await teamFreeform(env, "UMC flight watch: monthly unit budget reached (" + budget + "). Polling paused until next month or a higher budget.", "flight_quota100:" + waMonthKey());
+      await teamFreeform(env, "UMC flight watch: monthly unit budget reached (" + budget + "). Polling paused until next month or a higher budget.", { cap: "cap_watchdog", dedupeKey: "flight_quota100:" + waMonthKey() });
       break;
     }
     const r = await aeroDataBoxPoll(env, fw.flight_no, fw.arrival_date);
@@ -6782,7 +6788,7 @@ export async function runFlightWatch(env) {
       const link = clientTo ? await createWaLink(env, { leadId: fw.lead_id, purpose: "flight", toPhone: lead.phone,
         prefill: "Dear " + firstName + ", " + clientHint + "\n\nWarm regards,\nUMC Dubai" }) : "";
       await teamFreeform(env, "Flight " + flightNo + " (" + clientName + "): " + teamMsg + (link ? (" — message the client: " + link) : ""),
-        "flightteam:" + fw.lead_id + ":" + tag, "flight_team", fw.lead_id);
+        { cap: "cap_approve", dedupeKey: "flightteam:" + fw.lead_id + ":" + tag, kind: "flight_team", leadId: fw.lead_id });
     };
     // Client delay send (flight_delay_update) with mirror + failure fallback + P1 gate.
     const sendDelayToClient = async (delayMin, etaShow) => {
@@ -6826,7 +6832,7 @@ export async function runFlightWatch(env) {
       if (raised.duplicate) return false;
       await teamFreeform(env, "✈️ Flight proposal raised: " + flightNo + " delayed ~" + delayMin + " min, ETA " + eta3 +
         " (" + clientName + ") — awaiting a tap to update the client.",
-        "flightprop:" + fw.lead_id + ":" + delayMin, "flight_proposal", fw.lead_id);
+        { cap: "cap_approve", dedupeKey: "flightprop:" + fw.lead_id + ":" + delayMin, kind: "flight_proposal", leadId: fw.lead_id });
       return true;
     };
 
