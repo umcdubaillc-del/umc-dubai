@@ -5705,12 +5705,11 @@ async function deliverProposalToTeam(env, proposalId, promptText, opts) {
   // empty (no cap_approve number and empty override), alert the always-on watchdog
   // channel instead of leaving the proposal silently un-approvable.
   const approvers = await getAuthorizedDecisionNumbers(env);
-  if (approvers.size === 0) {
+  if (team.length === 0 || approvers.size === 0) {
     await teamFreeform(
       env,
-      "⚠️ Proposal #" + proposalId + " was raised but NO authorized approver is configured " +
-        "(no wa_team number has Approve enabled and the override list is empty). " +
-        "Enable Approve on a team number in the admin roster.",
+      "⚠️ Proposal #" + proposalId + " was raised but it cannot be delivered to any approver " +
+        "(no active wa_team number has Approve enabled). Enable Approve on a team number in the admin roster.",
       { cap: "cap_watchdog", dedupeKey: "noapprover:" + proposalId, leadId: opts.leadId }
     );
     return { accepted: 0, results: [], undeliverable: true, reason: "no_approver" };
@@ -7449,6 +7448,41 @@ async function handleListWaTeam(env) {
   ).all();
   return json({ ok: true, items: results || [] });
 }
+// TEMPLATE-STATUS-VIEW — webhook-truth template approval status. Meta's Graph API
+// pull for template status 403s (token lacks permission), but Meta PUSHES verdicts
+// to us as `message_template_status_update` webhook events stored in wa_events.
+// Each stored payload_json is one `changes[]` entry: { field, value } where value
+// carries { message_template_name, event, reason, message_template_language }. We
+// read that truth instead of polling. Rows are read ASC so the LATEST verdict per
+// template name overwrites earlier ones in the map.
+async function handleWaTemplateStatus(env) {
+  await ensureSchema(env);
+  const { results } = await env.BILLING_DB.prepare(
+    `SELECT payload_json, received_at FROM wa_events
+       WHERE event_type='message_template_status_update' ORDER BY received_at ASC`
+  ).all();
+  const byName = new Map();
+  for (const row of (results || [])) {
+    let parsed;
+    try { parsed = JSON.parse(row.payload_json); } catch { continue; }
+    if (!parsed || typeof parsed !== "object") continue;
+    // Stored shape is the changes[] entry ({ field, value }); drill into .value.
+    // Handle a value-at-top variant defensively too.
+    const v = (parsed.value && typeof parsed.value === "object") ? parsed.value : parsed;
+    const templateName = v.message_template_name || "";
+    if (!templateName) continue;
+    byName.set(templateName, {
+      template_name: templateName,
+      status: v.event || "",
+      reason: v.reason || "",
+      language: v.message_template_language || "",
+      at: row.received_at || ""
+    });
+  }
+  const templates = Array.from(byName.values())
+    .sort((a, b) => a.template_name.localeCompare(b.template_name));
+  return json({ ok: true, templates });
+}
 async function handleCreateWaTeam(request, env) {
   await ensureSchema(env);
   let body = {}; try { body = await request.json(); } catch {}
@@ -7750,6 +7784,13 @@ export async function handleAdmin(request, env) {
     if (method === "GET") return handleListWaTeam(env);
     if (method === "POST") return handleCreateWaTeam(request, env);
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, POST" } });
+  }
+  // TEMPLATE-STATUS-VIEW — webhook-derived template approval status (read-truth).
+  if (path === "/admin/api/wa-template-status" && method === "GET") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    return handleWaTemplateStatus(env);
   }
   {
     const tm = path.match(/^\/admin\/api\/wa-team\/(\d+)$/);
