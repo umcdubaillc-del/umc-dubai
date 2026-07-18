@@ -170,6 +170,7 @@ export default {
         url.pathname.startsWith("/admin/api/payment-links/") ||
         url.pathname === "/admin/api/wa-team" ||
         url.pathname.startsWith("/admin/api/wa-team/") ||
+        url.pathname === "/admin/api/wa-template-status" ||
         url.pathname.startsWith("/admin/api/drivers") ||
         url.pathname.startsWith("/admin/api/vehicles") ||
         url.pathname.startsWith("/admin/api/jobs") ||
