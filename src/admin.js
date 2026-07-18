@@ -7591,9 +7591,13 @@ export async function handleAdmin(request, env) {
       const { renderInvoicePdf } = await import("./pdf.js");
       const bytes = await renderInvoicePdf(row);
       const fname = String(row.number || ('UMC-' + id)).replace(/[^A-Za-z0-9_-]/g, '') || ('UMC-' + id);
+      // attachment (not inline): forces the browser to save using this filename
+      // in every browser. With inline, Safari/Chrome's PDF viewer names a manual
+      // save from the URL's last path segment ("pdf") and ignores the disposition
+      // name — so an invoice saved as a generic "pdf" instead of UMC-INV-1009.pdf.
       return new Response(bytes, { status:200, headers:{
         "Content-Type":"application/pdf",
-        "Content-Disposition": `inline; filename="${fname}.pdf"`,
+        "Content-Disposition": `attachment; filename="${fname}.pdf"`,
         "Cache-Control":"no-store"
       }});
     }
@@ -10930,14 +10934,31 @@ const PAGE_SCRIPT = `<script>
       try { if(typeof switchTab === "function") switchTab("documents"); } catch(_){}
     } catch(e){ setStatus("Save failed: " + (e.message || e)); }
   }
-  // Stage 8: the editor's Print button is now Download PDF and opens the
-  // server-rendered institutional PDF in a new tab. The signed-in cookie
-  // rides automatically. Guard the unsaved case so a fresh editor without a
-  // saved id doesn't try to fetch /admin/api/billing/undefined/pdf.
+  // Trigger a download of the server-rendered institutional PDF for doc :id.
+  // The endpoint serves it as an attachment named after the document number
+  // (UMC-INV-1009.pdf / UMC-Q-1009.pdf), so a synthetic anchor click saves the
+  // file with the correct name in every browser and leaves no blank tab behind.
+  // The signed-in session cookie rides automatically (same origin).
+  function downloadDocPdf(id){
+    const a = document.createElement("a");
+    a.href = "/admin/api/billing/" + id + "/pdf";
+    a.download = "";            // defer the name to the server's Content-Disposition
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+  // Stage 8: the editor's Print button is now Download PDF. It downloads the
+  // server-rendered institutional PDF (named after the doc number). Guard the
+  // unsaved case so a fresh editor without a saved id doesn't try to fetch
+  // /admin/api/billing/undefined/pdf.
   function onPrint(){
     const _id = state.id;
     if (!_id) { alert("Save this document first, then download its PDF."); return; }
-    window.open("/admin/api/billing/" + _id + "/pdf", "_blank", "noopener");
+    // Anchor download (not window.open): the endpoint serves the PDF as an
+    // attachment named after the document number (UMC-INV-1009.pdf), so this
+    // saves the file directly with no lingering blank tab. The session cookie
+    // rides automatically (same origin).
+    downloadDocPdf(_id);
   }
   function onNew(){
     // v99: New starts a genuinely fresh document; clear the id so the next
@@ -15481,7 +15502,7 @@ const PAGE_SCRIPT = `<script>
       if(printB){
         e.preventDefault();
         const id = printB.getAttribute("data-pdf");
-        window.open("/admin/api/billing/" + id + "/pdf", "_blank", "noopener");
+        downloadDocPdf(id);
         return;
       }
       if(delB){
