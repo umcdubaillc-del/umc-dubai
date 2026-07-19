@@ -5858,6 +5858,36 @@ export async function raiseProposal(env, opts) {
   return { id, accepted: del.accepted, results: del.results, duplicate: false };
 }
 
+// B2b Slice 2 — human-readable "current → new" so any crew wipe is explicit on the card.
+async function buildAssignDelta(env, jobId, driverIds, vehicleIds) {
+  const job = await env.BILLING_DB.prepare(`SELECT id, client_name FROM jobs WHERE id = ?`).bind(jobId).first();
+  const nameList = async (table, col, ids) => {
+    if (!ids || !ids.length) return "—";
+    const rows = [];
+    for (const id of ids) { const r = await env.BILLING_DB.prepare(`SELECT ${col} AS n FROM ${table} WHERE id = ?`).bind(id).first(); if (r && r.n) rows.push(r.n); }
+    return rows.length ? rows.join(", ") : "—";
+  };
+  const curDrv = (await env.BILLING_DB.prepare(`SELECT d.name AS n FROM job_drivers jd JOIN drivers d ON d.id=jd.driver_id WHERE jd.job_id=?`).bind(jobId).all()).results || [];
+  const curVeh = (await env.BILLING_DB.prepare(`SELECT v.name AS n FROM job_vehicles jv JOIN vehicles v ON v.id=jv.vehicle_id WHERE jv.job_id=?`).bind(jobId).all()).results || [];
+  const client = (job && job.client_name) ? job.client_name : "job";
+  const curD = curDrv.length ? curDrv.map(r => r.n).join(", ") : "—";
+  const curV = curVeh.length ? curVeh.map(r => r.n).join(", ") : "—";
+  const newD = await nameList("drivers", "name", driverIds);
+  const newV = await nameList("vehicles", "name", vehicleIds);
+  return client + "'s job (#" + jobId + ") · Driver: " + curD + " → " + newD + " · Vehicle: " + curV + " → " + newV;
+}
+// Raise the assign confirm card. Reuses the proposal engine; buttons resolve to APPROVE/SKIP.
+async function raiseAssignProposal(env, fromE164, jobId, driverIds, vehicleIds) {
+  const delta = await buildAssignDelta(env, jobId, driverIds, vehicleIds);
+  return raiseProposal(env, {
+    kind: "assign", jobId, targetE164: fromE164,
+    composedMessage: "Assign — " + delta,
+    promptText: "Assign — " + delta,
+    metaJson: JSON.stringify({ driver_ids: driverIds, vehicle_ids: vehicleIds }),
+    dedupeKey: "assign:" + jobId + ":" + driverIds.join(",") + ":" + vehicleIds.join(",")
+  });
+}
+
 // Send the approved CLIENT message for a proposal. FOOTER RULING (owner): client-facing
 // confirmations ALWAYS go as TEMPLATES (the brand footer "UMC Dubai · umcdubai.ae" is
 // mandatory and only templates carry it), regardless of the 24h window. So a payment
