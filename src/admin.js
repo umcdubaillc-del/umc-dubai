@@ -462,6 +462,17 @@ async function ensureSchema(env) {
     await env.BILLING_DB.prepare(
       `CREATE INDEX IF NOT EXISTS idx_wa_proposals_lead ON wa_proposals (lead_id)`
     ).run();
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS assist_pending (
+         from_e164 TEXT PRIMARY KEY,
+         kind TEXT NOT NULL,
+         payload_json TEXT NOT NULL,
+         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+       )`
+    ).run();
+    await addMissingColumns(env, "assist_pending", [
+      "kind TEXT", "payload_json TEXT", "created_at TEXT",
+    ]);
     // WA-2 H cost guard — small key/value settings store (owner-adjustable monthly
     // template-send threshold lives here; default applied in code when unset).
     await env.BILLING_DB.prepare(
