@@ -3,13 +3,15 @@
 
 function trackLead(formId, service){
   // CONV-WIRE: GA4 generate_lead (replaces the dead lead_submit dataLayer push) + the
-  // Google Ads booking-lead conversion. gtag() is the shim defined in the shared <head>;
-  // GTM's Google-tag destinations (GA4 + Ads) consume these pushes.
-  // send_to is the real "Booking Lead" conversion action (AW-11461642180/YkoJCJL2vK8ZEMSPq9kq,
-  // count: One) from the Ads UI. Keep it in lockstep with ADS_CONVERSION_LABEL in build_pages.py.
+  // Google Ads booking-lead conversion. gtag() is the shim defined in the shared <head>.
+  // Each event carries an explicit send_to so it reaches its destination regardless of GTM
+  // trigger wiring: G-93RE8HBKRQ (GA4 property) for generate_lead, AW-11461642180/<label>
+  // (the "Booking Lead" conversion, count: One) for the Ads conversion. Verified via /g/collect
+  // + /ccm/conversion network beacons on a live submit. Keep the Ads label in lockstep with
+  // ADS_CONVERSION_LABEL in build_pages.py.
   try{
     if(typeof gtag==='function'){
-      gtag('event','generate_lead',{ form_id: formId, service: service || '' });
+      gtag('event','generate_lead',{ send_to: 'G-93RE8HBKRQ', form_id: formId, service: service || '' });
       gtag('event','conversion',{ send_to: 'AW-11461642180/YkoJCJL2vK8ZEMSPq9kq' });
     }
   }catch(e){}
