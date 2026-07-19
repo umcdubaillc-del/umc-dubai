@@ -1874,6 +1874,30 @@ async function activeJobForLead(env, leadId) {
        ORDER BY id DESC LIMIT 1`
   ).bind(leadId).first();
 }
+// B2b Slice 2b.1 — create the operational job from a lead, UNASSIGNED by design. Additive:
+// mirrors handleCreateJob's INSERT + linked_doc_number seed. KEEP THE COLUMN LIST IN SYNC with
+// handleCreateJob's INSERT (grep 'INSERT INTO jobs (status, source_type'). Returns a plain result;
+// the caller (Task 2) wraps this fail-open — the booking must never depend on it.
+async function createJobFromLeadId(env, leadId) {
+  const lead = await env.BILLING_DB.prepare(`SELECT * FROM leads WHERE id = ?`).bind(leadId).first();
+  if (!lead) return { ok: false, reason: "no_lead" };
+  const existing = await activeJobForLead(env, leadId);
+  if (existing) return { ok: true, deduped: true, jobId: existing.id };
+  const lr = await env.BILLING_DB.prepare(`SELECT linked_doc_number FROM leads WHERE id = ?`).bind(leadId).first();
+  const linkedDoc = lr && lr.linked_doc_number ? String(lr.linked_doc_number) : null;
+  const s = (v) => (v == null ? "" : String(v));
+  const res = await env.BILLING_DB.prepare(
+    `INSERT INTO jobs (status, source_type, source_id, client_name, client_phone, client_email,
+       service, vehicle_text, pickup, destination, date, time, days, flight, sign,
+       driver_notes, requirements, client_informed, cancelled_reason, linked_doc_number, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`
+  ).bind("new", "lead", leadId, s(lead.name), s(lead.phone), s(lead.email),
+    s(lead.service), s(lead.vehicle), s(lead.pickup), s(lead.destination), s(lead.date), s(lead.time),
+    s(lead.days), s(lead.flight), s(lead.sign), s(lead.notes), "[]", 0, null, linkedDoc).run();
+  const jobId = res.meta.last_row_id;
+  await finalizeJob(env, jobId);
+  return { ok: true, deduped: false, jobId };
+}
 async function handleCreateJob(request, env) {
   await ensureSchema(env);
   let b; try { b = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
@@ -5534,9 +5558,24 @@ async function handleVatSet(env, fromE164, vs) {
 // Booking-saved confirmation (create or dedupe-update). No amount → ask for it; amount
 // with a stated VAT → confirm it; amount with unstated VAT → ask [+VAT]/[Including].
 async function afterBookingSaved(env, fromE164, leadId, f, first, verb) {
+  // B2b Slice 2b.1 — on a NEW booking, auto-create the operational (unassigned) job. FAIL-OPEN
+  // (owner invariant): the job is the booking's shadow; the shadow must never kill the body. Any
+  // failure → the booking still stands, the confirmation degrades, the error goes to the watchdog.
+  // Guarded to "created" so an "updated" booking never spawns a second job (dedupe would skip anyway).
+  let createdSuffix = " — in the system.";
+  if (verb === "created") {
+    createdSuffix = " — job on the calendar.";
+    try {
+      const jr = await createJobFromLeadId(env, leadId);
+      if (!jr || !jr.ok) throw new Error("createJobFromLeadId: " + ((jr && jr.reason) || "unknown"));
+    } catch (e) {
+      createdSuffix = " ⚠️ job not created — create from admin.";
+      try { await teamFreeform(env, "⚠️ Auto-job failed for booking #" + leadId + ": " + (e && (e.message || String(e))), { cap: "cap_watchdog", dedupeKey: "autojobfail:" + leadId, kind: "autojob_fail", leadId }); } catch (e2) {}
+    }
+  }
   const base = verb === "updated"
     ? ("✅ Booking #" + leadId + " updated — " + first + ".")
-    : ("✅ Booking saved for " + first + " (#" + leadId + ") — in the system.");
+    : ("✅ Booking saved for " + first + " (#" + leadId + ")" + createdSuffix);
   const price = parseFloat(String(waNz(f && f.amount)).replace(/[^0-9.]/g, ""));
   const hasAmount = isFinite(price) && price > 0;
   const vatStated = !!f && ["plus", "incl", "none"].includes(f.vat);
@@ -8295,7 +8334,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260719-b2b-slice2a";
+const ADMIN_BUILD = "20260719-b2b-slice2b1";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
