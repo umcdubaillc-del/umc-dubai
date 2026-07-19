@@ -51,6 +51,15 @@ Everything else falls through to today's handlers, unchanged. **Only bare number
 state**, so ordinary conversation can never be trapped. Non-`cap_approve` senders' assign verbs fall
 through silently (authorization by non-action).
 
+> **Ordering — pending-assign wins (owner-named).** Branch 2 (the pending-assign bare-number check) MUST
+> run **before** Ship 1's agreed-price bare-amount capture hook in `handleTeamInboundText`. A live
+> `assist_pending` + a fresh booking's amount question could both be alive for the same sender, and a bare
+> "2" is the one input that could misroute. Rule: **while a live `assist_pending` row exists for the
+> sender, a bare number resolves the disambiguation**; only when no live pending exists does the
+> amount-capture hook see the bare number. This is safe because amounts are re-sendable and
+> disambiguations expire (15 min) — so pending-assign taking precedence never permanently strands an
+> amount reply.
+
 > **B3-era revisit (not build-now):** the silent fall-through for a non-`cap_approve` sender is correct
 > today (only the owner is on the roster). When B3 lands and the roster grows past the two principals, an
 > *authorized-but-denied* distinction may warrant a polite "you don't have assignment rights" reply
@@ -101,13 +110,22 @@ When all slots resolve to concrete ids:
 
 ### 3.5 On decision — `handleWaProposalDecision`, new `assign` branch
 - **APPROVE:** load the proposal's `job_id` + `meta_json.{driver_ids, vehicle_ids}`. **Refuse** if the
-  job is completed/cancelled (reply why). **Validate phones:** for each driver_id, if
-  `waMeNumber(driver.phone)` is empty → reply *"<Name>'s number can't be normalized — fix it in the
-  roster"* and STOP (no partial assign). Else: `setJobAssignments(env, job_id, driver_ids, vehicle_ids)`
-  → `finalizeJob(env, job_id)` → `notifyDriverAssignment(env, job, addedDriverIds)` → reply a
-  confirmation to the commander (*"Assigned. Shahzaib notified."*). Identical to `handleUpdateJob`'s trio
-  = admin parity. The `addedDriverIds` diff guarantees a re-assign never re-pings an already-assigned
-  driver.
+  job is completed/cancelled (reply why; mark the proposal decided — a dead job won't come back).
+  **Validate phones:** for each driver_id, if `waMeNumber(driver.phone)` is empty → **STOP the whole
+  assign (never partial)**, and:
+  - the stop reply **names the exact driver and their raw on-file number** so the fix is one glance —
+    *"Can't assign: Shahzaib's number **0507526717** won't normalize. Fix it in the roster, then tap
+    **Assign** again."*
+  - **the proposal SURVIVES** — leave `status='pending'` (do NOT mark it skipped/decided) so the
+    commander fixes the number in admin and **re-taps the same Assign button** without re-typing the
+    command. (Plan-time verify: `handleWaProposalDecision` re-processes `APPROVE:{id}` on a still-pending
+    proposal. If it cannot re-tap a pending proposal, FALL BACK to marking it decided and change the stop
+    reply's last clause to *"…then re-send the command"* so instruction matches behavior.)
+  - Else (all phones normalize): `setJobAssignments(env, job_id, driver_ids, vehicle_ids)` →
+    `finalizeJob(env, job_id)` → `notifyDriverAssignment(env, job, addedDriverIds)` → mark the proposal
+    decided → reply confirmation to the commander (*"Assigned. Shahzaib notified."*). Identical to
+    `handleUpdateJob`'s trio = admin parity. The `addedDriverIds` diff guarantees a re-assign never
+    re-pings an already-assigned driver.
 - **SKIP:** mark skipped, reply *"Assignment cancelled."*
 
 ### 3.6 Data / schema
@@ -141,6 +159,9 @@ When all slots resolve to concrete ids:
   3. Ambiguity case: a command with a name/job matching two rows → numbered prompt → reply a number →
      card → Assign.
   4. Expiry: leave a pending >15 min, then send "2" → falls through (no resurrection).
+  5. Phone-stop/re-tap: assign a driver whose roster number can't normalize → Assign tap replies with the
+     named driver + raw number and does NOT assign; fix the number in admin; re-tap Assign → succeeds
+     (or, per the §3.5 fallback, re-send the command).
 - No client sends / flag flips without the owner's word.
 
 ## 4. Reusable rails (do NOT rebuild)
