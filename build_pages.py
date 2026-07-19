@@ -1419,7 +1419,6 @@ airport_body = header("airport-transfers.html") + f"""
       <div class="lugtag" role="list" aria-label="Included with every airport transfer">
         <div class="tg-head"><span class="lbl">Airport service manifest</span><b>UMC</b></div>
         <ul>
-          <li role="listitem"><b class="t">Chauffeur</b><span>RTA-licensed, background-checked, English-speaking, with a minimum of five years&rsquo; professional driving experience.</span></li>
           <li role="listitem"><b class="t">Arrival monitoring</b><span>Your flight is tracked from departure; the pick-up adjusts to the actual landing time.</span></li>
           <li role="listitem"><b class="t">Reception</b><span>Your chauffeur waits in the arrivals hall with a name board and assists with luggage.</span></li>
           <li role="listitem"><b class="t">Waiting time</b><span>90 minutes of complimentary waiting at the airport from the moment you land. Beyond that, waiting is charged at the car&rsquo;s hourly rate.</span></li>
@@ -1651,7 +1650,6 @@ def render_emirate_airport_page(em):
       <div class="lugtag" role="list" aria-label="Included with every airport transfer">
         <div class="tg-head"><span class="lbl">Airport service manifest</span><b>UMC</b></div>
         <ul>
-          <li role="listitem"><b class="t">Chauffeur</b><span>RTA-licensed, background-checked, English-speaking, with a minimum of five years&rsquo; professional driving experience.</span></li>
           <li role="listitem"><b class="t">Arrival monitoring</b><span>Your flight is tracked from departure; the pick-up adjusts to the actual landing time.</span></li>
           <li role="listitem"><b class="t">Reception</b><span>Your chauffeur waits in the arrivals hall with a name board and assists with luggage.</span></li>
           <li role="listitem"><b class="t">Waiting time</b><span>90 minutes of complimentary waiting at the airport from the moment you land. Beyond that, waiting is charged at the car&rsquo;s hourly rate.</span></li>
@@ -2714,7 +2712,7 @@ monthly_body = header("monthly-chauffeur-dubai/") + f"""
     <div class="shead rv"><span class="lbl">Pricing</span><h2>Priced on application.</h2></div>
     <div class="rv sec-prose" style="max-width:66ch;margin:0 auto;text-align:center">
       <p>A monthly arrangement depends on the vehicle, the hours and the length of commitment, so it is quoted rather than listed. Tell the concierge what you need on WhatsApp or by phone and you will have a firm monthly figure &mdash; fuel, Salik and parking included &mdash; before anything is agreed.</p>
-      <div class="btns rv" style="justify-content:center">
+      <div class="btns rv" style="justify-content:center;margin-top:1.6rem">
         <a class="btn btn-ink" target="_blank" rel="noopener" href="{WA}">WhatsApp the concierge</a>
         <a class="btn btn-ghost" href="tel:+971586497861">Call +971 58 649 7861</a>
       </div>
