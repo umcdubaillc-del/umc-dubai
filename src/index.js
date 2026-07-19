@@ -735,12 +735,12 @@ async function sendEmail(env, b, adminUrl, leadId) {
       `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;font-size:14px;border-collapse:collapse">${requestRowsHtml}</table>` +
     `</td></tr>` +
     `<tr><td style="padding:8px 28px 24px 28px;text-align:center">` +
-      `<a href="${adminLink}" style="display:inline-block;background:#A84B0C;color:#FBF8F1;text-decoration:none;padding:13px 32px;font-size:12px;letter-spacing:.18em;text-transform:uppercase;font-weight:600;border-radius:3px">View in admin</a>` +
+      `<a href="${adminLink}" style="display:inline-block;background:#A84B0C;color:#FBF8F1;text-decoration:none;padding:13px 32px;font-size:12px;letter-spacing:.18em;text-transform:uppercase;font-weight:600;border-radius:3px;margin:6px 8px">View in admin</a>` +
       // WA-2 B — one-tap "WhatsApp the client": opens a chat to the guest with the
       // quote prefilled (mirrors the admin quote text). Shown only when we have a
       // usable mobile number. A plain wa.me link — works regardless of WA_SEND_ENABLED.
       (waUrl
-        ? ` &nbsp; <a href="${waUrl}" style="display:inline-block;background:#1FA855;color:#FBF8F1;text-decoration:none;padding:13px 32px;font-size:12px;letter-spacing:.18em;text-transform:uppercase;font-weight:600;border-radius:3px">WhatsApp the client</a>`
+        ? ` <a href="${waUrl}" style="display:inline-block;background:#1FA855;color:#FBF8F1;text-decoration:none;padding:13px 32px;font-size:12px;letter-spacing:.18em;text-transform:uppercase;font-weight:600;border-radius:3px;margin:6px 8px">WhatsApp the client</a>`
         : "") +
       `<p style="margin:10px 0 0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;color:#7A6F5F">Opens the Leads tab. Sign in if prompted.</p>` +
     `</td></tr>` +

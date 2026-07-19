@@ -375,15 +375,12 @@ window.umcPhone = {
   }
 })();
 
-// WhatsApp click signal for GTM (A2). This site links via api.whatsapp.com/send,
-// not wa.me, so the selector matches both. Delegated + attached once globally.
+// CONV-WIRE: WhatsApp click → GA4 whatsapp_click (was a dead dataLayer push). This site
+// links via api.whatsapp.com/send, not wa.me, so the selector matches both. Delegated once.
 document.addEventListener('click', function(e){
   var a = e.target && e.target.closest && e.target.closest('a[href*="wa.me"], a[href*="api.whatsapp.com"]');
-  if(!a) return;
-  try{
-    window.dataLayer = window.dataLayer || [];
-    window.dataLayer.push({ event: 'whatsapp_click', link_context: (a.closest('[data-vehicle]')?.dataset.vehicle) || document.title.slice(0,60) });
-  }catch(e2){}
+  if(!a || typeof gtag !== 'function') return;
+  try{ gtag('event','whatsapp_click',{ link_context: (a.closest('[data-vehicle]')?.dataset.vehicle) || document.title.slice(0,60) }); }catch(e2){}
 });
 
 // homepage: Google Places on the hero form (ICONS-2.1). Uses the SAME shared
@@ -412,3 +409,41 @@ window.umcHomeMaps = function(){
     });
   }catch(e){}
 };
+
+// UI-5 item 3: Journal Newest/Oldest sort. No-ops on every page except /blog/
+// (guarded by .blog-sort). Re-orders .blog-card by data-date (ISO strings sort
+// lexicographically). Default render is already newest-first; this lets the reader flip it.
+(function(){
+  var sorter = document.querySelector(".blog-sort");
+  var grid = document.querySelector(".blog-grid");
+  if(!sorter || !grid) return;
+  var btns = sorter.querySelectorAll("button");
+  function apply(dir){
+    var cards = Array.prototype.slice.call(grid.querySelectorAll(".blog-card"));
+    cards.sort(function(a,b){
+      var da = a.getAttribute("data-date") || "", db = b.getAttribute("data-date") || "";
+      if(da === db) return 0;
+      var newer = da > db ? -1 : 1;
+      return dir === "oldest" ? -newer : newer;
+    });
+    cards.forEach(function(c){ grid.appendChild(c); });
+  }
+  btns.forEach(function(btn){
+    btn.addEventListener("click", function(){
+      btns.forEach(function(b){ b.classList.remove("on"); b.setAttribute("aria-pressed","false"); });
+      btn.classList.add("on"); btn.setAttribute("aria-pressed","true");
+      apply(btn.getAttribute("data-sort"));
+    });
+  });
+})();
+
+// CONV-WIRE: tel: click → GA4 phone_click (promotable to an Ads conversion later).
+// Delegated so it covers header, footer and body links. WhatsApp is handled by the
+// dedicated listener above. gtag() is the shared-head shim; no-ops if absent.
+(function(){
+  document.addEventListener("click", function(e){
+    var a = e.target && e.target.closest ? e.target.closest('a[href^="tel:"]') : null;
+    if(!a || typeof gtag !== "function") return;
+    gtag("event","phone_click",{ link_url: a.getAttribute("href") || "" });
+  });
+})();

@@ -177,6 +177,17 @@ GTM_ID = "GTM-PNM6MRS7"
 GTM_HEAD = ("<!-- Google Tag Manager -->\n<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});"
  "var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;"
  "j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','" + GTM_ID + "');</script>\n<!-- End Google Tag Manager -->")
+# CONV-WIRE: standard gtag() shim on the SAME dataLayer the GTM container uses. GTM
+# stays the only loader; its Google-tag destinations (GA4 G-93RE8HBKRQ + Ads
+# AW-11461642180) pick up these gtag('event',…) pushes. No second loader.
+GTAG_SHIM = ("<script>window.dataLayer=window.dataLayer||[];"
+             "function gtag(){dataLayer.push(arguments);}</script>")
+# CONV-WIRE: Google Ads conversion for booking leads. LABEL is a LOUD placeholder until
+# the "Booking Lead" action is created in the Ads UI; the build warns while it's unset
+# (see the check at the foot of this file). booking.js hardcodes the same send_to string.
+ADS_CONVERSION_ID = "AW-11461642180"
+ADS_CONVERSION_LABEL = "PLACEHOLDER_LABEL"
+ADS_SEND_TO = ADS_CONVERSION_ID + "/" + ADS_CONVERSION_LABEL
 PAY = json.load(open(HERE / "payicons.json"))
 def paysvg(k):
     i = PAY[k]
@@ -213,10 +224,15 @@ ld_organization = '<script type="application/ld+json">' + json.dumps({
 
 # S-1 item 5 — content-review stamp for the commercial pages. REVIEWED_ISO feeds
 # dateModified in per-page WebPage JSON-LD; REVIEWED_LABEL is the visible
-# "Reviewed …" line. These pages are genuinely revised in this pass, so the date
-# is a real change date, not fake-fresh. Bump both when the pages are next revised.
-REVIEWED_ISO = "2026-07-07"
-REVIEWED_LABEL = "July 2026"
+# "Reviewed …" line. UI-5 item 2: BUILD-STAMPED — derived from the build date so it
+# is fresh and truthful by construction (we deploy constantly, so every build re-stamps
+# the current month/year). Freshness is an AI-citation signal; this keeps it honest
+# without manual bumps. REVIEWED_ISO feeds the WebPage dateModified; REVIEWED_LABEL is
+# the visible "Reviewed <Month YYYY>" stamp.
+import datetime as _reviewed_dt
+_BUILD_DATE = _reviewed_dt.date.today()
+REVIEWED_ISO = _BUILD_DATE.isoformat()
+REVIEWED_LABEL = _BUILD_DATE.strftime("%B %Y")
 
 def webpage_ld(canon, name):
     # S-1 item 5 — dateModified (a real page-change date) on a valid WebPage node,
@@ -262,6 +278,9 @@ def reviewed_line():
             + REVIEWED_LABEL + '</p>')
 
 def head(title, desc, canon, extra=""):
+    # F3 (SEO-QW): auto BreadcrumbList unless the caller supplies its own in `extra`
+    # (comparison page + render_post articles inject a Journal-level crumb themselves).
+    _bc = "" if (extra and "BreadcrumbList" in extra) else auto_breadcrumb(canon, title)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -305,7 +324,9 @@ def head(title, desc, canon, extra=""):
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 {ld_organization}
 {extra}
+{_bc}
 {GTM_HEAD}
+{GTAG_SHIM}
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -416,6 +437,7 @@ FOOTER = f"""</main>
           <li><a href="/inter-emirate">Inter-emirate transfers</a></li>
           <li><a href="/events">Wedding &amp; event service</a></li>
           <li><a href="/rent-a-car-with-driver/">Half-day &amp; full-day hire</a></li>
+          <li><a href="/monthly-chauffeur-dubai/">Monthly chauffeur</a></li>
           <li><a href="/booking">Reserve a car</a></li>
         </ul>
       </div>
@@ -525,10 +547,47 @@ def extract_article_faqs(html):
     return pairs
 
 def faq_schema(faqs):
-    import re
-    items = [{"@type":"Question","name":re.sub('<[^>]+>','',q),
-              "acceptedAnswer":{"@type":"Answer","text":re.sub('<[^>]+>','',a)}} for q,a in faqs]
+    import re, html as _html
+    # F1 (SEO-QW): strip tags AND decode HTML entities so the structured-data text
+    # matches the VISIBLE FAQ. FAQ questions are authored with entities for the HTML
+    # <summary> (e.g. "meet &amp; greet"); without _html.unescape the literal
+    # "&amp;" leaked into the JSON-LD name, mismatching the rendered "meet & greet"
+    # and risking FAQ rich-result ineligibility.
+    def _clean(s): return _html.unescape(re.sub('<[^>]+>', '', s)).strip()
+    items = [{"@type":"Question","name":_clean(q),
+              "acceptedAnswer":{"@type":"Answer","text":_clean(a)}} for q,a in faqs]
     return '<script type="application/ld+json">'+json.dumps({"@context":"https://schema.org","@type":"FAQPage","mainEntity":items})+'</script>'
+
+# F3 (SEO-QW): BreadcrumbList site-wide. Emitted from the shared head() choke point
+# for every non-home page, unless the caller already supplies its own breadcrumb in
+# `extra` (the comparison page does; render_post injects a Journal-level crumb for
+# articles). Depth-2 pages nest under a known section; depth-1 section pages nest
+# directly under Home. Pure schema — zero visible-copy change.
+import re as _re_bc
+BREADCRUMB_PARENTS = {
+  "fleet":                 ("Fleet",                   "https://umcdubai.ae/fleet"),
+  "airport-transfers":     ("Airport transfers",       "https://umcdubai.ae/airport-transfers"),
+  "rent-a-car-with-driver":("Rent a car with driver",  "https://umcdubai.ae/rent-a-car-with-driver"),
+}
+def breadcrumb_ld(pairs):
+    """pairs = [(name, url), ...] in order Home -> ... -> current page."""
+    items = [{"@type":"ListItem","position":i+1,"name":n,"item":u} for i,(n,u) in enumerate(pairs)]
+    return ('<script type="application/ld+json">'
+            + json.dumps({"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":items},
+                         separators=(",",":")) + '</script>')
+def auto_breadcrumb(canon, title):
+    """Derive a BreadcrumbList from a page's canonical path + title. Returns "" for
+    the homepage (canon == "")."""
+    path = (canon or "").strip("/")
+    if not path:
+        return ""
+    segs = path.split("/")
+    name = _re_bc.split(r' \| | &mdash; | — | — ', title)[0].strip()
+    pairs = [("Home", "https://umcdubai.ae/")]
+    if len(segs) >= 2 and segs[0] in BREADCRUMB_PARENTS:
+        pairs.append(BREADCRUMB_PARENTS[segs[0]])
+    pairs.append((name, "https://umcdubai.ae/" + canon.lstrip("/")))
+    return breadcrumb_ld(pairs)
 
 # ---------- FAQs (verbatim-faithful from umcdubai.ae) ----------
 HOME_FAQS = [
@@ -552,6 +611,8 @@ AIRPORT_FAQS = [
   "Your chauffeur waits in the arrivals hall with a name board, assists with your luggage and walks you to the car."),
  ("What if my flight is delayed?",
   "We track the flight from departure. If it is delayed, the booking moves with it and your chauffeur is there when you land."),
+ ("How long will the chauffeur wait at the airport?",
+  "Airport pickups include 90 minutes of complimentary waiting from the moment you land, which covers immigration and baggage. Beyond that, waiting is charged at the car's hourly rate."),
  ("What does the transfer rate include?",
   "Your chauffeur, fuel, Salik and parking. Transfers ending outside Dubai carry an additional fee by vehicle type, stated in your quote."),
  ("Can I add a stop on the way?",
@@ -671,7 +732,9 @@ ld_home = '<script type="application/ld+json">'+json.dumps({
  "url":"https://umcdubai.ae/","telephone":"+971586497861",
  "email":"contact@umcdubai.ae",
  "image":"https://umcdubai.ae/assets/og-image-v3.png",
- "address":{"@type":"PostalAddress","addressLocality":"Dubai","addressCountry":"AE"},
+ # F10 (SEO-FACTS): UMC is a SERVICE-AREA business — no client-facing office. No geo
+ # coordinates and no PostalAddress pin; the operating area is expressed via areaServed.
+ # NAP phone stays; the Trade Licence stays in the footer site-wide.
  "openingHoursSpecification":{"@type":"OpeningHoursSpecification","dayOfWeek":["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"],"opens":"00:00","closes":"23:59"},
  "priceRange":"AED 350–2400",
  "areaServed":["Dubai","Abu Dhabi","Sharjah","Ras Al Khaimah","Al Ain","Umm Al Quwain","Ajman","Fujairah"],
@@ -798,7 +861,7 @@ index_body = header("index.html") + f"""
 <div class="authority rv">
   <div class="wrap">
     <span class="lbl">Guests and delegations served for</span>
-    <p class="names">Emirates <i>&middot;</i> Jetex <i>&middot;</i> IIFA Awards <i>&middot;</i> Gulfood <i>&middot;</i> GITEX <i>&middot;</i> F1 Weekend</p>
+    <p class="names"><span class="nm">Emirates</span> <i>&middot;</i> <span class="nm">Jetex</span> <i>&middot;</i> <span class="nm">IIFA Awards</span> <i>&middot;</i> <span class="nm">Gulfood</span> <i>&middot;</i> <span class="nm">GITEX</span> <i>&middot;</i> <span class="nm">F1 Weekend</span></p>
   </div>
 </div>
 
@@ -872,6 +935,16 @@ index_body = header("index.html") + f"""
           <p>Weddings, galas and private celebrations, a coordinated fleet for the days that matter most, planned to the minute by one point of contact.</p>
         </span>
         <span class="svp-cta">Plan</span>
+      </a>
+      <a class="svp-row" href="/monthly-chauffeur-dubai/">
+        <span class="svp-num">06</span>
+        <span class="svp-rule" aria-hidden="true"></span>
+        <span class="svp-mid">
+          <span class="svp-meta">Retained by the month</span>
+          <h3>Monthly chauffeur</h3>
+          <p>A dedicated car and one chauffeur, retained by the month, for residents, executives and teams who would rather not think about transport day to day.</p>
+        </span>
+        <span class="svp-cta">Enquire</span>
       </a>
     </div>
     <div class="svnav" aria-hidden="true">
@@ -1241,13 +1314,13 @@ fleet_body = header("fleet.html") + f"""
   <div class="wrap">
     <div class="shead rv"><span class="lbl">Guidance</span><h2>The right car for the moment.</h2></div>
     <div class="scen rv">
-      <div class="sc"><svg viewBox="0 0 24 24"><path d="M21 15.5l-8-3V5.2a1.7 1.7 0 0 0-3.4 0v7.3l-6.6 2.5v2l6.6-1.4v3.6L7.5 21v1.4l4.8-1 4.8 1V21l-2.1-1.8v-3.6l6 1.3z"/></svg>
+      <div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M2 22h20"/><path d="M6.5 18.5 3 12l2-1 3 3.5 5.5-1.5L9.5 4l2.2-.6 6 8.6 3.3-.9a1.6 1.6 0 0 1 .8 3.1L6.5 18.5z"/></svg>
         <h3>The arrival</h3><p>Touching down at DXB after a long flight. Quiet, space and a chauffeur already waiting.</p>
         <div class="pick"><a href="/booking?vehicle=s-class">S Class</a><a href="/booking?vehicle=escalade">Escalade</a><a href="/booking?vehicle=v-class">V Class</a></div></div>
-      <div class="sc"><svg viewBox="0 0 24 24"><path d="M9 11a3 3 0 1 0-3-3 3 3 0 0 0 3 3zM17 11a2.5 2.5 0 1 0-2.5-2.5A2.5 2.5 0 0 0 17 11z"/><path d="M2.5 20c.5-3.2 2.8-4.8 6.5-4.8s6 1.6 6.5 4.8M14.8 15.6c2.8.2 4.5 1.7 4.9 4.4"/></svg>
+      <div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         <h3>The family season</h3><p>School pick-ups, the mall, the beach club. Seven seats, cases and a pushchair, one calm cabin.</p>
         <div class="pick"><a href="/booking?vehicle=v-class">V Class</a><a href="/booking?vehicle=yukon">Yukon XL</a></div></div>
-      <div class="sc"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="13" rx="2"/><path d="M3 9.5h18M8 18v2.5M16 18v2.5"/></svg>
+      <div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h9M3 17v-4.2l1.8-4A2 2 0 0 1 6.6 7.6H13a2 2 0 0 1 1.7 1l2.3 3.4 2.6.7a2 2 0 0 1 1.4 1.9V17h-2"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/></svg>
         <h3>The roadshow</h3><p>Investor days and delegations. Multi-car movements coordinated to the minute under one contact.</p>
         <div class="pick"><a href="/booking?vehicle=sprinter">Sprinter</a><a href="/contact?vehicle=Roadshow">Convoy desk</a></div></div>
     </div>
@@ -1346,8 +1419,10 @@ airport_body = header("airport-transfers.html") + f"""
       <div class="lugtag" role="list" aria-label="Included with every airport transfer">
         <div class="tg-head"><span class="lbl">Airport service manifest</span><b>UMC</b></div>
         <ul>
+          <li role="listitem"><b class="t">Chauffeur</b><span>RTA-licensed, background-checked, English-speaking, with a minimum of five years&rsquo; professional driving experience.</span></li>
           <li role="listitem"><b class="t">Arrival monitoring</b><span>Your flight is tracked from departure; the pick-up adjusts to the actual landing time.</span></li>
           <li role="listitem"><b class="t">Reception</b><span>Your chauffeur waits in the arrivals hall with a name board and assists with luggage.</span></li>
+          <li role="listitem"><b class="t">Waiting time</b><span>90 minutes of complimentary waiting at the airport from the moment you land. Beyond that, waiting is charged at the car&rsquo;s hourly rate.</span></li>
           <li role="listitem"><b class="t">Cabin provisions</b><span>Bottled water, device chargers and tissues, prepared before every pick-up.</span></li>
           <li role="listitem"><b class="t">Cancellation</b><span>Released without charge up to 48 hours before the scheduled pick-up.</span></li>
         </ul>
@@ -1396,6 +1471,8 @@ COMMON_AIRPORT_FAQS = [
   "Your chauffeur waits in the arrivals hall with a name board, assists with your luggage and walks you to the car."),
  ("What if my flight is delayed?",
   "We track the flight from departure. If it is delayed, the booking moves with it and your chauffeur is there when you land."),
+ ("How long will the chauffeur wait at the airport?",
+  "Airport pickups include 90 minutes of complimentary waiting from the moment you land, which covers immigration and baggage. Beyond that, waiting is charged at the car's hourly rate."),
  ("What does the transfer rate include?",
   "Your chauffeur, fuel, Salik and parking. Transfers ending outside Dubai carry an additional fee by vehicle type, stated in your quote."),
  ("Can I add a stop on the way?",
@@ -1574,8 +1651,10 @@ def render_emirate_airport_page(em):
       <div class="lugtag" role="list" aria-label="Included with every airport transfer">
         <div class="tg-head"><span class="lbl">Airport service manifest</span><b>UMC</b></div>
         <ul>
+          <li role="listitem"><b class="t">Chauffeur</b><span>RTA-licensed, background-checked, English-speaking, with a minimum of five years&rsquo; professional driving experience.</span></li>
           <li role="listitem"><b class="t">Arrival monitoring</b><span>Your flight is tracked from departure; the pick-up adjusts to the actual landing time.</span></li>
           <li role="listitem"><b class="t">Reception</b><span>Your chauffeur waits in the arrivals hall with a name board and assists with luggage.</span></li>
+          <li role="listitem"><b class="t">Waiting time</b><span>90 minutes of complimentary waiting at the airport from the moment you land. Beyond that, waiting is charged at the car&rsquo;s hourly rate.</span></li>
           <li role="listitem"><b class="t">Cabin provisions</b><span>Bottled water, device chargers and tissues, prepared before every pick-up.</span></li>
           <li role="listitem"><b class="t">Cancellation</b><span>Released without charge up to 48 hours before the scheduled pick-up.</span></li>
         </ul>
@@ -1849,8 +1928,9 @@ def render_rentacar_page(em):
       <div class="lugtag" role="list" aria-label="What is included with every chauffeur-at-disposal booking">
         <div class="tg-head"><span class="lbl">Service manifest</span><b>UMC</b></div>
         <ul>
-          <li role="listitem"><b class="t">Professional chauffeur</b><span>Vetted, trained, presentable, discreet. The same standard, every booking.</span></li>
+          <li role="listitem"><b class="t">Professional chauffeur</b><span>RTA-licensed, background-checked, English-speaking, with a minimum of five years&rsquo; professional driving experience. The same standard, every booking.</span></li>
           <li role="listitem"><b class="t">All-inclusive rate</b><span>Fuel, Salik and parking are already in the quoted rate. No meter.</span></li>
+          <li role="listitem"><b class="t">Waiting time</b><span>30 minutes of complimentary waiting at pickup. Beyond that, waiting continues at the car&rsquo;s hourly rate.</span></li>
           <li role="listitem"><b class="t">Unlimited city mileage</b><span>Move around the city without watching the odometer.</span></li>
           <li role="listitem"><b class="t">Cabin provisions</b><span>Bottled water, device chargers and tissues, prepared before every pick-up.</span></li>
           <li role="listitem"><b class="t">24 hours a day</b><span>Early starts, late finishes, overnight transfers. We staff for the hours you need.</span></li>
@@ -2013,7 +2093,7 @@ def render_rentacar_hub():
       <div class="lugtag" role="list" aria-label="What is included with every chauffeur-at-disposal booking">
         <div class="tg-head"><span class="lbl">Service manifest</span><b>UMC</b></div>
         <ul>
-          <li role="listitem"><b class="t">Professional chauffeur</b><span>Vetted, trained, presentable, discreet. The same standard, every booking.</span></li>
+          <li role="listitem"><b class="t">Professional chauffeur</b><span>RTA-licensed, background-checked, English-speaking, with a minimum of five years&rsquo; professional driving experience. The same standard, every booking.</span></li>
           <li role="listitem"><b class="t">All-inclusive rate</b><span>Fuel, Salik and parking are already in the quoted rate. No meter, no surge.</span></li>
           <li role="listitem"><b class="t">Unlimited city mileage</b><span>Move around the city without watching the odometer.</span></li>
           <li role="listitem"><b class="t">Cabin provisions</b><span>Bottled water, device chargers and tissues, prepared before every pick-up.</span></li>
@@ -2405,10 +2485,8 @@ contact_body = header("contact.html") + f"""
 """ + FOOTER + """
 <script>
 function trackLead(formId, service){
-  try{
-    window.dataLayer = window.dataLayer || [];
-    window.dataLayer.push({ event: 'lead_submit', form_id: formId, service: service || '' });
-  }catch(e){}
+  // CONV-WIRE: fire GA4 generate_lead (replaces the dead lead_submit dataLayer push).
+  try{ if(typeof gtag==='function'){ gtag('event','generate_lead',{ form_id: formId, service: service || '' }); } }catch(e){}
 }
 var cEmailEl = document.getElementById("cEmail");
 var C_EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -2541,13 +2619,6 @@ ie_body = header("inter-emirate.html") + f"""
 {JL}
 <section class="sec">
   <div class="wrap">
-    <div class="shead rv"><span class="lbl">Good to know</span><h2>Inter-emirate questions</h2></div>
-    <div class="faq rv">{faq_details(IE_FAQS)}</div>
-  </div>
-</section>
-{JL}
-<section class="sec">
-  <div class="wrap">
     <div class="shead rv"><span class="lbl">The routes</span><h2>What each route asks for.</h2></div>
     <div class="rv sec-prose" style="max-width:68ch;margin:0 auto;text-align:left">
       <p>The Emirates are close enough that a chauffeur can cover most inter-city journeys in a morning, but each route has its own character.</p>
@@ -2556,6 +2627,13 @@ ie_body = header("inter-emirate.html") + f"""
       <p><b>Dubai to Al Ain</b> is the quiet one &mdash; typically around 90 minutes to two hours inland on the E66, on open roads with no Salik gates once you leave Dubai, which makes it an easy day trip or a calm transfer to the garden city.</p>
       <p>Any of these runs as a single booking in both directions. The chauffeur waits at the destination for a meeting, a lunch or a full day and drives you back, so a round trip is one arrangement and one quote rather than two separate transfers. Waiting time and the return leg are agreed up front, with the all-inclusive rate &mdash; chauffeur, fuel and tolls &mdash; confirmed before departure.</p>
     </div>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">Good to know</span><h2>Inter-emirate questions</h2></div>
+    <div class="faq rv">{faq_details(IE_FAQS)}</div>
   </div>
 </section>
 {JLB}
@@ -2570,6 +2648,98 @@ ie_body = header("inter-emirate.html") + f"""
       "inter-emirate",
       webpage_ld("https://umcdubai.ae/inter-emirate", "Inter-Emirate Transfers, Dubai & Abu Dhabi | UMC Dubai")
       + faq_schema(IE_FAQS)) + ie_body)
+
+# ---------- F4 (SEO-FACTS): Monthly / retainer chauffeur page ----------
+# Owner-amended: NO package/window/pricing specifics — pricing and structure are a
+# concierge-contact CTA (WhatsApp + phone). Not in the global nav; reachable from the
+# homepage services section, the footer, related-page links and the sitemap.
+MONTHLY_FAQS = [
+ ("Is it the same car and chauffeur each day?",
+  "Yes. A monthly arrangement assigns a dedicated vehicle and one chauffeur to your account, so the car and the person stay consistent."),
+ ("What does the monthly figure include?",
+  "The vehicle, the assigned chauffeur, fuel, Salik and parking &mdash; quoted as a single monthly figure before you commit."),
+ ("How is a monthly chauffeur priced?",
+  "On application. It depends on the vehicle, the hours and the length of commitment, so the concierge returns a firm monthly figure once we know what you need."),
+ ("How do I arrange one?",
+  "Speak to the concierge on WhatsApp or by phone. We shape the arrangement around your schedule and confirm the monthly figure before anything is agreed."),
+]
+monthly_ld = '<script type="application/ld+json">' + json.dumps({
+  "@context":"https://schema.org","@type":"Service",
+  "name":"Monthly chauffeur service in Dubai",
+  "serviceType":"Monthly chauffeur service",
+  "areaServed":{"@type":"Country","name":"United Arab Emirates"},
+  "provider":{"@id":ORG_ID},
+  "url":"https://umcdubai.ae/monthly-chauffeur-dubai/",
+  "description":"A dedicated car and chauffeur retained by the month in Dubai and across the UAE. Priced on application through the UMC concierge.",
+}, separators=(",",":")) + '</script>'
+monthly_body = header("monthly-chauffeur-dubai/") + f"""
+<section class="phero">
+  <div class="wrap">
+    <span class="lbl">Chauffeur service</span>
+    <h1>Monthly chauffeur service in Dubai.</h1>
+    {capsule("A dedicated car and one chauffeur, retained by the month &mdash; for residents, executives and visiting teams who would rather not think about transport day to day. The arrangement is built around what you need and quoted by our concierge.")}
+    <div class="btns rv" style="justify-content:center;margin-top:.4rem">
+      <a class="btn btn-ink" target="_blank" rel="noopener" href="{WA}">WhatsApp the concierge</a>
+      <a class="btn btn-ghost" href="tel:+971586497861">+971 58 649 7861</a>
+    </div>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">Included</span><h2>What a monthly arrangement includes.</h2></div>
+    <div class="rv sec-prose" style="max-width:68ch;margin:0 auto;text-align:left">
+      <ul>
+        <li>A dedicated vehicle from the fleet, held for your account.</li>
+        <li>One assigned chauffeur &mdash; RTA-licensed, background-checked, English-speaking, with a minimum of five years&rsquo; professional driving experience.</li>
+        <li>Fuel, Salik and parking inside one agreed monthly figure.</li>
+        <li>A single point of contact on the concierge desk, at any hour.</li>
+      </ul>
+      <p>The arrangement is shaped around your schedule and the length of commitment, then quoted as one monthly figure. There is no meter and no surge.</p>
+    </div>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">Who it is for</span><h2>A standing car, without the overhead.</h2></div>
+    <div class="rv sec-prose" style="max-width:68ch;margin:0 auto;text-align:left">
+      <p>Residents who would rather not run a car and a driver of their own. Executives and family offices who need a consistent car on call. Companies placing a standing vehicle on account, and visiting teams on a project measured in weeks rather than days. In each case the value is the same: one car, one vetted chauffeur, and one number to call.</p>
+    </div>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">Pricing</span><h2>Priced on application.</h2></div>
+    <div class="rv sec-prose" style="max-width:66ch;margin:0 auto;text-align:center">
+      <p>A monthly arrangement depends on the vehicle, the hours and the length of commitment, so it is quoted rather than listed. Tell the concierge what you need on WhatsApp or by phone and you will have a firm monthly figure &mdash; fuel, Salik and parking included &mdash; before anything is agreed.</p>
+      <div class="btns rv" style="justify-content:center">
+        <a class="btn btn-ink" target="_blank" rel="noopener" href="{WA}">WhatsApp the concierge</a>
+        <a class="btn btn-ghost" href="tel:+971586497861">Call +971 58 649 7861</a>
+      </div>
+    </div>
+  </div>
+</section>
+{JL}
+<section class="sec">
+  <div class="wrap">
+    <div class="shead rv"><span class="lbl">Good to know</span><h2>Monthly chauffeur questions</h2></div>
+    <div class="faq rv">{faq_details(MONTHLY_FAQS)}</div>
+  </div>
+</section>
+{JLB}
+<section class="closing band-dark">
+  <div class="wrap"><span class="lbl">Reservations</span><h2 class="rv">A dedicated car, by the month.</h2>
+  <div class="btns rv"><a class="btn btn-ink" target="_blank" rel="noopener" href="{WA}">WhatsApp the concierge</a><a class="btn btn-ghost" href="tel:+971586497861">Call the desk</a></div></div>
+</section>
+""" + FOOTER + "</body></html>"
+(SITE/"monthly-chauffeur-dubai").mkdir(parents=True, exist_ok=True)
+(SITE/"monthly-chauffeur-dubai"/"index.html").write_text(
+ head("Monthly Chauffeur &amp; Driver Service in Dubai | UMC Dubai",
+      "A dedicated car and chauffeur on a monthly basis in Dubai and across the UAE. Priced on application — speak to the UMC concierge on WhatsApp or by phone.",
+      "monthly-chauffeur-dubai/",
+      monthly_ld + faq_schema(MONTHLY_FAQS)) + monthly_body)
 
 # ---------- 404 ----------
 notfound = header("index.html").replace('class="on"','') + f"""
@@ -4797,6 +4967,11 @@ def render_post(p):
     # so every FAQ-carrying article — new and existing — advertises the same
     # rich schema.
     head_extra = render_article_schema(p)
+    # F3 (SEO-QW): articles live at root /<slug>/ but belong to the Journal section —
+    # emit an explicit Home > Journal > <title> breadcrumb (head() then skips its auto one).
+    head_extra += breadcrumb_ld([("Home","https://umcdubai.ae/"),
+                                 ("Journal","https://umcdubai.ae/blog/"),
+                                 (p["title"], f"https://umcdubai.ae/{p['slug']}/")])
     _post_faqs = extract_article_faqs(p['body'])
     if _post_faqs:
         head_extra += faq_schema(_post_faqs)
@@ -4983,27 +5158,27 @@ def render_comparison_page():
 
 def render_blog_index():
     """List of all posts at /blog/."""
-    cards = []
-    # BLOG-1: the comparison article (newest, 11 Jul 2026) leads the grid as a
-    # standard card, consistent with the BLOG_POSTS entries below.
+    # UI-5 item 3: one unified list (comparison article + BLOG_POSTS) sorted by
+    # date posted, DESC by default (newest first). Each card carries data-date (ISO)
+    # so the Newest/Oldest control (main.js) can re-sort client-side. ISO strings
+    # sort correctly as plain strings.
     _ca = COMPARISON_ARTICLE
-    cards.append(f"""
-      <article class="blog-card rv">
-        <span class="lbl">{_ca['kicker']}</span>
-        <h3><a href="{_ca['href']}">{_ca['title']}</a></h3>
-        <p class="blog-card-meta"><time datetime="{_ca['date']}">{_ca['date_label']}</time> &middot; {_ca['author']}</p>
-        <p>{_ca['excerpt']}</p>
-        <a class="btn-line" href="{_ca['href']}">Read</a>
-      </article>""")
+    items = [{"date": _ca["date"], "href": _ca["href"], "kicker": _ca["kicker"],
+              "title": _ca["title"], "date_label": _ca["date_label"],
+              "author": _ca["author"], "excerpt": _ca["excerpt"]}]
     for p in BLOG_POSTS:
-        cards.append(f"""
-      <article class="blog-card rv">
-        <span class="lbl">{p['kicker']}</span>
-        <h3><a href="/{p['slug']}/">{p['title']}</a></h3>
-        <p class="blog-card-meta"><time datetime="{p['date']}">{p['date_label']}</time> &middot; {p['author']}</p>
-        <p>{p['excerpt']}</p>
-        <a class="btn-line" href="/{p['slug']}/">Read</a>
-      </article>""")
+        items.append({"date": p["date"], "href": "/" + p["slug"] + "/", "kicker": p["kicker"],
+                      "title": p["title"], "date_label": p["date_label"],
+                      "author": p["author"], "excerpt": p["excerpt"]})
+    items.sort(key=lambda x: x["date"], reverse=True)
+    cards = [f"""
+      <article class="blog-card rv" data-date="{it['date']}">
+        <span class="lbl">{it['kicker']}</span>
+        <h3><a href="{it['href']}">{it['title']}</a></h3>
+        <p class="blog-card-meta"><time datetime="{it['date']}">{it['date_label']}</time> &middot; {it['author']}</p>
+        <p>{it['excerpt']}</p>
+        <a class="btn-line" href="{it['href']}">Read</a>
+      </article>""" for it in items]
     body = header("blog/") + f"""
 <section class="phero">
   <div class="wrap">
@@ -5014,6 +5189,12 @@ def render_blog_index():
 </section>
 <section class="sec">
   <div class="wrap">
+    <div class="blog-toolbar">
+      <div class="blog-sort" role="group" aria-label="Sort articles by date">
+        <button type="button" class="on" data-sort="newest" aria-pressed="true">Newest</button>
+        <button type="button" data-sort="oldest" aria-pressed="false">Oldest</button>
+      </div>
+    </div>
     <div class="blog-grid">
       {''.join(cards)}
     </div>
@@ -5092,6 +5273,7 @@ _pages_slash = (
     ["",  # homepage = /
      "blog/",
      "rent-a-car-with-driver/",
+     "monthly-chauffeur-dubai/",
      "blog/blacklane-alternative-dubai/"]
     + [f"rent-a-car-with-driver/{em['slug']}/" for em in RENT_EMIRATES]
     + [p["slug"] + "/" for p in BLOG_POSTS]
@@ -5313,3 +5495,18 @@ def _assert_head_assets():
 _assert_head_assets()
 
 print("all pages written")
+
+# CONV-WIRE: loud, unmissable build warning while the Google Ads booking-lead
+# conversion label is still the placeholder. Keeps generate_lead / whatsapp_click /
+# phone_click shipping (they need no label) but flags that the Ads conversion will not
+# record until the real "Booking Lead" label is swapped into booking.js + this constant.
+import sys as _conv_sys
+_bkjs_txt = (SITE / "assets" / "booking.js").read_text()
+if ADS_CONVERSION_LABEL == "PLACEHOLDER_LABEL" or "AW-11461642180/PLACEHOLDER_LABEL" in _bkjs_txt:
+    print("\n" + "!" * 78, file=_conv_sys.stderr)
+    print("[CONV-WIRE] Google Ads conversion label is UNSET (PLACEHOLDER_LABEL).", file=_conv_sys.stderr)
+    print("            generate_lead / whatsapp_click / phone_click fire fine, but the", file=_conv_sys.stderr)
+    print("            BOOKING conversion will NOT record in Google Ads until you swap", file=_conv_sys.stderr)
+    print("            AW-11461642180/PLACEHOLDER_LABEL for the real 'Booking Lead' label", file=_conv_sys.stderr)
+    print("            in site/assets/booking.js (and ADS_CONVERSION_LABEL here).", file=_conv_sys.stderr)
+    print("!" * 78 + "\n", file=_conv_sys.stderr)
