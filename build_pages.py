@@ -182,11 +182,12 @@ GTM_HEAD = ("<!-- Google Tag Manager -->\n<script>(function(w,d,s,l,i){w[l]=w[l]
 # AW-11461642180) pick up these gtag('event',…) pushes. No second loader.
 GTAG_SHIM = ("<script>window.dataLayer=window.dataLayer||[];"
              "function gtag(){dataLayer.push(arguments);}</script>")
-# CONV-WIRE: Google Ads conversion for booking leads. LABEL is a LOUD placeholder until
-# the "Booking Lead" action is created in the Ads UI; the build warns while it's unset
-# (see the check at the foot of this file). booking.js hardcodes the same send_to string.
+# CONV-WIRE: Google Ads conversion for booking leads, fired on booking form submit.
+# LABEL is the real "Booking Lead" action (count: One) from the Ads UI. booking.js
+# hardcodes the same send_to string; the build check at the foot of this file stays
+# green as long as neither still reads PLACEHOLDER_LABEL.
 ADS_CONVERSION_ID = "AW-11461642180"
-ADS_CONVERSION_LABEL = "PLACEHOLDER_LABEL"
+ADS_CONVERSION_LABEL = "YkoJCJL2vK8ZEMSPq9kq"
 ADS_SEND_TO = ADS_CONVERSION_ID + "/" + ADS_CONVERSION_LABEL
 PAY = json.load(open(HERE / "payicons.json"))
 def paysvg(k):
