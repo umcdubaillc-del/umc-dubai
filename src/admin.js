@@ -6300,6 +6300,19 @@ async function handleTeamInboundText(env, ctx, msg) {
   const t = String(text || "").trim();
   if (!t) return { handled: false };
 
+  // B2b Slice 2 §3.1 — pending-assign disambiguation wins while a live pending exists.
+  // ONLY a bare number consults pending state, so ordinary text can't be trapped; and this
+  // runs BEFORE the Ship-1 bare-amount capture so a "2" resolves the disambiguation first.
+  if (/^\s*\d{1,3}\s*$/.test(t)) {
+    const pr = await resolvePendingAssign(env, fromE164, t.trim());
+    if (pr.handled) return pr;   // else fall through (no live pending) to amount capture etc.
+  }
+  // B2b Slice 2 — verb-gated assignment command. Sender is already cap_approve-authorized
+  // upstream (handleAssistantInbound → getAuthorizedDecisionNumbers), so no extra cap check.
+  if (/^\s*(assign|put|give)\b/i.test(t)) {
+    return handleAssignCommand(env, fromE164, t);
+  }
+
   // (0) Cancel / restore a booking. Deterministic targeting (scope pin — no LLM): reply-bound
   // via the replied-to wamid, else an explicit "#id", else the sender's most-recent booking.
   // NL targeting ("cancel kamran's run") is Ship B. The mutation always sits behind a confirm tap.
