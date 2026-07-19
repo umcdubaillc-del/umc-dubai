@@ -6234,6 +6234,63 @@ async function sendQuoteProposal(env, proposal) {
   return { ok: true, wamid: result.wamid, mode };
 }
 
+// B2b Slice 2 — flatten the resolver output into ordered slots.
+function assignSlotsFromResolve(out) {
+  const slots = [];
+  slots.push({ key: "job", role: "job", id: out.job && out.job.id != null ? out.job.id : null, candidates: (out.job && out.job.candidates) || [] });
+  (out.drivers || []).forEach((s, i) => slots.push({ key: "driver#" + i, role: "driver", id: s.id != null ? s.id : null, candidates: s.candidates || [] }));
+  (out.vehicles || []).forEach((s, i) => slots.push({ key: "vehicle#" + i, role: "vehicle", id: s.id != null ? s.id : null, candidates: s.candidates || [] }));
+  return slots;
+}
+// Advance: all resolved → raise the card + clear pending. Else write pending for the FIRST
+// unresolved slot and prompt with numbered candidates. Returns a handled result.
+async function advanceAssign(env, fromE164, slots) {
+  const nextAmbig = slots.find((s) => s.id == null);
+  if (!nextAmbig) {
+    const driverIds = slots.filter((s) => s.role === "driver").map((s) => s.id);
+    const vehicleIds = slots.filter((s) => s.role === "vehicle").map((s) => s.id);
+    const jobId = slots.find((s) => s.role === "job").id;
+    await deletePending(env, fromE164);
+    await raiseAssignProposal(env, fromE164, jobId, driverIds, vehicleIds);
+    return { handled: true, action: "assign_card", jobId };
+  }
+  if (!nextAmbig.candidates.length) {
+    await deletePending(env, fromE164);
+    await sendTextTo(env, fromE164, "Couldn't find a match for the " + nextAmbig.role + " you named. Re-send the command with a clearer name/plate.");
+    return { handled: true, action: "assign_nomatch" };
+  }
+  await upsertPending(env, fromE164, { slots });
+  const lines = nextAmbig.candidates.map((c, i) => (i + 1) + ") " + c.label);
+  await sendTextTo(env, fromE164, "Which " + nextAmbig.role + "? Reply a number:\n" + lines.join("\n"));
+  return { handled: true, action: "assign_disambig", role: nextAmbig.role };
+}
+// Entry: a verb-gated assignment command.
+async function handleAssignCommand(env, fromE164, text) {
+  const r = await resolveAssignMessage(env, text);
+  if (!r.ok) {
+    const msg = r.error === "no_open_jobs" ? "No open jobs to assign to right now."
+      : r.error === "no_key" ? "Assignment resolver is unavailable right now."
+      : "Couldn't read that assignment — try e.g. \"Assign <driver> and <plate> to <client>'s job\".";
+    await sendTextTo(env, fromE164, msg);
+    return { handled: true, action: "assign_error" };
+  }
+  if (r.out.error) { await sendTextTo(env, fromE164, "Couldn't read that as an assignment. " + String(r.out.error).slice(0, 120)); return { handled: true, action: "assign_error" }; }
+  return advanceAssign(env, fromE164, assignSlotsFromResolve(r.out));
+}
+// A bare-number reply to a live pending disambiguation.
+async function resolvePendingAssign(env, fromE164, numStr) {
+  const pending = await loadLivePending(env, fromE164);   // windowed; expired → null (purged)
+  if (!pending || !Array.isArray(pending.slots)) return { handled: false };  // fall through
+  const slots = pending.slots;
+  const target = slots.find((s) => s.id == null);
+  if (!target) { await deletePending(env, fromE164); return { handled: false }; }
+  const n = parseInt(numStr, 10);
+  const pick = (n >= 1 && n <= target.candidates.length) ? target.candidates[n - 1] : null;
+  if (!pick) { await sendTextTo(env, fromE164, "Please reply with a number between 1 and " + target.candidates.length + "."); return { handled: true, action: "assign_reprompt" }; }
+  target.id = pick.id; target.candidates = [];
+  return advanceAssign(env, fromE164, slots);
+}
+
 // A text message from an authorized team number. Two behaviors: (1) if a quote proposal
 // is awaiting an Edit from this sender, their text becomes the new quote body and we
 // re-preview; (2) if the text is a bare amount replying to a lead_alert, bind the
