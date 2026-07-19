@@ -1946,6 +1946,17 @@ async function handleUpdateJob(id, request, env) {
   let b; try { b = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
   const existing = await env.BILLING_DB.prepare(`SELECT * FROM jobs WHERE id = ?`).bind(id).first();
   if (!existing) return json({ ok: false, error: "not found" }, 404);
+  // B2b Slice 3b — snapshot the cancel signal BEFORE any mutation: if this update flips the job
+  // to 'cancelled' and its driver was already informed, we raise a "notify the driver?" proposal
+  // after the write. Capture the informed driver(s) now (an assignment change below could clear them).
+  const cancelTransition = b.status === "cancelled" && String(existing.status) !== "cancelled";
+  let informedDrivers = [];
+  if (cancelTransition && existing.driver_informed_at) {
+    const dr = await env.BILLING_DB.prepare(
+      `SELECT d.id, d.name, d.phone FROM job_drivers jd JOIN drivers d ON d.id = jd.driver_id WHERE jd.job_id = ?`
+    ).bind(id).all();
+    informedDrivers = dr.results || [];
+  }
   const f = jobFieldsFromBody(Object.assign({}, existing, b));
   let status = existing.status;
   if (b.status === "completed") status = "completed";
@@ -1989,6 +2000,21 @@ async function handleUpdateJob(id, request, env) {
   }
   const job = await finalizeJob(env, id);
   try { await notifyDriverAssignment(env, job, asg.addedDriverIds); } catch (e) { console.error("driver notify failed", e && (e.message || e)); }
+  // B2b Slice 3b — job just went to 'cancelled' with a driver already informed: raise a proposal
+  // so a human decides whether to tell the driver. Fail-open (never block the cancel). Deduped
+  // per job so re-saving a cancelled job doesn't re-raise.
+  if (cancelTransition && informedDrivers.length) {
+    try {
+      const names = informedDrivers.map((d) => (d.name || ("#" + d.id))).join(", ");
+      await raiseProposal(env, {
+        kind: "drivercancel", jobId: id, approveLabel: "Notify ✓",
+        promptText: "Job #" + id + " (" + (existing.client_name || "client") + ") is cancelled. Notify " + names + " the job is off?",
+        composedMessage: "Notify " + names + " that job #" + id + " is cancelled.",
+        dedupeKey: "drivercancel:" + id,
+        metaJson: JSON.stringify({ driver_ids: informedDrivers.map((d) => d.id) })
+      });
+    } catch (e) { console.error("drivercancel proposal failed", e && (e.message || e)); }
+  }
   return json({ ok: true, id, job });
 }
 // Hard delete (distinct from Cancel). Removes the calendar event first (same
@@ -5813,13 +5839,13 @@ function buildCandidateList(op, candidates, error) {
 }
 
 // Interactive [Send ✓][Skip] button payload for a proposal (free-form; in-window only).
-function proposalInteractive(to, proposalId, promptText) {
+function proposalInteractive(to, proposalId, promptText, approveLabel) {
   return {
     messaging_product: "whatsapp", to, type: "interactive",
     interactive: {
       type: "button", body: { text: promptText }, footer: { text: "UMC Dubai · umcdubai.ae" },
       action: { buttons: [
-        { type: "reply", reply: { id: "APPROVE:" + proposalId, title: "Send ✓" } },
+        { type: "reply", reply: { id: "APPROVE:" + proposalId, title: approveLabel || "Send ✓" } },
         { type: "reply", reply: { id: "SKIP:" + proposalId, title: "Skip" } }
       ] }
     }
@@ -5857,7 +5883,7 @@ async function deliverProposalToTeam(env, proposalId, promptText, opts) {
     const to = waMeNumber(m.phone); if (to.length < 8) continue;
     const open = await clientWindowOpen(env, to);
     let payload = null, mode;
-    if (open) { mode = "interactive"; payload = proposalInteractive(to, proposalId, promptText); }
+    if (open) { mode = "interactive"; payload = proposalInteractive(to, proposalId, promptText, opts.approveLabel); }
     else { payload = opts.fallbackFor ? opts.fallbackFor(to, proposalId) : null; mode = payload ? "fallback_template" : "undeliverable"; }
     const rowId = await claimOutbound(env, {
       lead_id: opts.leadId == null ? null : opts.leadId, kind: "proposal_deliver",
@@ -5902,7 +5928,7 @@ export async function raiseProposal(env, opts) {
     return { id: null, accepted: 0, results: [], duplicate: true }; // dedupe_key collision → already raised
   }
   const del = await deliverProposalToTeam(env, id, opts.promptText || opts.composedMessage || "",
-    { leadId: opts.leadId, fallbackFor: opts.fallbackFor });
+    { leadId: opts.leadId, fallbackFor: opts.fallbackFor, approveLabel: opts.approveLabel });
   return { id, accepted: del.accepted, results: del.results, duplicate: false };
 }
 
@@ -6140,6 +6166,49 @@ export async function handleWaProposalDecision(env, ctx, decision) {
     const notified = asg.addedDriverIds.length ? (asg.addedDriverIds.length + " driver(s) notified") : "no new drivers to notify";
     await sendTextTo(env, fromE164, "Assigned — " + notified + ".");
     return { status: "assigned", jobId: prop.job_id };
+  }
+
+  // B2b Slice 3b — a cancelled job whose driver was informed. APPROVE (Notify) tells each driver;
+  // SKIP leaves them un-messaged. Handled in-branch so the generic SKIP note below (client-facing)
+  // never fires for this driver-facing kind.
+  if (prop.kind === "drivercancel") {
+    if (action !== "APPROVE") {
+      const up = await env.BILLING_DB.prepare(
+        `UPDATE wa_proposals SET status='skipped', decided_at=?, decided_by=? WHERE id=? AND status='pending'`
+      ).bind(now, fromE164, proposalId).run();
+      if (up.meta && up.meta.changes) await sendTextTo(env, fromE164, "👍 Left it — job #" + prop.job_id + " cancelled, driver not messaged.");
+      return { status: "skipped" };
+    }
+    // Claim first (first-decision-wins), then notify. Drivers are template-notified, so their 24h
+    // window is usually CLOSED and a freeform would bounce (accepted-then-131047). Send in-window
+    // when open; otherwise hand the owner a one-tap relay link (no driver 'cancelled' template yet).
+    const claim = await env.BILLING_DB.prepare(
+      `UPDATE wa_proposals SET status='sent', decided_at=?, decided_by=? WHERE id=? AND status='pending'`
+    ).bind(now, fromE164, proposalId).run();
+    if (!(claim.meta && claim.meta.changes)) return { status: "noop" };
+    const dmeta = safeJson(prop.meta_json) || {};
+    const driverIds = Array.isArray(dmeta.driver_ids) ? dmeta.driver_ids : [];
+    const jobRow = await env.BILLING_DB.prepare(`SELECT id, client_name, date, time FROM jobs WHERE id = ?`).bind(prop.job_id).first();
+    const clientName = (jobRow && waNz(jobRow.client_name)) || "the client";
+    const when = jobRow ? (waNz(jobRow.date) + (waNz(jobRow.time) ? " " + waNz(jobRow.time) : "")) : "";
+    const lines = [];
+    for (const did of driverIds) {
+      const d = await env.BILLING_DB.prepare(`SELECT id, name, phone FROM drivers WHERE id = ?`).bind(did).first();
+      if (!d) continue;
+      const to = waMeNumber(d.phone);
+      const dname = waNz(d.name) || ("driver #" + did);
+      if (!to) { lines.push("• " + dname + ": no usable number — tell them manually."); continue; }
+      const first = dname.split(/\s+/)[0];
+      const dmsg = "Hello " + first + " — the booking for " + clientName + (when ? " on " + when : "") + " has been cancelled. No need to attend. — UMC Dubai";
+      const open = await clientWindowOpen(env, to);
+      if (open && await sendTextTo(env, to, dmsg)) {
+        lines.push("• " + dname + ": messaged ✅");
+      } else {
+        lines.push("• " + dname + ": tap to tell them — https://api.whatsapp.com/send?phone=" + to + "&text=" + encodeURIComponent(dmsg));
+      }
+    }
+    await sendTextTo(env, fromE164, "Driver cancel — job #" + prop.job_id + ":\n" + (lines.join("\n") || "no drivers found."));
+    return { status: "driver_notified", jobId: prop.job_id };
   }
 
   if (action === "SKIP") {
@@ -7581,6 +7650,63 @@ export async function sendInboundAlert(env, opts) {
   return { sent, skipped };
 }
 
+// B2b Slice 3a — parse a job's pickup (date TEXT + time TEXT) into epoch ms, interpreted as
+// GST (UTC+4; the Worker runs UTC). ISO date (flatpickr default) primary, a loose Date.parse
+// fallback. Returns NaN when unparseable → the watchdog simply won't nag that job (it stays
+// visible in the admin calendar). PURE — mirrored verbatim in the Slice-3 harness.
+function jobPickupMs(job) {
+  const d = waNz(job && job.date).trim();
+  if (!d) return NaN;
+  const tm = waNz(job && job.time).trim().match(/^(\d{1,2}):(\d{2})/);
+  const hh = tm ? String(tm[1]).padStart(2, "0") : "00";
+  const mm = tm ? tm[2] : "00";
+  let ms = Date.parse(d + "T" + hh + ":" + mm + ":00+04:00");   // ISO (GST)
+  if (isNaN(ms)) ms = Date.parse(d + " " + hh + ":" + mm + " GMT+0400"); // loose fallback
+  return ms;
+}
+// The gap code names WHICH crew is missing; it keys the dedupe so a NEW gap (e.g. a driver
+// assigned then removed) re-fires while the SAME gap stays silent. PURE — mirrored in harness.
+function jobGapCode(noDriver, noVehicle) {
+  return noDriver && noVehicle ? "nodriver+novehicle" : noDriver ? "nodriver" : noVehicle ? "novehicle" : "";
+}
+
+// B2b Slice 3a — T-24h unassigned-job reminder. Every 10-min tick: any LIVE job whose pickup
+// is within the next 24h but which is missing a driver OR a vehicle gets ONE reminder to the
+// cap_approve channel. Deduped once per (job, gap) via teamFreeform's wa_outbound dedupe_key —
+// so it re-fires only when the gap genuinely changes (driver assigned→removed flips the code),
+// not every tick. Cancelled/completed/outsourced jobs are excluded (silent). Inert until
+// WA_SEND_ENABLED=1 (the dedupe row is still claimed, so it won't spam once send goes live).
+export async function runUnassignedJobWatch(env) {
+  if (!env.BILLING_DB) return { checked: 0, alerted: 0 };
+  await ensureSchema(env);
+  const nowMs = Date.now();
+  const horizon = nowMs + 24 * 3600 * 1000;
+  const { results } = await env.BILLING_DB.prepare(
+    `SELECT j.id, j.client_name, j.date, j.time, j.pickup,
+            (SELECT COUNT(*) FROM job_drivers  WHERE job_id = j.id) AS ndrivers,
+            (SELECT COUNT(*) FROM job_vehicles WHERE job_id = j.id) AS nvehicles
+       FROM jobs j
+      WHERE COALESCE(j.status,'new') NOT IN ('cancelled','completed','outsourced')`
+  ).all();
+  let checked = 0, alerted = 0;
+  for (const j of (results || [])) {
+    const pMs = jobPickupMs(j);
+    if (isNaN(pMs) || pMs < nowMs || pMs > horizon) continue; // only upcoming, within 24h
+    const noD = Number(j.ndrivers) === 0, noV = Number(j.nvehicles) === 0;
+    if (!noD && !noV) continue; // fully crewed
+    checked++;
+    const gap = jobGapCode(noD, noV);
+    const gapText = noD && noV ? "no driver or vehicle" : noD ? "no driver" : "no vehicle";
+    const when = waNz(j.date) + (waNz(j.time) ? " " + waNz(j.time) : "");
+    const ok = await teamFreeform(env,
+      "⏰ Job #" + j.id + " (" + (waNz(j.client_name) || "client") + ") is within 24h — " + gapText + ". " +
+        when + (waNz(j.pickup) ? " · " + waNz(j.pickup) : "") + ". Assign in the workspace.",
+      { cap: "cap_approve", dedupeKey: "jobwatch:" + j.id + ":" + gap, kind: "job_watch", leadId: null });
+    if (ok) alerted++;
+  }
+  return { checked, alerted };
+}
+
 // ── Gate C — desktop WhatsApp send from the business number ───────────────────
 async function handleSendLeadWhatsApp(request, env) {
   await ensureSchema(env);
@@ -8393,7 +8519,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260719-b2b-slice2b2";
+const ADMIN_BUILD = "20260719-b2b-slice3";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
