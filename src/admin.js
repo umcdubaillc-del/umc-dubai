@@ -6502,6 +6502,31 @@ function assignResolveSchema() {
   };
 }
 
+// B2b Slice 2 — pending disambiguation scratch state. One row per sender; deleted on
+// resolve, on expiry (lazy), and overwritten (superseded) by a fresh command.
+const PENDING_WINDOW_MS = 15 * 60 * 1000;
+async function upsertPending(env, fromE164, payload) {
+  await env.BILLING_DB.prepare(
+    `INSERT INTO assist_pending (from_e164, kind, payload_json, created_at)
+       VALUES (?, 'assign', ?, ?)
+     ON CONFLICT(from_e164) DO UPDATE SET kind='assign', payload_json=excluded.payload_json, created_at=excluded.created_at`
+  ).bind(fromE164, JSON.stringify(payload), new Date().toISOString()).run();
+}
+async function deletePending(env, fromE164) {
+  await env.BILLING_DB.prepare(`DELETE FROM assist_pending WHERE from_e164 = ?`).bind(fromE164).run();
+}
+// Returns the LIVE payload (object) or null. An EXPIRED row is deleted and treated as
+// absent — an expired pending must never resurrect a later stray number (spec 3.3).
+async function loadLivePending(env, fromE164) {
+  const row = await env.BILLING_DB.prepare(
+    `SELECT payload_json, created_at FROM assist_pending WHERE from_e164 = ?`
+  ).bind(fromE164).first();
+  if (!row) return null;
+  const age = Date.now() - Date.parse(row.created_at || 0);
+  if (!(age >= 0 && age <= PENDING_WINDOW_MS)) { await deletePending(env, fromE164); return null; }
+  try { return JSON.parse(row.payload_json); } catch (e) { await deletePending(env, fromE164); return null; }
+}
+
 // B2b Slice 2 — resolve an assignment command to concrete job/driver/vehicle ids.
 // Claude RESOLVES ONLY and NEVER guesses: low confidence → candidates, not a pick.
 async function resolveAssignMessage(env, rawText) {
