@@ -1895,8 +1895,12 @@ async function createJobFromLeadId(env, leadId) {
     s(lead.service), s(lead.vehicle), s(lead.pickup), s(lead.destination), s(lead.date), s(lead.time),
     s(lead.days), s(lead.flight), s(lead.sign), s(lead.notes), "[]", 0, null, linkedDoc).run();
   const jobId = res.meta.last_row_id;
-  await finalizeJob(env, jobId);
-  return { ok: true, deduped: false, jobId };
+  // Minor (owner audit): wrap finalizeJob SEPARATELY from the INSERT. The row inserted = the job
+  // EXISTS; a calendar-sync throw must NOT degrade to "job not created" (that baits a manual
+  // duplicate). Report success with a finalizeFailed flag; the caller sends a distinct watchdog note.
+  let finalizeFailed = false;
+  try { await finalizeJob(env, jobId); } catch (e) { finalizeFailed = true; }
+  return { ok: true, deduped: false, jobId, finalizeFailed };
 }
 async function handleCreateJob(request, env) {
   await ensureSchema(env);
@@ -5568,6 +5572,11 @@ async function afterBookingSaved(env, fromE164, leadId, f, first, verb) {
     try {
       const jr = await createJobFromLeadId(env, leadId);
       if (!jr || !jr.ok) throw new Error("createJobFromLeadId: " + ((jr && jr.reason) || "unknown"));
+      // Job EXISTS. If only calendar-sync failed, keep the SUCCESS suffix (never "not created" —
+      // that would bait a manual duplicate); surface it as a distinct watchdog note instead.
+      if (jr.finalizeFailed && !jr.deduped) {
+        try { await teamFreeform(env, "⚠️ Job #" + jr.jobId + " created but finalize failed for booking #" + leadId, { cap: "cap_watchdog", dedupeKey: "autojobfinalize:" + leadId, kind: "autojob_finalize", leadId }); } catch (e2) {}
+      }
     } catch (e) {
       createdSuffix = " ⚠️ job not created — create from admin.";
       try { await teamFreeform(env, "⚠️ Auto-job failed for booking #" + leadId + ": " + (e && (e.message || String(e))), { cap: "cap_watchdog", dedupeKey: "autojobfail:" + leadId, kind: "autojob_fail", leadId }); } catch (e2) {}
@@ -8334,7 +8343,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260719-b2b-slice2b1";
+const ADMIN_BUILD = "20260719-b2b-slice2b1a";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
