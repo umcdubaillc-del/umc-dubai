@@ -6052,6 +6052,48 @@ export async function handleWaProposalDecision(env, ctx, decision) {
     return { status: "noop" };
   }
 
+  if (prop.kind === "assign") {
+    if (action !== "APPROVE") {   // Cancel / SKIP
+      const up = await env.BILLING_DB.prepare(
+        `UPDATE wa_proposals SET status='skipped', decided_at=?, decided_by=? WHERE id=? AND status='pending'`
+      ).bind(now, fromE164, proposalId).run();
+      if (up.meta && up.meta.changes) await sendTextTo(env, fromE164, "Assignment cancelled.");
+      return { status: "cancelled" };
+    }
+    const meta = safeJson(prop.meta_json) || {};
+    const driverIds = Array.isArray(meta.driver_ids) ? meta.driver_ids : [];
+    const vehicleIds = Array.isArray(meta.vehicle_ids) ? meta.vehicle_ids : [];
+    const job = await env.BILLING_DB.prepare(`SELECT * FROM jobs WHERE id = ?`).bind(prop.job_id).first();
+    // Refuse a dead job — it won't come back, so mark decided.
+    if (!job || ["completed", "cancelled"].includes(String(job.status))) {
+      await env.BILLING_DB.prepare(`UPDATE wa_proposals SET status='skipped', decided_at=?, decided_by=? WHERE id=? AND status='pending'`).bind(now, fromE164, proposalId).run();
+      await sendTextTo(env, fromE164, "That job is " + (job ? job.status : "gone") + " — can't assign.");
+      return { status: "dead_job" };
+    }
+    // STOP-AND-SURVIVE: validate every driver phone BEFORE claiming. On a bad number, reply
+    // naming the driver + raw number and RETURN WITHOUT claiming → proposal stays pending →
+    // the owner fixes the number in admin and re-taps Assign. NEVER a partial assign.
+    for (const did of driverIds) {
+      const d = await env.BILLING_DB.prepare(`SELECT id, name, phone FROM drivers WHERE id = ?`).bind(did).first();
+      if (!d) { await sendTextTo(env, fromE164, "A selected driver no longer exists — re-send the command."); return { status: "driver_gone" }; }
+      if (!waMeNumber(d.phone)) {
+        await sendTextTo(env, fromE164, "Can't assign: " + (d.name || ("driver #" + did)) + "'s number " + (d.phone || "(none)") + " won't normalize. Fix it in the roster, then tap Assign again.");
+        return { status: "bad_phone" };   // proposal left PENDING → re-tap works
+      }
+    }
+    // Claim (first-decision-wins) only after validation passes.
+    const claim = await env.BILLING_DB.prepare(
+      `UPDATE wa_proposals SET status='sent', decided_at=?, decided_by=? WHERE id=? AND status='pending'`
+    ).bind(now, fromE164, proposalId).run();
+    if (!(claim.meta && claim.meta.changes)) return { status: "noop" };
+    const asg = await setJobAssignments(env, prop.job_id, driverIds, vehicleIds);
+    const fresh = await finalizeJob(env, prop.job_id);
+    try { await notifyDriverAssignment(env, fresh, asg.addedDriverIds); } catch (e) { console.error("assign notify failed", e && (e.message || e)); }
+    const notified = asg.addedDriverIds.length ? (asg.addedDriverIds.length + " driver(s) notified") : "no new drivers to notify";
+    await sendTextTo(env, fromE164, "Assigned — " + notified + ".");
+    return { status: "assigned", jobId: prop.job_id };
+  }
+
   if (action === "SKIP") {
     const up = await env.BILLING_DB.prepare(
       `UPDATE wa_proposals SET status='skipped', decided_at=?, decided_by=? WHERE id=? AND status='pending'`
