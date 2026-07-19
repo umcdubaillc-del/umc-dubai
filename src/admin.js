@@ -5558,9 +5558,24 @@ async function handleVatSet(env, fromE164, vs) {
 // Booking-saved confirmation (create or dedupe-update). No amount → ask for it; amount
 // with a stated VAT → confirm it; amount with unstated VAT → ask [+VAT]/[Including].
 async function afterBookingSaved(env, fromE164, leadId, f, first, verb) {
+  // B2b Slice 2b.1 — on a NEW booking, auto-create the operational (unassigned) job. FAIL-OPEN
+  // (owner invariant): the job is the booking's shadow; the shadow must never kill the body. Any
+  // failure → the booking still stands, the confirmation degrades, the error goes to the watchdog.
+  // Guarded to "created" so an "updated" booking never spawns a second job (dedupe would skip anyway).
+  let createdSuffix = " — in the system.";
+  if (verb === "created") {
+    createdSuffix = " — job on the calendar.";
+    try {
+      const jr = await createJobFromLeadId(env, leadId);
+      if (!jr || !jr.ok) throw new Error("createJobFromLeadId: " + ((jr && jr.reason) || "unknown"));
+    } catch (e) {
+      createdSuffix = " ⚠️ job not created — create from admin.";
+      try { await teamFreeform(env, "⚠️ Auto-job failed for booking #" + leadId + ": " + (e && (e.message || String(e))), { cap: "cap_watchdog", dedupeKey: "autojobfail:" + leadId, kind: "autojob_fail", leadId }); } catch (e2) {}
+    }
+  }
   const base = verb === "updated"
     ? ("✅ Booking #" + leadId + " updated — " + first + ".")
-    : ("✅ Booking saved for " + first + " (#" + leadId + ") — in the system.");
+    : ("✅ Booking saved for " + first + " (#" + leadId + ")" + createdSuffix);
   const price = parseFloat(String(waNz(f && f.amount)).replace(/[^0-9.]/g, ""));
   const hasAmount = isFinite(price) && price > 0;
   const vatStated = !!f && ["plus", "incl", "none"].includes(f.vat);
