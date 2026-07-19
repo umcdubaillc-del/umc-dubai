@@ -7531,6 +7531,56 @@ export async function sendLeadAlerts(env, leadId, lead, opts) {
   return { sent, skipped };
 }
 
+// Slice 2b.2 — LEADLESS inbound alert. An unknown-number first contact no longer creates a
+// lead row (context-free noise); the team is still pinged so no inquiry is missed. Reuses the
+// approved `lead_alert` template + the outbound plumbing, but writes NO lead: lead_id=NULL and
+// kind='wa_inbound_alert', so the quote-by-reply binding (which requires lead_id != null) and
+// the 30-min escalation (kind='team_alert') both SKIP it. Deduped per (inbound wamid, member).
+// Inert until WA_SEND_ENABLED="1" (waGraphSend returns unconfigured otherwise). Fail-open.
+export async function sendInboundAlert(env, opts) {
+  opts = opts || {};
+  if (!env.BILLING_DB) return { sent: 0, skipped: 0 };
+  await ensureSchema(env);
+  const e164 = waMeNumber(opts.e164 || "");
+  if (!e164) return { sent: 0, skipped: 0 };
+  const team = await getWaTeamByCap(env, "cap_lead_alerts");
+  const clientName = waNz(opts.name) || "New WhatsApp message";
+  // {{2}} — the first message inline (one line; Meta forbids newlines in a body variable).
+  const raw = waNz(opts.text).replace(/\s+/g, " ").trim();
+  const summary = raw ? raw.slice(0, 300) : "New WhatsApp inquiry";
+  // {{3}} — a PLAIN reply link straight to the client's number. No lead → no signed redirect;
+  // api.whatsapp.com per house convention (never wa.me for our own links).
+  const link = "https://api.whatsapp.com/send?phone=" + e164;
+  const wamid = waNz(opts.wamid);
+  let sent = 0, skipped = 0;
+  for (const member of team) {
+    const to = waMeNumber(member.phone);
+    if (to.length < 8) { skipped++; continue; }
+    // wamid is present for any real inbound; if absent, fall back to the number so distinct
+    // first-contacts still each alert (per-member) rather than colliding on an empty key.
+    const dedupe = "inbound:" + (wamid || e164) + ":" + to;
+    const rowId = await claimOutbound(env, {
+      lead_id: null, kind: "wa_inbound_alert", recipient: to, template: "lead_alert",
+      dedupe_key: dedupe, meta_json: JSON.stringify({ summary, inbound: e164 })
+    });
+    if (!rowId) { skipped++; continue; } // already alerted this member for this inbound
+    const result = await waGraphSend(env, {
+      messaging_product: "whatsapp", to, type: "template",
+      template: {
+        name: "lead_alert", language: { code: "en" },
+        components: [{ type: "body", parameters: [
+          { type: "text", text: clientName },
+          { type: "text", text: summary },
+          { type: "text", text: link }
+        ] }]
+      }
+    });
+    await finishOutbound(env, rowId, result);
+    if (result.ok) sent++; else skipped++;
+  }
+  return { sent, skipped };
+}
+
 // ── Gate C — desktop WhatsApp send from the business number ───────────────────
 async function handleSendLeadWhatsApp(request, env) {
   await ensureSchema(env);
@@ -8343,7 +8393,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260719-b2b-slice2b1a";
+const ADMIN_BUILD = "20260719-b2b-slice2b2";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;

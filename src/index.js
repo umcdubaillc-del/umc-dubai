@@ -2,7 +2,7 @@
 
 import {
   handleAdmin, handleFleetRatesPublic, isAuthed,
-  sendLeadAlerts, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runLeadWatchdog, runFlightWatch,
+  sendLeadAlerts, sendInboundAlert, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runLeadWatchdog, runFlightWatch,
   createWaLink, handleWaRedirect, composeQuoteText, runQuoteNudge, runOpsDigest,
   handleAssistant, handleAssistantInbound, waSendingNumber
 } from "./admin.js";
@@ -1261,44 +1261,24 @@ async function captureWhatsAppLead(env, ctx, change) {
   } catch (e) { /* wa_events absent → treat as first contact */ }
 
   await ensureLeadsSchema(env);
-  // Dedupe by normalized phone across ALL leads (full scan; fine at this scale).
+  // An already-KNOWN number (existing lead — form/manual/assistant) is not a new inquiry;
+  // stay silent. Full scan; fine at this scale.
   const { results } = await env.BILLING_DB.prepare(
     `SELECT phone FROM leads WHERE phone IS NOT NULL`
   ).all();
   if ((results || []).some((r) => waMeNumber(r.phone) === e164)) return; // already known
 
+  // Slice 2b.2 — RETIRED the unknown-number lead INSERT (context-free noise) + its Sheet
+  // mirror. A bare inbound no longer births a lead row; leads come ONLY from a booking
+  // (assistant create) or a website/admin form. The team is still pinged so no inquiry is
+  // missed: a LEADLESS alert (preview + a direct api.whatsapp.com reply link, NO lead).
+  // The first-contact / freshness / not-staff filter above still gates it. Inert until
+  // WA_SEND_ENABLED="1".
   const name = (contact.profile && contact.profile.name) || "";
   const text = (msg.text && msg.text.body) ? msg.text.body : ("[" + (msg.type || "message") + "]");
-  const tsIso = msg.timestamp ? new Date(Number(msg.timestamp) * 1000).toISOString() : new Date().toISOString();
-  const now = new Date().toISOString();
-  const payload = {
-    source: "WhatsApp", name, phone: "+" + e164, email: "", service: "", pickup: "",
-    destination: "", date: "", time: "", vehicle: "", days: "", flight: "", sign: "",
-    notes: text, page: "whatsapp", ts: tsIso, verified: 1
-  };
-  let leadId = null;
-  try {
-    const ins = await env.BILLING_DB.prepare(
-      `INSERT INTO leads
-         (created_at, source, name, phone, email, service, pickup, destination,
-          date, time, vehicle, days, flight, sign, notes, page, client_ts, payload_json,
-          marketing_consent, verified, whatsapp_reachable)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).bind(now, "WhatsApp", name, "+" + e164, "", "", "", "", "", "", "", "", "", "",
-           text, "whatsapp", tsIso, JSON.stringify(payload), 0, 1, "yes").run();
-    leadId = ins && ins.meta ? ins.meta.last_row_id : null;
-  } catch (e) {
-    console.error("WA lead capture insert failed", e && (e.message || String(e)));
-    return;
+  if (env.WA_SEND_ENABLED === "1") {
+    ctx.waitUntil(sendInboundAlert(env, { e164, name, text, wamid: msg.id }).catch(() => {}));
   }
-  // WA-4 §5a — alert parity: a WhatsApp-captured lead rings the team too (was silent;
-  // owner saw captured rows but never heard rings). Idempotent per (lead, member);
-  // inert until WA_SEND_ENABLED="1".
-  if (env.WA_SEND_ENABLED === "1" && leadId) {
-    ctx.waitUntil(sendLeadAlerts(env, leadId, payload).catch(() => {}));
-  }
-  // Mirror to the Sheet (source "WhatsApp" → its own tab once the Apps Script edit lands).
-  if (env.SHEETS_WEBHOOK_URL) ctx.waitUntil(appendSheet(env, payload).catch(() => {}));
 }
 
 // D1 statements are capped (~100 KB); a WhatsApp history re-sync delivers very large
