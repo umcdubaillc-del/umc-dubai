@@ -1915,7 +1915,7 @@ def render_rentacar_page(em):
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M3 12h13l-4-4M16 12l-4 4"/></svg></div>
         <div><h3>Get an all-inclusive rate<span class="lbl">No meter</span></h3><p>Chauffeur, fuel, Salik, parking and unlimited city mileage are already in the quoted rate.</p></div></div>
       <div class="tstep"><div class="node"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg></div>
-        <div><h3>Reserve<span class="lbl">Personally confirmed</span></h3><p>Confirmation is handled by a person, with the chauffeur's details before the pick-up.</p></div></div>
+        <div><h3>Reserve<span class="lbl">Concierge confirmation</span></h3><p>Confirmation is handled by our concierge team, not an automated system &mdash; with the chauffeur's details before the pick-up.</p></div></div>
     </div>
   </div>
 </section>
