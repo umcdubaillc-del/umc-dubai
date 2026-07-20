@@ -1934,7 +1934,7 @@ def render_rentacar_page(em):
           <li role="listitem"><b class="t">Cabin provisions</b><span>Bottled water, device chargers and tissues, prepared before every pick-up.</span></li>
           <li role="listitem"><b class="t">24 hours a day</b><span>Early starts, late finishes, overnight transfers. We staff for the hours you need.</span></li>
         </ul>
-        <div class="tg-foot"><span>No surge &middot; No metered fares</span><i>Confirmed by a person</i></div>
+        <div class="tg-foot"><span>No surge &middot; No metered fares</span><i>Concierge confirmation</i></div>
       </div>
     </div>
   </div>
@@ -2098,7 +2098,7 @@ def render_rentacar_hub():
           <li role="listitem"><b class="t">Cabin provisions</b><span>Bottled water, device chargers and tissues, prepared before every pick-up.</span></li>
           <li role="listitem"><b class="t">24 hours a day</b><span>Early starts, late finishes, overnight transfers. We staff for the hours you need.</span></li>
         </ul>
-        <div class="tg-foot"><span>No meter &middot; No surge</span><i>Confirmed by a person</i></div>
+        <div class="tg-foot"><span>No meter &middot; No surge</span><i>Concierge confirmation</i></div>
       </div>
     </div>
   </div>
