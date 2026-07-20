@@ -3,7 +3,7 @@
 import {
   handleAdmin, handleFleetRatesPublic, isAuthed,
   sendLeadAlerts, sendInboundAlert, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runLeadWatchdog, runFlightWatch,
-  createWaLink, handleWaRedirect, composeQuoteText, runQuoteNudge, runOpsDigest, runUnassignedJobWatch,
+  createWaLink, handleWaRedirect, composeQuoteText, runQuoteNudge, runOpsDigest, runUnassignedJobWatch, runInboundWatch,
   handleAssistant, handleAssistantInbound, waSendingNumber
 } from "./admin.js";
 import { handleWaTemplates } from "./wa-templates.js";
@@ -224,6 +224,7 @@ export default {
       ctx.waitUntil(runFlightWatch(env).catch(() => {}));  // WA-2 I (self-gates on FLIGHT_WATCH_ENABLED)
       ctx.waitUntil(runQuoteNudge(env).catch(() => {}));   // WA-3 quote follow-up nudge
       ctx.waitUntil(runUnassignedJobWatch(env).catch(() => {})); // B2b Slice 3a — T-24h unassigned-job reminder
+      ctx.waitUntil(runInboundWatch(env).catch(() => {}));        // Slice 2b.2b — unanswered WhatsApp inquiry → watchdog
     }
   }
 };
