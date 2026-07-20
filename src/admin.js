@@ -2613,14 +2613,29 @@ function pmtEmailRows(pairs){return pairs.filter(([,v])=>v!=null&&String(v).trim
 async function sendPaymentReceivedEmail(env, info){
   if(!env.RESEND_API_KEY) return;
   const to = env.LEAD_EMAIL_TO || "contact@umcdubai.ae";
-  const amountStr = (info.currency||"AED") + " " + Number(info.amount||0).toLocaleString("en-AE",{minimumFractionDigits:2,maximumFractionDigits:2});
+  // The charged figure (webhook gross — the amount that actually moved) is the single
+  // source of truth per payment. For AED, state it as gross incl. VAT and show the derived
+  // 5% breakdown ONCE so the bookkeeper never reverse-engineers it (net = gross/1.05, 2dp).
+  const curCode = info.currency || "AED";
+  const fmtAmt = (n) => curCode + " " + Number(n||0).toLocaleString("en-AE",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const grossAmt = Number(info.amount||0);
+  let amountLabel, amountRow;
+  if (String(curCode).toUpperCase() === "AED") {
+    const net = Math.round((grossAmt/1.05)*100)/100;
+    const vat = Math.round((grossAmt - net)*100)/100;
+    amountLabel = fmtAmt(grossAmt) + " (incl. VAT)";
+    amountRow = fmtAmt(grossAmt) + " (incl. VAT) · net " + fmtAmt(net) + " · VAT " + fmtAmt(vat) + " (derived)";
+  } else {
+    amountLabel = fmtAmt(grossAmt);
+    amountRow = amountLabel;
+  }
   // v95: subject drops the literal "Client" word and uses the resolved name
   // when present; falls back cleanly to "Payment received — AED X" so the
   // separator never dangles.
   const clientName = String(info.client||"").trim();
   const subject = clientName
-    ? `Payment received — ${clientName} — ${amountStr}`
-    : `Payment received — ${amountStr}`;
+    ? `Payment received — ${clientName} — ${amountLabel}`
+    : `Payment received — ${amountLabel}`;
   // v95: humanise the paidAt timestamp into Dubai time. Falls back to the raw
   // value if Date parsing fails so we never lose the row.
   let paidAtStr = info.paidAt || "";
@@ -2634,7 +2649,7 @@ async function sendPaymentReceivedEmail(env, info){
   } catch(_){}
   const rows = pmtEmailRows([
     ["Client", clientName],
-    ["Amount", amountStr],
+    ["Amount", amountRow],
     ["Payment link", info.linkTitle],
     ["Invoice", info.invoiceNumber],
     ["Reference", info.chargeId],
@@ -2855,7 +2870,10 @@ async function handleNomodWebhook(request, env) {
         const client = (invDoc && invDoc.client_name) || (lk && lk.client_name) || custFull || "";
         await sendPaymentReceivedEmail(env, {
           client,
-          amount: (lk && lk.amount) || data.amount || data.gross || data.total || 0,
+          // The webhook charged amount is the GROSS that actually moved — the single truthful
+          // "(incl. VAT)" figure. Was lk.amount, which stores NET for workspace-origin links
+          // (Nomod charges ×1.05); that understated the paper trail. Now matches the WA path.
+          amount: Number(data.amount ?? data.gross ?? data.total ?? (data.charge && data.charge.amount) ?? 0) || 0,
           currency: (lk && lk.currency) || data.currency || "AED",
           linkTitle: (lk && lk.title) || "Nomod payment link",
           invoiceNumber: invNo,
@@ -5055,10 +5073,13 @@ async function sendPaymentConfirmation(env, ctx, info) {
   // P4 — actual charged amount from the webhook (never the invoice figure).
   const amtNum = Number(info.amount);
   const amountStr = isFinite(amtNum) && amtNum > 0 ? amtNum.toFixed(2).replace(/\.00$/, "") : String(info.amount || "");
+  // The charged amount is the GROSS incl. VAT — label it so every payment surface reads
+  // consistently (AED only; non-AED is routed to the team below and carries its own currency).
+  const inclVat = String(info.currency || "AED").toUpperCase() === "AED" ? " (incl. VAT)" : "";
   const summary = waLeadSummary(lead) || "Booking";
   const to = waMeNumber(lead.phone);
   const clientPrefill = "Dear " + firstName + ", thank you — we have received your payment of AED " +
-    amountStr + ". Your booking is confirmed and your concierge will share the final arrangements shortly.\n\nWarm regards,\nUMC Dubai";
+    amountStr + inclVat + ". Your booking is confirmed and your concierge will share the final arrangements shortly.\n\nWarm regards,\nUMC Dubai";
   const clientLink = to
     ? (await createWaLink(env, { leadId: lead.id, purpose: "payment", toPhone: lead.phone, prefill: clientPrefill }))
     : "No WhatsApp number on file";
@@ -5075,7 +5096,7 @@ async function sendPaymentConfirmation(env, ctx, info) {
   // P1 — reachability gate. Unverified number → team prefill alert, never a client send.
   const reachable = lead.whatsapp_reachable === "yes" || (to && await leadHasInboundHistory(env, to));
   if (!to || !reachable) {
-    await teamPaymentAlert(env, lead, amountStr, summary, clientLink, payId + ":unreach");
+    await teamPaymentAlert(env, lead, amountStr + inclVat, summary, clientLink, payId + ":unreach");
     await finishOutbound(env, lockId, { status: "skipped", errorCode: "unreachable" });
     await stampNote((to ? "Number not verified" : "No usable number") + " — team prefill alert, no client auto-send." + mirrorTag);
     return;
@@ -5090,7 +5111,7 @@ async function sendPaymentConfirmation(env, ctx, info) {
   // Assistant OFF for payments → fall back to a plain team alert (no proposal).
   const asettings = await getAssistantSettings(env);
   if (asettings.paymentMode === "off") {
-    await teamPaymentAlert(env, lead, amountStr, summary, clientLink, payId + ":assistoff");
+    await teamPaymentAlert(env, lead, amountStr + inclVat, summary, clientLink, payId + ":assistoff");
     await finishOutbound(env, lockId, { status: "skipped", errorCode: "assistant_off" });
     await stampNote("Assistant payment proposals are OFF — plain team alert sent, no proposal." + mirrorTag);
     return;
@@ -5424,7 +5445,7 @@ function maskNumber(e164) {
 // decider always sees WHERE Send will fire before tapping. Used by the staged-test raise
 // and the Phase 5 payment reroute so both read identically. maskedTarget = maskNumber(to).
 function paymentProposalPrompt(name, amount, summary, maskedTarget, test) {
-  return "💳 Payment received — " + name + " · AED " + amount + ".\n" + summary +
+  return "💳 Payment received — " + name + " · AED " + amount + " (incl. VAT).\n" + summary +
     "\nThe client is on " + maskedTarget + " — send the confirmation?" + (test ? " [TEST]" : "");
 }
 
@@ -5993,7 +6014,8 @@ async function sendProposalApproved(env, proposal) {
     if (proposal.kind === "payment") {
       const amount = meta.amount ? String(meta.amount) : "";
       const summary = meta.summary || (lead ? waLeadSummary(lead) : "") || "Your booking";
-      template = "payment_received"; params = [firstName, amount, summary];
+      // {{2}} is the charged AED gross — label it incl. VAT (payment path is AED-only).
+      template = "payment_received"; params = [firstName, amount + (amount ? " (incl. VAT)" : ""), summary];
     } else {
       // flight_delay_update: {{1}} first name, {{2}} flight code, {{3}} new local ETA "(Dubai time)".
       template = "flight_delay_update"; params = [firstName, meta.flight || "", meta.eta || ""];
@@ -8714,7 +8736,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260720-notif-bundle";
+const ADMIN_BUILD = "20260720-pay-vat-export";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -14054,12 +14076,38 @@ const PAGE_SCRIPT = `<script>
   }
   // WA-2 F — CSV export of the current leads (client-side, from leadsCache).
   function leadsToCsv(rows){
-    var cols = ["id","created_at","source","name","phone","email","service","vehicle",
-      "pickup","destination","date","time","days","flight","sign","notes","status",
-      "vat_mode","quote_price","whatsapp_reachable","linked_doc_number","converted_at","verified"];
+    // Analysis-ready: clean human headers, one row per lead, ISO created_at, the derived
+    // funnel stage + the lead's job id (both attached server-side by handleListLeads), and
+    // lifecycle/cancellation tails. [header, field] or [header, null, fn(row)] for derived.
+    // NOTE: leads has no updated_at column — converted_at is the lifecycle timestamp we hold.
+    var cols = [
+      ["Created At",   "created_at"],
+      ["Name",         "name"],
+      ["Phone",        "phone"],
+      ["Email",        "email"],
+      ["Source",       "source"],
+      ["Service",      "service"],
+      ["Vehicle",      "vehicle"],
+      ["Pickup",       "pickup"],
+      ["Destination",  "destination"],
+      ["Date",         "date"],
+      ["Time",         "time"],
+      ["Days",         "days"],
+      ["Flight",       "flight"],
+      ["Price (AED)",  "quote_price"],
+      ["VAT Mode",     "vat_mode"],
+      ["Status",       "status"],
+      ["Funnel Stage", "funnel_stage"],
+      ["Linked Doc",   "linked_doc_number"],
+      ["Job ID",       "active_job_id"],
+      ["Converted At", "converted_at"],
+      ["Cancelled",    null, function(r){ return String(r.status||"").toLowerCase()==="cancelled" ? "yes" : ""; }]
+    ];
     var cell = function(v){ return '"' + String(v==null?"":v).replace(/"/g,'""') + '"'; };
-    var out = cols.join(",") + "\\r\\n";
-    (rows||[]).forEach(function(r){ out += cols.map(function(c){ return cell(r[c]); }).join(",") + "\\r\\n"; });
+    var out = cols.map(function(c){ return cell(c[0]); }).join(",") + "\\r\\n";
+    (rows||[]).forEach(function(r){
+      out += cols.map(function(c){ return cell(c[2] ? c[2](r) : r[c[1]]); }).join(",") + "\\r\\n";
+    });
     return out;
   }
   function exportLeadsCsv(){
