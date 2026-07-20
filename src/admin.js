@@ -274,6 +274,13 @@ async function ensureSchema(env) {
       // PAY-PAGE — unguessable public token, the /pay/{token} route key. Minted at
       // link creation (crypto-random url-safe); ids/numbers are NEVER route keys.
       "pay_token TEXT",
+      // PAY-PAGE W2/W3 — expiry (mirrors what we send Nomod, so /pay can render EXPIRED)
+      // + soft-archive timestamp (never DELETE; /pay renders ARCHIVED, admin hides by default).
+      "expiry_date TEXT",
+      "archived_at TEXT",
+      // PAY-PAGE W4 — server-side view telemetry stamped on each public /pay hit (no page JS).
+      "viewed_at TEXT",
+      "view_count INTEGER DEFAULT 0",
     ]);
     // PAY-PAGE — enforce token uniqueness + backfill a token onto every pre-existing
     // link (one-time; guarded so it never re-runs once no NULLs remain).
@@ -1283,13 +1290,19 @@ async function handlePaymentLink(id, env, opts, override) {
       quantity: 1,
     }];
   }
+  // PAY-PAGE W1 — reuse this invoice's existing /pay token (stable across regenerate) or mint one,
+  // BEFORE the Nomod payload, so the return loop lands the payer on OUR page.
+  const existLink = await env.BILLING_DB.prepare(
+    "SELECT id, pay_token FROM payment_links WHERE invoice_number = ? ORDER BY id DESC LIMIT 1"
+  ).bind(String(inv.number)).first();
+  const payToken = (existLink && existLink.pay_token) || mintPayToken();
   const payload = {
     currency: String(override.currency || inv.currency || "AED"),
     items,
     title: String(override.title || inv.number).slice(0, 50),
     note: String(override.note || `Payment for UMC In Bound Tour Operator LLC invoice ${inv.number}`).slice(0, 280),
-    success_url: PUBLIC_ORIGIN + "/?paid=" + encodeURIComponent(inv.number),
-    failure_url: PUBLIC_ORIGIN + "/contact?invoice=" + encodeURIComponent(inv.number),
+    success_url: PUBLIC_ORIGIN + "/pay/" + payToken,
+    failure_url: PUBLIC_ORIGIN + "/pay/" + payToken,
     allow_service_fee: NOMOD_ALLOW_SERVICE_FEE,
     allow_tabby:       NOMOD_ALLOW_TABBY,
     allow_tamara:      NOMOD_ALLOW_TAMARA,
@@ -1322,20 +1335,19 @@ async function handlePaymentLink(id, env, opts, override) {
     const persistedNet = (Number(inv.total) || 0) / 1.05;
     const linkTitle = (inv.client_name && String(inv.client_name).trim()) || String(inv.number);
     const linkNote = payload.note;
-    const existing = await env.BILLING_DB.prepare(
-      "SELECT id FROM payment_links WHERE nomod_link_id = ? LIMIT 1"
-    ).bind(nomodBody.id || "").first();
-    if (existing && existing.id) {
+    // Keyed on invoice_number (one link per invoice) so a regenerate UPDATES the existing row —
+    // refreshing nomod_link_id/url and keeping the SAME pay_token — instead of duplicating.
+    if (existLink && existLink.id) {
       await env.BILLING_DB.prepare(
         `UPDATE payment_links
          SET title = ?, amount = ?, currency = ?, note = ?,
-             nomod_link_url = ?, client_name = ?, invoice_number = ?,
-             origin = 'workspace'
+             nomod_link_id = ?, nomod_link_url = ?, client_name = ?, invoice_number = ?,
+             origin = 'workspace', pay_token = COALESCE(pay_token, ?)
          WHERE id = ?`
       ).bind(
         linkTitle.slice(0, 120), persistedNet, payload.currency, linkNote,
-        nomodBody.url, inv.client_name || null, String(inv.number),
-        existing.id
+        nomodBody.id || null, nomodBody.url, inv.client_name || null, String(inv.number),
+        payToken, existLink.id
       ).run();
     } else {
       await env.BILLING_DB.prepare(
@@ -1346,7 +1358,7 @@ async function handlePaymentLink(id, env, opts, override) {
       ).bind(
         linkTitle.slice(0, 120), persistedNet, payload.currency, linkNote,
         nomodBody.id || null, nomodBody.url,
-        inv.client_name || null, String(inv.number), createdAt, mintPayToken()
+        inv.client_name || null, String(inv.number), createdAt, payToken
       ).run();
     }
   } catch (e) {
@@ -1426,13 +1438,16 @@ async function handleCreateStandaloneLink(request, env) {
     payloadItems = [{ name: shortItemName(title) || "Service", amount: target.toFixed(2), quantity: 1 }];
   }
 
+  // PAY-PAGE W1 — mint the token BEFORE the Nomod payload so the return loop lands the payer
+  // back on OUR page (/pay/{token}), which then shows the webhook-driven PAID receipt.
+  const payToken = mintPayToken();
   const payload = {
     currency,
     items: payloadItems,
     title: title.slice(0, 50),
     note: (note || `Payment to UMC In Bound Tour Operator LLC · ${title}`).slice(0, 280),
-    success_url: PUBLIC_ORIGIN + "/?paid=" + encodeURIComponent(title),
-    failure_url: PUBLIC_ORIGIN + "/contact?ref=" + encodeURIComponent(title),
+    success_url: PUBLIC_ORIGIN + "/pay/" + payToken,
+    failure_url: PUBLIC_ORIGIN + "/pay/" + payToken,
     allow_service_fee: NOMOD_ALLOW_SERVICE_FEE,
     allow_tabby,
     allow_tamara,
@@ -1469,9 +1484,9 @@ async function handleCreateStandaloneLink(request, env) {
   const persistedNote = note || derivedNote || null;
   try {
     const ins = await env.BILLING_DB.prepare(
-      `INSERT INTO payment_links (title, amount, currency, note, nomod_link_id, nomod_link_url, client_name, origin, pay_token)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'workspace', ?)`
-    ).bind(title, persistedNet, currency, persistedNote, nomodBody.id || null, nomodBody.url, clientName, mintPayToken()).run();
+      `INSERT INTO payment_links (title, amount, currency, note, nomod_link_id, nomod_link_url, client_name, origin, pay_token, expiry_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'workspace', ?, ?)`
+    ).bind(title, persistedNet, currency, persistedNote, nomodBody.id || null, nomodBody.url, clientName, payToken, expiry_date).run();
     const id = ins && ins.meta && ins.meta.last_row_id;
     return json({ ok: true, id, url: nomodBody.url, nomod_id: nomodBody.id, amount: persistedNet });
   } catch (e) {
@@ -1482,16 +1497,31 @@ async function handleCreateStandaloneLink(request, env) {
   }
 }
 
-async function handleListLinks(env) {
+async function handleListLinks(request, env) {
   await ensureSchema(env);
+  // W3 — default list HIDES archived; ?archived=1 includes them (the Show-archived toggle).
+  let showArchived = false;
+  try { showArchived = new URL(request.url).searchParams.get("archived") === "1"; } catch (e) { /* env may pass no request */ }
+  const where = showArchived ? "" : "WHERE archived_at IS NULL";
   const { results } = await env.BILLING_DB.prepare(
     `SELECT id, title, amount, amount_aed, currency, note, nomod_link_id, nomod_link_url,
             nomod_charge_id, COALESCE(excluded, 0) AS excluded, created_at,
             client_name, client_email, client_phone, invoice_number, origin,
-            COALESCE(payment_status,'unpaid') AS payment_status, paid_at, pay_token
-     FROM payment_links ORDER BY created_at DESC LIMIT 500`
+            COALESCE(payment_status,'unpaid') AS payment_status, paid_at, pay_token,
+            expiry_date, archived_at, viewed_at, COALESCE(view_count,0) AS view_count
+     FROM payment_links ${where} ORDER BY created_at DESC LIMIT 500`
   ).all();
   return json({ ok: true, items: results || [] });
+}
+// W3 — soft-archive / restore a payment link (never DELETE; a Nomod-synced charge is revenue).
+async function handleArchiveLink(id, request, env) {
+  await ensureSchema(env);
+  let body = {}; try { body = await request.json(); } catch (e) { /* default archive */ }
+  const restore = !!(body && body.restore);
+  await env.BILLING_DB.prepare(
+    `UPDATE payment_links SET archived_at = ? WHERE id = ?`
+  ).bind(restore ? null : new Date().toISOString(), id).run();
+  return json({ ok: true, id, archived: !restore });
 }
 
 // v110 — edit the client name on a single link record (item 1). Deliberately
@@ -2815,6 +2845,15 @@ function payShell(inner, doctype){
     "<p class=\"pagefoot\"><a href=\"https://umcdubai.ae\">umcdubai.ae</a></p></body></html>";
 }
 function payNotice(msg){ return payShell("<section class=\"service\"><h1>"+payEsc(msg)+"</h1><div class=\"service-rule\"></div></section><div style=\"height:1rem\"></div>", "Payment"); }
+// W2 — expired / archived: a headline + a concierge WhatsApp + phone line; NO pay button.
+function payStateNotice(title, sub){
+  return payShell(
+    "<section class=\"service\"><h1>"+payEsc(title)+"</h1>"+(sub?"<p class=\"note\">"+payEsc(sub)+"</p>":"")+"<div class=\"service-rule\"></div></section>"+
+    "<p class=\"taxline\" style=\"margin-top:1.2rem\">Our concierge is here to help.<br>"+
+    "<a class=\"taxbtn\" href=\"https://api.whatsapp.com/send?phone=971586497861\">Message us on WhatsApp</a></p>"+
+    "<p class=\"taxline\" style=\"margin-top:.55rem\">or call <a href=\"tel:+971586497861\" style=\"color:inherit\">+971 58 649 7861</a></p><div style=\"height:.4rem\"></div>",
+    "Payment");
+}
 function payPageHtml(d){
   var meta = "<span><span class=\"lbl\">Payment Ref</span><b>"+payEsc(d.payRef)+"</b></span>";
   if(d.invoiceNumber) meta += "<span><span class=\"lbl\">Invoice</span><b>"+payEsc(d.invoiceNumber)+"</b></span>";
@@ -2868,6 +2907,23 @@ export async function handlePayPage(env, token){
   if(!tok) return payResponse(payNotice("Payment link not found."), 404);
   var link = await env.BILLING_DB.prepare("SELECT * FROM payment_links WHERE pay_token = ? LIMIT 1").bind(tok).first();
   if(!link) return payResponse(payNotice("Payment link not found."), 404);
+
+  // W4 — server-side view telemetry (no page JS). Best-effort; never blocks the render.
+  try { await env.BILLING_DB.prepare("UPDATE payment_links SET view_count = COALESCE(view_count,0)+1, viewed_at = ? WHERE id = ?").bind(new Date().toISOString(), link.id).run(); } catch(e){}
+
+  // W2 — ARCHIVED (owner soft-archived) and EXPIRED (expiry_date passed, still unpaid) states:
+  // a notice with the concierge line, NO pay button. A PAID link always shows its receipt below.
+  var paidNow = String(link.payment_status||"").toLowerCase() === "paid";
+  if(link.archived_at){
+    return payResponse(payStateNotice("This payment link is no longer active.", "Please contact our concierge if you still need to complete this payment."), 410);
+  }
+  if(!paidNow && link.expiry_date){
+    var expRaw = String(link.expiry_date);
+    var expMs = Date.parse(expRaw.length <= 10 ? (expRaw + "T23:59:59+04:00") : expRaw); // date-only = valid through that GST day
+    if(!isNaN(expMs) && Date.now() > expMs){
+      return payResponse(payStateNotice("This payment link has expired.", "Please contact our concierge to arrange payment."), 410);
+    }
+  }
 
   var cur = String(link.currency||"AED").toUpperCase();
   var isAED = cur === "AED";
@@ -8939,10 +8995,13 @@ export async function handleAdmin(request, env) {
     const authed = await isAuthed(request, env);
     if (!authed) return json({ ok: false, error: "auth required" }, 401);
     if (!env.BILLING_DB) return dbUnavailable();
-    if (path === "/admin/api/links" && method === "GET") return handleListLinks(env);
+    if (path === "/admin/api/links" && method === "GET") return handleListLinks(request, env);
     if (path === "/admin/api/links" && method === "POST") return handleCreateStandaloneLink(request, env);
     const lm = path.match(/^\/admin\/api\/links\/(\d+)$/);
     if (lm && method === "DELETE") return handleDeleteLink(parseInt(lm[1], 10), env);
+    // W3 — soft-archive / restore (never DELETE).
+    const arm = path.match(/^\/admin\/api\/links\/(\d+)\/archive$/);
+    if (arm && method === "POST") return handleArchiveLink(parseInt(arm[1], 10), request, env);
     // v86 — attach a link to an existing invoice.
     const am = path.match(/^\/admin\/api\/links\/(\d+)\/attach$/);
     if (am && method === "POST") {
@@ -8999,7 +9058,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260720-pay-page";
+const ADMIN_BUILD = "20260721-pay-harden";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -10476,6 +10535,9 @@ function appShellHTML() {
         <label class="lbl" for="lkSearch">Search</label>
         <input id="lkSearch" type="search" inputmode="search" autocomplete="off" placeholder="Client, phone, email, title, amount or status">
       </div>
+      <label style="display:inline-flex;align-items:center;gap:.4rem;font-size:.82rem;color:var(--muted);white-space:nowrap;margin-left:.6rem">
+        <input id="lkShowArchived" type="checkbox"> Show archived
+      </label>
     </div>
     <div class="hist-scroll">
       <table>
@@ -11587,9 +11649,19 @@ const PAGE_SCRIPT = `<script>
     // (when not attached and not Nomod-synced), Attach to existing invoice,
     // Linked indicator (when invoice_number is set), Exclude/Restore (synced)
     // and Delete (non-synced, non-attached).
+    // W4 — compact relative time for the "last viewed <ago>" hint.
+    function lkAgo(iso){
+      var t = Date.parse(iso); if(isNaN(t)) return "";
+      var s = Math.max(0, Math.floor((Date.now()-t)/1000));
+      if(s < 60) return "just now";
+      var m = Math.floor(s/60); if(m < 60) return m+"m ago";
+      var h = Math.floor(m/60); if(h < 24) return h+"h ago";
+      var d = Math.floor(h/24); if(d < 30) return d+"d ago";
+      return fmtDate(iso);
+    }
     loadLinks = async function(){
       try {
-        const r = await fetch("/admin/api/links");
+        const r = await fetch("/admin/api/links" + (showArchivedLinks ? "?archived=1" : ""));
         const j = await r.json();
         const tbody = $("lkBody");
         const empty = $("lkEmpty");
@@ -11624,7 +11696,15 @@ const PAGE_SCRIPT = `<script>
           // v111 (item 1) — surface phone/email under the client so the owner can
           // spot-check the synced contact details at a glance.
           const contactLine = [x.client_phone, x.client_email].filter(function(s){ return s && String(s).trim(); }).map(function(s){ return esc(String(s).trim()); }).join(' · ');
-          const subline = (x.note ? '<div class="hist-link" style="color:var(--muted)">'+esc(x.note)+'</div>' : '')
+          // F1 — the payment link's own display reference. W4 — server-side view telemetry.
+          const plRef = "UMC-PL-" + String(x.id).padStart(4, "0");
+          const viewsBit = Number(x.view_count) > 0
+            ? (' · viewed ' + Number(x.view_count) + '×' + (x.viewed_at ? ' · last ' + esc(lkAgo(x.viewed_at)) : ''))
+            : '';
+          const archBit = x.archived_at ? ' · <span style="color:var(--amber-deep)">Archived</span>' : '';
+          const metaLine = '<div class="hist-link" style="color:var(--muted);font-size:11px;letter-spacing:.02em">'+plRef+viewsBit+archBit+'</div>';
+          const subline = metaLine
+            + (x.note ? '<div class="hist-link" style="color:var(--muted)">'+esc(x.note)+'</div>' : '')
             + (contactLine ? '<div class="hist-link" style="color:var(--muted);font-size:11px">'+contactLine+'</div>' : '');
           const statusPill = isPaid
             ? '<span class="hist-status paid">Paid</span>'
@@ -11667,6 +11747,12 @@ const PAGE_SCRIPT = `<script>
           // v110 (item 1) — edit the client name on any link record. Restores names
           // the sync clobbered and covers future corrections.
           actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkeditname="'+x.id+'" data-lkcurname="'+esc(x.client_name||"")+'" title="Edit the client name shown on this link">Edit client name</button>');
+          // W3 — soft archive / restore (never deletes; the pay page renders "no longer active").
+          if(x.archived_at){
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkarchive="0" data-id="'+x.id+'" title="Restore this link to the active list">Restore from archive</button>');
+          } else {
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkarchive="1" data-id="'+x.id+'" data-lkname="'+esc(clientPrimary||x.title||"")+'" title="Hide this link from the active list (soft archive; the record is kept)">Archive</button>');
+          }
           const trClass = "expandable" + (isExcl ? " excluded" : "");
           // v108 — for a foreign-currency row, show the reconciled AED gross next
           // to the card-currency amount. Blank for AED rows or when amount_aed
@@ -12080,6 +12166,8 @@ const PAGE_SCRIPT = `<script>
   // here for the same reason as loadLinks: bindForm closes around the
   // populating code, but the reader is IIFE-scope.
   let lastLinksById = {};
+  // W3 — IIFE-scope so both loadLinks (fetch) and bindLinksClickOnce (toggle) share it.
+  let showArchivedLinks = false;
 
   // v87: every payment-link Copy action puts the link on the clipboard with
   // Nomod's default sharing message in front, so a paste into WhatsApp/email
@@ -14729,6 +14817,9 @@ const PAGE_SCRIPT = `<script>
     // item 2 — live text filter for the Links tab.
     const searchEl = root.querySelector("#lkSearch");
     if(searchEl) searchEl.addEventListener("input", function(){ applyLinksFilter(); });
+    // W3 — Show-archived toggle: reloads including archived rows.
+    const showArch = root.querySelector("#lkShowArchived");
+    if(showArch) showArch.addEventListener("change", function(){ showArchivedLinks = this.checked; loadLinks(); });
     root.addEventListener("click", function(e){
       const cp = e.target.closest("[data-lkcopy]");
       if(cp){
@@ -14773,6 +14864,26 @@ const PAGE_SCRIPT = `<script>
             }
           })
           .catch(function(err){ en.disabled = false; showToast("Couldn’t update name — " + (err.message || err), true); });
+        return;
+      }
+      // W3 — soft archive / restore (never deletes).
+      const arc = e.target.closest("[data-lkarchive]");
+      if(arc){
+        e.preventDefault(); e.stopPropagation();
+        const lkId = arc.getAttribute("data-id");
+        const toArchive = arc.getAttribute("data-lkarchive") === "1";
+        if(toArchive){
+          const nm = arc.getAttribute("data-lkname") || "this link";
+          if(!confirm("Archive " + nm + "?\\n\\nThe payment page will show it is no longer active. Also deactivate this link in the Nomod app.")) return;
+        }
+        arc.disabled = true;
+        fetch("/admin/api/links/" + lkId + "/archive", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ restore: !toArchive })
+        })
+          .then(function(r){ return r.json().catch(function(){ return {}; }); })
+          .then(function(j){ arc.disabled = false; if(j && j.ok){ showToast(toArchive ? "Link archived." : "Link restored."); loadLinks(); } else { showToast("Couldn’t update — " + ((j && j.error) || "error"), true); } })
+          .catch(function(err){ arc.disabled = false; showToast("Couldn’t update — " + (err.message||err), true); });
         return;
       }
       const mk = e.target.closest("[data-lkmakeinv]");
