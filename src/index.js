@@ -4,7 +4,8 @@ import {
   handleAdmin, handleFleetRatesPublic, isAuthed,
   sendLeadAlerts, sendInboundAlert, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runLeadWatchdog, runFlightWatch,
   createWaLink, handleWaRedirect, composeQuoteText, runQuoteNudge, runOpsDigest, runUnassignedJobWatch, runInboundWatch,
-  handleAssistant, handleAssistantInbound, waSendingNumber
+  handleAssistant, handleAssistantInbound, waSendingNumber,
+  handlePayPage, handlePayInvoicePdf
 } from "./admin.js";
 import { handleWaTemplates } from "./wa-templates.js";
 
@@ -129,6 +130,15 @@ export default {
     // purpose — stamps the lead's intent and 302s to the stored wa.me prefill.
     if (url.pathname.startsWith("/r/wa/")) {
       return handleWaRedirect(env, url.pathname.slice("/r/wa/".length));
+    }
+    // PAY-PAGE: public /pay/{token} — the token is an unguessable payment_links key.
+    // /pay/{token}/invoice.pdf serves the token-gated invoice PDF (invoice-born links only).
+    if (url.pathname.startsWith("/pay/")) {
+      const rest = url.pathname.slice("/pay/".length);
+      const pdfMatch = rest.match(/^([A-Za-z0-9_-]+)\/invoice\.pdf$/);
+      if (pdfMatch) return handlePayInvoicePdf(env, pdfMatch[1]);
+      const tokMatch = rest.match(/^([A-Za-z0-9_-]+)\/?$/);
+      if (tokMatch) return handlePayPage(env, tokMatch[1]);
     }
     // WA-0: temporary admin-only peek at the last 20 received events (onboarding).
     if (url.pathname === "/admin/api/wa-events") {

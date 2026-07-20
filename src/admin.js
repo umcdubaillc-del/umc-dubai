@@ -271,7 +271,24 @@ async function ensureSchema(env) {
       // Nomod charge by the sync. Also drives the VAT-display convention (item 2):
       // 'workspace' rows store NET (display ×1.05); 'nomod' rows arrive GROSS.
       "origin TEXT",
+      // PAY-PAGE — unguessable public token, the /pay/{token} route key. Minted at
+      // link creation (crypto-random url-safe); ids/numbers are NEVER route keys.
+      "pay_token TEXT",
     ]);
+    // PAY-PAGE — enforce token uniqueness + backfill a token onto every pre-existing
+    // link (one-time; guarded so it never re-runs once no NULLs remain).
+    await env.BILLING_DB.prepare(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_links_pay_token ON payment_links(pay_token)`
+    ).run();
+    try {
+      const need = await env.BILLING_DB.prepare(
+        `SELECT id FROM payment_links WHERE pay_token IS NULL OR pay_token = '' LIMIT 500`
+      ).all();
+      for (const r of (need.results || [])) {
+        await env.BILLING_DB.prepare(`UPDATE payment_links SET pay_token = ? WHERE id = ? AND (pay_token IS NULL OR pay_token = '')`)
+          .bind(mintPayToken(), r.id).run();
+      }
+    } catch (e) { /* backfill best-effort; new links always mint at creation */ }
     // v107 — backfill amount_aed for AED rows (idempotent: only touches NULLs).
     // Foreign rows are filled by a normal Nomod sync, which updates existing rows.
     await env.BILLING_DB.prepare(
@@ -1187,6 +1204,16 @@ async function nomodCreateLink(env, payload) {
   return { ok: true, data: body };
 }
 
+// PAY-PAGE — an unguessable, url-safe public token for the /pay/{token} route. 18 random
+// bytes → 24 base64url chars. Minted at link creation; ids/numbers are never route keys.
+function mintPayToken() {
+  const b = new Uint8Array(18);
+  crypto.getRandomValues(b);
+  let s = "";
+  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 async function handlePaymentLink(id, env, opts, override) {
   opts = opts || {};
   override = override || {};
@@ -1314,12 +1341,12 @@ async function handlePaymentLink(id, env, opts, override) {
       await env.BILLING_DB.prepare(
         `INSERT INTO payment_links
           (title, amount, currency, note, nomod_link_id, nomod_link_url,
-           client_name, invoice_number, created_at, origin)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'workspace')`
+           client_name, invoice_number, created_at, origin, pay_token)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'workspace', ?)`
       ).bind(
         linkTitle.slice(0, 120), persistedNet, payload.currency, linkNote,
         nomodBody.id || null, nomodBody.url,
-        inv.client_name || null, String(inv.number), createdAt
+        inv.client_name || null, String(inv.number), createdAt, mintPayToken()
       ).run();
     }
   } catch (e) {
@@ -1442,9 +1469,9 @@ async function handleCreateStandaloneLink(request, env) {
   const persistedNote = note || derivedNote || null;
   try {
     const ins = await env.BILLING_DB.prepare(
-      `INSERT INTO payment_links (title, amount, currency, note, nomod_link_id, nomod_link_url, client_name, origin)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'workspace')`
-    ).bind(title, persistedNet, currency, persistedNote, nomodBody.id || null, nomodBody.url, clientName).run();
+      `INSERT INTO payment_links (title, amount, currency, note, nomod_link_id, nomod_link_url, client_name, origin, pay_token)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'workspace', ?)`
+    ).bind(title, persistedNet, currency, persistedNote, nomodBody.id || null, nomodBody.url, clientName, mintPayToken()).run();
     const id = ins && ins.meta && ins.meta.last_row_id;
     return json({ ok: true, id, url: nomodBody.url, nomod_id: nomodBody.id, amount: persistedNet });
   } catch (e) {
@@ -1461,7 +1488,7 @@ async function handleListLinks(env) {
     `SELECT id, title, amount, amount_aed, currency, note, nomod_link_id, nomod_link_url,
             nomod_charge_id, COALESCE(excluded, 0) AS excluded, created_at,
             client_name, client_email, client_phone, invoice_number, origin,
-            COALESCE(payment_status,'unpaid') AS payment_status, paid_at
+            COALESCE(payment_status,'unpaid') AS payment_status, paid_at, pay_token
      FROM payment_links ORDER BY created_at DESC LIMIT 500`
   ).all();
   return json({ ok: true, items: results || [] });
@@ -2679,6 +2706,242 @@ async function sendPaymentReceivedEmail(env, info){
   try{
     await fetch("https://api.resend.com/emails",{method:"POST",headers:{Authorization:"Bearer "+env.RESEND_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({from:"UMC Dubai billing <noreply@umcdubai.ae>",to:[to],subject,html})});
   }catch(e){ console.error("payment email send failed", e && (e.message||e)); }
+}
+
+// ══════════ PAY-PAGE — public /pay/{token} (renders entirely from stored data) ══════════
+// Two data shapes (PAYLINK-AUDIT): A = invoice-born (payment_links.invoice_number set → full
+// line items + VAT from billing_documents + journey iff the invoice's source_type='lead');
+// B = standalone plus-button link (title hero + single NET amount → gross ×1.05). Pure HTML/CSS,
+// no JS, no external assets (self-hosted fonts). Total is ALWAYS gross incl. VAT. Zero selling copy.
+function payEsc(s){ return String(s==null?"":s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function payMoney(n){ return Number(n||0).toLocaleString("en-AE",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function payRound2(x){ return Math.round(Number(x||0)*100)/100; }
+function payDate(iso){ var d=new Date(iso); if(isNaN(d.getTime())) return ""; return d.toLocaleDateString("en-GB",{timeZone:"Asia/Dubai",day:"numeric",month:"long",year:"numeric"}); }
+function payDateTime(iso){ var d=new Date(iso); if(isNaN(d.getTime())) return ""; var day=d.toLocaleDateString("en-GB",{timeZone:"Asia/Dubai",day:"numeric",month:"long",year:"numeric"}); var t=d.toLocaleTimeString("en-GB",{timeZone:"Asia/Dubai",hour:"2-digit",minute:"2-digit",hour12:false}); return day+" · "+t; }
+function payShortCharge(id){ id=String(id||""); if(!id) return ""; if(id.length<=12) return id; return id.slice(0,7)+"…"+id.slice(-2); }
+function buildPayJourney(lead){
+  var pickup=String((lead&&lead.pickup)||"").trim(), dest=String((lead&&lead.destination)||"").trim();
+  if(!pickup || !dest) return null; // a journey needs a real route; never a partial placeholder
+  var date=String(lead.date||"").trim(), time=String(lead.time||"").trim(), flight=String(lead.flight||"").trim();
+  var itin=[]; var dt=[date,time].filter(Boolean).join(" · "); if(dt) itin.push(dt); if(flight) itin.push("Flight "+flight);
+  return { pickup: pickup, dest: dest, itin: itin };
+}
+function payResponse(html, status){
+  return new Response(html, { status: status||200, headers: {
+    "Content-Type":"text/html; charset=utf-8",
+    "Cache-Control":"no-store",
+    "X-Robots-Tag":"noindex, nofollow",
+    "Referrer-Policy":"no-referrer",
+    "X-Content-Type-Options":"nosniff",
+    "Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  }});
+}
+var PAY_CSS = "@font-face{font-family:'Outfit';font-style:normal;font-weight:300 600;font-display:swap;src:url('/assets/fonts/outfit-var.woff2') format('woff2')}"+
+  "@font-face{font-family:'Marcellus';font-style:normal;font-weight:400;font-display:swap;src:url('/assets/fonts/marcellus-400.woff2') format('woff2')}"+
+  ":root{--bone:#F6F1E7;--bone-2:#EFE8D9;--card:#FBF8F1;--ink:#221B14;--ink-soft:#4A4136;--muted:#7A6F5F;--amber:#C75B12;--amber-deep:#A84B0C;--espresso:#231B12;--hair:rgba(34,27,20,.10);--line:rgba(34,27,20,.18);--serif:'Marcellus',Georgia,serif;--sans:'Outfit',system-ui,sans-serif;--num:'Fraunces',Georgia,serif}"+
+  "*{margin:0;padding:0;box-sizing:border-box}"+
+  "body{font-family:var(--sans);color:var(--ink);background:var(--bone);background-image:radial-gradient(ellipse 90% 60% at 50% -10%,#FBF7EE 0%,var(--bone) 55%);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:clamp(1.25rem,4vw,3.2rem) 1rem 3rem;line-height:1.55}"+
+  ".sheet{width:100%;max-width:600px;background:var(--card);border:1px solid var(--hair);border-radius:10px;box-shadow:0 1px 2px rgba(34,27,20,.04),0 18px 50px -18px rgba(34,27,20,.16);padding:clamp(1.75rem,5vw,2.8rem) clamp(1.4rem,5vw,2.8rem) 0;animation:rise .7s cubic-bezier(.22,.8,.3,1) both}"+
+  "@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}"+
+  ".lh{display:flex;align-items:center;justify-content:space-between;gap:1rem}"+
+  ".masthead{display:inline-flex;align-items:center;gap:.7rem;text-decoration:none;color:var(--ink)}"+
+  ".masthead .mark{font-family:var(--serif);font-size:1.4rem;letter-spacing:.36em;text-transform:uppercase;transform:translateX(.09em)}"+
+  ".masthead .rule{width:1px;height:16px;background:var(--line)}"+
+  ".masthead .sub{font-size:.58rem;letter-spacing:.46em;text-transform:uppercase;color:var(--muted);font-weight:500}"+
+  ".doctype{font-size:.6rem;letter-spacing:.3em;text-transform:uppercase;color:var(--amber);font-weight:600;white-space:nowrap}"+
+  ".lh-rule{height:2px;background:linear-gradient(90deg,var(--amber) 0 2.2rem,var(--hair) 2.2rem 100%);margin:1.05rem 0 1.35rem}"+
+  ".meta{display:flex;flex-wrap:wrap;gap:.5rem 1.7rem;font-size:.8rem;color:var(--ink-soft)}"+
+  ".meta .lbl{display:block;font-size:.56rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500;margin-bottom:.14rem}"+
+  ".meta b{font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}"+
+  ".prepared{margin-top:1.35rem;font-size:.9rem;color:var(--ink-soft)}"+
+  ".prepared b{font-family:var(--serif);font-weight:400;font-size:1.04rem;color:var(--ink)}"+
+  ".service{margin:1.5rem 0 0}"+
+  ".service h1{font-family:var(--serif);font-weight:400;font-size:clamp(1.42rem,5.2vw,1.95rem);line-height:1.24}"+
+  ".service .note{margin-top:.55rem;font-size:.82rem;color:var(--muted)}"+
+  ".service-rule{height:2px;width:2.2rem;background:var(--amber);margin-top:.85rem}"+
+  ".journey{margin:1.5rem 0 0}"+
+  ".route{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:.9rem}"+
+  ".route .place{font-family:var(--serif);font-size:clamp(.98rem,3.3vw,1.16rem);line-height:1.3}"+
+  ".route .place:last-child{text-align:right}"+
+  ".path{position:relative;width:clamp(48px,12vw,92px);height:12px}"+
+  ".path::before{content:'';position:absolute;inset:50% 0 auto;border-top:2px dotted var(--line)}"+
+  ".path .dot{position:absolute;top:50%;left:100%;width:7px;height:7px;border-radius:50%;background:var(--amber);transform:translate(-50%,-50%)}"+
+  ".itin{display:flex;flex-wrap:wrap;gap:.3rem 1.3rem;margin-top:.9rem;font-size:.8rem;color:var(--ink-soft)}"+
+  ".itin span::before{content:'';display:inline-block;width:4px;height:4px;border-radius:50%;background:var(--amber);margin:0 .5rem 2px 0;vertical-align:middle}"+
+  ".itin span:first-child::before{display:none}"+
+  ".jline{border:0;border-top:2px dotted var(--line);margin:1.7rem 0}"+
+  ".amounts{font-size:.87rem}"+
+  ".items .row .desc small{display:block;font-size:.7rem;color:var(--muted)}"+
+  ".row{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;padding:.4rem 0;color:var(--ink-soft)}"+
+  ".num{font-family:var(--num);font-variant-numeric:tabular-nums;color:var(--ink);white-space:nowrap}"+
+  ".row.sub{border-top:1px solid var(--hair);margin-top:.5rem;padding-top:.68rem}"+
+  ".row.total{border-top:1px solid var(--line);margin-top:.5rem;padding:.95rem 0 0;align-items:center}"+
+  ".row.total .cap{font-size:.62rem;letter-spacing:.26em;text-transform:uppercase;font-weight:600;color:var(--ink)}"+
+  ".row.total .cap small{display:block;font-size:.58rem;letter-spacing:.12em;color:var(--muted);font-weight:500;text-transform:none;margin-top:.18rem}"+
+  ".grand{font-size:clamp(1.62rem,5.6vw,2.05rem);font-weight:500}"+
+  ".grand .cur{font-size:.55em;color:var(--muted);margin-right:.26rem;font-weight:400}"+
+  ".payblock{margin:1.6rem 0 0}"+
+  ".paybtn{display:flex;align-items:center;justify-content:center;gap:.6rem;width:100%;background:var(--espresso);color:#F6F1E7;text-decoration:none;font-size:.95rem;font-weight:500;letter-spacing:.04em;padding:1rem 1.4rem;border-radius:8px;border:1px solid var(--espresso);transition:background .25s,transform .15s}"+
+  ".paybtn svg{width:14px;height:14px;flex:none}"+
+  ".paybtn:hover{background:var(--amber-deep)}"+
+  ".paybtn:active{transform:translateY(1px)}"+
+  ".paybtn:focus-visible{outline:3px solid var(--amber);outline-offset:3px}"+
+  ".assure{display:flex;flex-wrap:wrap;justify-content:center;gap:.4rem .9rem;margin-top:.8rem;font-size:.7rem;color:var(--muted)}"+
+  ".assure b{font-weight:500;color:var(--ink-soft)}"+
+  ".paid{border:1px solid var(--line);border-radius:8px;padding:1.1rem 1.2rem;display:flex;align-items:center;gap:1.1rem;background:linear-gradient(0deg,rgba(199,91,18,.045),rgba(199,91,18,.045))}"+
+  ".stamp{font-family:var(--serif);font-size:.86rem;letter-spacing:.34em;text-transform:uppercase;color:var(--amber-deep);border:2px solid var(--amber-deep);border-radius:6px;padding:.42rem .7rem .34rem;transform:rotate(-3deg);flex:none}"+
+  ".paid dl{display:flex;flex-wrap:wrap;gap:.2rem 1.4rem;font-size:.78rem;color:var(--ink-soft)}"+
+  ".paid dt{font-size:.56rem;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);font-weight:500}"+
+  ".paid dd{font-variant-numeric:tabular-nums;color:var(--ink)}"+
+  ".docaction{display:block;text-align:center;margin:1.1rem 0 0;font-size:.8rem;color:var(--ink-soft);text-decoration:none}"+
+  ".docaction span{border-bottom:1px solid var(--line);padding-bottom:1px;transition:color .2s,border-color .2s}"+
+  ".docaction:hover span{color:var(--amber-deep);border-color:var(--amber-deep)}"+
+  ".taxline{margin:1.15rem 0 0;text-align:center;font-size:.74rem;color:var(--muted)}"+
+  ".taxbtn{display:inline-flex;align-items:center;gap:.45rem;margin-top:.55rem;font-size:.8rem;color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:100px;padding:.5rem 1.05rem;transition:border-color .2s,color .2s}"+
+  ".taxbtn:hover{border-color:var(--amber-deep);color:var(--amber-deep)}"+
+  ".sheetfoot{border-top:1px solid var(--hair);margin-top:1.8rem;padding:1rem 0 1.25rem;font-size:.65rem;letter-spacing:.06em;color:var(--muted);display:flex;flex-wrap:wrap;gap:.3rem 1.15rem;justify-content:center;text-align:center}"+
+  ".pagefoot{margin-top:1.6rem;font-size:.64rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}"+
+  ".pagefoot a{color:inherit;text-decoration:none}"+
+  "@media (max-width:480px){.lh{flex-direction:column;align-items:flex-start;gap:.6rem}}"+
+  "@media (prefers-reduced-motion:reduce){.sheet{animation:none}}"+
+  "@media print{body{background:#fff;padding:0}.paybtn,.assure,.taxbtn,.pagefoot{display:none}.sheet{box-shadow:none;border:0;max-width:none;margin:0}}";
+var PAY_LOCK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3"/></svg>';
+var PAY_FOOT = '<footer class="sheetfoot"><span>UMC Dubai LLC</span><span>Trade Licence 1270934</span><span>TRN 104223959800003</span><span>contact@umcdubai.ae</span><span>+971 58 649 7861</span></footer>';
+function payShell(inner, doctype){
+  return "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"+
+    "<meta name=\"robots\" content=\"noindex, nofollow\"><title>Payment · UMC Dubai</title><style>"+PAY_CSS+"</style></head><body>"+
+    "<main class=\"sheet\"><header class=\"lh\"><a class=\"masthead\" href=\"https://umcdubai.ae\"><span class=\"mark\">UMC</span><span class=\"rule\"></span><span class=\"sub\">Dubai</span></a>"+
+    "<div class=\"doctype\">"+payEsc(doctype||"Payment")+"</div></header><div class=\"lh-rule\"></div>"+inner+PAY_FOOT+"</main>"+
+    "<p class=\"pagefoot\"><a href=\"https://umcdubai.ae\">umcdubai.ae</a></p></body></html>";
+}
+function payNotice(msg){ return payShell("<section class=\"service\"><h1>"+payEsc(msg)+"</h1><div class=\"service-rule\"></div></section><div style=\"height:1rem\"></div>", "Payment"); }
+function payPageHtml(d){
+  var meta = "<span><span class=\"lbl\">Payment Ref</span><b>"+payEsc(d.payRef)+"</b></span>";
+  if(d.invoiceNumber) meta += "<span><span class=\"lbl\">Invoice</span><b>"+payEsc(d.invoiceNumber)+"</b></span>";
+  if(d.dateStr) meta += "<span><span class=\"lbl\">Date</span><b>"+payEsc(d.dateStr)+"</b></span>";
+  var prepared = d.clientName ? "<p class=\"prepared\">Prepared for <b>"+payEsc(d.clientName)+"</b></p>" : "";
+  var service = "<section class=\"service\"><h1>"+payEsc(d.hero)+"</h1>"+
+    (d.note ? "<p class=\"note\">"+payEsc(d.note)+"</p>" : "")+"<div class=\"service-rule\"></div></section>";
+  var journey = "";
+  if(d.journey){
+    var itin = (d.journey.itin||[]).map(function(x){ return "<span>"+payEsc(x)+"</span>"; }).join("");
+    journey = "<section class=\"journey\"><div class=\"route\"><div class=\"place\">"+payEsc(d.journey.pickup)+"</div>"+
+      "<div class=\"path\"><span class=\"dot\"></span></div><div class=\"place\">"+payEsc(d.journey.dest)+"</div></div>"+
+      (itin ? "<div class=\"itin\">"+itin+"</div>" : "")+"</section>";
+  }
+  // amounts
+  var itemsHtml = (d.items||[]).map(function(it){
+    return "<div class=\"row\"><span class=\"desc\">"+payEsc(it.desc)+(it.sub?"<small>"+payEsc(it.sub)+"</small>":"")+"</span><span class=\"num\">"+payEsc(it.amount)+"</span></div>";
+  }).join("");
+  var totals;
+  if(d.isAED){
+    totals = "<div class=\"row sub\"><span>"+(d.isInvoice?"Subtotal":"Subtotal (net)")+"</span><span class=\"num\">"+payEsc(d.cur+" "+payMoney(d.subtotal))+"</span></div>"+
+      "<div class=\"row\"><span>VAT (5%)</span><span class=\"num\">"+payEsc(d.cur+" "+payMoney(d.vat))+"</span></div>";
+  } else { totals = ""; }
+  var totalRow = "<div class=\"row total\"><span class=\"cap\">Total due"+(d.isAED?"<small>Inclusive of VAT</small>":"")+"</span>"+
+    "<span class=\"num grand\"><span class=\"cur\">"+payEsc(d.cur)+"</span>"+payEsc(payMoney(d.gross))+"</span></div>";
+  var amounts = "<section class=\"amounts\"><div class=\"items\">"+itemsHtml+"</div>"+totals+totalRow+"</section>";
+  // action block — paid vs due
+  var docaction = d.isInvoice
+    ? "<a class=\"docaction\" href=\""+payEsc(d.pdfUrl)+"\"><span>Download invoice (PDF)</span></a>"
+    : "<p class=\"taxline\">A tax invoice is available for this payment on request.<br><a class=\"taxbtn\" href=\"https://api.whatsapp.com/send?phone=971586497861&text="+d.taxPrefill+"\">Request tax invoice</a></p>";
+  var block;
+  if(d.paid){
+    var dl = "<div><dt>Amount</dt><dd>"+payEsc(d.paid.grossStr)+"</dd></div>"+
+      (d.paid.dateStr?"<div><dt>Date</dt><dd>"+payEsc(d.paid.dateStr)+"</dd></div>":"")+
+      (d.paid.chargeRef?"<div><dt>Charge Ref</dt><dd>"+payEsc(d.paid.chargeRef)+"</dd></div>":"");
+    block = "<div class=\"paid\"><span class=\"stamp\">Paid</span><dl>"+dl+"</dl></div>"+
+      (d.isInvoice ? "<a class=\"docaction\" href=\""+payEsc(d.pdfUrl)+"\" style=\"margin-top:1.2rem\"><span>Download invoice (PDF)</span></a>"
+                   : "<p class=\"taxline\" style=\"margin-top:1.2rem\">A tax invoice is available for this payment on request.<br><a class=\"taxbtn\" href=\"https://api.whatsapp.com/send?phone=971586497861&text="+d.taxPrefill+"\">Request tax invoice</a></p>");
+  } else {
+    block = "<div class=\"payblock\"><a class=\"paybtn\" href=\""+payEsc(d.nomodUrl)+"\">"+PAY_LOCK_SVG+"Pay "+payEsc(d.cur+" "+payMoney(d.gross))+" securely</a>"+
+      "<div class=\"assure\"><span>Secured by <b>Nomod</b></span><span>Visa</span><span>Mastercard</span><span>Amex</span><span>Apple&nbsp;Pay</span></div>"+
+      docaction+"</div>";
+  }
+  var inner = "<div class=\"meta\">"+meta+"</div>"+prepared+service+journey+"<hr class=\"jline\">"+amounts+block;
+  return payShell(inner, d.doctype);
+}
+export async function handlePayPage(env, token){
+  if(!env.BILLING_DB) return payResponse(payNotice("This payment page is temporarily unavailable."), 503);
+  try { await ensureSchema(env); } catch(e){ /* continue */ }
+  var tok = String(token||"").replace(/[^A-Za-z0-9_-]/g,"").slice(0,64);
+  if(!tok) return payResponse(payNotice("Payment link not found."), 404);
+  var link = await env.BILLING_DB.prepare("SELECT * FROM payment_links WHERE pay_token = ? LIMIT 1").bind(tok).first();
+  if(!link) return payResponse(payNotice("Payment link not found."), 404);
+
+  var cur = String(link.currency||"AED").toUpperCase();
+  var isAED = cur === "AED";
+  var payRef = "UMC-PL-" + String(link.id).padStart(4,"0");
+  var isPaid = String(link.payment_status||"").toLowerCase() === "paid";
+  var isInvoice = !!(link.invoice_number && String(link.invoice_number).trim());
+  var clientName = (link.client_name && String(link.client_name).trim()) || "";
+  var hero="", note="", items=[], subtotal=0, vat=0, gross=0, journey=null, dateStr="", pdfUrl=null, invoiceNumber="";
+
+  if(isInvoice){
+    invoiceNumber = String(link.invoice_number).trim();
+    var doc = await env.BILLING_DB.prepare("SELECT * FROM billing_documents WHERE number = ? LIMIT 1").bind(invoiceNumber).first();
+    if(doc){
+      var li=[]; try { li = JSON.parse(doc.line_items||"[]"); } catch(e){ li=[]; }
+      items = (li||[]).map(function(it){
+        var q=Number(it.qty||1), rate=Number(it.rate||0);
+        return { desc:String(it.description||"Service"), sub:(isAED?(q+" × "+cur+" "+payMoney(rate)):""), amount:payMoney(q*rate) };
+      });
+      hero = String((li[0] && li[0].description) || doc.client_name || "Payment");
+      subtotal=Number(doc.subtotal||0); vat=Number(doc.vat||0); gross=Number(doc.total||0);
+      dateStr = payDate(doc.doc_date || link.created_at);
+      pdfUrl = "/pay/"+encodeURIComponent(tok)+"/invoice.pdf";
+      if(String(doc.source_type||"")==="lead" && doc.source_id!=null){
+        var lead = await env.BILLING_DB.prepare("SELECT service, vehicle, pickup, destination, date, time, flight FROM leads WHERE id = ?").bind(doc.source_id).first();
+        if(lead) journey = buildPayJourney(lead);
+      }
+    } else {
+      hero = String(link.title||"Payment");
+      subtotal = Number(link.amount||0); gross = isAED?payRound2(subtotal*1.05):subtotal; vat = payRound2(gross-subtotal);
+      items = [{ desc:hero, sub:"", amount:payMoney(gross) }];
+      dateStr = payDate(link.created_at);
+    }
+  } else {
+    hero = String(link.title||"Payment");
+    note = (link.note && String(link.note).trim()) || "";
+    subtotal = Number(link.amount||0); gross = isAED?payRound2(subtotal*1.05):subtotal; vat = payRound2(gross-subtotal);
+    items = [{ desc:hero, sub:"", amount:payMoney(gross) }];
+    dateStr = payDate(link.created_at);
+  }
+
+  var paid = isPaid ? {
+    grossStr: cur+" "+payMoney(gross)+(isAED?" (incl. VAT)":""),
+    dateStr: payDateTime(link.paid_at || link.created_at),
+    chargeRef: payShortCharge(link.nomod_charge_id)
+  } : null;
+  var taxPrefill = (!isInvoice) ? encodeURIComponent("Hello, I've just completed payment "+payRef+" — could you send the tax invoice? Thank you.") : "";
+
+  return payResponse(payPageHtml({
+    doctype: isPaid?"Receipt":"Payment", payRef: payRef, invoiceNumber: isInvoice?invoiceNumber:"", dateStr: dateStr,
+    clientName: clientName, hero: hero, note: note, journey: journey,
+    cur: cur, isAED: isAED, items: items, subtotal: subtotal, vat: vat, gross: gross,
+    isInvoice: isInvoice, paid: paid, nomodUrl: link.nomod_link_url || "https://umcdubai.ae", pdfUrl: pdfUrl, taxPrefill: taxPrefill
+  }));
+}
+// PAY-PAGE — token-gated public invoice PDF (Shape A only). Reuses renderInvoicePdf; attachment.
+export async function handlePayInvoicePdf(env, token){
+  if(!env.BILLING_DB) return json({ ok:false, error:"unavailable" }, 503);
+  try { await ensureSchema(env); } catch(e){}
+  var tok = String(token||"").replace(/[^A-Za-z0-9_-]/g,"").slice(0,64);
+  if(!tok) return json({ ok:false, error:"not found" }, 404);
+  var link = await env.BILLING_DB.prepare("SELECT invoice_number FROM payment_links WHERE pay_token = ? LIMIT 1").bind(tok).first();
+  if(!link || !link.invoice_number) return json({ ok:false, error:"not found" }, 404);
+  var row = await env.BILLING_DB.prepare("SELECT * FROM billing_documents WHERE number = ? LIMIT 1").bind(String(link.invoice_number)).first();
+  if(!row) return json({ ok:false, error:"not found" }, 404);
+  try { row.line_items = JSON.parse(row.line_items||"[]"); } catch(e){ row.line_items = []; }
+  var mod = await import("./pdf.js");
+  var bytes = await mod.renderInvoicePdf(row);
+  var fname = String(row.number || ("UMC-INV")).replace(/[^A-Za-z0-9_-]/g,"") || "UMC-INV";
+  return new Response(bytes, { status:200, headers:{
+    "Content-Type":"application/pdf",
+    "Content-Disposition": "attachment; filename=\""+fname+".pdf\"",
+    "Cache-Control":"no-store",
+    "X-Robots-Tag":"noindex, nofollow"
+  }});
 }
 
 async function handleNomodWebhook(request, env) {
@@ -8736,7 +8999,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260720-pay-vat-export";
+const ADMIN_BUILD = "20260720-pay-page";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
