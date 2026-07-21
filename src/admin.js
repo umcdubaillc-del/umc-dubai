@@ -1523,7 +1523,7 @@ async function handleListLinks(request, env) {
             nomod_charge_id, COALESCE(excluded, 0) AS excluded, created_at,
             client_name, client_email, client_phone, invoice_number, origin,
             COALESCE(payment_status,'unpaid') AS payment_status, paid_at, pay_token,
-            expiry_date, archived_at, viewed_at, COALESCE(view_count,0) AS view_count
+            expiry_date, archived_at, viewed_at, COALESCE(view_count,0) AS view_count, items_json
      FROM payment_links ${where} ORDER BY created_at DESC LIMIT 500`
   ).all();
   return json({ ok: true, items: results || [] });
@@ -1553,6 +1553,24 @@ async function handleUpdateLinkClientName(id, request, env) {
   ).bind(name || null, id).run();
   if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
   return json({ ok: true, id, client_name: name || null });
+}
+
+// PAY-WIRE — set the SERVICE / item name shown on a standalone link's /pay page. Lets the
+// owner correct legacy links whose service was never persisted (items_json was added later),
+// e.g. links created with a real note where the service name is otherwise unrecoverable.
+// Writes a single NET line item at the link's stored amount (the display source /pay reads).
+async function handleUpdateLinkItemName(id, request, env) {
+  await ensureSchema(env);
+  let b = {};
+  try { b = await request.json(); } catch { return json({ ok: false, error: "bad json" }, 400); }
+  const name = String((b && b.name) || "").trim().slice(0, 160);
+  if (!name) return json({ ok: false, error: "name required" }, 400);
+  const row = await env.BILLING_DB.prepare("SELECT amount FROM payment_links WHERE id = ?").bind(id).first();
+  if (!row) return json({ ok: false, error: "not found" }, 404);
+  const itemsJson = JSON.stringify([{ name, amount: Number(row.amount || 0).toFixed(2), quantity: 1 }]);
+  const res = await env.BILLING_DB.prepare("UPDATE payment_links SET items_json = ? WHERE id = ?").bind(itemsJson, id).run();
+  if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
+  return json({ ok: true, id, items_json: itemsJson });
 }
 
 async function handleDeleteLink(id, env) {
@@ -9103,6 +9121,9 @@ export async function handleAdmin(request, env) {
     // restoring names the sync clobbered and any future correction.
     const cnm = path.match(/^\/admin\/api\/links\/(\d+)\/client-name$/);
     if (cnm && method === "POST") return handleUpdateLinkClientName(parseInt(cnm[1], 10), request, env);
+    // PAY-WIRE — set the service/item name shown on /pay (corrects legacy links).
+    const inm = path.match(/^\/admin\/api\/links\/(\d+)\/item-name$/);
+    if (inm && method === "POST") return handleUpdateLinkItemName(parseInt(inm[1], 10), request, env);
     return json({ ok: false, error: "not found" }, 404);
   }
 
@@ -9145,7 +9166,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260721-paywire";
+const ADMIN_BUILD = "20260721-paywire2";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -11764,6 +11785,22 @@ const PAGE_SCRIPT = `<script>
           lastLinksById[String(x.id)] = x;
           const u = String(x.nomod_link_url || "");
           const shortU = u.replace(/^https?:\\/\\//,'').slice(0,42) + (u.length > 50 ? '…' : '');
+          // PAY-WIRE step 4 — the branded /pay/{token} URL is the PRIMARY copy target now;
+          // the raw Nomod URL is demoted to a secondary affordance. (Template flip stays gated.)
+          const payToken = String(x.pay_token || "");
+          const payUrl = payToken ? (location.origin + "/pay/" + payToken) : "";
+          const shortPay = payUrl ? (payUrl.replace(/^https?:\\/\\//,'').slice(0,42) + (payUrl.length > 50 ? '…' : '')) : "";
+          // current service/item name (for the edit prompt default) — first items_json entry.
+          let curItemName = "";
+          try { const _pj = x.items_json ? JSON.parse(x.items_json) : null; if(Array.isArray(_pj) && _pj[0] && _pj[0].name) curItemName = String(_pj[0].name); } catch(_e){}
+          // Link cell — pay link primary + Nomod demoted (computed here to avoid a ternary
+          // inside the +-per-line return concatenation, which would emit invalid JS).
+          const linkCellHtml = payUrl
+            ? '<a href="'+esc(payUrl)+'" target="_blank" rel="noopener noreferrer" title="'+esc(payUrl)+'">'+esc(shortPay)+'</a>'
+              + '<button type="button" class="btn btn-small btn-ghost" data-lkcopy="'+esc(payUrl)+'" title="Copy the branded UMC payment page link">Copy pay link</button>'
+              + '<a href="'+esc(u)+'" target="_blank" rel="noopener noreferrer" title="Raw Nomod URL — '+esc(u)+'" style="font-size:11px;color:var(--muted)">Nomod</a>'
+            : '<a href="'+esc(u)+'" target="_blank" rel="noopener noreferrer" title="'+esc(u)+'">'+esc(shortU)+'</a>'
+              + '<button type="button" class="btn btn-small btn-ghost" data-lkcopy="'+esc(u)+'" title="Copy this Nomod payment link to clipboard">Copy</button>';
           const isSynced = !!x.nomod_charge_id;
           const isExcl = Number(x.excluded) === 1;
           const attachedNum = x.invoice_number ? String(x.invoice_number) : "";
@@ -11830,10 +11867,21 @@ const PAGE_SCRIPT = `<script>
           // Stage 2: surface Copy in the drawer too. On mobile the inline Link
           // cell is hidden, so the row Copy button is unreachable without this.
           // bindLinksClickOnce already dispatches data-lkcopy, so no new wiring.
-          actions.unshift('<button type="button" class="btn btn-small btn-ghost" data-lkcopy="'+esc(u)+'" title="Copy this Nomod payment link">Copy link</button>');
+          // PAY-WIRE step 4 — primary copy is the branded /pay link; Nomod demoted.
+          if(payUrl){
+            actions.unshift('<button type="button" class="btn btn-small btn-ghost" data-lkcopy="'+esc(u)+'" title="Copy the raw Nomod URL">Copy Nomod link</button>');
+            actions.unshift('<button type="button" class="btn btn-small" data-lkcopy="'+esc(payUrl)+'" title="Copy the branded UMC payment page link">Copy pay link</button>');
+          } else {
+            actions.unshift('<button type="button" class="btn btn-small btn-ghost" data-lkcopy="'+esc(u)+'" title="Copy this Nomod payment link">Copy link</button>');
+          }
           // v110 (item 1) — edit the client name on any link record. Restores names
           // the sync clobbered and covers future corrections.
           actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkeditname="'+x.id+'" data-lkcurname="'+esc(x.client_name||"")+'" title="Edit the client name shown on this link">Edit client name</button>');
+          // PAY-WIRE — set the SERVICE/item name shown on /pay (standalone links only; Shape A
+          // renders from the invoice). Corrects legacy links whose service was never stored.
+          if(!attachedNum){
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkedititem="'+x.id+'" data-lkcuritem="'+esc(curItemName)+'" title="Set the service/item name shown on the payment page">Edit item name</button>');
+          }
           // W3 — soft archive / restore (never deletes; the pay page renders "no longer active").
           if(x.archived_at){
             actions.push('<button type="button" class="btn btn-small btn-ghost" data-lkarchive="0" data-id="'+x.id+'" title="Restore this link to the active list">Restore from archive</button>');
@@ -11869,12 +11917,7 @@ const PAGE_SCRIPT = `<script>
             + '<td data-lbl="Client">'+esc(clientPrimary || "·")+invTag+originTag+subline+'</td>'
             + '<td data-lbl="Amount" style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(dispAmount, x.currency))+aedSuffix+vatHint+'</td>'
             + '<td data-lbl="Created">'+esc(fmtDate(x.created_at))+'</td>'
-            + '<td data-lbl="Link">'
-            +   '<div class="hist-link" style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">'
-            +     '<a href="'+esc(u)+'" target="_blank" rel="noopener noreferrer" title="'+esc(u)+'">'+esc(shortU)+'</a>'
-            +     '<button type="button" class="btn btn-small btn-ghost" data-lkcopy="'+esc(u)+'" title="Copy this Nomod payment link to clipboard">Copy</button>'
-            +   '</div>'
-            + '</td>'
+            + '<td data-lbl="Link"><div class="hist-link" style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">' + linkCellHtml + '</div></td>'
             + '<td data-lbl="Status">'+statusPill+'</td>'
             + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
             + '</tr>'
@@ -14951,6 +14994,30 @@ const PAGE_SCRIPT = `<script>
             }
           })
           .catch(function(err){ en.disabled = false; showToast("Couldn’t update name — " + (err.message || err), true); });
+        return;
+      }
+      // PAY-WIRE — set the service/item name shown on /pay (standalone links).
+      const ei = e.target.closest("[data-lkedititem]");
+      if(ei){
+        e.preventDefault(); e.stopPropagation();
+        const lkId = ei.getAttribute("data-lkedititem");
+        const cur = ei.getAttribute("data-lkcuritem") || "";
+        const next = window.prompt("Service / item name shown on the payment page:", cur);
+        if(next === null) return;
+        const name = String(next).trim();
+        if(!name){ showToast("Item name can’t be empty.", true); return; }
+        ei.disabled = true;
+        fetch("/admin/api/links/" + lkId + "/item-name", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name })
+        })
+          .then(function(r){ return r.text().then(function(t){ let j=null; try{j=t?JSON.parse(t):null;}catch(_){} return {status:r.status, body:j}; }); })
+          .then(function(o){
+            ei.disabled = false;
+            if(o.status === 200 && o.body && o.body.ok){ showToast("Payment-page item name updated."); loadLinks(); }
+            else { showToast("Couldn’t update item name — " + ((o.body && o.body.error) || ("error " + o.status)), true); }
+          })
+          .catch(function(err){ ei.disabled = false; showToast("Couldn’t update item name — " + (err.message || err), true); });
         return;
       }
       // W3 — soft archive / restore (never deletes).
