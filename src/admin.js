@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-b2rows";
+const ADMIN_BUILD = "20260722-b2fix";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -10604,13 +10604,18 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #tab-documents td[data-lbl="Date"]{ display:none; }
   #tab-documents td[data-lbl="Type"]{ display:none; }
   #tab-documents .hist-chev-cell{ display:none; }
+  /* B1 placement — keep "Show voided" inline to the left of the Type segmented
+     on mobile too: let the filter row wrap so Sort drops below and the Type
+     control gets full width. */
+  #tab-documents .hist-tsrow{ flex-wrap:wrap; row-gap:.6rem; }
+  #tab-documents .hist-sort{ margin-left:0; }
 
   /* Decision 2 — uniform fixed-height 2-line row. Line 1: name + status;
      line 2: DF-4-trimmed route + date. Service / contact / chips / funnel move
      to the row sheet, so the collapsed card is exactly two lines like every tab. */
   #tab-leads .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.05rem; min-height:60px; }
   #tab-leads td[data-lbl="Name"]{ grid-column:1; grid-row:1; font-size:14.5px; font-weight:500; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0; }
-  #tab-leads td[data-lbl="Name"] .lead-meta{ display:none; }
+  #tab-leads td[data-lbl="Name"] .lead-meta{ display:none !important; }
   #tab-leads td[data-lbl="Status"]{ grid-column:2; grid-row:1; align-self:center; justify-self:end; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:44vw; line-height:1.3; }
   #tab-leads td[data-lbl="Route"]{ display:block; grid-column:1; grid-row:2; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:.1rem 0 0; }
   #tab-leads td[data-lbl="Date"]{ grid-column:2; grid-row:2; align-self:center; justify-self:end; font-size:11.5px; color:var(--muted); white-space:nowrap; padding:.1rem 0 0; }
