@@ -163,6 +163,7 @@ export default {
         url.pathname.startsWith("/admin/api/fleet-rates") ||
         url.pathname.startsWith("/admin/api/payments") ||
         url.pathname === "/admin/api/sales" ||
+        url.pathname.startsWith("/admin/api/sales/") ||
         url.pathname === "/admin/api/sync-nomod" ||
         url.pathname === "/admin/api/send-quote" ||
         url.pathname === "/admin/api/customers.csv" ||
