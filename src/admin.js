@@ -4320,7 +4320,7 @@ async function handleSales(url, env) {
     possibleDuplicates,
     // v107 — foreign payments with no AED gross yet (excluded from all totals).
     fx_unreconciled: { count: fxUnreconciled.length, rows: fxUnreconciled },
-    methodology: "Dubai time (GST, UTC+4) month boundaries. Cash basis: counted in the month paid. Net of VAT (5%). Sources combined: paid Nomod payments (invoices and standalone links) + bank/cash invoices marked paid manually. Refunds subtracted from their refund month. Test/demo rows excluded (name matches /test|demo/i AND amount < AED 5).",
+    methodology: "Dubai time (GST, UTC+4) month boundaries. Cash basis: counted in the month paid. Net of VAT (5%). Sources combined: paid Nomod payments (invoices and standalone links) + bank/cash invoices marked paid manually. Refunds subtracted from their refund month. Test/sandbox rows are excluded via the explicit is_test flag (set with the per-row \"Mark test\" toggle) — the old name/amount heuristic was retired.",
   });
 }
 
