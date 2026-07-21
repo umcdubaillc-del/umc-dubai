@@ -332,6 +332,9 @@ async function ensureSchema(env) {
       // (resolved by E.164 phone then email at create/convert). NULL for docs with no
       // usable phone/email. Lets the same client's documents share one identity.
       "customer_id INTEGER",
+      // DF-12 — the BUYER's TRN (the client's VAT registration number), captured for a
+      // corporate invoice and printed alongside the seller TRN. NULL for individuals.
+      "client_trn TEXT",
     ]);
     // DF-3 — dedup index for the idempotency nonce (partial: only non-null nonces
     // are unique, so legacy NULLs never collide). SQLite honours WHERE on indexes.
@@ -1131,7 +1134,8 @@ async function handleCreate(request, env) {
         `UPDATE billing_documents SET
            doc_type = ?, doc_date = ?, client_name = ?, client_company = ?, client_address = ?,
            client_email = ?, client_phone = ?, currency = ?, vat_mode = ?, line_items = ?,
-           discount = ?, subtotal = ?, vat = ?, total = ?, notes = ?, internal_notes = ?
+           discount = ?, subtotal = ?, vat = ?, total = ?, notes = ?, internal_notes = ?,
+           client_trn = ?
          WHERE id = ?`
       ).bind(
         b.doc_type, String(b.doc_date),
@@ -1141,6 +1145,7 @@ async function handleCreate(request, env) {
         b.discount == null ? null : Number(b.discount),
         Number(b.subtotal), Number(b.vat), Number(b.total),
         b.notes || null, b.internal_notes || null,
+        b.client_trn || null,  // DF-12 — buyer TRN
         editId
       ).run();
       if (!upRes || !upRes.meta || !upRes.meta.changes) {
@@ -1221,8 +1226,8 @@ async function handleCreate(request, env) {
           (doc_type, number, doc_date, client_name, client_company, client_address, client_email, client_phone,
            currency, vat_mode, line_items, discount, subtotal, vat, total, notes, internal_notes, lead_id, client_nonce,
            journey_pickup, journey_destination, journey_date, journey_time, journey_vehicle, journey_flight, journey_sign,
-           quote_status, valid_until, prefill_snapshot, customer_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           quote_status, valid_until, prefill_snapshot, customer_id, client_trn)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         b.doc_type, insertNumber, String(b.doc_date),
         String(b.client_name || ""), b.client_company || null, b.client_address || null, b.client_email || null, b.client_phone || null,
@@ -1236,7 +1241,8 @@ async function handleCreate(request, env) {
         jrny.pickup, jrny.destination, jrny.date, jrny.time, jrny.vehicle, jrny.flight, jrny.sign,  // DF-4 — journey snapshot
         quoteStatus, validUntil,  // DF-5 — quote lifecycle
         (leadId && b.prefill_snapshot != null) ? String(b.prefill_snapshot).slice(0, 8000) : null,  // DF-7 — prefill snapshot
-        customerId  // DF-10 — customer spine
+        customerId,  // DF-10 — customer spine
+        b.client_trn || null  // DF-12 — buyer TRN
       ).run();
       id = res && res.meta && res.meta.last_row_id;
       break;
@@ -1477,15 +1483,16 @@ async function handleConvertToInvoice(id, env) {
         (doc_type, number, doc_date, client_name, client_company, client_address, client_email, client_phone,
          currency, vat_mode, line_items, discount, subtotal, vat, total, notes, internal_notes, source_quote_number, lead_id,
          journey_pickup, journey_destination, journey_date, journey_time, journey_vehicle, journey_flight, journey_sign,
-         customer_id)
-       VALUES ('invoice', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         customer_id, client_trn)
+       VALUES ('invoice', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       newNumber, today,
       src.client_name, src.client_company, src.client_address, src.client_email, src.client_phone,
       src.currency, src.vat_mode, src.line_items, src.discount,
       src.subtotal, src.vat, src.total, src.notes, src.internal_notes, src.number, src.lead_id,
       src.journey_pickup, src.journey_destination, src.journey_date, src.journey_time, src.journey_vehicle, src.journey_flight, src.journey_sign,
-      src.customer_id  // DF-10 — inherit the deduped customer
+      src.customer_id,  // DF-10 — inherit the deduped customer
+      src.client_trn    // DF-12 — inherit the buyer TRN
     ).run();
     const newId = res && res.meta && res.meta.last_row_id;
     // DF-5 — flip the source quote's lifecycle to 'converted' (terminal). The reverse
@@ -11004,6 +11011,7 @@ function appShellHTML() {
     <div class="row2">
       <div class="field"><label class="lbl">Name</label><input id="cName" type="text" placeholder="Mr. Smith"></div>
       <div class="field"><label class="lbl">Company (optional)</label><input id="cCompany" type="text" placeholder="Company name"></div>
+      <div class="field"><label class="lbl">Buyer TRN (if VAT-registered)</label><input id="cTrn" type="text" inputmode="numeric" placeholder="15-digit TRN" autocomplete="off"><div id="cTrnHint" class="hint" style="display:none;font-size:.72rem;color:var(--amber-deep);margin-top:.2rem">Corporate buyer — add their TRN so the invoice shows both parties&#39; VAT numbers.</div></div>
     </div>
     <div class="field"><label class="lbl">Address (optional)</label><input id="cAddress" type="text" placeholder="Address"></div>
     <div class="row2">
@@ -12045,7 +12053,12 @@ const PAGE_SCRIPT = `<script>
     bindThemedPicker($("fDate"));
     $("fCurrency").addEventListener("change", function(e){ state.currency = e.target.value; renderTotals(); renderDoc(); });
     $("fVatMode").addEventListener("change", function(e){ state.vat_mode = e.target.value; renderTotals(); renderDoc(); });
-    ["cName","cCompany","cAddress","cEmail","cPhone"].forEach(function(id){
+    // DF-12 — corporate prompt: reveal the buyer-TRN hint when a company is entered
+    // but no TRN yet. Non-blocking — the TRN stays optional.
+    function _trnHintSync(){ var h=$("cTrnHint"), comp=$("cCompany"), trn=$("cTrn"); if(h) h.style.display = (comp && comp.value.trim() && !(trn && trn.value.trim())) ? "block" : "none"; }
+    if($("cCompany")) $("cCompany").addEventListener("input", _trnHintSync);
+    if($("cTrn")) $("cTrn").addEventListener("input", _trnHintSync);
+    ["cName","cCompany","cTrn","cAddress","cEmail","cPhone"].forEach(function(id){
       $(id).addEventListener("input", function(e){
         state.client[id.slice(1).toLowerCase()] = e.target.value; renderDoc();
       });
@@ -12631,6 +12644,7 @@ const PAGE_SCRIPT = `<script>
       doc_date: state.doc_date,
       client_name: state.client.name,
       client_company: state.client.company,
+      client_trn: ($("cTrn") ? String($("cTrn").value || "").trim() : ""),  // DF-12 — buyer TRN
       client_address: state.client.address,
       client_email: state.client.email,
       client_phone: state.client.phone,
@@ -12760,7 +12774,7 @@ const PAGE_SCRIPT = `<script>
     state.paid_snapshot = null;
     state.adjustAfterPaid = false;
     state.doc_date = umcTodayDubai();
-    ["cName","cCompany","cAddress","cEmail","cPhone","fDiscount","fNotes","fInternalNotes"].forEach(function(id){ const el = $(id); if(el) el.value = ""; });
+    ["cName","cCompany","cTrn","cAddress","cEmail","cPhone","fDiscount","fNotes","fInternalNotes"].forEach(function(id){ const el = $(id); if(el) el.value = ""; });
     $("fDate").value = state.doc_date;
     renderLineRows(); renderTotals(); fetchNext(); renderDoc();
     setStatus("");
@@ -15228,6 +15242,7 @@ const PAGE_SCRIPT = `<script>
     };
     $("cName").value    = state.client.name;
     $("cCompany").value = "";
+    if($("cTrn")) $("cTrn").value = "";
     $("cAddress").value = "";
     $("cEmail").value   = state.client.email;
     if($("cPhone")) $("cPhone").value = state.client.phone;
@@ -16098,6 +16113,7 @@ const PAGE_SCRIPT = `<script>
     };
     $("cName").value    = state.client.name;
     $("cCompany").value = "";
+    if($("cTrn")) $("cTrn").value = "";
     $("cAddress").value = "";
     $("cEmail").value   = state.client.email;
     if($("cPhone")) $("cPhone").value = state.client.phone;
@@ -17823,6 +17839,7 @@ const PAGE_SCRIPT = `<script>
       $("fCurrency").value = state.currency;
       $("fVatMode").value = state.vat_mode;
       $("cName").value = state.client.name; $("cCompany").value = state.client.company; $("cAddress").value = state.client.address; $("cEmail").value = state.client.email; if($("cPhone")) $("cPhone").value = state.client.phone;
+      if($("cTrn")) $("cTrn").value = x.client_trn || "";  // DF-12 — buyer TRN
       $("fDiscount").value = state.discount || "";
       $("fNotes").value = state.notes;
       if($("fInternalNotes")) $("fInternalNotes").value = state.internal_notes || "";

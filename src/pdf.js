@@ -301,6 +301,9 @@ export async function renderInvoicePdf(doc){
   for(const ln of [doc.client_company, doc.client_address, doc.client_phone, doc.client_email].filter(Boolean)){
     drawRight(page, ln, rightX, yR, f.outfit, 11, C.inkSoft); yR += 11*1.6;
   }
+  // DF-12 — the buyer's TRN on a corporate invoice, printed alongside the seller TRN
+  // (mono, ASCII-safe glyphs). Invoices only; individuals have none.
+  if(isInv && doc.client_trn){ drawRight(page, "Buyer TRN " + String(doc.client_trn), rightX, yR, f.mono, 10, C.inkSoft, {trackingEm:0.01}); yR += 10*1.6; }
 
   // ===== LINE ITEMS TABLE — hairlines only, eyebrow header, mono figures =====
   let y = Math.max(yC, yR) + 30;
