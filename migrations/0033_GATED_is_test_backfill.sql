@@ -1,0 +1,18 @@
+-- DF-13 — GATED DATA MIGRATION. OWNER-APPLIED ONLY, AFTER reviewing the evidence
+-- dump. Do NOT wire into runtime ensureSchema. Backfills is_test=1 for the rows the
+-- legacy name/amount heuristic flags, so the heuristic can eventually be retired and
+-- Sales relies on the explicit flag alone.
+--
+-- STEP 1 — review the evidence dump FIRST (read-only, via the admin session):
+--   GET /admin/api/sales/test-candidates
+-- It lists every invoice and payment_link the heuristic (/test|demo/i on the name AND
+-- gross < 5 AED) would flag, with each row's current is_test. Confirm the list is
+-- correct — that NO real low-value doc (e.g. a genuine sub-5-AED invoice to a client
+-- literally named "Test Co") is caught.
+--
+-- STEP 2 — only after explicit OK, apply (mirrors the heuristic exactly):
+--   wrangler d1 execute umc-billing --remote --command "UPDATE billing_documents SET is_test = 1 WHERE doc_type='invoice' AND (client_name LIKE '%test%' COLLATE NOCASE OR client_name LIKE '%demo%' COLLATE NOCASE) AND COALESCE(total,0) < 5;"
+--   wrangler d1 execute umc-billing --remote --command "UPDATE payment_links SET is_test = 1 WHERE (title LIKE '%test%' COLLATE NOCASE OR title LIKE '%demo%' COLLATE NOCASE) AND COALESCE(amount_aed, amount, 0) < 5;"
+--
+-- After the backfill is confirmed correct in Sales, a later batch can drop the
+-- isTestRow(...) heuristic from handleSales (leaving is_test as the sole gate).

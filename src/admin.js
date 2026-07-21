@@ -335,6 +335,9 @@ async function ensureSchema(env) {
       // DF-12 — the BUYER's TRN (the client's VAT registration number), captured for a
       // corporate invoice and printed alongside the seller TRN. NULL for individuals.
       "client_trn TEXT",
+      // DF-13 — explicit test/sandbox flag. Replaces the fragile name/amount heuristic
+      // (isTestRow). A flagged doc is excluded from Sales deterministically. 0 = real.
+      "is_test INTEGER DEFAULT 0",
     ]);
     // DF-3 — dedup index for the idempotency nonce (partial: only non-null nonces
     // are unique, so legacy NULLs never collide). SQLite honours WHERE on indexes.
@@ -395,6 +398,8 @@ async function ensureSchema(env) {
       // override below balance) is flagged partial so it is never mistaken for a
       // full settlement. Over-balance overrides are rejected at mint time.
       "is_partial INTEGER DEFAULT 0",
+      // DF-13 — explicit test/sandbox flag (deterministic Sales exclusion). 0 = real.
+      "is_test INTEGER DEFAULT 0",
       // v86 — back-reference to the invoice this link is attached to (if any).
       // Forward reference (billing_documents.nomod_link_id) already exists.
       "invoice_number TEXT",
@@ -1342,7 +1347,7 @@ async function handleList(env) {
             b.currency, b.total, b.source_quote_number, b.nomod_link_id,
             b.nomod_link_url, b.nomod_link_created_at, b.created_at,
             b.nomod_charge_id, b.paid_at, b.paid_amount, b.payment_method, b.line_items,
-            b.voided_at, b.quote_status, b.valid_until,
+            b.voided_at, b.quote_status, b.valid_until, COALESCE(b.is_test, 0) AS is_test,
             COALESCE(b.payment_status, 'unpaid') AS payment_status,
             (SELECT i.number FROM billing_documents i
               WHERE i.doc_type = 'invoice' AND i.source_quote_number = b.number
@@ -1434,6 +1439,38 @@ async function handleVoid(id, request, env) {
   try { await releaseDocLinkage(env, String(doc.number)); }
   catch (e) { console.error("VOID unlink failed", e && (e.message || String(e))); }
   return json({ ok: true, id: doc.id, number: doc.number, voided_at: now });
+}
+
+// DF-13 — mark/unmark a document as test/sandbox (deterministic Sales exclusion,
+// replacing the name/amount heuristic). {is_test:0} clears it.
+async function handleMarkTest(id, request, env){
+  await ensureSchema(env);
+  let flag = 1;
+  try { const b = await request.json(); flag = (b && Number(b.is_test) === 0) ? 0 : 1; } catch {}
+  const res = await env.BILLING_DB.prepare("UPDATE billing_documents SET is_test = ? WHERE id = ?").bind(flag, id).run();
+  if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
+  return json({ ok: true, id, is_test: flag });
+}
+
+// DF-13 — EVIDENCE DUMP for the is_test backfill. Returns every row the LEGACY
+// name/amount heuristic (/test|demo/i on the name AND gross < 5 AED) would flag,
+// across both revenue tables, with each row's CURRENT is_test flag. Read-only — the
+// owner reviews this list before the backfill migration flips is_test. (Auth-fenced
+// deploys mean the owner runs this via the admin session; the code can't query prod.)
+async function handleTestCandidates(env){
+  await ensureSchema(env);
+  const rx = /test|demo/i;
+  const invoices = [], links = [];
+  const inv = (await env.BILLING_DB.prepare("SELECT id, number, client_name, total, payment_status, payment_method, COALESCE(is_test,0) AS is_test, voided_at FROM billing_documents WHERE doc_type='invoice'").all()).results || [];
+  for (const r of inv) { const g = Number(r.total) || 0; if (rx.test(String(r.client_name || "")) && g < 5) invoices.push({ id: r.id, number: r.number, client_name: r.client_name, total: g, payment_status: r.payment_status, payment_method: r.payment_method, is_test: r.is_test, voided: !!r.voided_at }); }
+  const lk = (await env.BILLING_DB.prepare("SELECT id, title, amount, amount_aed, payment_status, COALESCE(is_test,0) AS is_test FROM payment_links").all()).results || [];
+  for (const r of lk) { const g = (r.amount_aed != null ? Number(r.amount_aed) : Number(r.amount)) || 0; if (rx.test(String(r.title || "")) && g < 5) links.push({ id: r.id, title: r.title, gross: g, payment_status: r.payment_status, is_test: r.is_test }); }
+  return json({
+    ok: true,
+    heuristic: "/test|demo/i on the name AND gross < 5 AED",
+    summary: { invoice_candidates: invoices.length, link_candidates: links.length, already_flagged: invoices.filter(x => x.is_test).length + links.filter(x => x.is_test).length },
+    invoices, links
+  });
 }
 
 // ============================================================ v52: quote -> invoice conversion
@@ -4003,7 +4040,8 @@ async function handleSales(url, env) {
       WHERE doc_type='invoice'
         AND payment_status IN ('paid','refunded','partial')
         AND payment_method IN ('bank','cash')
-        AND voided_at IS NULL`
+        AND voided_at IS NULL
+        AND COALESCE(is_test, 0) = 0`
   ).all()).results || [];
   const linkRows = (await env.BILLING_DB.prepare(
     `SELECT id, title AS client_name, amount, amount_aed, currency,
@@ -4012,7 +4050,8 @@ async function handleSales(url, env) {
        FROM payment_links
       WHERE (payment_status='paid' OR payment_status='refunded')
         AND nomod_charge_id IS NOT NULL
-        AND COALESCE(excluded, 0) = 0`
+        AND COALESCE(excluded, 0) = 0
+        AND COALESCE(is_test, 0) = 0`
   ).all()).results || [];
   // v107 — foreign rows with no AED gross yet are surfaced (never summed).
   const fxUnreconciled = [];
@@ -9288,6 +9327,8 @@ export async function handleAdmin(request, env) {
     if (m && method === "DELETE") return handleDelete(parseInt(m[1], 10), env);
     const voidM = path.match(/^\/admin\/api\/billing\/(\d+)\/void$/);
     if (voidM && method === "POST") return handleVoid(parseInt(voidM[1], 10), request, env);
+    const testM = path.match(/^\/admin\/api\/billing\/(\d+)\/test$/);
+    if (testM && method === "POST") return handleMarkTest(parseInt(testM[1], 10), request, env);
     const convM = path.match(/^\/admin\/api\/billing\/(\d+)\/convert$/);
     if (convM && method === "POST") return handleConvertToInvoice(parseInt(convM[1], 10), env);
     const qsM = path.match(/^\/admin\/api\/billing\/(\d+)\/quote-status$/);
@@ -9313,6 +9354,14 @@ export async function handleAdmin(request, env) {
     return json({ ok: false, error: "not found" }, 404);
   }
 
+  // DF-13 — evidence dump: rows the legacy test-heuristic would flag (read-only).
+  if (path === "/admin/api/sales/test-candidates") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    if (method !== "GET") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET" } });
+    return handleTestCandidates(env);
+  }
   // v84 — Sales endpoint (year selector + monthly ledger + dedup flags).
   if (path === "/admin/api/sales") {
     const authed = await isAuthed(request, env);
@@ -17390,6 +17439,7 @@ const PAGE_SCRIPT = `<script>
       const delB  = e.target.closest("[data-del]");
       const voidB = e.target.closest("[data-void]");
       const qsBtn = e.target.closest("[data-qstatus]");
+      const mtB = e.target.closest("[data-marktest]");
       const convB = e.target.closest("[data-convert]");
       const linkB = e.target.closest("[data-link]");
       const copyB = e.target.closest("[data-copy]");
@@ -17518,6 +17568,20 @@ const PAGE_SCRIPT = `<script>
           .catch(function(err){ setStatus("Update failed: " + (err.message || err)); });
         return;
       }
+      // DF-13 — toggle a document's test/sandbox flag (excluded from Sales).
+      if(mtB){
+        e.preventDefault();
+        const mid = mtB.getAttribute("data-marktest");
+        const next = mtB.getAttribute("data-istest") === "1" ? 0 : 1;
+        fetch("/admin/api/billing/" + mid + "/test", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ is_test: next }) })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if(j && j.ok){ setStatus(next ? "Marked as test (excluded from Sales)." : "Unmarked test."); loadHistory(); }
+            else { setStatus("Update failed: " + ((j && j.error) || "")); }
+          })
+          .catch(function(err){ setStatus("Update failed: " + (err.message || err)); });
+        return;
+      }
       // Phase 1.1 — row click toggles the drawer (skipped for clicks on
       // links/buttons so the Number anchor and panel action buttons keep
       // their handlers).
@@ -17609,6 +17673,8 @@ const PAGE_SCRIPT = `<script>
           actions.push('<button type="button" class="btn btn-small btn-ghost" disabled style="opacity:.55;cursor:not-allowed" title="Add a client email to this document first">Email client</button>');
         }
         actions.push('<button type="button" class="btn btn-small btn-danger" data-del="'+x.id+'" data-num="'+esc(x.number)+'" data-type="'+esc(x.doc_type)+'" data-paid="'+(isPaidDoc?"1":"0")+'" title="Delete">×</button>');
+        // DF-13 — mark/unmark as a test/sandbox doc (deterministically excluded from Sales).
+        actions.push('<button type="button" class="btn btn-small btn-ghost" data-marktest="'+x.id+'" data-istest="'+(x.is_test?1:0)+'" title="'+(x.is_test?"Flagged as TEST (excluded from Sales) — click to unmark":"Mark as a test/sandbox doc (exclude from Sales)")+'">'+(x.is_test?"Test &#10003;":"Mark test")+'</button>');
         // DF-3 — Void keeps the number (never reused) + clears linkage. Offered on
         // NON-paid invoices; a paid invoice needs a refund flow, not a void.
         if(isInvoice && !isPaidDoc){
