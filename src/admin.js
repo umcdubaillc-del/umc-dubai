@@ -281,6 +281,11 @@ async function ensureSchema(env) {
       // PAY-PAGE W4 — server-side view telemetry stamped on each public /pay hit (no page JS).
       "viewed_at TEXT",
       "view_count INTEGER DEFAULT 0",
+      // PAY-WIRE (migration 0021) — structured line items for STANDALONE (Shape B) links,
+      // so /pay renders the SERVICE as hero + itemised rows (Shape A already has
+      // billing_documents.line_items). JSON array [{name, amount(net), quantity}]. Nullable:
+      // legacy links + invoice-born links stay NULL (Shape A reads billing_documents instead).
+      "items_json TEXT",
     ]);
     // PAY-PAGE — enforce token uniqueness + backfill a token onto every pre-existing
     // link (one-time; guarded so it never re-runs once no NULLs remain).
@@ -1165,7 +1170,10 @@ const NOMOD_ALLOW_SERVICE_FEE = false;
 const NOMOD_ALLOW_TABBY       = true;
 const NOMOD_ALLOW_TAMARA      = true;
 const NOMOD_API_URL           = "https://api.nomod.com/v1/links";
-const PUBLIC_ORIGIN           = "https://umc-dubai.umcdubaillc.workers.dev";
+// Public entry point for customer-facing URLs (Nomod success/failure return loop, /pay OG
+// image). MUST be the live apex — the workers.dev host was retired (returns CF 404 1042), so
+// return URLs built on it would 404 the payer after payment. (W1 return-loop correctness.)
+const PUBLIC_ORIGIN           = "https://umcdubai.ae";
 
 // Bank-transfer details, one source of truth. Used by the invoice email
 // (handleEmailClient) and available for the PDF / future builders so the
@@ -1482,11 +1490,18 @@ async function handleCreateStandaloneLink(request, env) {
     if (names.length) derivedNote = names.join(" · ");
   }
   const persistedNote = note || derivedNote || null;
+  // PAY-WIRE — persist the structured items so /pay (Shape B) renders the SERVICE as
+  // the hero + itemised rows, instead of falling back to title (= the client name).
+  // Stored as NET line items [{name, amount, quantity}]; the render reconciles the row
+  // sum to the persisted NET `amount` (a flat/pct discount shows as its own line).
+  const itemsJson = JSON.stringify(items.map(function(it){
+    return { name: String(it.name||"Item"), amount: String(it.amount||"0"), quantity: Number(it.quantity||1) };
+  }));
   try {
     const ins = await env.BILLING_DB.prepare(
-      `INSERT INTO payment_links (title, amount, currency, note, nomod_link_id, nomod_link_url, client_name, origin, pay_token, expiry_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'workspace', ?, ?)`
-    ).bind(title, persistedNet, currency, persistedNote, nomodBody.id || null, nomodBody.url, clientName, payToken, expiry_date).run();
+      `INSERT INTO payment_links (title, amount, currency, note, nomod_link_id, nomod_link_url, client_name, origin, pay_token, expiry_date, items_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'workspace', ?, ?, ?)`
+    ).bind(title, persistedNet, currency, persistedNote, nomodBody.id || null, nomodBody.url, clientName, payToken, expiry_date, itemsJson).run();
     const id = ins && ins.meta && ins.meta.last_row_id;
     return json({ ok: true, id, url: nomodBody.url, nomod_id: nomodBody.id, amount: persistedNet });
   } catch (e) {
@@ -2856,9 +2871,21 @@ var PAY_CSS = "@font-face{font-family:'Outfit';font-style:normal;font-weight:300
 var PAY_LOCK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3"/></svg>';
 var PAY_CHECK_SVG = '<svg viewBox="0 0 24 24"><path d="M5 13l5 5 9-11"/></svg>';
 var PAY_FOOT = '<p class="sitefoot">UMC In Bound Tour Operator LLC · Trading as UMC Dubai<br>Trade Licence 1270934 · TRN 104201356300003<br>contact@umcdubai.ae · +971 58 649 7861</p>';
-function payShell(inner, doctype){
+function payShell(inner, doctype, opts){
+  opts = opts || {};
+  var pageTitle = opts.title || "Payment · UMC Dubai";   // D2
+  var ogTitle = opts.ogTitle || "Payment Request — UMC Dubai";
+  // D1 — OG/Twitter preview meta. Static branded card + generic title ONLY; carries NO
+  // amount, ref or client data (link previews must leak nothing about the payment).
+  var og = "<meta property=\"og:title\" content=\""+payEsc(ogTitle)+"\">"+
+    "<meta property=\"og:site_name\" content=\"UMC Dubai\">"+
+    "<meta property=\"og:type\" content=\"website\">"+
+    "<meta property=\"og:image\" content=\""+PUBLIC_ORIGIN+"/assets/pay-og.png\">"+
+    "<meta name=\"twitter:card\" content=\"summary\">"+
+    "<meta name=\"twitter:title\" content=\""+payEsc(ogTitle)+"\">"+
+    "<meta name=\"twitter:image\" content=\""+PUBLIC_ORIGIN+"/assets/pay-og.png\">";
   return "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"+
-    "<meta name=\"robots\" content=\"noindex, nofollow\"><title>Payment · UMC Dubai</title>"+
+    "<meta name=\"robots\" content=\"noindex, nofollow\"><title>"+payEsc(pageTitle)+"</title>"+og+
     "<link rel=\"preload\" href=\"/assets/fonts/outfit-var.woff2\" as=\"font\" type=\"font/woff2\" crossorigin>"+
     "<link rel=\"preload\" href=\"/assets/fonts/marcellus-400.woff2\" as=\"font\" type=\"font/woff2\" crossorigin>"+
     "<style>"+PAY_CSS+"</style></head><body>"+
@@ -2883,6 +2910,7 @@ function payPageHtml(d){
   var pills = "<span class=\"pill\">Ref <b>"+payEsc(d.payRef)+"</b></span>";
   if(d.invoiceNumber) pills += "<span class=\"pill\">Invoice <b>"+payEsc(d.invoiceNumber)+"</b></span>";
   if(d.dateStr) pills += "<span class=\"pill\">"+payEsc(d.dateStr)+"</span>";
+  if(d.expiryStr) pills += "<span class=\"pill\">Valid until "+payEsc(d.expiryStr)+"</span>";
   var kv = d.clientName ? "<div class=\"kv\"><span class=\"k\">Prepared for</span><span class=\"v\">"+payEsc(d.clientName)+"</span></div>" : "";
   var hero = "<section class=\"card hero\"><div class=\"pills\">"+pills+"</div><h1>"+payEsc(d.hero)+"</h1>"+
     (d.note ? "<p class=\"note\">"+payEsc(d.note)+"</p>" : "")+kv+"</section>";
@@ -2902,7 +2930,8 @@ function payPageHtml(d){
   }).join("");
   var totals = "";
   if(d.isAED){
-    totals = "<div class=\"li quiet\"><span>"+(d.isInvoice?"Subtotal":"Subtotal (net)")+"</span><span class=\"num\">"+payEsc(d.cur+" "+payMoney(d.subtotal))+"</span></div>"+
+    totals = ((d.discount>0) ? "<div class=\"li quiet\"><span>Discount</span><span class=\"num\">−"+payEsc(d.cur+" "+payMoney(d.discount))+"</span></div>" : "")+
+      "<div class=\"li quiet\"><span>"+(d.isInvoice?"Subtotal":"Subtotal (net)")+"</span><span class=\"num\">"+payEsc(d.cur+" "+payMoney(d.subtotal))+"</span></div>"+
       "<div class=\"li quiet\"><span>VAT (5%)</span><span class=\"num\">"+payEsc(d.cur+" "+payMoney(d.vat))+"</span></div>";
   }
   var totalRow = "<div class=\"total\"><span class=\"cap\">Total due"+(d.isAED?"<small>Inclusive of VAT</small>":"")+"</span>"+
@@ -2927,7 +2956,7 @@ function payPageHtml(d){
       docaction;
   }
   var inner = hero+journey+summary+block;
-  return payShell(inner, d.doctype);
+  return payShell(inner, d.doctype, { title: d.pageTitle, ogTitle: d.ogTitle });
 }
 export async function handlePayPage(env, token){
   if(!env.BILLING_DB) return payResponse(payNotice("This payment page is temporarily unavailable."), 503);
@@ -2960,7 +2989,7 @@ export async function handlePayPage(env, token){
   var isPaid = String(link.payment_status||"").toLowerCase() === "paid";
   var isInvoice = !!(link.invoice_number && String(link.invoice_number).trim());
   var clientName = (link.client_name && String(link.client_name).trim()) || "";
-  var hero="", note="", items=[], subtotal=0, vat=0, gross=0, journey=null, dateStr="", pdfUrl=null, invoiceNumber="";
+  var hero="", note="", items=[], subtotal=0, vat=0, gross=0, journey=null, dateStr="", pdfUrl=null, invoiceNumber="", discountAmt=0;
 
   if(isInvoice){
     invoiceNumber = String(link.invoice_number).trim();
@@ -2986,10 +3015,32 @@ export async function handlePayPage(env, token){
       dateStr = payDate(link.created_at);
     }
   } else {
-    hero = String(link.title||"Payment");
+    // Shape B — standalone. PAY-WIRE law: hero = the SERVICE (item name), client ONLY in
+    // "Prepared for". Prefer the persisted structured items; legacy links (no items_json)
+    // fall back to note (holds the service for blank-note links) then title.
     note = (link.note && String(link.note).trim()) || "";
     subtotal = Number(link.amount||0); gross = isAED?payRound2(subtotal*1.05):subtotal; vat = payRound2(gross-subtotal);
-    items = [{ desc:hero, sub:"", amount:payMoney(gross) }];
+    var pItems = null;
+    try { var pj = JSON.parse(link.items_json||"null"); if(Array.isArray(pj) && pj.length) pItems = pj; } catch(e){}
+    if(pItems){
+      hero = String((pItems[0] && pItems[0].name) || link.title || "Payment");
+      var rowsNet = 0;
+      items = pItems.map(function(it){
+        var q=Math.max(1,Number(it.quantity||1)), amt=Number(it.amount||0); rowsNet += amt*q;
+        return { desc:String(it.name||"Item"), sub:((isAED && q>1)?(q+" × "+cur+" "+payMoney(amt)):""), amount:payMoney(amt*q) };
+      });
+      // a flat/pct discount at creation makes the row sum exceed the persisted NET → its own line.
+      var disc = payRound2(rowsNet - subtotal); if(isAED && disc > 0.01) discountAmt = disc;
+      // subline = the note field ONLY — never the derived item-name echo, never the client.
+      var namesEcho = pItems.map(function(it){ return String(it.name||"").trim(); })
+        .filter(function(n){ return n && n!=="Item" && n!=="Service"; }).join(" · ");
+      note = (note && note !== namesEcho) ? note : "";
+    } else {
+      // legacy: the service usually lives in note (blank-note links); else title. Never the client as hero.
+      hero = note || String(link.title||"Payment");
+      items = [{ desc:hero, sub:"", amount:payMoney(gross) }];
+      note = ""; // consumed as hero; do not repeat below the title
+    }
     dateStr = payDate(link.created_at);
   }
 
@@ -2999,12 +3050,19 @@ export async function handlePayPage(env, token){
     chargeRef: payShortCharge(link.nomod_charge_id)
   } : null;
   var taxPrefill = (!isInvoice) ? encodeURIComponent("Hello, I've just completed payment "+payRef+" — could you send the tax invoice? Thank you.") : "";
+  // D3 — a still-valid due link shows a quiet "Valid until <date>" pill (never on a paid page).
+  var expiryStr = (!isPaid && link.expiry_date) ? payDate(link.expiry_date) : "";
+  // D2 — page <title> = "UMC-PL-#### · Payment — UMC Dubai" (Receipt when paid).
+  var pageTitle = payRef + " · " + (isPaid?"Receipt":"Payment") + " — UMC Dubai";
+  // D1 — OG title carries NO amount or client data (previews must leak nothing).
+  var ogTitle = isPaid ? "Receipt — UMC Dubai" : "Payment Request — UMC Dubai";
 
   return payResponse(payPageHtml({
     doctype: isPaid?"Receipt":"Payment", payRef: payRef, invoiceNumber: isInvoice?invoiceNumber:"", dateStr: dateStr,
     clientName: clientName, hero: hero, note: note, journey: journey,
-    cur: cur, isAED: isAED, items: items, subtotal: subtotal, vat: vat, gross: gross,
-    isInvoice: isInvoice, paid: paid, nomodUrl: link.nomod_link_url || "https://umcdubai.ae", pdfUrl: pdfUrl, taxPrefill: taxPrefill
+    cur: cur, isAED: isAED, items: items, subtotal: subtotal, vat: vat, gross: gross, discount: discountAmt,
+    isInvoice: isInvoice, paid: paid, nomodUrl: link.nomod_link_url || "https://umcdubai.ae", pdfUrl: pdfUrl, taxPrefill: taxPrefill,
+    expiryStr: expiryStr, pageTitle: pageTitle, ogTitle: ogTitle
   }));
 }
 // PAY-PAGE — token-gated public invoice PDF (Shape A only). Reuses renderInvoicePdf; attachment.
@@ -9087,7 +9145,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260721-paypage-v3";
+const ADMIN_BUILD = "20260721-paywire";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;

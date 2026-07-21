@@ -22,6 +22,7 @@ function payPageHtml(d){
   var pills = "<span class=\"pill\">Ref <b>"+payEsc(d.payRef)+"</b></span>";
   if(d.invoiceNumber) pills += "<span class=\"pill\">Invoice <b>"+payEsc(d.invoiceNumber)+"</b></span>";
   if(d.dateStr) pills += "<span class=\"pill\">"+payEsc(d.dateStr)+"</span>";
+  if(d.expiryStr) pills += "<span class=\"pill\">Valid until "+payEsc(d.expiryStr)+"</span>";
   var kv = d.clientName ? "<div class=\"kv\"><span class=\"k\">Prepared for</span><span class=\"v\">"+payEsc(d.clientName)+"</span></div>" : "";
   var hero = "<section class=\"card hero\"><div class=\"pills\">"+pills+"</div><h1>"+payEsc(d.hero)+"</h1>"+
     (d.note ? "<p class=\"note\">"+payEsc(d.note)+"</p>" : "")+kv+"</section>";
@@ -39,7 +40,8 @@ function payPageHtml(d){
   }).join("");
   var totals = "";
   if(d.isAED){
-    totals = "<div class=\"li quiet\"><span>"+(d.isInvoice?"Subtotal":"Subtotal (net)")+"</span><span class=\"num\">"+payEsc(d.cur+" "+payMoney(d.subtotal))+"</span></div>"+
+    totals = ((d.discount>0) ? "<div class=\"li quiet\"><span>Discount</span><span class=\"num\">−"+payEsc(d.cur+" "+payMoney(d.discount))+"</span></div>" : "")+
+      "<div class=\"li quiet\"><span>"+(d.isInvoice?"Subtotal":"Subtotal (net)")+"</span><span class=\"num\">"+payEsc(d.cur+" "+payMoney(d.subtotal))+"</span></div>"+
       "<div class=\"li quiet\"><span>VAT (5%)</span><span class=\"num\">"+payEsc(d.cur+" "+payMoney(d.vat))+"</span></div>";
   }
   var totalRow = "<div class=\"total\"><span class=\"cap\">Total due"+(d.isAED?"<small>Inclusive of VAT</small>":"")+"</span>"+
@@ -63,9 +65,35 @@ function payPageHtml(d){
       docaction;
   }
   var inner = hero+journey+summary+block;
-  return payShell(inner, d.doctype);
+  return payShell(inner, d.doctype, { title: d.pageTitle, ogTitle: d.ogTitle });
 }
 // ===== end verbatim =====
+
+// ===== VERBATIM mirror of handlePayPage's Shape B assembly (the wiring under test) =====
+// This is where the bug lived: hero must come from the SERVICE (items_json), never the client.
+function assembleShapeB(link){
+  var cur = String(link.currency||"AED").toUpperCase(), isAED = cur==="AED";
+  var note = (link.note && String(link.note).trim()) || "";
+  var subtotal = Number(link.amount||0), gross = isAED?payRound2(subtotal*1.05):subtotal, vat = payRound2(gross-subtotal);
+  var hero="", items=[], discountAmt=0;
+  var pItems = null;
+  try { var pj = JSON.parse(link.items_json||"null"); if(Array.isArray(pj) && pj.length) pItems = pj; } catch(e){}
+  if(pItems){
+    hero = String((pItems[0] && pItems[0].name) || link.title || "Payment");
+    var rowsNet = 0;
+    items = pItems.map(function(it){ var q=Math.max(1,Number(it.quantity||1)), amt=Number(it.amount||0); rowsNet += amt*q;
+      return { desc:String(it.name||"Item"), sub:((isAED&&q>1)?(q+" × "+cur+" "+payMoney(amt)):""), amount:payMoney(amt*q) }; });
+    var disc = payRound2(rowsNet - subtotal); if(isAED && disc>0.01) discountAmt = disc;
+    var namesEcho = pItems.map(function(it){ return String(it.name||"").trim(); }).filter(function(n){ return n && n!=="Item" && n!=="Service"; }).join(" · ");
+    note = (note && note !== namesEcho) ? note : "";
+  } else {
+    hero = note || String(link.title||"Payment");
+    items = [{ desc:hero, sub:"", amount:payMoney(gross) }];
+    note = "";
+  }
+  var clientName = (link.client_name && String(link.client_name).trim()) || "";
+  return { hero:hero, note:note, items:items, clientName:clientName, subtotal:subtotal, vat:vat, gross:gross, discount:discountAmt, cur:cur, isAED:isAED };
+}
 
 let allPass = true;
 function check(label, cond, extra){ if(!cond) allPass=false; console.log("  ["+(cond?"PASS":"FAIL")+"] "+label); if(!cond&&extra) extra(); }
@@ -169,6 +197,48 @@ console.log("Security + token:");
   check("token: unique across mints", t1 !== t2);
 }
 
+// ═══ PAY-WIRE — Shape B per-slot assembly (the regression trap: hero !== client_name) ═══
+console.log("PAY-WIRE — Shape B slot wiring:");
+{
+  // The bug fixture: title/client_name are the SAME (client), service lives in items_json.
+  const asm = assembleShapeB({
+    title:"Mr Usman", client_name:"Mr Usman", note:"", amount:1200, currency:"AED",
+    items_json: JSON.stringify([{ name:"MB S-Class Airport Transfer", amount:"1200.00", quantity:1 }])
+  });
+  check("WIRE: hero = SERVICE (item name)", asm.hero === "MB S-Class Airport Transfer");
+  check("WIRE: hero !== client_name (REGRESSION TRAP)", asm.hero !== asm.clientName);
+  check("WIRE: summary row desc = service, not client", asm.items[0].desc === "MB S-Class Airport Transfer" && asm.items[0].desc !== "Mr Usman");
+  check("WIRE: client appears only in Prepared-for", asm.clientName === "Mr Usman");
+  check("WIRE: no derived-echo subline (note was blank)", asm.note === "");
+  // real operator note is preserved as the subline (not swallowed by the item echo)
+  const asmNote = assembleShapeB({ title:"Mr Usman", client_name:"Mr Usman", note:"Gate 4 pickup", amount:1200, currency:"AED",
+    items_json: JSON.stringify([{ name:"Airport Transfer", amount:"1200.00", quantity:1 }]) });
+  check("WIRE: genuine note kept as subline", asmNote.note === "Gate 4 pickup");
+  // echo suppression: note equals the joined item names → suppressed
+  const asmEcho = assembleShapeB({ title:"X", client_name:"X", note:"Airport Transfer · Waiting", amount:1500, currency:"AED",
+    items_json: JSON.stringify([{ name:"Airport Transfer", amount:"1200", quantity:1 },{ name:"Waiting", amount:"300", quantity:1 }]) });
+  check("WIRE: item-name echo suppressed from subline", asmEcho.note === "" && asmEcho.items.length === 2);
+  // discount: rows sum to 1200 net, persisted net 1000 → Discount 200 line
+  const asmDisc = assembleShapeB({ title:"X", client_name:"X", note:"", amount:1000, currency:"AED",
+    items_json: JSON.stringify([{ name:"Service", amount:"1200", quantity:1 }]) });
+  check("WIRE: discount reconciled (rowsNet−net)", asmDisc.discount === 200 && asmDisc.subtotal === 1000);
+  // legacy (no items_json): service lives in note → hero = note, never the client
+  const asmLegacy = assembleShapeB({ title:"Ali hadi", client_name:"Ali hadi", note:"GMC YUKON DUBAI TO AL AIN", amount:700, currency:"AED", items_json:null });
+  check("WIRE: legacy hero = note (service), not client", asmLegacy.hero === "GMC YUKON DUBAI TO AL AIN" && asmLegacy.hero !== asmLegacy.clientName);
+
+  // render the fixed Shape B through payPageHtml → hero card shows service, Prepared-for shows client
+  const html = payPageHtml({ doctype:"Payment", payRef:"UMC-PL-0099", invoiceNumber:"", dateStr:"21 July 2026",
+    clientName:asm.clientName, hero:asm.hero, note:asm.note, journey:null, cur:"AED", isAED:true, isInvoice:false,
+    items:asm.items, subtotal:asm.subtotal, vat:asm.vat, gross:asm.gross, discount:asm.discount, paid:null,
+    nomodUrl:"#", pdfUrl:null, taxPrefill:"x", expiryStr:"31 July 2026", pageTitle:"UMC-PL-0099 · Payment — UMC Dubai", ogTitle:"Payment Request — UMC Dubai" });
+  check("WIRE(render): hero card = service", /<h1>MB S-Class Airport Transfer<\/h1>/.test(html));
+  check("WIRE(render): Prepared for = client", /Prepared for<\/span><span class="v">Mr Usman/.test(html));
+  check("D3(render): expiry pill 'Valid until'", /class="pill">Valid until 31 July 2026</.test(html));
+  const htmlDisc = payPageHtml({ doctype:"Payment", payRef:"UMC-PL-0100", invoiceNumber:"", dateStr:"", clientName:"", hero:"Service", note:"", journey:null,
+    cur:"AED", isAED:true, isInvoice:false, items:[{desc:"Service",sub:"",amount:"1,200.00"}], subtotal:1000, vat:50, gross:1050, discount:200, paid:null, nomodUrl:"#", pdfUrl:null, taxPrefill:"x" });
+  check("D-discount(render): Discount line shown", /<span>Discount<\/span><span class="num">−AED 200.00/.test(htmlDisc));
+}
+
 // ═══ v3 SKIN + TYPE FIDELITY — assert against the real src/admin.js ═══
 // The sticky bar / backdrop are PURE CSS (no page JS); fonts + rendering are copied
 // 1:1 from the live site (Outfit face is 300–500, so no weight may exceed 500).
@@ -193,6 +263,15 @@ console.log("v3 skin + type fidelity (live source):");
   check("type: masthead .sub = live-header .6rem/.46em", payCss.includes(".masthead .sub{font-size:.6rem;letter-spacing:.46em"));
   check("preload: Outfit face referenced twice (@font-face + <link preload>)", cnt(payRegion, "/assets/fonts/outfit-var.woff2") >= 2);
   check("preload: Marcellus face referenced twice (@font-face + <link preload>)", cnt(payRegion, "/assets/fonts/marcellus-400.woff2") >= 2);
+
+  const shell = adminSrc.slice(adminSrc.indexOf("function payShell"), adminSrc.indexOf("function payNotice"));
+  check("D1: og:title + og:site_name present", shell.includes('property=\\"og:title\\"') && shell.includes('content=\\"UMC Dubai\\"'));
+  check("D1: og:image + twitter:card summary", shell.includes("/assets/pay-og.png") && shell.includes('twitter:card\\" content=\\"summary\\"'));
+  check("D1: no amount/ref/client interpolation in OG meta (previews leak nothing)", !/og:(title|image)[^>]*payMoney|og:[^>]*d\.(gross|payRef|clientName)/.test(shell) && shell.includes("ogTitle"));
+  check("D2: <title> parametrised + UMC-PL ref format", shell.includes("opts.title") && adminSrc.includes('(isPaid?"Receipt":"Payment") + " — UMC Dubai"'));
+  check("W1: PUBLIC_ORIGIN = live apex (not dead workers.dev)", adminSrc.includes('const PUBLIC_ORIGIN           = "https://umcdubai.ae"') && !adminSrc.includes('PUBLIC_ORIGIN           = "https://umc-dubai.umcdubaillc.workers.dev"'));
+  check("PAY-WIRE: items_json persisted on standalone INSERT", adminSrc.includes("items_json)") && adminSrc.includes("JSON.stringify(items.map"));
+  check("PAY-WIRE: items_json in ensureSchema payment_links", adminSrc.includes('"items_json TEXT"'));
 }
 
 console.log("");
