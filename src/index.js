@@ -5,7 +5,7 @@ import {
   sendLeadAlerts, sendInboundAlert, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runLeadWatchdog, runFlightWatch,
   createWaLink, handleWaRedirect, composeQuoteText, runQuoteNudge, runOpsDigest, runUnassignedJobWatch, runInboundWatch,
   handleAssistant, handleAssistantInbound, waSendingNumber,
-  handlePayPage, handlePayInvoicePdf
+  handlePayPage, handlePayInvoicePdf, runIntegritySweep
 } from "./admin.js";
 import { handleWaTemplates } from "./wa-templates.js";
 
@@ -165,6 +165,7 @@ export default {
         url.pathname === "/admin/api/sales" ||
         url.pathname.startsWith("/admin/api/sales/") ||
         url.pathname === "/admin/api/events" ||
+        url.pathname === "/admin/api/integrity" ||
         url.pathname === "/admin/api/sync-nomod" ||
         url.pathname === "/admin/api/send-quote" ||
         url.pathname === "/admin/api/customers.csv" ||
@@ -229,6 +230,7 @@ export default {
     if (event.cron === "0 3 * * *") {
       ctx.waitUntil(refreshReviewsCache(env).catch(() => {}));
       ctx.waitUntil(runD1Backup(env).catch(() => {}));   // WA-4 §4 — daily D1 → R2 archive
+      ctx.waitUntil(runIntegritySweep(env).catch(() => {}));  // DF-15 — nightly data-integrity sweep → events trail
     } else if (event.cron === "30 4 * * *") {
       ctx.waitUntil(runOpsDigest(env).catch(() => {}));  // WA-4 §ADD6 — 08:30 GST Ops Digest
     } else {

@@ -1524,6 +1524,42 @@ async function handleEvents(url, env){
   return json({ ok: true, events: rows });
 }
 
+// DF-15 — nightly integrity sweep. Runs a set of data-integrity checks seeded from
+// V9/V15/V17, returns a report (counts + sample ids per check), and logs the summary
+// to the events trail (action integrity_sweep). Run by the daily cron and on demand
+// via GET /admin/api/integrity.
+export async function runIntegritySweep(env){
+  await ensureSchema(env);
+  const today = umcTodayDubai();
+  const findings = {};
+  async function ids(sql, ...binds){
+    try { const r = await env.BILLING_DB.prepare(sql).bind(...binds).all(); return (r.results || []).map(x => x.id); }
+    catch (e) { return { error: String(e && (e.message || e)) }; }
+  }
+  // V9 — a lead pointing at a document number that no longer exists.
+  findings.orphan_lead_linkage = await ids("SELECT l.id FROM leads l WHERE l.linked_doc_number IS NOT NULL AND l.linked_doc_number <> '' AND NOT EXISTS (SELECT 1 FROM billing_documents b WHERE b.number = l.linked_doc_number) LIMIT 100");
+  // V9 — a job pointing at a document number that no longer exists.
+  findings.orphan_job_linkage = await ids("SELECT j.id FROM jobs j WHERE j.linked_doc_number IS NOT NULL AND j.linked_doc_number <> '' AND NOT EXISTS (SELECT 1 FROM billing_documents b WHERE b.number = j.linked_doc_number) LIMIT 100");
+  // V17 — a document with no number.
+  findings.numberless_documents = await ids("SELECT id FROM billing_documents WHERE number IS NULL OR number = '' LIMIT 100");
+  // V9 — a document whose lead_id points at a lead that no longer exists (orphan; would
+  // silently drop the pay journey fallback).
+  findings.orphan_doc_lead = await ids("SELECT b.id FROM billing_documents b WHERE b.lead_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM leads l WHERE l.id = b.lead_id) LIMIT 100");
+  // DF-5 — a quote past its validity still reading draft/sent (should be expired).
+  findings.expired_quotes_unmarked = await ids("SELECT id FROM billing_documents WHERE doc_type='quote' AND quote_status IN ('draft','sent') AND valid_until IS NOT NULL AND valid_until < ? LIMIT 100", today);
+  // V15 — a live payment link whose amount (NET×1.05) diverges from the invoice total
+  // and is NOT flagged partial (a desync).
+  findings.link_balance_divergence = await ids(
+    "SELECT b.id FROM billing_documents b JOIN payment_links p ON p.invoice_number = b.number " +
+    "WHERE b.nomod_link_url IS NOT NULL AND COALESCE(p.is_partial,0)=0 AND ABS(ROUND(COALESCE(p.amount,0)*1.05,2) - ROUND(COALESCE(b.total,0),2)) > 0.01 LIMIT 100");
+  const summary = {};
+  let total = 0;
+  for (const k of Object.keys(findings)) { const v = findings[k]; const n = Array.isArray(v) ? v.length : 0; summary[k] = n; total += n; }
+  summary.total_issues = total;
+  await logEvent(env, "system", null, "integrity_sweep", "system", summary);
+  return { ok: true, ran_at: new Date().toISOString(), summary, findings };
+}
+
 // ============================================================ v52: quote -> invoice conversion
 //
 // A quote and an invoice are distinct documents with distinct number series.
@@ -4058,11 +4094,10 @@ async function handleMarkRefunded(id, request, env) {
 // in a different table — but we still flag heuristic matches (same client +
 // amount within 5% within ±7 days) as "possible duplicates" for review.
 // Refunds (refunded_at within the year) are subtracted from the month they
-// occurred. Test/demo exclusion: client_name matches /test|demo/i AND gross
-// under 5 AED.
-function isTestRow(name, gross) {
-  return /test|demo/i.test(String(name || "")) && Number(gross) < 5;
-}
+// occurred. DF-15 — test/sandbox exclusion is now the explicit is_test flag
+// (enforced in the SQL: WHERE COALESCE(is_test,0)=0). The old /test|demo/i + gross<5
+// heuristic was dropped — its evidence dump was empty on 2026-07-21, so is_test is the
+// sole gate and no real low-value "Test"-named row is ever misclassified.
 // Convert a UTC ISO timestamp to its Dubai-time year and 1-12 month.
 function dubaiYM(iso) {
   if (!iso) return null;
@@ -4128,9 +4163,8 @@ async function handleSales(url, env) {
     if (!y) { y = emptyMonths(); ledger.set(year, y); }
     return y[month - 1];
   }
-  // (a) invoices in billing_documents
+  // (a) invoices in billing_documents (is_test rows already excluded by the query)
   for (const r of invRows) {
-    if (isTestRow(r.client_name, Number(r.total) || 0)) continue;
     // Sale row from paid_at — partials surface just what was received so far.
     if ((r.payment_status === "paid" || r.payment_status === "partial") && r.paid_at) {
       const gross = (r.payment_status === "partial") ? (Number(r.paid_amount) || 0) : (Number(r.total) || 0);
@@ -4183,7 +4217,7 @@ async function handleSales(url, env) {
         continue;
       }
     }
-    if (isTestRow(r.client_name, gross)) continue;
+    // DF-15 — is_test rows already excluded by the query; no heuristic here.
     if (r.payment_status === "paid" && r.paid_at) {
       const ym = dubaiYM(r.paid_at);
       if (!ym) continue;
@@ -9407,6 +9441,14 @@ export async function handleAdmin(request, env) {
     return json({ ok: false, error: "not found" }, 404);
   }
 
+  // DF-15 — on-demand integrity sweep (same checks the nightly cron runs).
+  if (path === "/admin/api/integrity") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    if (method !== "GET") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET" } });
+    return json(await runIntegritySweep(env));
+  }
   // DF-14 — audit trail read endpoint.
   if (path === "/admin/api/events") {
     const authed = await isAuthed(request, env);

@@ -40,4 +40,19 @@ if (missing.length) {
   console.error("\nAdd each to the allowlist block in src/index.js (url.pathname === \"…\" or .startsWith(\"…\")).");
   process.exit(1);
 }
-console.log(`check-admin-routes: all ${refs.size} frontend /admin fetch paths are routed to the Worker ✓`);
+
+// DF-15 — also guard URL-only endpoints: every SERVER route src/admin.js registers as
+// an exact `path === "/admin/api/…"` MUST be forwarded by src/index.js, even when NO
+// frontend fetch references it (it's opened by URL). This is the class that hid the
+// /admin/api/sales/test-candidates 404 — a route the Worker handles but index.js never
+// forwarded, so the request fell through to static assets and returned the 404 page.
+const serverRoutes = new Set();
+for (const m of adm.matchAll(/\bpath\s*===\s*["'`](\/admin\/api\/[^"'`]+)["'`]/g)) serverRoutes.add(m[1]);
+const unforwarded = [...serverRoutes].filter((p) => !covered(p)).sort();
+if (unforwarded.length) {
+  console.error("check-admin-routes: SERVER routes in src/admin.js NOT forwarded by src/index.js (URL-only 404 risk):");
+  for (const p of unforwarded) console.error("  ✗ " + p);
+  console.error("\nAdd each to the allowlist block in src/index.js (url.pathname === \"…\" or .startsWith(\"…\")).");
+  process.exit(1);
+}
+console.log(`check-admin-routes: all ${refs.size} frontend /admin fetch paths + ${serverRoutes.size} server routes are routed to the Worker ✓`);
