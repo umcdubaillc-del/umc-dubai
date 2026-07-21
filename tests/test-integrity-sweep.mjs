@@ -14,7 +14,7 @@ function check(label,cond){ if(!cond) allPass=false; console.log("  ["+(cond?"PA
 
 console.log("Integrity sweep:");
 check("runIntegritySweep exported (importable by the cron)", src.includes("export async function runIntegritySweep("));
-for (const k of ["orphan_lead_linkage","orphan_job_linkage","numberless_documents","orphan_doc_lead","expired_quotes_unmarked","link_balance_divergence"])
+for (const k of ["orphan_lead_linkage","orphan_job_linkage","numberless_documents","orphan_doc_lead","expired_quotes_unmarked","link_balance_divergence","invoice_multiple_live_links"])
   check("check present: " + k, src.includes("findings." + k + " ="));
 check("sweep logs a summary to the events trail", src.includes('logEvent(env, "system", null, "integrity_sweep", "system", summary)'));
 check("on-demand endpoint /admin/api/integrity", src.includes('path === "/admin/api/integrity"'));
@@ -29,6 +29,10 @@ console.log("isTestRow heuristic dropped (is_test is the sole gate):");
 check("isTestRow function removed", !/function isTestRow\s*\(/.test(src));
 check("isTestRow no longer called anywhere", !/isTestRow\s*\(/.test(src));
 check("Sales still excludes is_test in SQL", /COALESCE\(is_test, 0\) = 0/.test(src));
+
+console.log("Show-archived toggle fix (hides both ways):");
+check("loadLinks reads the LIVE checkbox state (no mirror desync)", src.includes("_lkArchEl ? _lkArchEl.checked : showArchivedLinks"));
+check("links fetch is cache-busted", src.includes('(_lkIncludeArchived ? "?archived=1&" : "?") + "_=" + Date.now()'));
 
 console.log("Route validator enhancement (URL-only class):");
 check("validator extracts admin.js server routes", val.includes('path\\s*===\\s*["\'`](\\/admin\\/api'));

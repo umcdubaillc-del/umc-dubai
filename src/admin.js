@@ -1552,6 +1552,12 @@ export async function runIntegritySweep(env){
   findings.link_balance_divergence = await ids(
     "SELECT b.id FROM billing_documents b JOIN payment_links p ON p.invoice_number = b.number " +
     "WHERE b.nomod_link_url IS NOT NULL AND COALESCE(p.is_partial,0)=0 AND ABS(ROUND(COALESCE(p.amount,0)*1.05,2) - ROUND(COALESCE(b.total,0),2)) > 0.01 LIMIT 100");
+  // The INV-1011 twin: an invoice with more than one LIVE (non-archived) payment link,
+  // so a forgotten live duplicate can never sit payable unnoticed. Reports the invoice
+  // number(s) (aliased as id for the sample list).
+  findings.invoice_multiple_live_links = await ids(
+    "SELECT invoice_number AS id FROM payment_links WHERE invoice_number IS NOT NULL AND invoice_number <> '' AND archived_at IS NULL " +
+    "GROUP BY invoice_number HAVING COUNT(*) > 1 LIMIT 100");
   const summary = {};
   let total = 0;
   for (const k of Object.keys(findings)) { const v = findings[k]; const n = Array.isArray(v) ? v.length : 0; summary[k] = n; total += n; }
@@ -12421,7 +12427,13 @@ const PAGE_SCRIPT = `<script>
     }
     loadLinks = async function(){
       try {
-        const r = await fetch("/admin/api/links" + (showArchivedLinks ? "?archived=1" : ""));
+        // Read the checkbox's LIVE state as the source of truth (a mirrored flag can
+        // desync — the "Show archived only hides one way" bug) and cache-bust so the
+        // browser can never serve a stale archived-inclusive list for the plain URL.
+        const _lkArchEl = $("lkShowArchived");
+        const _lkIncludeArchived = _lkArchEl ? _lkArchEl.checked : showArchivedLinks;
+        showArchivedLinks = _lkIncludeArchived;
+        const r = await fetch("/admin/api/links" + (_lkIncludeArchived ? "?archived=1&" : "?") + "_=" + Date.now());
         const j = await r.json();
         const tbody = $("lkBody");
         const empty = $("lkEmpty");
