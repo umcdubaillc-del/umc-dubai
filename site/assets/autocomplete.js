@@ -1,4 +1,4 @@
-/* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
+/* © UMC In Bound Tour Operator LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 /* UMC Dubai — shared place-autocomplete dropdown.
    Used by BOTH the homepage hero form (main.js) and the booking form
    (booking.js). A custom dropdown driven by the Places AutocompleteService

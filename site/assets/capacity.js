@@ -1,4 +1,4 @@
-/* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
+/* © UMC In Bound Tour Operator LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 /* CAP-4 / CAP-5-SIMPLE / CAP-6 — capacity module (photographic seating; no tabs, no boot SVG).
    SEATING ships the default scenario <picture> in SSR. ONE STATIC CAMERA — no zoom.
    Two transition modes (CAP-6): a WITHIN-config scenario switch (captain 5<->6, bench 6<->7)

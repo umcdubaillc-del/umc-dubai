@@ -1,4 +1,4 @@
-/* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
+/* © UMC In Bound Tour Operator LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 /* UMC Dubai,reservation flow */
 
 function trackLead(formId, service){

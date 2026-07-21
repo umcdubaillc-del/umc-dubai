@@ -708,7 +708,7 @@ TERMS_ITEMS = [
  ("Personal belongings","The company is not liable for any personal belongings left in the vehicle. Please ensure all items are removed at the end of the trip."),
  ("Third-party services","We are not liable for issues, errors or delays caused by third-party vendors or services arranged through us."),
  ("Liability","The company&rsquo;s liability is limited to the provision of transportation as confirmed in the booking. We shall not be held liable for indirect losses, missed flights or appointments arising from uncontrollable circumstances."),
- ("Intellectual property","All design, copy and code on this website are the property of UMC Dubai LLC. Unauthorised reproduction, modification, distribution or scraping of this material is prohibited and monitored. &copy; UMC Dubai LLC. All rights reserved."),
+ ("Intellectual property","All design, copy and code on this website are the property of UMC In Bound Tour Operator LLC (trading as UMC Dubai). Unauthorised reproduction, modification, distribution or scraping of this material is prohibited and monitored. &copy; UMC In Bound Tour Operator LLC. All rights reserved."),
  ("Governing law","These terms are governed by the laws of the United Arab Emirates. Any disputes shall be handled under the jurisdiction of the courts in Dubai, UAE. By proceeding with a booking through our website form, WhatsApp, or phone call, you acknowledge and agree to abide by all terms and conditions outlined on our website."),
 ]
 TERMS_OL = "".join("<li><b>" + t + ".</b> " + b + "</li>" for t,b in TERMS_ITEMS)

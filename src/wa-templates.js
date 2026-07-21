@@ -1,4 +1,4 @@
-/* (c) UMC Dubai LLC. All rights reserved. */
+/* (c) UMC In Bound Tour Operator LLC. All rights reserved. */
 
 // WA template-management rail (WA-1). Admin-gated (same isAuthed cookie as the
 // wa-events peek), server-side, so WA_ACCESS_TOKEN never leaves the Worker.

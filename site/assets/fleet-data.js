@@ -1,4 +1,4 @@
-/* © UMC Dubai LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
+/* © UMC In Bound Tour Operator LLC. All rights reserved. Unauthorised reproduction of this code or design is prohibited and monitored. */
 /* UMC Dubai,fleet data + renderer (single source of truth) */
 const UMC_FLEET_KEY = "umc_fleet";
 
