@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-b2fix";
+const ADMIN_BUILD = "20260722-b2fix2";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -10596,9 +10596,9 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   /* Decision 2 — uniform 2-line row. Line 1: client + status; line 2: number + total.
      Date + type move to the row sheet (the number prefix already encodes INV vs Q). */
   #tab-documents .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.05rem; min-height:60px; }
-  #tab-documents td[data-lbl="Client"]{ grid-column:1; grid-row:1; font-size:14.5px; font-weight:500; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0; }
+  #tab-documents td[data-lbl="Client"]{ grid-column:1; grid-row:1; max-width:none; font-size:14.5px; font-weight:500; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0; }
   #tab-documents td[data-lbl="Status"]{ grid-column:2; grid-row:1; justify-self:end; text-align:right; white-space:nowrap; padding:0; }
-  #tab-documents td[data-lbl="Number"]{ grid-column:1; grid-row:2; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:.1rem 0 0; }
+  #tab-documents td[data-lbl="Number"]{ grid-column:1; grid-row:2; max-width:none; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:.1rem 0 0; }
   #tab-documents td[data-lbl="Number"] .hist-link{ display:none; }
   #tab-documents td[data-lbl="Total"]{ grid-column:2; grid-row:2; justify-self:end; text-align:right; font-size:13px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; white-space:nowrap; padding:.1rem 0 0; }
   #tab-documents td[data-lbl="Date"]{ display:none; }
@@ -10614,11 +10614,11 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
      line 2: DF-4-trimmed route + date. Service / contact / chips / funnel move
      to the row sheet, so the collapsed card is exactly two lines like every tab. */
   #tab-leads .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.05rem; min-height:60px; }
-  #tab-leads td[data-lbl="Name"]{ grid-column:1; grid-row:1; font-size:14.5px; font-weight:500; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0; }
+  #tab-leads td[data-lbl="Name"]{ grid-column:1; grid-row:1; max-width:none; font-size:14.5px; font-weight:500; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0; }
   #tab-leads td[data-lbl="Name"] .lead-meta{ display:none !important; }
   #tab-leads td[data-lbl="Status"]{ grid-column:2; grid-row:1; align-self:center; justify-self:end; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:44vw; line-height:1.3; }
-  #tab-leads td[data-lbl="Route"]{ display:block; grid-column:1; grid-row:2; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:.1rem 0 0; }
-  #tab-leads td[data-lbl="Date"]{ grid-column:2; grid-row:2; align-self:center; justify-self:end; font-size:11.5px; color:var(--muted); white-space:nowrap; padding:.1rem 0 0; }
+  #tab-leads td[data-lbl="Route"]{ display:block; grid-column:1; grid-row:2; max-width:none; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:.1rem 0 0; }
+  #tab-leads td[data-lbl="Date"]{ grid-column:2; grid-row:2; max-width:none; align-self:center; justify-self:end; font-size:11.5px; color:var(--muted); white-space:nowrap; padding:.1rem 0 0; }
   #tab-leads td[data-lbl="Service"]{ display:none; }
   #tab-leads td[data-lbl="Contact"]{ display:none; }
   #tab-leads td[data-lbl="Consent"]{ display:none; }
@@ -10628,7 +10628,7 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   /* Decision 2 — uniform 2-line row. Line 1: client + status; line 2: created + amount.
      Workspace chip / PL number / views / description collapse to the row sheet. */
   #tab-links .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.05rem; min-height:60px; }
-  #tab-links td[data-lbl="Client"]{ grid-column:1; grid-row:1; font-size:14.5px; font-weight:500; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0; }
+  #tab-links td[data-lbl="Client"]{ grid-column:1; grid-row:1; max-width:none; font-size:14.5px; font-weight:500; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0; }
   #tab-links td[data-lbl="Client"] > *{ display:none; }
   #tab-links td[data-lbl="Status"]{ grid-column:2; grid-row:1; justify-self:end; align-self:center; text-align:right; white-space:nowrap; padding:0; }
   #tab-links td[data-lbl="Created"]{ grid-column:1; grid-row:2; font-size:11.5px; color:var(--muted); white-space:nowrap; padding:.1rem 0 0; }
