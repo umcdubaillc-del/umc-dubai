@@ -273,14 +273,16 @@ console.log("v3 skin + type fidelity (live source):");
   check("PAY-WIRE: items_json persisted on standalone INSERT", adminSrc.includes("items_json)") && adminSrc.includes("JSON.stringify(items.map"));
   check("PAY-WIRE: items_json in ensureSchema payment_links", adminSrc.includes('"items_json TEXT"'));
 
-  // D4 — the journey gate must key on lead_id (the column handleSaveBilling writes),
-  // not the never-set source_type='lead'. Mirror + source guard.
-  const journeyLeadId = (doc) => (doc.lead_id!=null) ? doc.lead_id
-    : ((String(doc.source_type||"")==="lead" && doc.source_id!=null) ? doc.source_id : null);
-  check("D4: journey keys on lead_id (what the save writes)", journeyLeadId({lead_id:42, source_type:null, source_id:null}) === 42);
-  check("D4: legacy source_type/source_id still works", journeyLeadId({lead_id:null, source_type:"lead", source_id:7}) === 7);
-  check("D4: no lead ref → no journey", journeyLeadId({lead_id:null, source_type:null, source_id:null}) === null);
-  check("D4: render gate uses lead_id (source guard)", adminSrc.includes("var journeyLeadId = (doc.lead_id!=null)"));
+  // D4 / DF-4 — the journey card renders on DATA PRESENCE (the doc's own journey
+  // snapshot), with lead_id as the legacy fallback; the dead source_type reader is
+  // gone. Mirror + source guard. (Full DF-4 coverage in test-journey-render.mjs.)
+  const resolveJourney = (doc) => (doc.journey_pickup || doc.journey_destination) ? "snapshot"
+    : ((doc.lead_id != null) ? ("lead:" + doc.lead_id) : null);
+  check("DF-4: journey renders from the doc snapshot (data presence)", resolveJourney({journey_pickup:"DXB T3", journey_destination:"Marina"}) === "snapshot");
+  check("DF-4: legacy doc (no snapshot) falls back to lead_id", resolveJourney({lead_id:42}) === "lead:42");
+  check("DF-4: no snapshot + no lead → no journey", resolveJourney({lead_id:null}) === null);
+  check("DF-4: render reads the journey snapshot (source guard)", adminSrc.includes("doc.journey_pickup"));
+  check("DF-4: dead source_type reader removed (source guard)", !adminSrc.includes('String(doc.source_type||"")==="lead"'));
 }
 
 console.log("");

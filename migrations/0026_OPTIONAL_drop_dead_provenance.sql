@@ -1,0 +1,23 @@
+-- DF-4 / V24 — OPTIONAL, OWNER-APPLIED ONLY. Do NOT wire into runtime ensureSchema.
+--
+-- Pre-drop read-audit (V24): the CURRENT code never defines source_type/source_id as
+-- columns on billing_documents (not in CREATE TABLE, not in addMissingColumns) and,
+-- as of DF-4, never reads them either — the D4 dead-reader on the /pay path is gone.
+-- So on a schema built by this code there is NOTHING to drop and this file is a no-op.
+--
+-- This file exists only for a legacy prod database that may carry stray
+-- source_type/source_id columns from an old build. They are unread and (per the
+-- audit) never written, so they are harmless — dropping them is cosmetic hygiene.
+--
+-- BEFORE dropping, confirm they are empty:
+--   SELECT COUNT(*) AS n FROM billing_documents WHERE source_type IS NOT NULL OR source_id IS NOT NULL;
+-- Expect n = 0. If n > 0, STOP and investigate (do not drop live provenance).
+--
+-- Then, if the columns exist and are empty, apply manually:
+--   wrangler d1 execute umc-billing --remote --command "ALTER TABLE billing_documents DROP COLUMN source_type;"
+--   wrangler d1 execute umc-billing --remote --command "ALTER TABLE billing_documents DROP COLUMN source_id;"
+-- (SQLite/D1 has no DROP COLUMN IF EXISTS — a "no such column" error just means the
+--  column was never there, which is the expected state on a code-built schema.)
+--
+-- NOTE: jobs.source_type / jobs.source_id are the LIVE provenance pair on the jobs
+-- table — do NOT touch those.

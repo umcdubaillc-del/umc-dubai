@@ -227,6 +227,17 @@ async function ensureSchema(env) {
       // same nonce, so the second POST returns the first row instead of inserting a
       // duplicate. NULL for edits (idempotent by id) and legacy rows.
       "client_nonce TEXT",
+      // DF-4 — denormalized journey snapshot. The /pay journey card renders from
+      // THESE fields (data presence), not from a live lead lookup, so it survives
+      // lead deletion and works for direct-created and converted invoices. Copied
+      // from the lead at create-from-lead; carried with items on convert (DF-5).
+      "journey_pickup TEXT",
+      "journey_destination TEXT",
+      "journey_date TEXT",
+      "journey_time TEXT",
+      "journey_vehicle TEXT",
+      "journey_flight TEXT",
+      "journey_sign TEXT",
     ]);
     // DF-3 — dedup index for the idempotency nonce (partial: only non-null nonces
     // are unique, so legacy NULLs never collide). SQLite honours WHERE on indexes.
@@ -1047,6 +1058,23 @@ async function handleCreate(request, env) {
     }
   } catch (e) { /* idempotency lookup is best-effort; fall through to insert */ }
 
+  // DF-4 — snapshot the journey onto the document so /pay renders from the doc
+  // itself (survives lead deletion; works for converted docs). Prefer an explicit
+  // payload journey_* (future direct-entry); else copy from the originating lead.
+  let jrny = { pickup: b.journey_pickup || null, destination: b.journey_destination || null,
+    date: b.journey_date || null, time: b.journey_time || null, vehicle: b.journey_vehicle || null,
+    flight: b.journey_flight || null, sign: b.journey_sign || null };
+  if (leadId && !(jrny.pickup || jrny.destination)) {
+    try {
+      const ld = await env.BILLING_DB.prepare(
+        "SELECT pickup, destination, date, time, vehicle, flight, sign FROM leads WHERE id = ?"
+      ).bind(leadId).first();
+      if (ld) jrny = { pickup: ld.pickup || null, destination: ld.destination || null,
+        date: ld.date || null, time: ld.time || null, vehicle: ld.vehicle || null,
+        flight: ld.flight || null, sign: ld.sign || null };
+    } catch (e) { /* journey snapshot is best-effort */ }
+  }
+
   // DF-3 — atomic-ish numbering. The shared MAX+1 is read-then-write, so a
   // concurrent create can take the client's suggested number first. On a
   // UNIQUE(number) collision for a NEW doc we recompute the next free number and
@@ -1061,8 +1089,9 @@ async function handleCreate(request, env) {
       const res = await env.BILLING_DB.prepare(
         `INSERT INTO billing_documents
           (doc_type, number, doc_date, client_name, client_company, client_address, client_email, client_phone,
-           currency, vat_mode, line_items, discount, subtotal, vat, total, notes, internal_notes, lead_id, client_nonce)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           currency, vat_mode, line_items, discount, subtotal, vat, total, notes, internal_notes, lead_id, client_nonce,
+           journey_pickup, journey_destination, journey_date, journey_time, journey_vehicle, journey_flight, journey_sign)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         b.doc_type, insertNumber, String(b.doc_date),
         String(b.client_name || ""), b.client_company || null, b.client_address || null, b.client_email || null, b.client_phone || null,
@@ -1072,7 +1101,8 @@ async function handleCreate(request, env) {
         b.notes || null,
         b.internal_notes || null,
         leadId,       // WA-2 H — lead context association (NULL for non-lead docs → never fires)
-        clientNonce   // DF-3 — idempotency nonce (NULL for edits/legacy)
+        clientNonce,  // DF-3 — idempotency nonce (NULL for edits/legacy)
+        jrny.pickup, jrny.destination, jrny.date, jrny.time, jrny.vehicle, jrny.flight, jrny.sign  // DF-4 — journey snapshot
       ).run();
       id = res && res.meta && res.meta.last_row_id;
       break;
@@ -2984,12 +3014,25 @@ function payRound2(x){ return Math.round(Number(x||0)*100)/100; }
 function payDate(iso){ var d=new Date(iso); if(isNaN(d.getTime())) return ""; return d.toLocaleDateString("en-GB",{timeZone:"Asia/Dubai",day:"numeric",month:"long",year:"numeric"}); }
 function payDateTime(iso){ var d=new Date(iso); if(isNaN(d.getTime())) return ""; var day=d.toLocaleDateString("en-GB",{timeZone:"Asia/Dubai",day:"numeric",month:"long",year:"numeric"}); var t=d.toLocaleTimeString("en-GB",{timeZone:"Asia/Dubai",hour:"2-digit",minute:"2-digit",hour12:false}); return day+" · "+t; }
 function payShortCharge(id){ id=String(id||""); if(!id) return ""; if(id.length<=12) return id; return id.slice(0,7)+"…"+id.slice(-2); }
+// DF-4 — trim a route endpoint to a leading place name so the journey card never
+// wraps to ~4 lines; the full string is preserved for the tooltip. Keeps whole
+// comma-segments up to a budget, else hard-trims with an ellipsis. Server-rendered
+// HTML (browser fonts) so the ellipsis glyph is safe — this never touches the PDF.
+function payEndpointLabel(s){
+  s = String(s||"").trim();
+  if(s.length <= 28) return s;
+  var parts = s.split(",");
+  var out = parts[0].trim();
+  for(var i=1;i<parts.length;i++){ var next = out + ", " + parts[i].trim(); if(next.length > 28) break; out = next; }
+  if(out.length > 30) out = out.slice(0,27).trim() + "…";
+  return out;
+}
 function buildPayJourney(lead){
   var pickup=String((lead&&lead.pickup)||"").trim(), dest=String((lead&&lead.destination)||"").trim();
   if(!pickup || !dest) return null; // a journey needs a real route; never a partial placeholder
   var date=String(lead.date||"").trim(), time=String(lead.time||"").trim(), flight=String(lead.flight||"").trim();
   var itin=[]; var dt=[date,time].filter(Boolean).join(" · "); if(dt) itin.push(dt); if(flight) itin.push("Flight "+flight);
-  return { pickup: pickup, dest: dest, itin: itin };
+  return { pickup: pickup, dest: dest, pickupShort: payEndpointLabel(pickup), destShort: payEndpointLabel(dest), itin: itin };
 }
 function payResponse(html, status){
   return new Response(html, { status: status||200, headers: {
@@ -3139,9 +3182,9 @@ function payPageHtml(d){
   if(d.journey){
     var jrows = (d.journey.itin||[]).map(function(x){ return "<div class=\"jrow\"><span>"+payEsc(x)+"</span></div>"; }).join("");
     journey = "<div class=\"group-lbl\">Journey</div><section class=\"card journey\"><div class=\"segs\">"+
-      "<div class=\"seg\"><div class=\"code\">"+payEsc(d.journey.pickup)+"</div></div>"+
+      "<div class=\"seg\"><div class=\"code\" title=\""+payEsc(d.journey.pickup)+"\">"+payEsc(d.journey.pickupShort||d.journey.pickup)+"</div></div>"+
       "<div class=\"connector\"><span class=\"ln\"></span><span class=\"pt\"></span><span class=\"ln\"></span></div>"+
-      "<div class=\"seg\"><div class=\"code\">"+payEsc(d.journey.dest)+"</div></div></div>"+
+      "<div class=\"seg\"><div class=\"code\" title=\""+payEsc(d.journey.dest)+"\">"+payEsc(d.journey.destShort||d.journey.dest)+"</div></div></div>"+
       (jrows ? "<div class=\"jrows\">"+jrows+"</div>" : "")+"</section>";
   }
   // SUMMARY card — line items, optional Subtotal/VAT (AED only), Total due (gross).
@@ -3224,14 +3267,18 @@ export async function handlePayPage(env, token){
       subtotal=Number(doc.subtotal||0); vat=Number(doc.vat||0); gross=Number(doc.total||0);
       dateStr = payDate(doc.doc_date || link.created_at);
       pdfUrl = "/pay/"+encodeURIComponent(tok)+"/invoice.pdf";
-      // Journey renders for a lead-born invoice. Invoices created from a lead persist the
-      // lead on billing_documents.lead_id (handleSaveBilling); the older source_type/source_id
-      // pair is a fallback for any legacy row that used it. (Before this, the gate only checked
-      // source_type='lead' — never set by the save — so the journey never rendered: D4 bug.)
-      var journeyLeadId = (doc.lead_id!=null) ? doc.lead_id
-        : ((String(doc.source_type||"")==="lead" && doc.source_id!=null) ? doc.source_id : null);
-      if(journeyLeadId!=null){
-        var lead = await env.BILLING_DB.prepare("SELECT service, vehicle, pickup, destination, date, time, flight FROM leads WHERE id = ?").bind(journeyLeadId).first();
+      // DF-4 — journey renders on DATA PRESENCE, from the document's own denormalized
+      // snapshot (journey_*). Robust to lead deletion and works for direct-created and
+      // converted invoices — provenance (source_type/source_id) is no longer consulted
+      // (those were never columns on billing_documents: the D4 dead-reader). Legacy docs
+      // with no snapshot fall back to the lead by lead_id.
+      if(doc.journey_pickup || doc.journey_destination){
+        journey = buildPayJourney({
+          pickup: doc.journey_pickup, destination: doc.journey_destination,
+          date: doc.journey_date, time: doc.journey_time, flight: doc.journey_flight
+        });
+      } else if(doc.lead_id != null){
+        var lead = await env.BILLING_DB.prepare("SELECT service, vehicle, pickup, destination, date, time, flight FROM leads WHERE id = ?").bind(doc.lead_id).first();
         if(lead) journey = buildPayJourney(lead);
       }
     } else {
