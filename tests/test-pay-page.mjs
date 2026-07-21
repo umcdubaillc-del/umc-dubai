@@ -272,6 +272,15 @@ console.log("v3 skin + type fidelity (live source):");
   check("W1: PUBLIC_ORIGIN = live apex (not dead workers.dev)", adminSrc.includes('const PUBLIC_ORIGIN           = "https://umcdubai.ae"') && !adminSrc.includes('PUBLIC_ORIGIN           = "https://umc-dubai.umcdubaillc.workers.dev"'));
   check("PAY-WIRE: items_json persisted on standalone INSERT", adminSrc.includes("items_json)") && adminSrc.includes("JSON.stringify(items.map"));
   check("PAY-WIRE: items_json in ensureSchema payment_links", adminSrc.includes('"items_json TEXT"'));
+
+  // D4 — the journey gate must key on lead_id (the column handleSaveBilling writes),
+  // not the never-set source_type='lead'. Mirror + source guard.
+  const journeyLeadId = (doc) => (doc.lead_id!=null) ? doc.lead_id
+    : ((String(doc.source_type||"")==="lead" && doc.source_id!=null) ? doc.source_id : null);
+  check("D4: journey keys on lead_id (what the save writes)", journeyLeadId({lead_id:42, source_type:null, source_id:null}) === 42);
+  check("D4: legacy source_type/source_id still works", journeyLeadId({lead_id:null, source_type:"lead", source_id:7}) === 7);
+  check("D4: no lead ref → no journey", journeyLeadId({lead_id:null, source_type:null, source_id:null}) === null);
+  check("D4: render gate uses lead_id (source guard)", adminSrc.includes("var journeyLeadId = (doc.lead_id!=null)"));
 }
 
 console.log("");

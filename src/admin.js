@@ -3022,8 +3022,14 @@ export async function handlePayPage(env, token){
       subtotal=Number(doc.subtotal||0); vat=Number(doc.vat||0); gross=Number(doc.total||0);
       dateStr = payDate(doc.doc_date || link.created_at);
       pdfUrl = "/pay/"+encodeURIComponent(tok)+"/invoice.pdf";
-      if(String(doc.source_type||"")==="lead" && doc.source_id!=null){
-        var lead = await env.BILLING_DB.prepare("SELECT service, vehicle, pickup, destination, date, time, flight FROM leads WHERE id = ?").bind(doc.source_id).first();
+      // Journey renders for a lead-born invoice. Invoices created from a lead persist the
+      // lead on billing_documents.lead_id (handleSaveBilling); the older source_type/source_id
+      // pair is a fallback for any legacy row that used it. (Before this, the gate only checked
+      // source_type='lead' — never set by the save — so the journey never rendered: D4 bug.)
+      var journeyLeadId = (doc.lead_id!=null) ? doc.lead_id
+        : ((String(doc.source_type||"")==="lead" && doc.source_id!=null) ? doc.source_id : null);
+      if(journeyLeadId!=null){
+        var lead = await env.BILLING_DB.prepare("SELECT service, vehicle, pickup, destination, date, time, flight FROM leads WHERE id = ?").bind(journeyLeadId).first();
         if(lead) journey = buildPayJourney(lead);
       }
     } else {
@@ -9166,7 +9172,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260721-leadgate";
+const ADMIN_BUILD = "20260721-journey";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
