@@ -217,7 +217,22 @@ async function ensureSchema(env) {
       // so a PAID webhook can resolve payment → lead for the WhatsApp confirmation.
       // NULL for documents not created from a lead → those NEVER fire a confirmation.
       "lead_id INTEGER",
+      // DF-3 (VOID) — a voided document keeps its row AND its number FOREVER (the
+      // number is never reused), so numbering stays gap-free per UAE VAT practice.
+      // voided_at NULL = live; set = voided. voided_reason is an optional audit note.
+      // Voided invoices are excluded from Sales and their lead/job linkage is cleared.
+      "voided_at TEXT",
+      "voided_reason TEXT",
+      // DF-3 (idempotency) — a per-create client nonce. A double-submit carries the
+      // same nonce, so the second POST returns the first row instead of inserting a
+      // duplicate. NULL for edits (idempotent by id) and legacy rows.
+      "client_nonce TEXT",
     ]);
+    // DF-3 — dedup index for the idempotency nonce (partial: only non-null nonces
+    // are unique, so legacy NULLs never collide). SQLite honours WHERE on indexes.
+    await env.BILLING_DB.prepare(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_client_nonce ON billing_documents(client_nonce) WHERE client_nonce IS NOT NULL"
+    ).run();
     // v53 — standalone Nomod payment links (Links tab). A separate table keeps
     // the billing_documents schema clean (a link has no client, items or VAT
     // surface — it's a one-line collect-this-amount artefact).
@@ -968,23 +983,78 @@ async function handleCreate(request, env) {
       return json({ ok: false, error: "db error", detail: msg }, 500);
     }
   }
+  // DF-3 — idempotency for a genuinely-new document (edits are handled above and
+  // are already idempotent by id). A double-submit must not create a second row:
+  //  (a) direct create — the client sends a stable per-create nonce; if a row with
+  //      that nonce exists, return it unchanged.
+  //  (b) lead convert — at most one LIVE document of a given type per lead; if the
+  //      lead already has an unvoided doc of this doc_type, return that instead of
+  //      minting a duplicate number.
+  const clientNonce = (b.client_nonce != null && String(b.client_nonce).trim()) ? String(b.client_nonce).trim().slice(0, 80) : null;
   try {
-    const res = await env.BILLING_DB.prepare(
-      `INSERT INTO billing_documents
-        (doc_type, number, doc_date, client_name, client_company, client_address, client_email, client_phone,
-         currency, vat_mode, line_items, discount, subtotal, vat, total, notes, internal_notes, lead_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(
-      b.doc_type, String(b.number), String(b.doc_date),
-      String(b.client_name || ""), b.client_company || null, b.client_address || null, b.client_email || null, b.client_phone || null,
-      String(b.currency || "AED"), b.vat_mode, lineItemsJson,
-      b.discount == null ? null : Number(b.discount),
-      Number(b.subtotal), Number(b.vat), Number(b.total),
-      b.notes || null,
-      b.internal_notes || null,
-      leadId  // WA-2 H — lead context association (NULL for non-lead docs → never fires)
-    ).run();
-    const id = res && res.meta && res.meta.last_row_id;
+    if (clientNonce) {
+      const dupe = await env.BILLING_DB.prepare(
+        "SELECT id, number FROM billing_documents WHERE client_nonce = ? LIMIT 1"
+      ).bind(clientNonce).first();
+      if (dupe) return json({ ok: true, id: dupe.id, number: dupe.number, idempotent: true });
+    }
+    if (leadId) {
+      const dupe = await env.BILLING_DB.prepare(
+        "SELECT id, number FROM billing_documents WHERE lead_id = ? AND doc_type = ? AND voided_at IS NULL LIMIT 1"
+      ).bind(leadId, b.doc_type).first();
+      if (dupe) return json({ ok: true, id: dupe.id, number: dupe.number, idempotent: true });
+    }
+  } catch (e) { /* idempotency lookup is best-effort; fall through to insert */ }
+
+  // DF-3 — atomic-ish numbering. The shared MAX+1 is read-then-write, so a
+  // concurrent create can take the client's suggested number first. On a
+  // UNIQUE(number) collision for a NEW doc we recompute the next free number and
+  // retry server-side, so the create always lands on a unique number without a
+  // client round-trip. A voided doc keeps its number (never deleted), so MAX never
+  // drops and a voided number is never handed out again.
+  const NUMBERING_RETRIES = 6;
+  let insertNumber = String(b.number);
+  let id = null;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await env.BILLING_DB.prepare(
+        `INSERT INTO billing_documents
+          (doc_type, number, doc_date, client_name, client_company, client_address, client_email, client_phone,
+           currency, vat_mode, line_items, discount, subtotal, vat, total, notes, internal_notes, lead_id, client_nonce)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        b.doc_type, insertNumber, String(b.doc_date),
+        String(b.client_name || ""), b.client_company || null, b.client_address || null, b.client_email || null, b.client_phone || null,
+        String(b.currency || "AED"), b.vat_mode, lineItemsJson,
+        b.discount == null ? null : Number(b.discount),
+        Number(b.subtotal), Number(b.vat), Number(b.total),
+        b.notes || null,
+        b.internal_notes || null,
+        leadId,       // WA-2 H — lead context association (NULL for non-lead docs → never fires)
+        clientNonce   // DF-3 — idempotency nonce (NULL for edits/legacy)
+      ).run();
+      id = res && res.meta && res.meta.last_row_id;
+      break;
+    } catch (e) {
+      const msg = (e && (e.message || String(e))) || "db error";
+      // A racing double-submit with the SAME nonce beat us — return that row.
+      if (/UNIQUE/i.test(msg) && /nonce/i.test(msg) && clientNonce) {
+        const dupe = await env.BILLING_DB.prepare(
+          "SELECT id, number FROM billing_documents WHERE client_nonce = ? LIMIT 1"
+        ).bind(clientNonce).first();
+        if (dupe) return json({ ok: true, id: dupe.id, number: dupe.number, idempotent: true });
+      }
+      // number collision — recompute the next free number and retry.
+      if (/UNIQUE/i.test(msg) && attempt < NUMBERING_RETRIES) {
+        insertNumber = await nextNumber(env, b.doc_type);
+        continue;
+      }
+      if (/UNIQUE/i.test(msg)) return json({ ok: false, error: "duplicate number", detail: msg }, 409);
+      return json({ ok: false, error: "db error", detail: msg }, 500);
+    }
+  }
+  b.number = insertNumber;  // reflect the number actually used (post any race bump)
+  try {
     // Phase 1 — stamp the lead row with the new document so the Leads list
     // reflects the outcome. Fail-open: a stamp error must not undo the create.
     if (leadId) {
@@ -1058,6 +1128,7 @@ async function handleList(env) {
             b.currency, b.total, b.source_quote_number, b.nomod_link_id,
             b.nomod_link_url, b.nomod_link_created_at, b.created_at,
             b.nomod_charge_id, b.paid_at, b.paid_amount, b.payment_method, b.line_items,
+            b.voided_at,
             COALESCE(b.payment_status, 'unpaid') AS payment_status,
             (SELECT i.number FROM billing_documents i
               WHERE i.doc_type = 'invoice' AND i.source_quote_number = b.number
@@ -1093,6 +1164,42 @@ async function handleDelete(id, env) {
   // D1's run() returns { meta: { changes } } — 0 changes = no row matched.
   if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
   return json({ ok: true, id });
+}
+
+// DF-3 (VOID) — the non-destructive alternative to delete. Voiding KEEPS the row
+// and its number forever (never reused → gap-free invoice sequence per UAE VAT
+// practice), stamps voided_at, and clears ONLY this document's own lead/job
+// linkage (a lead/job linked to a different document is untouched). Voided
+// invoices are excluded from Sales. Idempotent: voiding an already-voided doc is a
+// no-op that reports the existing voided_at.
+async function handleVoid(id, request, env) {
+  await ensureSchema(env);
+  let reason = null;
+  try { const b = await request.json(); if (b && b.reason) reason = String(b.reason).slice(0, 200); } catch {}
+  const doc = await env.BILLING_DB.prepare(
+    "SELECT id, number, doc_type, voided_at FROM billing_documents WHERE id = ?"
+  ).bind(id).first();
+  if (!doc) return json({ ok: false, error: "not found" }, 404);
+  if (doc.voided_at) return json({ ok: true, id: doc.id, number: doc.number, voided_at: doc.voided_at, already: true });
+  const now = new Date().toISOString();
+  await env.BILLING_DB.prepare(
+    "UPDATE billing_documents SET voided_at = ?, voided_reason = ? WHERE id = ?"
+  ).bind(now, reason, id).run();
+  // Release this document's own linkage. A lead falls back to 'new' so it can be
+  // re-quoted; a lead linked to a DIFFERENT document keeps its linkage.
+  try {
+    await env.BILLING_DB.prepare(
+      `UPDATE leads SET linked_doc_number = NULL, converted_at = NULL,
+         status = CASE WHEN status IN ('quoted','invoiced') THEN 'new' ELSE status END
+       WHERE linked_doc_number = ?`
+    ).bind(doc.number).run();
+  } catch (e) { console.error("VOID lead unlink failed", e && (e.message || String(e))); }
+  try {
+    await env.BILLING_DB.prepare(
+      "UPDATE jobs SET linked_doc_number = NULL, updated_at = CURRENT_TIMESTAMP WHERE linked_doc_number = ?"
+    ).bind(doc.number).run();
+  } catch (e) { console.error("VOID job unlink failed", e && (e.message || String(e))); }
+  return json({ ok: true, id: doc.id, number: doc.number, voided_at: now });
 }
 
 // ============================================================ v52: quote -> invoice conversion
@@ -3532,7 +3639,8 @@ async function handleSales(url, env) {
        FROM billing_documents
       WHERE doc_type='invoice'
         AND payment_status IN ('paid','refunded','partial')
-        AND payment_method IN ('bank','cash')`
+        AND payment_method IN ('bank','cash')
+        AND voided_at IS NULL`
   ).all()).results || [];
   const linkRows = (await env.BILLING_DB.prepare(
     `SELECT id, title AS client_name, amount, amount_aed, currency,
@@ -8813,6 +8921,8 @@ export async function handleAdmin(request, env) {
     const m = path.match(/^\/admin\/api\/billing\/(\d+)$/);
     if (m && method === "GET") return handleGetOne(parseInt(m[1], 10), env);
     if (m && method === "DELETE") return handleDelete(parseInt(m[1], 10), env);
+    const voidM = path.match(/^\/admin\/api\/billing\/(\d+)\/void$/);
+    if (voidM && method === "POST") return handleVoid(parseInt(voidM[1], 10), request, env);
     const convM = path.match(/^\/admin\/api\/billing\/(\d+)\/convert$/);
     if (convM && method === "POST") return handleConvertToInvoice(parseInt(convM[1], 10), env);
     const linkM = path.match(/^\/admin\/api\/billing\/(\d+)\/payment-link$/);
@@ -12119,6 +12229,18 @@ const PAGE_SCRIPT = `<script>
   }
   async function onSave(){
     setStatus("Saving …");
+    // DF-3 — lock Save in-flight so a double-tap cannot fire two creates
+    // (re-enabled in the finally below).
+    const _saveBtn = $("btnSave");
+    if(_saveBtn) _saveBtn.disabled = true;
+    // DF-3 — per-create idempotency nonce for a genuinely-new document (state.id
+    // null). Generated once and stable across retries of the SAME create so a
+    // double-submit dedups server-side; cleared on success and at every fresh-doc
+    // seed point. Edits (state.id set) send no nonce (idempotent by id).
+    if(!state.id && !state.create_nonce){
+      state.create_nonce = (self.crypto && crypto.randomUUID) ? crypto.randomUUID()
+        : (String(Date.now()) + "-" + Math.random().toString(36).slice(2));
+    }
     // v105 — if the operator unlocked a paid invoice and is now saving changed
     // figures, record an audit note (internal only). Guarded so repeated saves
     // do not stack duplicate stamps.
@@ -12155,7 +12277,9 @@ const PAGE_SCRIPT = `<script>
       internal_notes: state.internal_notes,
       lead_id: state.lead_id,
       // v86 — attach the new invoice to a standalone link, if seeded from one.
-      attach_link_id: state.attach_link_id
+      attach_link_id: state.attach_link_id,
+      // DF-3 — idempotency nonce (only for a genuinely-new document; null for edits).
+      client_nonce: state.id ? null : (state.create_nonce || null)
     };
     try {
       const res = await fetch("/admin/api/billing", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload) });
@@ -12170,6 +12294,10 @@ const PAGE_SCRIPT = `<script>
       // UPDATEs this same row instead of creating a duplicate. On INSERT the
       // server returns the new id; on UPDATE it returns the same id back.
       if (j && j.id != null) state.id = j.id;
+      // DF-3 — reflect the number actually used (server may bump on a numbering
+      // race) and drop the nonce so the next fresh document gets a new one.
+      if (j && j.number) state.number = j.number;
+      state.create_nonce = null;
       // Phase 1 — clear lead_id once successfully issued so subsequent
       // documents (e.g. New) do not re-stamp the same lead.
       state.lead_id = null;
@@ -12192,6 +12320,7 @@ const PAGE_SCRIPT = `<script>
       try { if(typeof closeEditorModal === "function") closeEditorModal(); } catch(_){}
       try { if(typeof switchTab === "function") switchTab("documents"); } catch(_){}
     } catch(e){ setStatus("Save failed: " + (e.message || e)); }
+    finally { if(_saveBtn) _saveBtn.disabled = false; }
   }
   // Trigger a download of the server-rendered institutional PDF for doc :id.
   // The endpoint serves it as an attachment named after the document number
@@ -12223,6 +12352,7 @@ const PAGE_SCRIPT = `<script>
     // v99: New starts a genuinely fresh document; clear the id so the next
     // save INSERTs with a new number rather than overwriting the prior row.
     state.id = null;
+    state.create_nonce = null;  // DF-3 — fresh doc: force a new idempotency nonce
     state.client = { name:"", company:"", address:"", email:"", phone:"" };
     state.line_items = [{ description:"", qty:1, rate:0 }];
     state.discount = 0;
@@ -14658,6 +14788,7 @@ const PAGE_SCRIPT = `<script>
     if(!lead) return;
     // v99: starting a brand-new document from a lead; clear any prior id.
     state.id = null;
+    state.create_nonce = null;  // DF-3 — fresh doc: force a new idempotency nonce
     // B2b Slice 1 — a job-shape passes an explicit lead_id (the source lead, or
     // null); a real lead object has no lead_id property → fall back to its id.
     // Real-lead callers are unchanged (they never carry a lead_id property).
@@ -15524,6 +15655,7 @@ const PAGE_SCRIPT = `<script>
     if(!link) return;
     // v99: starting a brand-new invoice seeded from a link; clear any prior id.
     state.id = null;
+    state.create_nonce = null;  // DF-3 — fresh doc: force a new idempotency nonce
     state.lead_id = null;
     state.leadOriginal = null;
     state.attach_link_id = link.id;
@@ -16796,6 +16928,7 @@ const PAGE_SCRIPT = `<script>
       const loadB = e.target.closest("[data-load]");
       const printB = e.target.closest("[data-pdf]");
       const delB  = e.target.closest("[data-del]");
+      const voidB = e.target.closest("[data-void]");
       const convB = e.target.closest("[data-convert]");
       const linkB = e.target.closest("[data-link]");
       const copyB = e.target.closest("[data-copy]");
@@ -16894,6 +17027,22 @@ const PAGE_SCRIPT = `<script>
         deleteDoc(delB.getAttribute("data-del"), num);
         return;
       }
+      // DF-3 — Void: keep the number on record (never reused) but mark the invoice
+      // cancelled and release its lead/job linkage. The gap-free alternative to Delete.
+      if(voidB){
+        e.preventDefault();
+        const id = voidB.getAttribute("data-void");
+        const num = voidB.getAttribute("data-num");
+        if(!confirm("Void invoice " + num + "?\\n\\nThe number stays on record permanently (never reused), but the invoice is marked cancelled, dropped from Sales, and its lead/job linkage is released. Use this instead of Delete to keep the VAT sequence gap-free.")) return;
+        fetch("/admin/api/billing/" + id + "/void", { method:"POST", headers:{"Content-Type":"application/json"}, body:"{}" })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if(j && j.ok){ setStatus("Voided " + num + "."); loadHistory(); if(typeof loadLeads === "function") loadLeads(); }
+            else { setStatus("Void failed: " + ((j && j.error) || "")); }
+          })
+          .catch(function(err){ setStatus("Void failed: " + (err.message || err)); });
+        return;
+      }
       // Phase 1.1 — row click toggles the drawer (skipped for clicks on
       // links/buttons so the Number anchor and panel action buttons keep
       // their handlers).
@@ -16934,6 +17083,10 @@ const PAGE_SCRIPT = `<script>
         // Server PDF route renders both invoices and quotes; surface the
         // Download PDF button on every saved row, not just invoices.
         actions.push('<button type="button" class="btn btn-small btn-ghost" data-pdf="'+x.id+'" title="Download the institutional PDF">Download PDF</button>');
+        // DF-3 — a voided document is read-only: keep Open/Edit + Download PDF, drop
+        // every mutating action (convert, pay-link, mark-paid, job, email, delete, void).
+        const isVoided = !!x.voided_at;
+        if(!isVoided){
         if(isQuote){
           if(x.converted_invoice_number){
             // v55: a quote with a converted invoice no longer offers a Convert
@@ -16975,18 +17128,26 @@ const PAGE_SCRIPT = `<script>
           actions.push('<button type="button" class="btn btn-small btn-ghost" disabled style="opacity:.55;cursor:not-allowed" title="Add a client email to this document first">Email client</button>');
         }
         actions.push('<button type="button" class="btn btn-small btn-danger" data-del="'+x.id+'" data-num="'+esc(x.number)+'" data-type="'+esc(x.doc_type)+'" data-paid="'+(isPaidDoc?"1":"0")+'" title="Delete">×</button>');
+        // DF-3 — Void keeps the number (never reused) + clears linkage. Offered on
+        // NON-paid invoices; a paid invoice needs a refund flow, not a void.
+        if(isInvoice && !isPaidDoc){
+          actions.push('<button type="button" class="btn btn-small btn-ghost" data-void="'+x.id+'" data-num="'+esc(x.number)+'" title="Void this invoice: keep the number on record (never reused) but mark it cancelled and release its lead/job linkage">Void</button>');
+        }
+        } // end if(!isVoided)
         // v96 — read payment_status first so settled invoices show "Paid"
         // (reusing the isPaidDoc boolean already computed above). Falls back
         // to "Link generated" when a Nomod URL exists but it isn't paid yet,
         // then to a quiet middot when nothing has happened. Quotes branch
         // unchanged (Converted / middot).
-        const statusTxt = isInvoice
+        const statusTxt = x.voided_at
+          ? '<span class="hist-status" style="color:var(--muted);text-decoration:line-through" title="Voided — number retained, excluded from Sales">Voided</span>'
+          : (isInvoice
           ? (isPaidDoc
               ? '<span class="hist-status paid">Paid</span>' + (function(m){ m = String(m || "").toLowerCase(); var L = m === "cash" ? "cash" : (m === "bank" ? "bank transfer" : (m === "nomod_link" ? "Nomod payment link" : "")); return L ? ' <span style="color:var(--muted);font-size:11px">via ' + L + '</span>' : ""; })(x.payment_method)
               : (isPartialDoc
                   ? '<span class="hist-status" style="color:var(--amber-deep)">Partial</span><span style="color:var(--muted);font-size:11px;margin-left:.4rem;font-variant-numeric:tabular-nums">AED '+_docBalance.toFixed(2)+' due</span>'
                   : (hasLink ? '<span class="hist-status linked">Link generated</span>' : '<span class="hist-status">&middot;</span>')))
-          : (x.source_quote_number ? '<span class="hist-status">Converted</span>' : '<span class="hist-status">&middot;</span>');
+          : (x.source_quote_number ? '<span class="hist-status">Converted</span>' : '<span class="hist-status">&middot;</span>'));
         const searchText = [x.number, x.client_name || "", x.client_company || "", x.source_quote_number || ""].join(" ");
         const sortDate = String(x.doc_date || "");
         const sortAmount = Number(x.total) || 0;
