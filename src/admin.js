@@ -14681,29 +14681,17 @@ const PAGE_SCRIPT = `<script>
     $("cAddress").value = "";
     $("cEmail").value   = state.client.email;
     if($("cPhone")) $("cPhone").value = state.client.phone;
-    // One line item: title + description from the lead.
-    const titleBits = [lead.service, lead.vehicle].filter(Boolean);
-    if(lead.days) titleBits.push(String(lead.days) + (Number(lead.days) === 1 ? " day" : " days"));
-    const title = titleBits.join(" · ");
-    const descBits = [];
-    const route = [lead.pickup, lead.destination].filter(Boolean).join(" to ");
-    if(route) descBits.push(route);
-    const when = [lead.date, lead.time].filter(Boolean).join(" at ");
-    if(when) descBits.push(when);
-    if(lead.flight) descBits.push("Flight: " + lead.flight);
-    if(lead.sign)   descBits.push("Welcome sign: " + lead.sign);
-    const desc = (title ? title + "\\n" : "") + descBits.join("\\n");
-    // v104 — if a quote price was Saved on this lead, seed exactly one priced
-    // line item: description = the derived service label (same rule as the
-    // follow-up message), qty 1, unit price = the saved figure. The snapshot
-    // into state.leadOriginal below then captures the quoted figures, so Revert
-    // restores them rather than a blank line. No saved price -> seed as before.
+    // DF-1 — one canonical line item. The description comes from the shared
+    // composeServiceDescription() used by the quote/invoice/job paths, so a
+    // PRICED lead-doc KEEPS the full route/date/vehicle/flight/sign detail
+    // instead of collapsing to the bare service label (the v104 drop bug). A
+    // saved quote_price only sets the rate; the description is identical whether
+    // or not a price exists (Revert still captures the priced figures via the
+    // leadOriginal snapshot below).
+    const desc = composeServiceDescription(lead);
     const savedQuoteNum = (lead.quote_price != null) ? parseFloat(String(lead.quote_price).replace(/[^0-9.]/g, "")) : NaN;
-    if(isFinite(savedQuoteNum) && savedQuoteNum > 0){
-      state.line_items = [{ description: leadServiceLabel(lead), qty: 1, rate: savedQuoteNum }];
-    } else {
-      state.line_items = [{ description: desc, qty: 1, rate: 0 }];
-    }
+    const seededRate = (isFinite(savedQuoteNum) && savedQuoteNum > 0) ? savedQuoteNum : 0;
+    state.line_items = [{ description: desc, qty: 1, rate: seededRate }];
     // WA-5-B2 VAT bridge — carry the lead's VAT choice into the billing form's
     // VAT selector, but ONLY when the operator explicitly set one on the lead
     // (vat_mode_set==1). The lead vocabulary ('plus'/'incl') maps to the form's
@@ -16013,6 +16001,26 @@ const PAGE_SCRIPT = `<script>
     if(leadNz(x.flight) || leadNz(x.sign) || leadIsAirport(x)) return "Airport Transfer";
     if(leadNz(x.days)) return "Chauffeur by the Hour";
     return "Point to Point Transfer";
+  }
+  // DF-1 — canonical, LOSSLESS one-line-item service description shared by the
+  // quote-, invoice- and job-from-lead paths (job-from-lead reuses it through
+  // jobToLeadShape → prefillFromLead). Head = the raw lead service if present,
+  // else the derived class; then each journey detail on its own line, emitted
+  // only when its field is non-empty. Kept ASCII + "\\n"-joined (the proven,
+  // pdf-lib-glyph-safe format) — single-line "·"/arrow styling is deferred to
+  // DF-4, which owns the PDF/email/pay render unification and can verify glyphs.
+  function composeServiceDescription(x){
+    const head = leadNz(x.service) || leadServiceLabel(x);
+    const lines = head ? [head] : [];
+    const route = [leadNz(x.pickup), leadNz(x.destination)].filter(Boolean).join(" to ");
+    if(route) lines.push(route);
+    const when = [leadNz(x.date), leadNz(x.time)].filter(Boolean).join(" at ");
+    if(when) lines.push(when);
+    if(leadNz(x.vehicle)) lines.push("Vehicle: " + leadNz(x.vehicle));
+    if(leadNz(x.days))    lines.push("At disposal: " + leadNz(x.days) + (Number(x.days) === 1 ? " day" : " days"));
+    if(leadNz(x.flight))  lines.push("Flight: " + leadNz(x.flight));
+    if(leadNz(x.sign))    lines.push("Welcome sign: " + leadNz(x.sign));
+    return lines.join("\\n");
   }
   function buildLeadMessage(x, quoteStr){
     const L = [];
