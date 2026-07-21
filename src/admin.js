@@ -1061,7 +1061,10 @@ async function handleList(env) {
             COALESCE(b.payment_status, 'unpaid') AS payment_status,
             (SELECT i.number FROM billing_documents i
               WHERE i.doc_type = 'invoice' AND i.source_quote_number = b.number
-              LIMIT 1) AS converted_invoice_number
+              LIMIT 1) AS converted_invoice_number,
+            (SELECT p.pay_token FROM payment_links p
+              WHERE p.invoice_number = b.number AND p.pay_token IS NOT NULL
+              ORDER BY p.id DESC LIMIT 1) AS pay_token
      FROM billing_documents b
      ORDER BY b.id DESC LIMIT 500`
   ).all();
@@ -9172,7 +9175,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260721-journey";
+const ADMIN_BUILD = "20260721-docscopy";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -16930,7 +16933,14 @@ const PAGE_SCRIPT = `<script>
         }
         if(isInvoice){
           if(hasLink){
-            actions.push('<button type="button" class="btn btn-small btn-ghost" data-copy="'+esc(x.nomod_link_url)+'" title="Copy payment link to clipboard">Copy payment link</button>');
+            // PAY-WIRE step 4 (Docs tab) — branded /pay link is the PRIMARY copy; Nomod demoted.
+            const _payUrl = x.pay_token ? (location.origin + "/pay/" + x.pay_token) : "";
+            if(_payUrl){
+              actions.push('<button type="button" class="btn btn-small btn-ink" data-copy="'+esc(_payUrl)+'" title="Copy the branded UMC payment page link">Copy pay link</button>');
+              actions.push('<button type="button" class="btn btn-small btn-ghost" data-copy="'+esc(x.nomod_link_url)+'" title="Copy the raw Nomod URL">Copy Nomod link</button>');
+            } else {
+              actions.push('<button type="button" class="btn btn-small btn-ghost" data-copy="'+esc(x.nomod_link_url)+'" title="Copy payment link to clipboard">Copy payment link</button>');
+            }
             actions.push('<button type="button" class="btn btn-small btn-ghost" data-link="'+x.id+'" data-num="'+esc(x.number)+'" data-regen="1" title="Regenerate the payment link (creates a new one and overwrites the saved URL)">Regenerate</button>');
           } else {
             actions.push('<button type="button" class="btn btn-small btn-ink" data-link="'+x.id+'" data-num="'+esc(x.number)+'" title="Create a Nomod payment link for this invoice">Generate payment link</button>');
