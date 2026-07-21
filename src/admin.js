@@ -265,6 +265,10 @@ async function ensureSchema(env) {
       // without a Nomod lookup. Filled from customer_info.phone_number (fill-only).
       "client_phone TEXT",
       "excluded INTEGER DEFAULT 0",
+      // DF-8 — a link minted for LESS than the invoice balance (an explicit
+      // override below balance) is flagged partial so it is never mistaken for a
+      // full settlement. Over-balance overrides are rejected at mint time.
+      "is_partial INTEGER DEFAULT 0",
       // v86 — back-reference to the invoice this link is attached to (if any).
       // Forward reference (billing_documents.nomod_link_id) already exists.
       "invoice_number TEXT",
@@ -973,6 +977,24 @@ async function handleCreate(request, env) {
   // path verbatim.
   const editId = (b.id != null && /^\d+$/.test(String(b.id))) ? Number(b.id) : null;
   if (editId) {
+    // DF-8 — lock the money fields while a LIVE payment link exists. Editing the
+    // totals would silently desync the already-minted link (its amount was frozen
+    // at mint). Refuse a totals change unless the caller sends force_totals=true
+    // (the regenerate flow). Non-money edits (client, notes) always pass.
+    try {
+      const cur = await env.BILLING_DB.prepare(
+        "SELECT nomod_link_url, nomod_link_id, total, subtotal, vat, discount FROM billing_documents WHERE id = ?"
+      ).bind(editId).first();
+      if (cur && (cur.nomod_link_url || cur.nomod_link_id) && !b.force_totals) {
+        const chg = (a, c) => Math.abs((Number(a) || 0) - (Number(c) || 0)) > 0.005;
+        const totalsChanged = chg(b.total, cur.total) || chg(b.subtotal, cur.subtotal) || chg(b.vat, cur.vat) || chg(b.discount, cur.discount);
+        if (totalsChanged) {
+          return json({ ok: false, error: "invoice locked by live payment link",
+            detail: "This invoice has a live payment link whose amount is fixed. Regenerate (or delete) the link before changing the amount, or resend the same figures.",
+            locked: true }, 409);
+        }
+      }
+    } catch (e) { /* lock check is best-effort; fall through to the edit */ }
     try {
       const upRes = await env.BILLING_DB.prepare(
         `UPDATE billing_documents SET
@@ -1442,8 +1464,20 @@ async function handlePaymentLink(id, env, opts, override) {
   // amount override collapses items to one consolidated line at that NET so
   // the customer is charged exactly amount × 1.05 (Nomod adds the 5% account
   // tax). Title, note and currency overrides are passed through as-is.
+  // DF-8 — an explicit amount override is reconciled against the invoice BALANCE
+  // (total − already-paid). Above balance is refused (would overcharge); below
+  // balance is allowed but flagged partial so it is never mistaken for a full
+  // settlement; equal is a full-balance link.
   const ovAmt = Number(override.amount);
+  let overridePartial = false;
   if (ovAmt > 0) {
+    const balanceGross = Math.max(0, (Number(inv.total) || 0) - (Number(inv.paid_amount) || 0));
+    const ovGross = ovAmt * 1.05;
+    if (ovGross > balanceGross + 0.01) {
+      return json({ ok: false, error: "override exceeds invoice balance",
+        detail: "Override AED " + ovGross.toFixed(2) + " (incl. VAT) exceeds the invoice balance AED " + balanceGross.toFixed(2) + ". Reduce it, or edit the invoice total." }, 400);
+    }
+    overridePartial = ovGross < balanceGross - 0.01;
     items = [{
       name: (String(override.title || inv.number) || "Invoice").slice(0, 50),
       amount: ovAmt.toFixed(2),
@@ -1492,7 +1526,11 @@ async function handlePaymentLink(id, env, opts, override) {
   // back to the invoice number so the row is never anonymous. Fail-open: a
   // persistence error must not undo the link creation.
   try {
-    const persistedNet = (Number(inv.total) || 0) / 1.05;
+    // DF-8 — persist the ACTUAL minted NET (an override mints at ovAmt, not the
+    // full invoice net) and flag a below-balance override partial, so the link row
+    // never claims to collect the full invoice when it does not.
+    const persistedNet = (ovAmt > 0) ? ovAmt : ((Number(inv.total) || 0) / 1.05);
+    const partialFlag = overridePartial ? 1 : 0;
     const linkTitle = (inv.client_name && String(inv.client_name).trim()) || String(inv.number);
     const linkNote = payload.note;
     // Keyed on invoice_number (one link per invoice) so a regenerate UPDATES the existing row —
@@ -1502,23 +1540,23 @@ async function handlePaymentLink(id, env, opts, override) {
         `UPDATE payment_links
          SET title = ?, amount = ?, currency = ?, note = ?,
              nomod_link_id = ?, nomod_link_url = ?, client_name = ?, invoice_number = ?,
-             origin = 'workspace', pay_token = COALESCE(pay_token, ?)
+             is_partial = ?, origin = 'workspace', pay_token = COALESCE(pay_token, ?)
          WHERE id = ?`
       ).bind(
         linkTitle.slice(0, 120), persistedNet, payload.currency, linkNote,
         nomodBody.id || null, nomodBody.url, inv.client_name || null, String(inv.number),
-        payToken, existLink.id
+        partialFlag, payToken, existLink.id
       ).run();
     } else {
       await env.BILLING_DB.prepare(
         `INSERT INTO payment_links
           (title, amount, currency, note, nomod_link_id, nomod_link_url,
-           client_name, invoice_number, created_at, origin, pay_token)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'workspace', ?)`
+           client_name, invoice_number, created_at, is_partial, origin, pay_token)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'workspace', ?)`
       ).bind(
         linkTitle.slice(0, 120), persistedNet, payload.currency, linkNote,
         nomodBody.id || null, nomodBody.url,
-        inv.client_name || null, String(inv.number), createdAt, payToken
+        inv.client_name || null, String(inv.number), createdAt, partialFlag, payToken
       ).run();
     }
   } catch (e) {
@@ -1530,6 +1568,7 @@ async function handlePaymentLink(id, env, opts, override) {
     id: nomodBody.id,
     created_at: createdAt,
     regenerated: !!opts.regenerate,
+    partial: overridePartial,   // DF-8 — below-balance override; not a full settlement
   });
 }
 
@@ -12338,6 +12377,25 @@ const PAGE_SCRIPT = `<script>
       const res = await fetch("/admin/api/billing", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload) });
       const j = await res.json();
       if(!j.ok){
+        // DF-8 — invoice money fields locked by a live payment link. Offer to save
+        // anyway (force); the operator must then Regenerate the link to re-sync.
+        if(res.status === 409 && j.locked){
+          if(!confirm((j.detail || "This invoice has a live payment link with a fixed amount.") + "\\n\\nSave the new amount anyway? You must then Regenerate the payment link to re-sync it.")){
+            setStatus("Save cancelled — amount unchanged."); return;
+          }
+          payload.force_totals = true;
+          const res2 = await fetch("/admin/api/billing", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload) });
+          const j2 = await res2.json();
+          if(!j2.ok){ setStatus("Save failed: " + (j2.error || res2.status)); return; }
+          if(j2.id != null) state.id = j2.id;
+          if(j2.number) state.number = j2.number;
+          state.create_nonce = null;
+          setStatus("Saved " + (j2.number || state.number) + " — now Regenerate the payment link to re-sync the amount.");
+          loadHistory();
+          try { if(typeof closeEditorModal === "function") closeEditorModal(); } catch(_){}
+          try { if(typeof switchTab === "function") switchTab("documents"); } catch(_){}
+          return;
+        }
         if(res.status === 409){ setStatus("Number already used. Fetching next."); await fetchNext(); return; }
         setStatus("Save failed: " + (j.error || res.status));
         return;
