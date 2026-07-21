@@ -9166,7 +9166,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260721-paywire2";
+const ADMIN_BUILD = "20260721-leadgate";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -14387,8 +14387,13 @@ const PAGE_SCRIPT = `<script>
           ? '<button type="button" class="btn btn-small" data-leadrestore="'+x.id+'" title="Restore this booking">Restore</button> '
           : '<button type="button" class="btn btn-small" data-leadcancel="'+x.id+'" title="Cancel this booking (kept on file, reversible)">Cancel</button> ';
         const actions = cxAction + '<button type="button" class="btn btn-small btn-danger" data-leaddel="'+x.id+'" title="Delete this lead">&times;</button>';
-        // DOCUMENTS-cluster create controls (status-aware, same handlers as before).
-        const docCreate = (status === "new")
+        // DOCUMENTS-cluster create controls. One-chain discipline: gate ONLY on whether an
+        // actual billing document exists for the lead (linked_doc_number), NEVER on chat/
+        // pipeline status. A lead quoted over WhatsApp (status 'quoted', quote_price set, but
+        // no UMC-Q/UMC-INV) has no document yet and is a PRIME invoicing candidate — it must
+        // still offer Create quote/invoice. Only a real linked document reads as "Converted".
+        const hasDoc = !!(x.linked_doc_number && String(x.linked_doc_number).trim());
+        const docCreate = (!hasDoc)
           ? '<button type="button" class="btn btn-small btn-ghost" data-leadquote="'+x.id+'">Create quote</button>'
             + '<button type="button" class="btn btn-small btn-ink" data-leadinvoice="'+x.id+'">Create invoice</button>'
           : '<span style="color:var(--muted);font-size:.82rem">Converted (see Status)</span>';
