@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260721-docscopy";
+const ADMIN_BUILD = "20260722-showvoided";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -11259,6 +11259,9 @@ function appShellHTML() {
             <button type="button" class="seg"     data-typefilter="invoice">Invoices</button>
           </div>
         </div>
+        <label class="hist-voided-toggle" style="display:inline-flex;align-items:center;gap:.4rem;font-size:.82rem;color:var(--muted);white-space:nowrap;margin-left:.9rem;align-self:flex-end;padding-bottom:.3rem">
+          <input id="histShowVoided" type="checkbox"> Show voided
+        </label>
         <div class="hist-sort hist-ctrl" style="margin-left:auto">
           <label class="lbl" for="histSort">Sort</label>
           <select id="histSort" aria-label="Sort documents">
@@ -12308,6 +12311,12 @@ const PAGE_SCRIPT = `<script>
       });
       if(histBody && !histBody.dataset.sort) histBody.dataset.sort = histSort.value || "date-desc";
     }
+    // DF-VOID (Decision 3) — "Show voided" toggle. Re-run the client-side filter
+    // on every change so voided rows hide/show instantly both ways.
+    const histVoided = $("histShowVoided");
+    if(histVoided){
+      histVoided.addEventListener("change", function(){ applyHistoryFilter(); });
+    }
     const paySort = $("paySort");
     const payBody0 = $("payBody");
     if(paySort){
@@ -13191,6 +13200,12 @@ const PAGE_SCRIPT = `<script>
     sortTbodyRows(histBody);
     const t = (histBody.dataset.typeFilter || "all").toLowerCase();
     const q = (histBody.dataset.qFilter || "").toLowerCase();
+    // DF-VOID (Decision 3) — clone of the Links "Show archived" behaviour: read
+    // the checkbox's LIVE .checked (never a mirrored flag — the 2ceb964 desync
+    // bug) so voided docs hide/show immediately in BOTH directions. Voided rows
+    // are excluded from the working set (like archived links) unless shown.
+    const svEl = document.getElementById("histShowVoided");
+    const showVoided = !!(svEl && svEl.checked);
     let lastMainVisible = true;
     histBody.querySelectorAll("tr").forEach(function(tr){
       if(tr.classList.contains("hist-actions-row")){
@@ -13201,9 +13216,11 @@ const PAGE_SCRIPT = `<script>
       }
       const rowType = (tr.getAttribute("data-doctype") || "").toLowerCase();
       const rowText = (tr.getAttribute("data-searchtext") || "").toLowerCase();
+      const rowVoided = tr.getAttribute("data-voided") === "1";
       const okT = t === "all" || rowType === t;
       const okQ = !q || rowText.indexOf(q) !== -1;
-      const visible = okT && okQ;
+      const okV = showVoided || !rowVoided;
+      const visible = okT && okQ && okV;
       tr.style.display = visible ? "" : "none";
       lastMainVisible = visible;
     });
@@ -17711,7 +17728,9 @@ const PAGE_SCRIPT = `<script>
     // If anything below throws, the table still works.
     bindHistClickOnce();
     try {
-      const r = await fetch("/admin/api/billing");
+      // Cache-bust so a Refresh / re-open always reflects the latest void state
+      // immediately (same freshness guarantee as the Links archived toggle).
+      const r = await fetch("/admin/api/billing?_=" + Date.now());
       const j = await r.json();
       const tbody = $("histBody");
       const empty = $("histEmpty");
@@ -17813,7 +17832,7 @@ const PAGE_SCRIPT = `<script>
         const searchText = [x.number, x.client_name || "", x.client_company || "", x.source_quote_number || ""].join(" ");
         const sortDate = String(x.doc_date || "");
         const sortAmount = Number(x.total) || 0;
-        return '<tr class="expandable" data-expandable="1" data-doctype="'+esc(x.doc_type)+'" data-searchtext="'+esc(searchText)+'" data-sortdate="'+esc(sortDate)+'" data-sortamount="'+sortAmount+'">'
+        return '<tr class="expandable" data-expandable="1" data-doctype="'+esc(x.doc_type)+'" data-voided="'+(isVoided?'1':'0')+'" data-searchtext="'+esc(searchText)+'" data-sortdate="'+esc(sortDate)+'" data-sortamount="'+sortAmount+'">'
           + '<td data-lbl="Number"><a href="#" data-load="'+x.id+'">'+esc(x.number)+'</a>'+srcTag+linkPreview+'</td>'
           + '<td data-lbl="Type"><span class="pill '+(isInvoice?'inv':'')+'">'+x.doc_type+'</span></td>'
           + '<td data-lbl="Date">'+esc(fmtDate(x.doc_date))+'</td>'
