@@ -123,6 +123,44 @@ function umcTodayDubai(){ return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia
 // DF-5 — add N days to an ISO (YYYY-MM-DD) calendar date; used for quote validity.
 // TZ-neutral: treat the date as UTC-midnight so day arithmetic never drifts.
 function umcAddDays(iso, n){ var m = String(iso||"").match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m) return null; var d = new Date(Date.UTC(+m[1], +m[2]-1, +m[3])); d.setUTCDate(d.getUTCDate()+Number(n||0)); return d.toISOString().slice(0,10); }
+// DF-11 — canonical validators shared across the admin entry paths (direct-create +
+// lead-convert + job-convert), EXACT mirrors of the public booking form's rules
+// (site/assets/booking.js) so all three paths agree. Format is enforced only when a
+// value is present (admin contact fields stay optional); the booking form additionally
+// REQUIRES them.
+const UMC_EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;   // === booking.js EMAIL_RX
+function umcEmailValid(v){ v = String(v == null ? "" : v).trim(); return v === "" || UMC_EMAIL_RX.test(v); }
+function umcPhoneValid(v){ v = String(v == null ? "" : v).trim(); if (v === "") return true; const digits = v.replace(/[^0-9]/g, ""); return /^\+?[0-9][0-9\s().+-]{5,}$/.test(v) && digits.length >= 7 && digits.length <= 15; }
+function umcPad2(n){ return String(n).padStart(2, "0"); }
+function umcDubaiNowMinutes(){ try { const s = new Date().toLocaleString("en-GB", { timeZone: "Asia/Dubai", hour12: false, hour: "2-digit", minute: "2-digit" }); const m = s.match(/(\d{2}):(\d{2})/); return m ? (+m[1]) * 60 + (+m[2]) : 0; } catch (e) { return 0; } }
+// Per-emirate minimum lead-time in hours — EXACT mirror of booking.js emirateInfo.
+function umcEmirateLeadHours(text){
+  const e = String(text || "").toLowerCase();
+  if (e.indexOf("dubai") >= 0) return { name: "Dubai", hours: 1 };
+  if (e.indexOf("sharjah") >= 0) return { name: "Sharjah", hours: 2 };
+  if (e.indexOf("ajman") >= 0) return { name: "Ajman", hours: 2 };
+  if (e.indexOf("abu dhabi") >= 0) return { name: "Abu Dhabi", hours: 3 };
+  if (e.indexOf("fujairah") >= 0) return { name: "Fujairah", hours: 3 };
+  if (e.indexOf("ras al khaimah") >= 0 || e.indexOf("ras al-khaimah") >= 0) return { name: "Ras Al Khaimah", hours: 3 };
+  if (e.indexOf("umm al quwain") >= 0 || e.indexOf("umm al-quwain") >= 0 || e.indexOf("umm al qaiwain") >= 0) return { name: "Umm Al Quwain", hours: 3 };
+  return { name: "", hours: 0 };   // unknown emirate → no restriction (mirrors booking)
+}
+// Returns null if OK, else a message. Only TODAY (Dubai) pickups are floored; future
+// dates and unknown emirates are unrestricted (mirrors booking's applyTimeRestriction).
+function umcLeadTimeCheck(pickup, dateIso, timeStr){
+  const info = umcEmirateLeadHours(pickup);
+  if (info.hours <= 0) return null;
+  const d = String(dateIso || "").slice(0, 10);
+  if (!d || d !== umcTodayDubai()) return null;      // only same-day is floored
+  const m = String(timeStr || "").match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const pickMins = (+m[1]) * 60 + (+m[2]);
+  const earliest = umcDubaiNowMinutes() + info.hours * 60;
+  if (pickMins < earliest) {
+    return "Pickup in " + info.name + " needs at least " + info.hours + "h lead time today (earliest " + umcPad2(Math.floor(earliest / 60)) + ":" + umcPad2(earliest % 60) + ").";
+  }
+  return null;
+}
 // DF-6 — the ONE place that stamps a lead 'quoted' when a quote is sent over
 // WhatsApp (previously duplicated across the proposal auto-send and API quote-send
 // paths). Promotes only a still-'new' lead; the displayed funnel stage is derived by
@@ -991,6 +1029,10 @@ async function handleCreate(request, env) {
   if (!["exclusive", "inclusive"].includes(b.vat_mode)) {
     return json({ ok: false, error: "invalid vat_mode" }, 400);
   }
+  // DF-11 — format parity with the booking form: validate contact fields WHEN PRESENT
+  // (admin keeps them optional; booking requires them). Same EMAIL_RX/phone rules.
+  if (!umcEmailValid(b.client_email)) return json({ ok: false, error: "invalid email", detail: "Enter a valid email address or leave it blank." }, 400);
+  if (!umcPhoneValid(b.client_phone)) return json({ ok: false, error: "invalid phone", detail: "Enter a valid phone number (7–15 digits) or leave it blank." }, 400);
   // Phase 1 — price gate when this create originates from a lead. The UI
   // already disables the Save button, but enforce server-side too so a stale
   // tab or a direct API call cannot bypass it.
@@ -2344,6 +2386,14 @@ async function handleCreateJob(request, env) {
     if (existing) {
       return json({ ok: false, error: "active_job_exists", existing_job_id: existing.id }, 409);
     }
+  }
+  // DF-11 — enforce the per-emirate minimum lead-time at job conversion/creation.
+  // The public booking form floors same-day pickups by pickup emirate; admin
+  // job-create previously did not (V10). Refuse a sub-floor same-day pickup unless
+  // the operator sends force_leadtime (a knowing short-notice dispatch).
+  if (!b.force_leadtime) {
+    const ltMsg = umcLeadTimeCheck(f.pickup, f.date, f.time);
+    if (ltMsg) return json({ ok: false, error: "lead_time_short", detail: ltMsg, leadTime: true }, 409);
   }
   // B2b Slice 1 — seed the mirror at creation so a job made AFTER its lead was
   // documented already knows the document. Lead → its linked_doc_number; job made
@@ -13705,6 +13755,17 @@ const PAGE_SCRIPT = `<script>
             switchTab("calendar");
           }
           setStatus(isEdit ? ("Job #" + jobId + " saved.") : "Job created.");
+        }
+        else if(j && j.leadTime){
+          // DF-11 — same-day pickup is below the emirate lead-time floor. Offer to
+          // dispatch anyway (a knowing short-notice job).
+          if(confirm((j.detail || "Pickup is below the minimum lead time.") + "\\n\\nCreate the job anyway (short-notice dispatch)?")){
+            payload.force_leadtime = true;
+            var r2 = await fetch(url, { method: isEdit ? "PUT" : "POST", headers: { "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+            var j2 = await r2.json().catch(function(){ return {}; });
+            if(r2.ok && j2 && j2.ok){ close(); await loadJobs(); setStatus(isEdit ? ("Job #" + jobId + " saved.") : "Job created (short-notice)."); }
+            else { setStat("Save failed: " + ((j2 && j2.error) || r2.status)); btn.disabled = false; btn.textContent = prev; }
+          } else { setStat("Cancelled — adjust the pickup time."); btn.disabled = false; btn.textContent = prev; }
         }
         else { setStat("Save failed: " + ((j && j.error) || r.status)); btn.disabled = false; btn.textContent = prev; }
       } catch(e){ setStat("Save failed: " + (e.message || e)); btn.disabled = false; btn.textContent = prev; }
