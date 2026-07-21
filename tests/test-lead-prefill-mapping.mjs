@@ -121,6 +121,19 @@ console.log("Unpriced lead: same rich description, rate 0:");
   check("description still rich (route present)", doc.line_items[0].description.includes("DXB T3 to Atlantis The Palm"));
 }
 
+// ---- DF-7: sparse-lead soft prompts (non-blocking; price stays the HARD gate) ----
+function softMissing(lead){
+  const m = [];
+  if(!(lead.email && String(lead.email).trim())) m.push("email");
+  if(!((lead.pickup && String(lead.pickup).trim()) && (lead.destination && String(lead.destination).trim()))) m.push("route");
+  return m;
+}
+console.log("DF-7 sparse-lead soft prompts:");
+check("missing email → prompted (needed to send)", softMissing({ pickup:"DXB", destination:"Marina" }).includes("email"));
+check("missing route → prompted", softMissing({ email:"a@x.com" }).includes("route"));
+check("complete lead → no soft prompts", softMissing({ email:"a@x.com", pickup:"DXB", destination:"Marina" }).length === 0);
+check("price is NOT a soft prompt (it stays the hard gate)", !softMissing({ email:"a@x.com", pickup:"DXB", destination:"Marina" }).includes("price"));
+
 // ---- Source guards ----
 console.log("Source guard (src/admin.js):");
 {
@@ -131,6 +144,12 @@ console.log("Source guard (src/admin.js):");
     !src.includes("description: leadServiceLabel(lead), qty: 1, rate: savedQuoteNum"));
   check("single line item seeded with desc + seededRate",
     src.includes("state.line_items = [{ description: desc, qty: 1, rate: seededRate }]"));
+  // DF-7
+  check("prefill_snapshot column ensured", src.includes('"prefill_snapshot TEXT"'));
+  check("client sends prefill_snapshot for lead-seeded docs",
+    src.includes("prefill_snapshot: (!state.id && state.lead_id && state.leadOriginal)"));
+  check("builder surfaces missing email/route as soft prompts",
+    src.includes("client email (needed to send)"));
 }
 
 console.log("");

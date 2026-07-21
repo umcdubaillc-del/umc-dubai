@@ -254,6 +254,11 @@ async function ensureSchema(env) {
       // quote past it reads 'expired' (derived). Convert flips quote_status→converted.
       "quote_status TEXT",
       "valid_until TEXT",
+      // DF-7 — JSON snapshot of exactly what the lead prefilled onto this document at
+      // conversion (client block, line items, notes). Written once at create-from-lead;
+      // the durable record behind the editor Revert, and an audit of what was seeded
+      // vs later edited. NULL for direct-created docs.
+      "prefill_snapshot TEXT",
     ]);
     // DF-3 — dedup index for the idempotency nonce (partial: only non-null nonces
     // are unique, so legacy NULLs never collide). SQLite honours WHERE on indexes.
@@ -1116,8 +1121,8 @@ async function handleCreate(request, env) {
           (doc_type, number, doc_date, client_name, client_company, client_address, client_email, client_phone,
            currency, vat_mode, line_items, discount, subtotal, vat, total, notes, internal_notes, lead_id, client_nonce,
            journey_pickup, journey_destination, journey_date, journey_time, journey_vehicle, journey_flight, journey_sign,
-           quote_status, valid_until)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           quote_status, valid_until, prefill_snapshot)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         b.doc_type, insertNumber, String(b.doc_date),
         String(b.client_name || ""), b.client_company || null, b.client_address || null, b.client_email || null, b.client_phone || null,
@@ -1129,7 +1134,8 @@ async function handleCreate(request, env) {
         leadId,       // WA-2 H — lead context association (NULL for non-lead docs → never fires)
         clientNonce,  // DF-3 — idempotency nonce (NULL for edits/legacy)
         jrny.pickup, jrny.destination, jrny.date, jrny.time, jrny.vehicle, jrny.flight, jrny.sign,  // DF-4 — journey snapshot
-        quoteStatus, validUntil  // DF-5 — quote lifecycle
+        quoteStatus, validUntil,  // DF-5 — quote lifecycle
+        (leadId && b.prefill_snapshot != null) ? String(b.prefill_snapshot).slice(0, 8000) : null  // DF-7 — prefill snapshot
       ).run();
       id = res && res.meta && res.meta.last_row_id;
       break;
@@ -12530,7 +12536,10 @@ const PAGE_SCRIPT = `<script>
       // v86 — attach the new invoice to a standalone link, if seeded from one.
       attach_link_id: state.attach_link_id,
       // DF-3 — idempotency nonce (only for a genuinely-new document; null for edits).
-      client_nonce: state.id ? null : (state.create_nonce || null)
+      client_nonce: state.id ? null : (state.create_nonce || null),
+      // DF-7 — persist the prefill snapshot on the doc (only a fresh lead-seeded doc)
+      // so Revert and the seeded-vs-edited audit survive beyond the browser session.
+      prefill_snapshot: (!state.id && state.lead_id && state.leadOriginal) ? JSON.stringify(state.leadOriginal) : null
     };
     try {
       const res = await fetch("/admin/api/billing", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload) });
@@ -15145,7 +15154,14 @@ const PAGE_SCRIPT = `<script>
     // Focus the first line-item rate so the only blocker (price) is one click away.
     const firstRate = document.querySelector("#ltBody tr input.r");
     if(firstRate) try { firstRate.focus(); } catch(_){}
-    setStatus("Prefilled from lead #" + lead.id + ". Enter a price to issue.");
+    // DF-7 — soft prompts: surface missing send/route fields (non-blocking) so the
+    // builder never silently emits a generic doc. Price stays the HARD gate (the
+    // server 400s and the rate input is focused below); email/route are soft.
+    var _softMissing = [];
+    if(!(lead.email && String(lead.email).trim())) _softMissing.push("client email (needed to send)");
+    if(!((lead.pickup && String(lead.pickup).trim()) && (lead.destination && String(lead.destination).trim()))) _softMissing.push("route (pickup → destination)");
+    var _softNote = _softMissing.length ? (" Missing: " + _softMissing.join("; ") + ".") : "";
+    setStatus("Prefilled from lead #" + lead.id + "." + _softNote + " Enter a price to issue.");
     // Phase 1.4 — snapshot exactly the fields prefill writes (excluding lead_id)
     // so Revert can restore them later. Edits to state never mutate this copy.
     state.leadOriginal = structuredClone({
