@@ -123,6 +123,14 @@ function umcTodayDubai(){ return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia
 // DF-5 — add N days to an ISO (YYYY-MM-DD) calendar date; used for quote validity.
 // TZ-neutral: treat the date as UTC-midnight so day arithmetic never drifts.
 function umcAddDays(iso, n){ var m = String(iso||"").match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m) return null; var d = new Date(Date.UTC(+m[1], +m[2]-1, +m[3])); d.setUTCDate(d.getUTCDate()+Number(n||0)); return d.toISOString().slice(0,10); }
+// DF-6 — the ONE place that stamps a lead 'quoted' when a quote is sent over
+// WhatsApp (previously duplicated across the proposal auto-send and API quote-send
+// paths). Promotes only a still-'new' lead; the displayed funnel stage is derived by
+// stageFor from linked docs / quote_price regardless.
+async function stampLeadQuotedIfNew(env, leadId){
+  try { await env.BILLING_DB.prepare("UPDATE leads SET status='quoted' WHERE id = ? AND COALESCE(status,'new') = 'new'").bind(leadId).run(); }
+  catch (e) { console.error("stampLeadQuotedIfNew failed", e && (e.message || String(e))); }
+}
 
 // ============================================================ D1
 
@@ -439,6 +447,10 @@ async function ensureSchema(env) {
       "cancel_reason TEXT",
       "status_before_cancel TEXT",
       "cancel_refund_flag INTEGER DEFAULT 0",
+      // DF-6 — manual funnel-stage override. When set, stageFor() returns it instead
+      // of the derived funnel stage (hard facts Paid/Cancelled still win). NULL =
+      // derive. Lets an operator pin a stage the signals do not yet reflect.
+      "stage_override TEXT",
     ]);
     // v110 (item 3) — one-time seed so the feature doesn't paint a wall of NEW
     // badges across the whole history on first deploy. A lead that is already
@@ -1906,6 +1918,23 @@ async function handleDeleteLead(id, env) {
   ).bind(id).run();
   if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
   return json({ ok: true, id });
+}
+
+// DF-6 — set or clear a lead's manual funnel-stage override. stageFor honors it
+// (the hard facts Paid/Cancelled still take precedence). {clear:true} removes it.
+async function handleLeadStage(id, request, env) {
+  await ensureSchema(env);
+  let stage = null, clear = false;
+  try { const b = await request.json(); stage = (b && b.stage) ? String(b.stage) : null; clear = !!(b && b.clear); } catch {}
+  const ALLOWED = ["New", "Alerted", "Opened", "Responded", "Quoted"];
+  if (!clear && (stage == null || !ALLOWED.includes(stage))) {
+    return json({ ok: false, error: "invalid stage", detail: "override one of: " + ALLOWED.join(", ") + " (or clear). Paid/Cancelled are system facts." }, 400);
+  }
+  const res = await env.BILLING_DB.prepare(
+    "UPDATE leads SET stage_override = ? WHERE id = ?"
+  ).bind(clear ? null : stage, id).run();
+  if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
+  return json({ ok: true, id, stage_override: clear ? null : stage });
 }
 
 // ── Dispatch Phase 1 — Fleet CRUD (drivers + vehicles) ──────────────────────
@@ -4833,7 +4862,8 @@ async function handleListLeads(env) {
             whatsapp_reachable,
             -- WA-3: signed wa.me link click (intent) — lighter chip than "Responded".
             wa_opened_at,
-            linked_doc_number, linked_quote_number, linked_invoice_number, linked_job_number, converted_at
+            linked_doc_number, linked_quote_number, linked_invoice_number, linked_job_number, converted_at,
+            stage_override
        FROM leads
       ORDER BY id DESC LIMIT 500`
   ).all();
@@ -4863,9 +4893,15 @@ async function handleListLeads(env) {
     if (["Call", "Email", "Walk-in", "Manual"].includes(s)) return s;
     return s || "—";
   };
+  // DF-6 — THE single funnel-stage derivation. Order: hard lifecycle facts
+  // (Cancelled, Paid) first, then a manual stage_override, then the derived funnel
+  // stage from linked docs / quote_price / reply signals. The status='quoted'
+  // column writes are inputs, not the source of truth — the derivation stands on
+  // linked_doc_number / quote_price alone.
   const stageFor = (lead) => {
     if (String(lead.status) === "cancelled") return "Cancelled";
     if (paidIds.has(Number(lead.id))) return "Paid";
+    if (lead.stage_override) return lead.stage_override;
     if (["quoted", "invoiced"].includes(String(lead.status)) || lead.linked_doc_number || lead.quote_price != null) return "Quoted";
     if (lead.phone && inbound.has(waMeNumber(lead.phone))) return "Responded";
     if (lead.wa_opened_at) return "Opened";
@@ -7193,9 +7229,8 @@ async function sendQuoteProposal(env, proposal) {
   const result = await waGraphSend(env, sendPayload);
   if (rowId) await finishOutbound(env, rowId, result);
   if (!result.ok) return { ok: false, reason: "send_failed", errorCode: result.errorCode };
-  try {
-    await env.BILLING_DB.prepare(`UPDATE leads SET status='quoted' WHERE id=? AND COALESCE(status,'new')='new'`).bind(lead.id).run();
-  } catch (e) { /* stamp best-effort */ }
+  // DF-6 — stamp 'quoted' via the shared helper (was a duplicated inline write).
+  await stampLeadQuotedIfNew(env, lead.id);
   return { ok: true, wamid: result.wamid, mode };
 }
 
@@ -8756,12 +8791,8 @@ async function handleSendLeadWhatsApp(request, env) {
   if (rowId) await finishOutbound(env, rowId, result);
   if (!result.ok) return json({ ok: false, mode, error: "WhatsApp rejected the send (code " + (result.errorCode || "?") + ")." }, 502);
   // Gate C ruling — a successful API quote send stamps the lead QUOTED (best-effort;
-  // never downgrades a lead already 'quoted'/'invoiced').
-  try {
-    await env.BILLING_DB.prepare(
-      `UPDATE leads SET status='quoted' WHERE id = ? AND COALESCE(status,'new') = 'new'`
-    ).bind(leadId).run();
-  } catch (e) { /* stamp is best-effort */ }
+  // never downgrades a lead already 'quoted'/'invoiced'). DF-6 — via the shared helper.
+  await stampLeadQuotedIfNew(env, leadId);
   return json({ ok: true, mode, quoted: true, wamid: result.wamid, status: result.status, outboundId: rowId });
 }
 
@@ -9221,6 +9252,14 @@ export async function handleAdmin(request, env) {
       if (!authed) return json({ ok: false, error: "auth required" }, 401);
       if (!env.BILLING_DB) return dbUnavailable();
       return handleMarkLeadViewed(parseInt(vm[1], 10), env);
+    }
+    // DF-6 — set/clear a lead's manual funnel-stage override.
+    const stm = path.match(/^\/admin\/api\/leads\/(\d+)\/stage$/);
+    if (stm && method === "POST") {
+      const authed = await isAuthed(request, env);
+      if (!authed) return json({ ok: false, error: "auth required" }, 401);
+      if (!env.BILLING_DB) return dbUnavailable();
+      return handleLeadStage(parseInt(stm[1], 10), request, env);
     }
     // WA-5-B2-CANCEL — admin parity: Cancel/Restore a booking from the Leads sheet,
     // through the SAME soft-status engine the chat grammar uses.
