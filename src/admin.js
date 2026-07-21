@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-showvoided";
+const ADMIN_BUILD = "20260722-b2rows";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -10593,36 +10593,46 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #tab-leads .history tbody tr.expandable:first-of-type,
   #tab-links .history tbody tr.expandable:first-of-type{ margin-top:.8rem; }
 
-  #tab-documents .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.12rem; }
-  #tab-documents td[data-lbl="Date"]{ grid-column:1; grid-row:1; }
-  #tab-documents td[data-lbl="Client"]{ grid-column:1; grid-row:2; }
-  #tab-documents td[data-lbl="Number"]{ grid-column:1; grid-row:3; }
-  #tab-documents td[data-lbl="Type"]{ grid-column:2; grid-row:1; justify-self:end; text-align:right; }
-  #tab-documents td[data-lbl="Total"]{ grid-column:2; grid-row:2; justify-self:end; text-align:right; }
-  #tab-documents td[data-lbl="Status"]{ grid-column:2; grid-row:3; justify-self:end; text-align:right; }
-  #tab-documents .hist-chev-cell{ grid-column:1 / -1; grid-row:4; justify-self:end; }
+  /* Decision 2 — uniform 2-line row. Line 1: client + status; line 2: number + total.
+     Date + type move to the row sheet (the number prefix already encodes INV vs Q). */
+  #tab-documents .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.05rem; min-height:60px; }
+  #tab-documents td[data-lbl="Client"]{ grid-column:1; grid-row:1; font-size:14.5px; font-weight:500; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0; }
+  #tab-documents td[data-lbl="Status"]{ grid-column:2; grid-row:1; justify-self:end; text-align:right; white-space:nowrap; padding:0; }
+  #tab-documents td[data-lbl="Number"]{ grid-column:1; grid-row:2; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:.1rem 0 0; }
+  #tab-documents td[data-lbl="Number"] .hist-link{ display:none; }
+  #tab-documents td[data-lbl="Total"]{ grid-column:2; grid-row:2; justify-self:end; text-align:right; font-size:13px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; white-space:nowrap; padding:.1rem 0 0; }
+  #tab-documents td[data-lbl="Date"]{ display:none; }
+  #tab-documents td[data-lbl="Type"]{ display:none; }
+  #tab-documents .hist-chev-cell{ display:none; }
 
-  #tab-leads .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.08rem; }
-  #tab-leads td[data-lbl="Date"]{ grid-column:1; grid-row:1; }
-  #tab-leads td[data-lbl="Name"]{ grid-column:1; grid-row:2; white-space:normal; overflow:visible; text-overflow:clip; }
-  #tab-leads td[data-lbl="Service"]{ grid-column:1; grid-row:3; }
-  #tab-leads td[data-lbl="Contact"]{ grid-column:1; grid-row:4; }
-  #tab-leads td[data-lbl="Route"]{ display:none; }
+  /* Decision 2 — uniform fixed-height 2-line row. Line 1: name + status;
+     line 2: DF-4-trimmed route + date. Service / contact / chips / funnel move
+     to the row sheet, so the collapsed card is exactly two lines like every tab. */
+  #tab-leads .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.05rem; min-height:60px; }
+  #tab-leads td[data-lbl="Name"]{ grid-column:1; grid-row:1; font-size:14.5px; font-weight:500; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0; }
+  #tab-leads td[data-lbl="Name"] .lead-meta{ display:none; }
+  #tab-leads td[data-lbl="Status"]{ grid-column:2; grid-row:1; align-self:center; justify-self:end; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:44vw; line-height:1.3; }
+  #tab-leads td[data-lbl="Route"]{ display:block; grid-column:1; grid-row:2; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:.1rem 0 0; }
+  #tab-leads td[data-lbl="Date"]{ grid-column:2; grid-row:2; align-self:center; justify-self:end; font-size:11.5px; color:var(--muted); white-space:nowrap; padding:.1rem 0 0; }
+  #tab-leads td[data-lbl="Service"]{ display:none; }
+  #tab-leads td[data-lbl="Contact"]{ display:none; }
   #tab-leads td[data-lbl="Consent"]{ display:none; }
-  #tab-leads td[data-lbl="Status"]{ grid-column:2; grid-row:1 / 5; align-self:center; justify-self:end; text-align:right; white-space:normal; max-width:38vw; line-height:1.3; }
-  #tab-leads td[data-lbl="Actions"]{ grid-column:1 / -1; grid-row:5; margin-top:.5rem; display:flex; flex-wrap:wrap; gap:.4rem; justify-content:flex-start; }
+  #tab-leads td[data-lbl="Funnel"]{ display:none; }
+  #tab-leads td[data-lbl="Actions"]{ display:none; }
 
-  #tab-links .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.1rem; }
-  #tab-links td[data-lbl="Created"]{ grid-column:1; grid-row:1; }
-  #tab-links td[data-lbl="Client"]{ grid-column:1; grid-row:2; }
-  #tab-links td[data-lbl="Amount"]{ grid-column:2; grid-row:1; justify-self:end; text-align:right; }
-  #tab-links td[data-lbl="Status"]{ grid-column:2; grid-row:2; justify-self:end; align-self:start; text-align:right; }
-  #tab-links .hist-chev-cell{ grid-column:1 / -1; grid-row:3; justify-self:end; }
+  /* Decision 2 — uniform 2-line row. Line 1: client + status; line 2: created + amount.
+     Workspace chip / PL number / views / description collapse to the row sheet. */
+  #tab-links .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.05rem; min-height:60px; }
+  #tab-links td[data-lbl="Client"]{ grid-column:1; grid-row:1; font-size:14.5px; font-weight:500; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0; }
+  #tab-links td[data-lbl="Client"] > *{ display:none; }
+  #tab-links td[data-lbl="Status"]{ grid-column:2; grid-row:1; justify-self:end; align-self:center; text-align:right; white-space:nowrap; padding:0; }
+  #tab-links td[data-lbl="Created"]{ grid-column:1; grid-row:2; font-size:11.5px; color:var(--muted); white-space:nowrap; padding:.1rem 0 0; }
+  #tab-links td[data-lbl="Amount"]{ grid-column:2; grid-row:2; justify-self:end; text-align:right; font-size:13px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; white-space:nowrap; padding:.1rem 0 0; }
   #tab-links td[data-lbl="Link"]{ display:none; }
-  #tab-links td[data-lbl="Client"] .hist-status.linked{ display:inline-block; margin-left:0 !important; margin-top:.15rem; }
+  #tab-links .hist-chev-cell{ display:none; }
   #tab-links tr.excluded td[data-lbl="Status"]::after{ content:"Excluded" !important; display:block !important; margin-top:.1rem; text-transform:uppercase; font-size:10px; letter-spacing:.1em; }
 
-  #tab-fleet .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.1rem; }
+  #tab-fleet .history tbody tr.expandable{ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:.85rem; row-gap:.05rem; min-height:60px; }
   #tab-fleet td[data-lbl="Name"]{ grid-column:1; grid-row:1; }
   #tab-fleet td[data-lbl="Detail"]{ grid-column:1; grid-row:2; color:var(--muted); }
   #tab-fleet td[data-lbl="Status"]{ grid-column:2; grid-row:1; justify-self:end; text-align:right; }
@@ -11253,15 +11263,17 @@ function appShellHTML() {
       <div class="hist-tsrow">
         <div class="hist-ctrl">
           <span class="lbl">Type</span>
-          <div class="hist-typefilter" role="tablist" aria-label="Filter by type">
-            <button type="button" class="seg on" data-typefilter="all">All</button>
-            <button type="button" class="seg"     data-typefilter="quote">Quotes</button>
-            <button type="button" class="seg"     data-typefilter="invoice">Invoices</button>
+          <div style="display:flex;align-items:center;gap:.85rem;flex-wrap:wrap">
+            <label class="hist-voided-toggle" style="display:inline-flex;align-items:center;gap:.4rem;font-size:.82rem;color:var(--muted);white-space:nowrap">
+              <input id="histShowVoided" type="checkbox"> Show voided
+            </label>
+            <div class="hist-typefilter" role="tablist" aria-label="Filter by type">
+              <button type="button" class="seg on" data-typefilter="all">All</button>
+              <button type="button" class="seg"     data-typefilter="quote">Quotes</button>
+              <button type="button" class="seg"     data-typefilter="invoice">Invoices</button>
+            </div>
           </div>
         </div>
-        <label class="hist-voided-toggle" style="display:inline-flex;align-items:center;gap:.4rem;font-size:.82rem;color:var(--muted);white-space:nowrap;margin-left:.9rem;align-self:flex-end;padding-bottom:.3rem">
-          <input id="histShowVoided" type="checkbox"> Show voided
-        </label>
         <div class="hist-sort hist-ctrl" style="margin-left:auto">
           <label class="lbl" for="histSort">Sort</label>
           <select id="histSort" aria-label="Sort documents">
@@ -15069,6 +15081,24 @@ const PAGE_SCRIPT = `<script>
       if(drawer && drawer.classList.contains("hist-actions-row")) drawer.style.display = show ? "" : "none";
     });
   }
+  // DF-4 (Decision 2) — client-side endpoint trim, mirroring the server's
+  // payEndpointLabel: keep whole comma / space-padded-dash segments up to a
+  // ~28-char budget, else hard-trim with an ellipsis. Splits only on commas and
+  // dashes surrounded by spaces so a hyphenated place ("Al-Ain") is never cut.
+  // Shortens the desktop Leads route so a row never detonates to ~15 lines; the
+  // full route stays in the cell tooltip AND the expanded/sheet view.
+  function trimEndpoint(s){
+    s = String(s == null ? "" : s).trim();
+    if(s.length <= 28) return s;
+    var parts = s.split(/\s*,\s*|\s+[–—-]\s+/);
+    var out = parts[0].trim();
+    for(var i=1;i<parts.length;i++){ var next = out + ", " + parts[i].trim(); if(next.length > 28) break; out = next; }
+    if(out.length > 30) out = out.slice(0,27).trim() + "…";
+    return out;
+  }
+  function shortRouteLabel(pickup, dest){
+    return [pickup, dest].map(function(p){ return trimEndpoint(p); }).filter(Boolean).join(" → ");
+  }
   async function loadLeads(){
     bindLeadsClickOnce();
     const body = $("leadsBody"); const empty = $("leadsEmpty");
@@ -15107,6 +15137,7 @@ const PAGE_SCRIPT = `<script>
           ? ' <span class="lead-unverified" title="Turnstile did not verify this submission">UNVERIFIED</span>'
           : '';
         const route = [x.pickup, x.destination].filter(Boolean).join(" → ");
+        const routeShort = shortRouteLabel(x.pickup, x.destination);
         const contactBits = [];
         if(x.email) contactBits.push(esc(x.email));
         if(x.phone) contactBits.push('<span style="color:var(--muted)">'+esc(x.phone)+'</span>');
@@ -15254,7 +15285,7 @@ const PAGE_SCRIPT = `<script>
           + '<td data-lbl="Name">'+esc(x.name || "")+newBadge+'<div class="lead-meta" style="margin-top:.25rem;display:flex;gap:.35rem;align-items:center;flex-wrap:wrap">'+kindChip+originChip+'</div></td>'
           + '<td data-lbl="Contact">'+(contactBits.join('<br>') || '<span style="color:var(--muted)">·</span>')+'<div class="lead-chips" data-leadchips="'+x.id+'" style="margin-top:.3rem;display:flex;gap:.3rem;flex-wrap:wrap"></div></td>'
           + '<td data-lbl="Service">'+esc(serviceBits || "·")+'</td>'
-          + '<td data-lbl="Route">'+esc(route || "·")+'</td>'
+          + '<td data-lbl="Route"><span class="lead-route" title="'+esc(route)+'">'+esc(routeShort || "·")+'</span></td>'
           + '<td data-lbl="Funnel">'+stageCell+'</td>'
           + '<td data-lbl="Consent">'+consent+'</td>'
           + '<td data-lbl="Status">'+statusCell+unverifiedPill+'</td>'
