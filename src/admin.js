@@ -2766,138 +2766,167 @@ function payResponse(html, status){
     "Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
   }});
 }
-var PAY_CSS = "@font-face{font-family:'Outfit';font-style:normal;font-weight:300 600;font-display:swap;src:url('/assets/fonts/outfit-var.woff2') format('woff2')}"+
+// PAY-PAGE v3 — iOS grouped-card architecture. VISUAL-ONLY restyle; wiring law
+// unchanged. TYPE FIDELITY: fonts + rendering copied 1:1 from site/assets/style.css
+// (the live site is the source of truth). Outfit face covers 300–500 only, so NO
+// weight exceeds 500 (600 would faux-bold against the real face → fuzzy edges).
+// Fraunces is not self-hosted anywhere on UMC, so --num renders Georgia exactly as
+// the live site does. No Google Fonts (CSP font-src 'self'); no page JS.
+var PAY_CSS = "@font-face{font-family:'Outfit';font-style:normal;font-weight:300 500;font-display:swap;src:url('/assets/fonts/outfit-var.woff2') format('woff2')}"+
   "@font-face{font-family:'Marcellus';font-style:normal;font-weight:400;font-display:swap;src:url('/assets/fonts/marcellus-400.woff2') format('woff2')}"+
   ":root{--bone:#F6F1E7;--bone-2:#EFE8D9;--card:#FBF8F1;--ink:#221B14;--ink-soft:#4A4136;--muted:#7A6F5F;--amber:#C75B12;--amber-deep:#A84B0C;--espresso:#231B12;--hair:rgba(34,27,20,.10);--line:rgba(34,27,20,.18);--serif:'Marcellus',Georgia,serif;--sans:'Outfit',system-ui,sans-serif;--num:'Fraunces',Georgia,serif}"+
   "*{margin:0;padding:0;box-sizing:border-box}"+
-  "body{font-family:var(--sans);color:var(--ink);background:var(--bone);background-image:radial-gradient(ellipse 90% 60% at 50% -10%,#FBF7EE 0%,var(--bone) 55%);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:clamp(1.25rem,4vw,3.2rem) 1rem 3rem;line-height:1.55}"+
-  ".sheet{width:100%;max-width:600px;background:var(--card);border:1px solid var(--hair);border-radius:10px;box-shadow:0 1px 2px rgba(34,27,20,.04),0 18px 50px -18px rgba(34,27,20,.16);padding:clamp(1.75rem,5vw,2.8rem) clamp(1.4rem,5vw,2.8rem) 0;animation:rise .7s cubic-bezier(.22,.8,.3,1) both}"+
-  "@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}"+
-  ".lh{display:flex;align-items:center;justify-content:space-between;gap:1rem}"+
-  ".masthead{display:inline-flex;align-items:center;gap:.7rem;text-decoration:none;color:var(--ink)}"+
-  ".masthead .mark{font-family:var(--serif);font-size:1.4rem;letter-spacing:.36em;text-transform:uppercase;transform:translateX(.09em)}"+
-  ".masthead .rule{width:1px;height:16px;background:var(--line)}"+
-  ".masthead .sub{font-size:.58rem;letter-spacing:.46em;text-transform:uppercase;color:var(--muted);font-weight:500}"+
-  ".doctype{font-size:.6rem;letter-spacing:.3em;text-transform:uppercase;color:var(--amber);font-weight:600;white-space:nowrap}"+
-  ".lh-rule{height:2px;background:linear-gradient(90deg,var(--amber) 0 2.2rem,var(--hair) 2.2rem 100%);margin:1.05rem 0 1.35rem}"+
-  ".meta{display:flex;flex-wrap:wrap;gap:.5rem 1.7rem;font-size:.8rem;color:var(--ink-soft)}"+
-  ".meta .lbl{display:block;font-size:.56rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500;margin-bottom:.14rem}"+
-  ".meta b{font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}"+
-  ".prepared{margin-top:1.35rem;font-size:.9rem;color:var(--ink-soft)}"+
-  ".prepared b{font-family:var(--serif);font-weight:400;font-size:1.04rem;color:var(--ink)}"+
-  ".service{margin:1.5rem 0 0}"+
-  ".service h1{font-family:var(--serif);font-weight:400;font-size:clamp(1.42rem,5.2vw,1.95rem);line-height:1.24}"+
-  ".service .note{margin-top:.55rem;font-size:.82rem;color:var(--muted)}"+
-  ".service-rule{height:2px;width:2.2rem;background:var(--amber);margin-top:.85rem}"+
-  ".journey{margin:1.5rem 0 0}"+
-  ".route{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:.9rem}"+
-  ".route .place{font-family:var(--serif);font-size:clamp(.98rem,3.3vw,1.16rem);line-height:1.3}"+
-  ".route .place:last-child{text-align:right}"+
-  ".path{position:relative;width:clamp(48px,12vw,92px);height:12px}"+
-  ".path::before{content:'';position:absolute;inset:50% 0 auto;border-top:2px dotted var(--line)}"+
-  ".path .dot{position:absolute;top:50%;left:100%;width:7px;height:7px;border-radius:50%;background:var(--amber);transform:translate(-50%,-50%)}"+
-  ".itin{display:flex;flex-wrap:wrap;gap:.3rem 1.3rem;margin-top:.9rem;font-size:.8rem;color:var(--ink-soft)}"+
-  ".itin span::before{content:'';display:inline-block;width:4px;height:4px;border-radius:50%;background:var(--amber);margin:0 .5rem 2px 0;vertical-align:middle}"+
-  ".itin span:first-child::before{display:none}"+
-  ".jline{border:0;border-top:2px dotted var(--line);margin:1.7rem 0}"+
-  ".amounts{font-size:.87rem}"+
-  ".items .row .desc small{display:block;font-size:.7rem;color:var(--muted)}"+
-  ".row{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;padding:.4rem 0;color:var(--ink-soft)}"+
-  ".num{font-family:var(--num);font-variant-numeric:tabular-nums;color:var(--ink);white-space:nowrap}"+
-  ".row.sub{border-top:1px solid var(--hair);margin-top:.5rem;padding-top:.68rem}"+
-  ".row.total{border-top:1px solid var(--line);margin-top:.5rem;padding:.95rem 0 0;align-items:center}"+
-  ".row.total .cap{font-size:.62rem;letter-spacing:.26em;text-transform:uppercase;font-weight:600;color:var(--ink)}"+
-  ".row.total .cap small{display:block;font-size:.58rem;letter-spacing:.12em;color:var(--muted);font-weight:500;text-transform:none;margin-top:.18rem}"+
-  ".grand{font-size:clamp(1.62rem,5.6vw,2.05rem);font-weight:500}"+
-  ".grand .cur{font-size:.55em;color:var(--muted);margin-right:.26rem;font-weight:400}"+
-  ".payblock{margin:1.6rem 0 0}"+
-  ".paybtn{display:flex;align-items:center;justify-content:center;gap:.6rem;width:100%;background:var(--espresso);color:#F6F1E7;text-decoration:none;font-size:.95rem;font-weight:500;letter-spacing:.04em;padding:1rem 1.4rem;border-radius:8px;border:1px solid var(--espresso);transition:background .25s,transform .15s}"+
+  "html{-webkit-text-size-adjust:100%}"+
+  // body base — VERBATIM site metrics (style.css body{}): weight 300, 16.5px,
+  // line-height 1.7, -webkit-font-smoothing:antialiased (the site's only smoothing rule).
+  "body{font-family:var(--sans);font-weight:300;font-size:16.5px;line-height:1.7;-webkit-font-smoothing:antialiased;color:var(--ink);background:var(--bone);background-image:radial-gradient(ellipse 90% 55% at 50% -8%,#FBF7EE 0%,var(--bone) 55%);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:clamp(1rem,3.5vw,2.6rem) 1rem 3rem}"+
+  ".app{width:100%;max-width:520px;animation:rise .6s cubic-bezier(.22,.8,.3,1) both}"+
+  "@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}"+
+  // topbar / masthead — .mark & .sub type metrics VERBATIM from the live header
+  // (.mark 1.5rem/.36em, .sub .6rem/.46em, weight 300); horizontal lockup is the v3 arch.
+  ".topbar{display:flex;align-items:center;justify-content:space-between;padding:.35rem .35rem 1.05rem}"+
+  ".masthead{display:inline-flex;align-items:center;gap:.65rem;text-decoration:none;color:var(--ink)}"+
+  ".masthead .mark{font-family:var(--serif);font-size:1.5rem;letter-spacing:.36em;line-height:1;color:var(--ink)}"+
+  ".masthead .rule{width:1px;height:15px;background:var(--line)}"+
+  ".masthead .sub{font-size:.6rem;letter-spacing:.46em;text-transform:uppercase;color:var(--muted)}"+
+  ".doctype{font-size:.58rem;letter-spacing:.24em;text-transform:uppercase;color:var(--amber-deep);font-weight:500;border:1px solid rgba(199,91,18,.35);background:rgba(199,91,18,.06);border-radius:100px;padding:.38rem .8rem .32rem}"+
+  ".group-lbl{font-size:.6rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:1.15rem .9rem .45rem}"+
+  ".card{background:var(--card);border:1px solid var(--hair);border-radius:18px;box-shadow:0 1px 2px rgba(34,27,20,.03),0 10px 30px -14px rgba(34,27,20,.10);overflow:hidden}"+
+  ".hero{padding:1.25rem 1.15rem 1.2rem}"+
+  ".pills{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.9rem}"+
+  ".pill{font-size:.62rem;letter-spacing:.08em;color:var(--ink-soft);border:1px solid var(--hair);background:var(--bone);border-radius:100px;padding:.3rem .65rem;font-variant-numeric:tabular-nums;font-weight:400}"+
+  ".pill b{font-weight:500;color:var(--ink)}"+
+  ".hero h1{font-family:var(--serif);font-weight:400;font-size:clamp(1.3rem,4.6vw,1.62rem);line-height:1.22;letter-spacing:.01em}"+
+  ".hero .note{margin-top:.4rem;font-size:.8rem;color:var(--muted);line-height:1.5}"+
+  ".kv{display:flex;justify-content:space-between;gap:1rem;border-top:1px solid var(--hair);margin-top:1rem;padding-top:.85rem;font-size:.82rem}"+
+  ".kv .k{color:var(--muted)}"+
+  ".kv .v{color:var(--ink);font-weight:500;text-align:right}"+
+  ".journey{padding:1.1rem 1.15rem 1.15rem}"+
+  ".segs{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:.8rem}"+
+  ".seg{min-width:0}"+
+  ".seg .code{font-family:var(--serif);font-size:1.06rem;line-height:1.28;letter-spacing:.01em}"+
+  ".seg:last-child{text-align:right}"+
+  ".connector{display:flex;align-items:center;gap:.3rem;color:var(--line)}"+
+  ".connector .ln{width:clamp(22px,6vw,44px);border-top:1px solid var(--line)}"+
+  ".connector .pt{width:7px;height:7px;border-radius:50%;background:var(--amber);flex:none}"+
+  ".jrows{border-top:1px solid var(--hair);margin-top:1rem;padding-top:.3rem}"+
+  ".jrow{display:flex;align-items:flex-start;gap:.55rem;padding:.55rem 0;font-size:.82rem;border-bottom:1px solid var(--hair);color:var(--ink-soft)}"+
+  ".jrow:last-child{border-bottom:0;padding-bottom:.1rem}"+
+  ".jrow::before{content:'';width:4px;height:4px;border-radius:50%;background:var(--amber);flex:none;margin-top:.5rem}"+
+  ".summary{padding:.35rem 1.15rem .2rem}"+
+  ".li{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;padding:.85rem 0;border-bottom:1px solid var(--hair);font-size:.86rem;color:var(--ink)}"+
+  ".li small{display:block;font-size:.7rem;color:var(--muted);margin-top:.15rem}"+
+  ".num{font-family:var(--num);font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--ink)}"+
+  ".li.quiet{padding:.55rem 0;color:var(--ink-soft);font-size:.8rem}"+
+  ".li.quiet .num{font-size:.84rem}"+
+  ".total{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:1rem 0 1.05rem}"+
+  ".total .cap{font-size:.6rem;letter-spacing:.24em;text-transform:uppercase;font-weight:500;color:var(--ink)}"+
+  ".total .cap small{display:block;font-size:.58rem;letter-spacing:.1em;color:var(--muted);font-weight:500;text-transform:none;margin-top:.2rem}"+
+  ".grand{font-size:clamp(1.5rem,5vw,1.85rem);font-weight:500}"+
+  ".grand .cur{font-size:.55em;color:var(--muted);margin-right:.24rem;font-weight:400}"+
+  ".action{margin-top:1.15rem}"+
+  ".paybtn{display:flex;align-items:center;justify-content:center;gap:.6rem;width:100%;min-height:52px;background:var(--espresso);color:#F6F1E7;text-decoration:none;font-size:.95rem;font-weight:500;letter-spacing:.03em;border-radius:14px;border:1px solid var(--espresso);transition:background .25s,transform .15s}"+
   ".paybtn svg{width:14px;height:14px;flex:none}"+
   ".paybtn:hover{background:var(--amber-deep)}"+
-  ".paybtn:active{transform:translateY(1px)}"+
+  ".paybtn:active{transform:scale(.99)}"+
   ".paybtn:focus-visible{outline:3px solid var(--amber);outline-offset:3px}"+
-  ".assure{display:flex;flex-wrap:wrap;justify-content:center;gap:.4rem .9rem;margin-top:.8rem;font-size:.7rem;color:var(--muted)}"+
+  ".assure{display:flex;flex-wrap:wrap;justify-content:center;gap:.35rem .85rem;margin-top:.75rem;font-size:.68rem;color:var(--muted)}"+
   ".assure b{font-weight:500;color:var(--ink-soft)}"+
-  ".paid{border:1px solid var(--line);border-radius:8px;padding:1.1rem 1.2rem;display:flex;align-items:center;gap:1.1rem;background:linear-gradient(0deg,rgba(199,91,18,.045),rgba(199,91,18,.045))}"+
-  ".stamp{font-family:var(--serif);font-size:.86rem;letter-spacing:.34em;text-transform:uppercase;color:var(--amber-deep);border:2px solid var(--amber-deep);border-radius:6px;padding:.42rem .7rem .34rem;transform:rotate(-3deg);flex:none}"+
-  ".paid dl{display:flex;flex-wrap:wrap;gap:.2rem 1.4rem;font-size:.78rem;color:var(--ink-soft)}"+
-  ".paid dt{font-size:.56rem;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);font-weight:500}"+
-  ".paid dd{font-variant-numeric:tabular-nums;color:var(--ink)}"+
-  ".docaction{display:block;text-align:center;margin:1.1rem 0 0;font-size:.8rem;color:var(--ink-soft);text-decoration:none}"+
+  ".footnote{margin-top:1.05rem;text-align:center;font-size:.72rem;color:var(--muted);line-height:1.5}"+
+  ".taxbtn{display:inline-flex;align-items:center;gap:.45rem;margin-top:.5rem;min-height:40px;font-size:.8rem;color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:100px;padding:.45rem 1.05rem;transition:border-color .2s,color .2s}"+
+  ".taxbtn:hover{border-color:var(--amber-deep);color:var(--amber-deep)}"+
+  ".docaction{display:block;text-align:center;margin-top:1.05rem;font-size:.8rem;color:var(--ink-soft);text-decoration:none}"+
   ".docaction span{border-bottom:1px solid var(--line);padding-bottom:1px;transition:color .2s,border-color .2s}"+
   ".docaction:hover span{color:var(--amber-deep);border-color:var(--amber-deep)}"+
-  ".taxline{margin:1.15rem 0 0;text-align:center;font-size:.74rem;color:var(--muted)}"+
-  ".taxbtn{display:inline-flex;align-items:center;gap:.45rem;margin-top:.55rem;font-size:.8rem;color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:100px;padding:.5rem 1.05rem;transition:border-color .2s,color .2s}"+
-  ".taxbtn:hover{border-color:var(--amber-deep);color:var(--amber-deep)}"+
-  ".sheetfoot{border-top:1px solid var(--hair);margin-top:1.8rem;padding:1rem 0 1.25rem;font-size:.65rem;letter-spacing:.06em;color:var(--muted);display:flex;flex-wrap:wrap;gap:.3rem 1.15rem;justify-content:center;text-align:center}"+
-  ".pagefoot{margin-top:1.6rem;font-size:.64rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}"+
+  ".status{display:flex;justify-content:center;margin-top:1.15rem}"+
+  ".badge{display:inline-flex;align-items:center;gap:.5rem;border:1px solid rgba(168,75,12,.4);background:rgba(199,91,18,.07);color:var(--amber-deep);border-radius:100px;padding:.5rem 1.05rem;font-size:.72rem;letter-spacing:.22em;text-transform:uppercase;font-weight:500}"+
+  ".badge .chk{width:17px;height:17px;border-radius:50%;background:var(--amber-deep);display:inline-flex;align-items:center;justify-content:center;flex:none}"+
+  ".badge .chk svg{width:9px;height:9px;stroke:#F6F1E7;stroke-width:3;fill:none}"+
+  ".receipt{margin-top:.8rem;padding:.3rem 1.15rem}"+
+  ".rrow{display:flex;justify-content:space-between;gap:1rem;padding:.8rem 0;border-bottom:1px solid var(--hair);font-size:.84rem}"+
+  ".rrow:last-child{border-bottom:0}"+
+  ".rrow .k{color:var(--muted)}"+
+  ".rrow .v{font-variant-numeric:tabular-nums;color:var(--ink);font-weight:500;text-align:right}"+
+  ".sitefoot{margin-top:1.5rem;text-align:center;font-size:.64rem;letter-spacing:.05em;color:var(--muted);line-height:1.9}"+
+  ".pagefoot{margin-top:1.4rem;font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);text-align:center}"+
   ".pagefoot a{color:inherit;text-decoration:none}"+
-  "@media (max-width:480px){.lh{flex-direction:column;align-items:flex-start;gap:.6rem}}"+
-  "@media (prefers-reduced-motion:reduce){.sheet{animation:none}}"+
-  "@media print{body{background:#fff;padding:0}.paybtn,.assure,.taxbtn,.pagefoot{display:none}.sheet{box-shadow:none;border:0;max-width:none;margin:0}}";
+  "@media (max-width:640px){.action.sticky{position:sticky;bottom:0;z-index:5;margin:1.15rem -1rem 0;padding:.8rem 1rem calc(.8rem + env(safe-area-inset-bottom));background:rgba(246,241,231,.82);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid var(--hair)}}"+
+  "@media (prefers-reduced-motion:reduce){.app{animation:none}}"+
+  "@media print{body{background:#fff;padding:0}.paybtn,.assure,.taxbtn,.pagefoot{display:none}.app{max-width:none}.card{box-shadow:none;border-color:var(--line);border-radius:8px;break-inside:avoid;margin-bottom:.6rem}.action.sticky{position:static;background:none;backdrop-filter:none;-webkit-backdrop-filter:none;border:0;padding:0;margin:0}}";
 var PAY_LOCK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3"/></svg>';
-var PAY_FOOT = '<footer class="sheetfoot"><span>UMC Dubai LLC</span><span>Trade Licence 1270934</span><span>TRN 104223959800003</span><span>contact@umcdubai.ae</span><span>+971 58 649 7861</span></footer>';
+var PAY_CHECK_SVG = '<svg viewBox="0 0 24 24"><path d="M5 13l5 5 9-11"/></svg>';
+var PAY_FOOT = '<p class="sitefoot">UMC In Bound Tour Operator LLC · Trading as UMC Dubai<br>Trade Licence 1270934 · TRN 104201356300003<br>contact@umcdubai.ae · +971 58 649 7861</p>';
 function payShell(inner, doctype){
   return "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"+
-    "<meta name=\"robots\" content=\"noindex, nofollow\"><title>Payment · UMC Dubai</title><style>"+PAY_CSS+"</style></head><body>"+
-    "<main class=\"sheet\"><header class=\"lh\"><a class=\"masthead\" href=\"https://umcdubai.ae\"><span class=\"mark\">UMC</span><span class=\"rule\"></span><span class=\"sub\">Dubai</span></a>"+
-    "<div class=\"doctype\">"+payEsc(doctype||"Payment")+"</div></header><div class=\"lh-rule\"></div>"+inner+PAY_FOOT+"</main>"+
+    "<meta name=\"robots\" content=\"noindex, nofollow\"><title>Payment · UMC Dubai</title>"+
+    "<link rel=\"preload\" href=\"/assets/fonts/outfit-var.woff2\" as=\"font\" type=\"font/woff2\" crossorigin>"+
+    "<link rel=\"preload\" href=\"/assets/fonts/marcellus-400.woff2\" as=\"font\" type=\"font/woff2\" crossorigin>"+
+    "<style>"+PAY_CSS+"</style></head><body>"+
+    "<div class=\"app\"><nav class=\"topbar\"><a class=\"masthead\" href=\"https://umcdubai.ae\"><span class=\"mark\">UMC</span><span class=\"rule\"></span><span class=\"sub\">Dubai</span></a>"+
+    "<span class=\"doctype\">"+payEsc(doctype||"Payment")+"</span></nav>"+inner+PAY_FOOT+"</div>"+
     "<p class=\"pagefoot\"><a href=\"https://umcdubai.ae\">umcdubai.ae</a></p></body></html>";
 }
-function payNotice(msg){ return payShell("<section class=\"service\"><h1>"+payEsc(msg)+"</h1><div class=\"service-rule\"></div></section><div style=\"height:1rem\"></div>", "Payment"); }
+function payNotice(msg){ return payShell("<section class=\"card hero\"><h1>"+payEsc(msg)+"</h1></section>", "Payment"); }
 // W2 — expired / archived: a headline + a concierge WhatsApp + phone line; NO pay button.
 function payStateNotice(title, sub){
   return payShell(
-    "<section class=\"service\"><h1>"+payEsc(title)+"</h1>"+(sub?"<p class=\"note\">"+payEsc(sub)+"</p>":"")+"<div class=\"service-rule\"></div></section>"+
-    "<p class=\"taxline\" style=\"margin-top:1.2rem\">Our concierge is here to help.<br>"+
+    "<section class=\"card hero\"><h1>"+payEsc(title)+"</h1>"+(sub?"<p class=\"note\">"+payEsc(sub)+"</p>":"")+"</section>"+
+    "<p class=\"footnote\">Our concierge is here to help.<br>"+
     "<a class=\"taxbtn\" href=\"https://api.whatsapp.com/send?phone=971586497861\">Message us on WhatsApp</a></p>"+
-    "<p class=\"taxline\" style=\"margin-top:.55rem\">or call <a href=\"tel:+971586497861\" style=\"color:inherit\">+971 58 649 7861</a></p><div style=\"height:.4rem\"></div>",
+    "<p class=\"footnote\" style=\"margin-top:.55rem\">or call <a href=\"tel:+971586497861\" style=\"color:inherit\">+971 58 649 7861</a></p>",
     "Payment");
 }
 function payPageHtml(d){
-  var meta = "<span><span class=\"lbl\">Payment Ref</span><b>"+payEsc(d.payRef)+"</b></span>";
-  if(d.invoiceNumber) meta += "<span><span class=\"lbl\">Invoice</span><b>"+payEsc(d.invoiceNumber)+"</b></span>";
-  if(d.dateStr) meta += "<span><span class=\"lbl\">Date</span><b>"+payEsc(d.dateStr)+"</b></span>";
-  var prepared = d.clientName ? "<p class=\"prepared\">Prepared for <b>"+payEsc(d.clientName)+"</b></p>" : "";
-  var service = "<section class=\"service\"><h1>"+payEsc(d.hero)+"</h1>"+
-    (d.note ? "<p class=\"note\">"+payEsc(d.note)+"</p>" : "")+"<div class=\"service-rule\"></div></section>";
+  // HERO card — pills (Payment Ref always; Invoice + Date when present), title,
+  // optional note, optional "Prepared for" row. Same data-driven conditionals as
+  // the shipped version (wiring unchanged); only the DOM/skin moved to v3 cards.
+  var pills = "<span class=\"pill\">Ref <b>"+payEsc(d.payRef)+"</b></span>";
+  if(d.invoiceNumber) pills += "<span class=\"pill\">Invoice <b>"+payEsc(d.invoiceNumber)+"</b></span>";
+  if(d.dateStr) pills += "<span class=\"pill\">"+payEsc(d.dateStr)+"</span>";
+  var kv = d.clientName ? "<div class=\"kv\"><span class=\"k\">Prepared for</span><span class=\"v\">"+payEsc(d.clientName)+"</span></div>" : "";
+  var hero = "<section class=\"card hero\"><div class=\"pills\">"+pills+"</div><h1>"+payEsc(d.hero)+"</h1>"+
+    (d.note ? "<p class=\"note\">"+payEsc(d.note)+"</p>" : "")+kv+"</section>";
+  // JOURNEY card (Shape A + lead only) — data shape {pickup,dest,itin[]} unchanged.
   var journey = "";
   if(d.journey){
-    var itin = (d.journey.itin||[]).map(function(x){ return "<span>"+payEsc(x)+"</span>"; }).join("");
-    journey = "<section class=\"journey\"><div class=\"route\"><div class=\"place\">"+payEsc(d.journey.pickup)+"</div>"+
-      "<div class=\"path\"><span class=\"dot\"></span></div><div class=\"place\">"+payEsc(d.journey.dest)+"</div></div>"+
-      (itin ? "<div class=\"itin\">"+itin+"</div>" : "")+"</section>";
+    var jrows = (d.journey.itin||[]).map(function(x){ return "<div class=\"jrow\"><span>"+payEsc(x)+"</span></div>"; }).join("");
+    journey = "<div class=\"group-lbl\">Journey</div><section class=\"card journey\"><div class=\"segs\">"+
+      "<div class=\"seg\"><div class=\"code\">"+payEsc(d.journey.pickup)+"</div></div>"+
+      "<div class=\"connector\"><span class=\"ln\"></span><span class=\"pt\"></span><span class=\"ln\"></span></div>"+
+      "<div class=\"seg\"><div class=\"code\">"+payEsc(d.journey.dest)+"</div></div></div>"+
+      (jrows ? "<div class=\"jrows\">"+jrows+"</div>" : "")+"</section>";
   }
-  // amounts
+  // SUMMARY card — line items, optional Subtotal/VAT (AED only), Total due (gross).
   var itemsHtml = (d.items||[]).map(function(it){
-    return "<div class=\"row\"><span class=\"desc\">"+payEsc(it.desc)+(it.sub?"<small>"+payEsc(it.sub)+"</small>":"")+"</span><span class=\"num\">"+payEsc(it.amount)+"</span></div>";
+    return "<div class=\"li\"><span>"+payEsc(it.desc)+(it.sub?"<small>"+payEsc(it.sub)+"</small>":"")+"</span><span class=\"num\">"+payEsc(it.amount)+"</span></div>";
   }).join("");
-  var totals;
+  var totals = "";
   if(d.isAED){
-    totals = "<div class=\"row sub\"><span>"+(d.isInvoice?"Subtotal":"Subtotal (net)")+"</span><span class=\"num\">"+payEsc(d.cur+" "+payMoney(d.subtotal))+"</span></div>"+
-      "<div class=\"row\"><span>VAT (5%)</span><span class=\"num\">"+payEsc(d.cur+" "+payMoney(d.vat))+"</span></div>";
-  } else { totals = ""; }
-  var totalRow = "<div class=\"row total\"><span class=\"cap\">Total due"+(d.isAED?"<small>Inclusive of VAT</small>":"")+"</span>"+
+    totals = "<div class=\"li quiet\"><span>"+(d.isInvoice?"Subtotal":"Subtotal (net)")+"</span><span class=\"num\">"+payEsc(d.cur+" "+payMoney(d.subtotal))+"</span></div>"+
+      "<div class=\"li quiet\"><span>VAT (5%)</span><span class=\"num\">"+payEsc(d.cur+" "+payMoney(d.vat))+"</span></div>";
+  }
+  var totalRow = "<div class=\"total\"><span class=\"cap\">Total due"+(d.isAED?"<small>Inclusive of VAT</small>":"")+"</span>"+
     "<span class=\"num grand\"><span class=\"cur\">"+payEsc(d.cur)+"</span>"+payEsc(payMoney(d.gross))+"</span></div>";
-  var amounts = "<section class=\"amounts\"><div class=\"items\">"+itemsHtml+"</div>"+totals+totalRow+"</section>";
-  // action block — paid vs due
-  var docaction = d.isInvoice
-    ? "<a class=\"docaction\" href=\""+payEsc(d.pdfUrl)+"\"><span>Download invoice (PDF)</span></a>"
-    : "<p class=\"taxline\">A tax invoice is available for this payment on request.<br><a class=\"taxbtn\" href=\"https://api.whatsapp.com/send?phone=971586497861&text="+d.taxPrefill+"\">Request tax invoice</a></p>";
+  var summary = "<div class=\"group-lbl\">Summary</div><section class=\"card summary\">"+itemsHtml+totals+totalRow+"</section>";
+  // ACTION area — paid (status capsule + receipt card) vs due (sticky pay bar).
   var block;
   if(d.paid){
-    var dl = "<div><dt>Amount</dt><dd>"+payEsc(d.paid.grossStr)+"</dd></div>"+
-      (d.paid.dateStr?"<div><dt>Date</dt><dd>"+payEsc(d.paid.dateStr)+"</dd></div>":"")+
-      (d.paid.chargeRef?"<div><dt>Charge Ref</dt><dd>"+payEsc(d.paid.chargeRef)+"</dd></div>":"");
-    block = "<div class=\"paid\"><span class=\"stamp\">Paid</span><dl>"+dl+"</dl></div>"+
-      (d.isInvoice ? "<a class=\"docaction\" href=\""+payEsc(d.pdfUrl)+"\" style=\"margin-top:1.2rem\"><span>Download invoice (PDF)</span></a>"
-                   : "<p class=\"taxline\" style=\"margin-top:1.2rem\">A tax invoice is available for this payment on request.<br><a class=\"taxbtn\" href=\"https://api.whatsapp.com/send?phone=971586497861&text="+d.taxPrefill+"\">Request tax invoice</a></p>");
+    var rrows = "<div class=\"rrow\"><span class=\"k\">Amount</span><span class=\"v\">"+payEsc(d.paid.grossStr)+"</span></div>"+
+      (d.paid.dateStr?"<div class=\"rrow\"><span class=\"k\">Date</span><span class=\"v\">"+payEsc(d.paid.dateStr)+"</span></div>":"")+
+      (d.paid.chargeRef?"<div class=\"rrow\"><span class=\"k\">Charge Ref</span><span class=\"v\">"+payEsc(d.paid.chargeRef)+"</span></div>":"");
+    block = "<div class=\"status\"><span class=\"badge\"><span class=\"chk\">"+PAY_CHECK_SVG+"</span>Paid</span></div>"+
+      "<section class=\"card receipt\">"+rrows+"</section>"+
+      (d.isInvoice ? "<a class=\"docaction\" href=\""+payEsc(d.pdfUrl)+"\"><span>Download invoice (PDF)</span></a>"
+                   : "<p class=\"footnote\">A tax invoice is available for this payment on request.<br><a class=\"taxbtn\" href=\"https://api.whatsapp.com/send?phone=971586497861&text="+d.taxPrefill+"\">Request tax invoice</a></p>");
   } else {
-    block = "<div class=\"payblock\"><a class=\"paybtn\" href=\""+payEsc(d.nomodUrl)+"\">"+PAY_LOCK_SVG+"Pay "+payEsc(d.cur+" "+payMoney(d.gross))+" securely</a>"+
-      "<div class=\"assure\"><span>Secured by <b>Nomod</b></span><span>Visa</span><span>Mastercard</span><span>Amex</span><span>Apple&nbsp;Pay</span></div>"+
-      docaction+"</div>";
+    var docaction = d.isInvoice
+      ? "<a class=\"docaction\" href=\""+payEsc(d.pdfUrl)+"\"><span>Download invoice (PDF)</span></a>"
+      : "<p class=\"footnote\">A tax invoice is available for this payment on request.<br><a class=\"taxbtn\" href=\"https://api.whatsapp.com/send?phone=971586497861&text="+d.taxPrefill+"\">Request tax invoice</a></p>";
+    block = "<div class=\"action sticky\"><a class=\"paybtn\" href=\""+payEsc(d.nomodUrl)+"\">"+PAY_LOCK_SVG+"Pay "+payEsc(d.cur+" "+payMoney(d.gross))+" securely</a>"+
+      "<div class=\"assure\"><span>Secured by <b>Nomod</b></span><span>Visa</span><span>Mastercard</span><span>Amex</span><span>Apple&nbsp;Pay</span><span>Google&nbsp;Pay</span></div></div>"+
+      docaction;
   }
-  var inner = "<div class=\"meta\">"+meta+"</div>"+prepared+service+journey+"<hr class=\"jline\">"+amounts+block;
+  var inner = hero+journey+summary+block;
   return payShell(inner, d.doctype);
 }
 export async function handlePayPage(env, token){
@@ -9058,7 +9087,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260721-pay-harden";
+const ADMIN_BUILD = "20260721-paypage-v3";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;

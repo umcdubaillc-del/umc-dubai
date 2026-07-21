@@ -6,10 +6,10 @@ function payShell(inner, doctype){ return "[[DOC:"+doctype+"]]"+inner; } // stub
 // ===== VERBATIM — payStateNotice =====
 function payStateNotice(title, sub){
   return payShell(
-    "<section class=\"service\"><h1>"+payEsc(title)+"</h1>"+(sub?"<p class=\"note\">"+payEsc(sub)+"</p>":"")+"<div class=\"service-rule\"></div></section>"+
-    "<p class=\"taxline\" style=\"margin-top:1.2rem\">Our concierge is here to help.<br>"+
+    "<section class=\"card hero\"><h1>"+payEsc(title)+"</h1>"+(sub?"<p class=\"note\">"+payEsc(sub)+"</p>":"")+"</section>"+
+    "<p class=\"footnote\">Our concierge is here to help.<br>"+
     "<a class=\"taxbtn\" href=\"https://api.whatsapp.com/send?phone=971586497861\">Message us on WhatsApp</a></p>"+
-    "<p class=\"taxline\" style=\"margin-top:.55rem\">or call <a href=\"tel:+971586497861\" style=\"color:inherit\">+971 58 649 7861</a></p><div style=\"height:.4rem\"></div>",
+    "<p class=\"footnote\" style=\"margin-top:.55rem\">or call <a href=\"tel:+971586497861\" style=\"color:inherit\">+971 58 649 7861</a></p>",
     "Payment");
 }
 // ===== VERBATIM — W2 expiry decision (from handlePayPage) =====
