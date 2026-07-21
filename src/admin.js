@@ -14921,7 +14921,17 @@ const PAGE_SCRIPT = `<script>
           ? '<span class="lead-kind" style="font-size:.68rem;letter-spacing:.04em;text-transform:uppercase;color:#8a6d3b;border:1px solid rgba(138,109,59,.32);border-radius:9px;padding:.02rem .4rem">Inquiry</span>'
           : '<span class="lead-kind" style="font-size:.68rem;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border:1px solid rgba(120,110,95,.28);border-radius:9px;padding:.02rem .4rem">Lead</span>';
         const originChip = '<span class="lead-origin" style="color:var(--muted);font-size:.72rem">'+esc(originLabel)+'</span>';
-        const stageCell = '<span class="lead-stage" style="color:var(--ink-soft,#4a4136);font-size:.8rem;letter-spacing:.02em;white-space:nowrap">'+esc(stage)+'</span>';
+        // DF-6 — funnel stage + a compact manual-override control. A pin marks a
+        // pinned stage; the select pins one (or Auto to derive). Paid/Cancelled are
+        // system facts and are not offered as overrides.
+        const isPinned = !!(x.stage_override && String(x.stage_override).trim());
+        const pinMark = isPinned ? ' <span title="Manually pinned stage" style="color:var(--amber-deep)">&#9873;</span>' : '';
+        const stageOpts = ['','New','Alerted','Opened','Responded','Quoted'].map(function(o){
+          var seld = (String(x.stage_override||'') === o) ? ' selected' : '';
+          return '<option value="'+o+'"'+seld+'>'+(o===''?'Auto (derive)':o)+'</option>';
+        }).join('');
+        const stageCell = '<span class="lead-stage" style="color:var(--ink-soft,#4a4136);font-size:.8rem;letter-spacing:.02em;white-space:nowrap">'+esc(stage)+pinMark+'</span>'
+          + '<select data-stageoverride="'+x.id+'" title="Pin the funnel stage (or Auto to derive it)" style="display:block;margin-top:.28rem;font-size:.68rem;color:var(--muted);background:transparent;border:1px solid var(--hair);border-radius:7px;padding:.06rem .2rem;max-width:118px">'+stageOpts+'</select>';
         return '<tr class="expandable" data-expandable="1" data-leadid="'+x.id+'" data-leadseen="'+(isUnseen?'0':'1')+'" data-leadstat="'+status+'" data-origin="'+esc(originLabel)+'" data-kind="'+kind+'" data-stage="'+esc(stage)+'" data-sortdate="'+esc(x.created_at||"")+'" data-sortstage="'+stageRank+'" data-sortamount="'+sortAmount+'">'
           + '<td data-lbl="Date">'+esc(created)+'</td>'
           + '<td data-lbl="Name">'+esc(x.name || "")+newBadge+'<div class="lead-meta" style="margin-top:.25rem;display:flex;gap:.35rem;align-items:center;flex-wrap:wrap">'+kindChip+originChip+'</div></td>'
@@ -16812,6 +16822,18 @@ const PAGE_SCRIPT = `<script>
     // ROSTER-2 — per-member capability toggles (Lead alerts / Approve / Watchdog).
     // Each checkbox PATCHes only its own cap field; mirrors the Active toggle's fetch.
     root.addEventListener("change", function(e){
+      // DF-6 — set/clear a lead's manual funnel-stage override (blank = Auto/derive).
+      const so = e.target.closest("[data-stageoverride]");
+      if(so){
+        const sid = so.getAttribute("data-stageoverride");
+        const sval = so.value || "";
+        const sbody = sval ? { stage: sval } : { clear: true };
+        fetch("/admin/api/leads/"+sid+"/stage", { method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: JSON.stringify(sbody) })
+          .then(function(r){ return r.json(); })
+          .then(function(j){ if(j && j.ok){ setStatus(sval ? ("Stage pinned to "+sval+".") : "Stage set to Auto (derived)."); loadLeads(); } else { setStatus("Stage update failed: " + ((j && (j.detail||j.error)) || "")); } })
+          .catch(function(err){ setStatus("Stage update failed: " + (err.message || err)); });
+        return;
+      }
       const cap = e.target.closest("[data-wateam-cap]");
       if(!cap) return;
       const id = cap.getAttribute("data-wateam-cap");
