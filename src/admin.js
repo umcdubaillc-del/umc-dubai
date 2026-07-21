@@ -376,6 +376,14 @@ async function ensureSchema(env) {
       "consent_at TEXT",
       "status TEXT DEFAULT 'new'",
       "linked_doc_number TEXT",
+      // DF-2 — per-type linkage so a lead can carry a quote AND an invoice
+      // independently (the single linked_doc_number slot blocked the normal
+      // quote→invoice journey from the lead row). linked_doc_number is kept as the
+      // "latest document" pointer for the Open button; these are the typed slots
+      // the create-controls gate on. Backfilled from linked_doc_number by 0023.
+      "linked_quote_number TEXT",
+      "linked_invoice_number TEXT",
+      "linked_job_number TEXT",
       "converted_at TEXT",
       // Display-only VAT label per lead ('plus'|'none'); default 'none' = No VAT.
       "vat_mode TEXT DEFAULT 'none'",
@@ -417,6 +425,17 @@ async function ensureSchema(env) {
       `UPDATE leads SET viewed_at = COALESCE(viewed_at, created_at)
         WHERE viewed_at IS NULL
           AND (COALESCE(status,'new') <> 'new' OR linked_doc_number IS NOT NULL)`
+    ).run();
+    // DF-2 — one-time backfill of the per-type linkage slots from the legacy
+    // single linked_doc_number, classified by prefix. Idempotent: only fills a
+    // typed slot still NULL for a lead whose linked_doc_number matches the series.
+    await env.BILLING_DB.prepare(
+      `UPDATE leads SET linked_invoice_number = linked_doc_number
+        WHERE linked_invoice_number IS NULL AND linked_doc_number LIKE 'UMC-INV-%'`
+    ).run();
+    await env.BILLING_DB.prepare(
+      `UPDATE leads SET linked_quote_number = linked_doc_number
+        WHERE linked_quote_number IS NULL AND linked_doc_number LIKE 'UMC-Q-%'`
     ).run();
     // WA-2 (gates B/C/H/D/I) — team alert roster + generalized outbound WA log.
     // Canonical paper trail: migrations/0013_wa_team_and_outbound.sql. Seeds are
@@ -1060,10 +1079,13 @@ async function handleCreate(request, env) {
     if (leadId) {
       try {
         const stamp = b.doc_type === "invoice" ? "invoiced" : "quoted";
+        // DF-2 — stamp the typed slot (safe: column name from a fixed ternary, not
+        // input) alongside the legacy linked_doc_number "latest document" pointer.
+        const typeCol = b.doc_type === "invoice" ? "linked_invoice_number" : "linked_quote_number";
         await env.BILLING_DB.prepare(
-          `UPDATE leads SET status = ?, linked_doc_number = ?, converted_at = ?
+          `UPDATE leads SET status = ?, linked_doc_number = ?, ${typeCol} = ?, converted_at = ?
             WHERE id = ?`
-        ).bind(stamp, String(b.number), new Date().toISOString(), leadId).run();
+        ).bind(stamp, String(b.number), String(b.number), new Date().toISOString(), leadId).run();
       } catch (e) {
         console.error("LEADS stamp failed", e && (e.message || String(e)));
       }
@@ -1156,13 +1178,42 @@ async function handleGetOne(id, env) {
   return json({ ok: true, item: row });
 }
 
+// DF-2 — release a document's OWN linkage from any lead/job that references its
+// number: clear the matching typed slot(s) + the legacy pointer, and fall a
+// converted lead back to 'new'. A lead/job linked to a DIFFERENT document is
+// untouched. Shared by void (keeps the doc) and delete (removes it).
+async function releaseDocLinkage(env, number) {
+  await env.BILLING_DB.prepare(
+    `UPDATE leads SET
+       linked_quote_number   = CASE WHEN linked_quote_number   = ? THEN NULL ELSE linked_quote_number   END,
+       linked_invoice_number = CASE WHEN linked_invoice_number = ? THEN NULL ELSE linked_invoice_number END,
+       linked_doc_number     = CASE WHEN linked_doc_number     = ? THEN NULL ELSE linked_doc_number     END,
+       converted_at          = CASE WHEN linked_doc_number     = ? THEN NULL ELSE converted_at          END,
+       status                = CASE WHEN linked_doc_number = ? AND status IN ('quoted','invoiced') THEN 'new' ELSE status END
+     WHERE linked_doc_number = ? OR linked_quote_number = ? OR linked_invoice_number = ?`
+  ).bind(number, number, number, number, number, number, number, number).run();
+  await env.BILLING_DB.prepare(
+    "UPDATE jobs SET linked_doc_number = NULL, updated_at = CURRENT_TIMESTAMP WHERE linked_doc_number = ?"
+  ).bind(number).run();
+}
+
 async function handleDelete(id, env) {
   await ensureSchema(env);
+  // DF-2 — capture the number first so a hard delete can release this document's
+  // own lead/job linkage (else a lead would keep reading "Converted" against a
+  // number that no longer exists, orphaning the pay-page journey).
+  const doc = await env.BILLING_DB.prepare(
+    "SELECT number FROM billing_documents WHERE id = ?"
+  ).bind(id).first();
   const res = await env.BILLING_DB.prepare(
     "DELETE FROM billing_documents WHERE id = ?"
   ).bind(id).run();
   // D1's run() returns { meta: { changes } } — 0 changes = no row matched.
   if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
+  if (doc && doc.number) {
+    try { await releaseDocLinkage(env, String(doc.number)); }
+    catch (e) { console.error("DELETE unlink failed", e && (e.message || String(e))); }
+  }
   return json({ ok: true, id });
 }
 
@@ -1185,20 +1236,11 @@ async function handleVoid(id, request, env) {
   await env.BILLING_DB.prepare(
     "UPDATE billing_documents SET voided_at = ?, voided_reason = ? WHERE id = ?"
   ).bind(now, reason, id).run();
-  // Release this document's own linkage. A lead falls back to 'new' so it can be
-  // re-quoted; a lead linked to a DIFFERENT document keeps its linkage.
-  try {
-    await env.BILLING_DB.prepare(
-      `UPDATE leads SET linked_doc_number = NULL, converted_at = NULL,
-         status = CASE WHEN status IN ('quoted','invoiced') THEN 'new' ELSE status END
-       WHERE linked_doc_number = ?`
-    ).bind(doc.number).run();
-  } catch (e) { console.error("VOID lead unlink failed", e && (e.message || String(e))); }
-  try {
-    await env.BILLING_DB.prepare(
-      "UPDATE jobs SET linked_doc_number = NULL, updated_at = CURRENT_TIMESTAMP WHERE linked_doc_number = ?"
-    ).bind(doc.number).run();
-  } catch (e) { console.error("VOID job unlink failed", e && (e.message || String(e))); }
+  // Release this document's own linkage (typed slots + legacy pointer + job) via the
+  // shared helper. A lead falls back to 'new' so it can be re-quoted; a lead linked
+  // to a DIFFERENT document keeps its linkage.
+  try { await releaseDocLinkage(env, String(doc.number)); }
+  catch (e) { console.error("VOID unlink failed", e && (e.message || String(e))); }
   return json({ ok: true, id: doc.id, number: doc.number, voided_at: now });
 }
 
@@ -1708,6 +1750,17 @@ async function handleDeleteLink(id, env) {
 // Phase 1.3 — delete a lead row (hard delete; leads carry no financial impact).
 async function handleDeleteLead(id, env) {
   await ensureSchema(env);
+  // DF-2 — refuse to hard-delete a lead that still has linked billing documents;
+  // deleting it would orphan those docs' lead_id (and silently drop the pay-page
+  // journey). Void or delete the quote/invoice first, then delete the lead.
+  const lk = await env.BILLING_DB.prepare(
+    "SELECT linked_doc_number, linked_quote_number, linked_invoice_number FROM leads WHERE id = ?"
+  ).bind(id).first();
+  if (!lk) return json({ ok: false, error: "not found" }, 404);
+  const anyLinked = [lk.linked_doc_number, lk.linked_quote_number, lk.linked_invoice_number].some(v => v && String(v).trim());
+  if (anyLinked) {
+    return json({ ok: false, error: "lead has linked documents", detail: "Void or delete this lead's quote/invoice before deleting the lead." }, 409);
+  }
   const res = await env.BILLING_DB.prepare(
     "DELETE FROM leads WHERE id = ?"
   ).bind(id).run();
@@ -4623,7 +4676,7 @@ async function handleListLeads(env) {
             whatsapp_reachable,
             -- WA-3: signed wa.me link click (intent) — lighter chip than "Responded".
             wa_opened_at,
-            linked_doc_number, converted_at
+            linked_doc_number, linked_quote_number, linked_invoice_number, linked_job_number, converted_at
        FROM leads
       ORDER BY id DESC LIMIT 500`
   ).all();
@@ -14531,11 +14584,19 @@ const PAGE_SCRIPT = `<script>
         // pipeline status. A lead quoted over WhatsApp (status 'quoted', quote_price set, but
         // no UMC-Q/UMC-INV) has no document yet and is a PRIME invoicing candidate — it must
         // still offer Create quote/invoice. Only a real linked document reads as "Converted".
-        const hasDoc = !!(x.linked_doc_number && String(x.linked_doc_number).trim());
-        const docCreate = (!hasDoc)
-          ? '<button type="button" class="btn btn-small btn-ghost" data-leadquote="'+x.id+'">Create quote</button>'
-            + '<button type="button" class="btn btn-small btn-ink" data-leadinvoice="'+x.id+'">Create invoice</button>'
-          : '<span style="color:var(--muted);font-size:.82rem">Converted (see Status)</span>';
+        // DF-2 — per-type gating. A lead with only a QUOTE still offers Create
+        // invoice (the normal journey); an invoice is terminal → "Converted". Reads
+        // the typed slots, falling back to the legacy linked_doc_number by prefix.
+        const _nzLink = function(v){ return (v && String(v).trim()) ? String(v).trim() : ""; };
+        const _ldNum = _nzLink(x.linked_doc_number);
+        const hasQuoteDoc   = !!(_nzLink(x.linked_quote_number)   || (/^UMC-Q-/i.test(_ldNum)   ? _ldNum : ""));
+        const hasInvoiceDoc = !!(_nzLink(x.linked_invoice_number) || (/^UMC-INV-/i.test(_ldNum) ? _ldNum : ""));
+        const docCreate = hasInvoiceDoc
+          ? '<span style="color:var(--muted);font-size:.82rem">Converted (see Status)</span>'
+          : (hasQuoteDoc
+              ? '<button type="button" class="btn btn-small btn-ink" data-leadinvoice="'+x.id+'" title="Issue an invoice for this lead (its quote stays on file)">Create invoice</button>'
+              : '<button type="button" class="btn btn-small btn-ghost" data-leadquote="'+x.id+'">Create quote</button>'
+                + '<button type="button" class="btn btn-small btn-ink" data-leadinvoice="'+x.id+'">Create invoice</button>');
         const sortAmount = 0;
         // v99: row-level drawer. The only drawer action is "Open <doctype>";
         // shown enabled when the lead has a linked_doc_number, disabled with
@@ -16847,7 +16908,7 @@ const PAGE_SCRIPT = `<script>
           .then(function(r){ return r.json(); })
           .then(function(j){
             if(j && j.ok){ setStatus("Lead deleted."); loadLeads(); }
-            else { setStatus("Delete failed: " + ((j && j.error) || "")); }
+            else { setStatus("Delete failed: " + ((j && (j.detail || j.error)) || "")); }
           })
           .catch(function(err){ setStatus("Delete failed: " + (err.message || err)); });
         return;
