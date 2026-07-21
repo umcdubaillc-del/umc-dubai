@@ -1,18 +1,11 @@
--- DF-13 — GATED DATA MIGRATION. OWNER-APPLIED ONLY, AFTER reviewing the evidence
--- dump. Do NOT wire into runtime ensureSchema. Backfills is_test=1 for the rows the
--- legacy name/amount heuristic flags, so the heuristic can eventually be retired and
--- Sales relies on the explicit flag alone.
+-- DF-13 — RETIRED (no-op). The evidence dump (GET /admin/api/sales/test-candidates)
+-- returned ZERO candidates on 2026-07-21 (invoices 0, links 0, already_flagged 0):
+-- the legacy /test|demo/i + gross<5 heuristic matches nothing in live data, so there
+-- was nothing to backfill. Owner ruling: do NOT run this migration.
 --
--- STEP 1 — review the evidence dump FIRST (read-only, via the admin session):
---   GET /admin/api/sales/test-candidates
--- It lists every invoice and payment_link the heuristic (/test|demo/i on the name AND
--- gross < 5 AED) would flag, with each row's current is_test. Confirm the list is
--- correct — that NO real low-value doc (e.g. a genuine sub-5-AED invoice to a client
--- literally named "Test Co") is caught.
+-- Going forward, is_test + the per-row "Mark test" toggle are the sole mechanism
+-- (one invoice was manually flagged and confirmed excluded from Sales). The isTestRow
+-- heuristic is dropped in DF-15, leaving is_test as the sole Sales-exclusion gate.
 --
--- STEP 2 — only after explicit OK, apply (mirrors the heuristic exactly):
---   wrangler d1 execute umc-billing --remote --command "UPDATE billing_documents SET is_test = 1 WHERE doc_type='invoice' AND (client_name LIKE '%test%' COLLATE NOCASE OR client_name LIKE '%demo%' COLLATE NOCASE) AND COALESCE(total,0) < 5;"
---   wrangler d1 execute umc-billing --remote --command "UPDATE payment_links SET is_test = 1 WHERE (title LIKE '%test%' COLLATE NOCASE OR title LIKE '%demo%' COLLATE NOCASE) AND COALESCE(amount_aed, amount, 0) < 5;"
---
--- After the backfill is confirmed correct in Sales, a later batch can drop the
--- isTestRow(...) heuristic from handleSales (leaving is_test as the sole gate).
+-- (Original backfill statements intentionally removed — this file is kept only as the
+-- audit record that the candidate set was empty.)

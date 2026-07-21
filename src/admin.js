@@ -200,6 +200,20 @@ async function resolveCustomer(env, info){
     return ins && ins.meta && ins.meta.last_row_id;
   } catch (e) { console.error("resolveCustomer failed", e && (e.message || String(e))); return null; }
 }
+// DF-14 — append one row to the audit trail. Best-effort: a logging failure must
+// never undo or block the mutation it records. diff is any small JSON-able object.
+async function logEvent(env, entity, entityId, action, actor, diff){
+  try {
+    await env.BILLING_DB.prepare(
+      "INSERT INTO events (entity, entity_id, action, actor, diff, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).bind(
+      String(entity), (entityId != null ? Number(entityId) : null), String(action),
+      String(actor || "admin"),
+      diff == null ? null : JSON.stringify(diff).slice(0, 4000),
+      new Date().toISOString()
+    ).run();
+  } catch (e) { console.error("logEvent failed", e && (e.message || String(e))); }
+}
 
 // ============================================================ D1
 
@@ -362,6 +376,23 @@ async function ensureSchema(env) {
     ).run();
     await env.BILLING_DB.prepare("CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone_e164)").run();
     await env.BILLING_DB.prepare("CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email)").run();
+    // DF-14 — append-only audit trail. One row per mutation across the billing
+    // surface: entity (billing_document / lead / job / payment_link), the entity id,
+    // the action (create / edit / convert / void / paid / test …), the actor (admin /
+    // webhook / system) and a small diff JSON. Written best-effort from every
+    // create/edit/convert/void/paid path; never blocks the mutation.
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity TEXT NOT NULL,
+        entity_id INTEGER,
+        action TEXT NOT NULL,
+        actor TEXT,
+        diff TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`
+    ).run();
+    await env.BILLING_DB.prepare("CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity, entity_id)").run();
     // v53 — standalone Nomod payment links (Links tab). A separate table keeps
     // the billing_documents schema clean (a link has no client, items or VAT
     // surface — it's a one-line collect-this-amount artefact).
@@ -1159,6 +1190,7 @@ async function handleCreate(request, env) {
       const row = await env.BILLING_DB.prepare(
         "SELECT number FROM billing_documents WHERE id = ?"
       ).bind(editId).first();
+      await logEvent(env, "billing_document", editId, "edit", "admin", { number: (row && row.number) || b.number, total: Number(b.total) || 0 });
       return json({ ok: true, id: editId, number: (row && row.number) || b.number, updated: true });
     } catch (e) {
       const msg = (e && (e.message || String(e))) || "db error";
@@ -1326,6 +1358,7 @@ async function handleCreate(request, env) {
         console.error("LINK attach on create failed", e && (e.message || String(e)));
       }
     }
+    await logEvent(env, "billing_document", id, "create", "admin", { number: b.number, doc_type: b.doc_type, total: Number(b.total) || 0, lead_id: leadId, customer_id: customerId });
     return json({ ok: true, id, number: b.number });
   } catch (e) {
     const msg = (e && (e.message || String(e))) || "db error";
@@ -1438,6 +1471,7 @@ async function handleVoid(id, request, env) {
   // to a DIFFERENT document keeps its linkage.
   try { await releaseDocLinkage(env, String(doc.number)); }
   catch (e) { console.error("VOID unlink failed", e && (e.message || String(e))); }
+  await logEvent(env, "billing_document", doc.id, "void", "admin", { number: doc.number, reason: reason || null });
   return json({ ok: true, id: doc.id, number: doc.number, voided_at: now });
 }
 
@@ -1449,6 +1483,7 @@ async function handleMarkTest(id, request, env){
   try { const b = await request.json(); flag = (b && Number(b.is_test) === 0) ? 0 : 1; } catch {}
   const res = await env.BILLING_DB.prepare("UPDATE billing_documents SET is_test = ? WHERE id = ?").bind(flag, id).run();
   if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
+  await logEvent(env, "billing_document", id, "test", "admin", { is_test: flag });
   return json({ ok: true, id, is_test: flag });
 }
 
@@ -1471,6 +1506,22 @@ async function handleTestCandidates(env){
     summary: { invoice_candidates: invoices.length, link_candidates: links.length, already_flagged: invoices.filter(x => x.is_test).length + links.filter(x => x.is_test).length },
     invoices, links
   });
+}
+
+// DF-14 — read the audit trail. ?entity=&id= filters to one entity's history; else
+// the most recent events across everything (both capped).
+async function handleEvents(url, env){
+  await ensureSchema(env);
+  const entity = url.searchParams.get("entity");
+  const id = url.searchParams.get("id");
+  const cols = "id, entity, entity_id, action, actor, diff, created_at";
+  let rows;
+  if (entity && id && /^\d+$/.test(id)) {
+    rows = (await env.BILLING_DB.prepare(`SELECT ${cols} FROM events WHERE entity = ? AND entity_id = ? ORDER BY id DESC LIMIT 200`).bind(entity, Number(id)).all()).results || [];
+  } else {
+    rows = (await env.BILLING_DB.prepare(`SELECT ${cols} FROM events ORDER BY id DESC LIMIT 200`).all()).results || [];
+  }
+  return json({ ok: true, events: rows });
 }
 
 // ============================================================ v52: quote -> invoice conversion
@@ -1550,6 +1601,7 @@ async function handleConvertToInvoice(id, env) {
         ).bind(newNumber, newNumber, new Date().toISOString(), src.lead_id).run();
       } catch (e) { console.error("LEAD stamp on convert failed", e && (e.message || String(e))); }
     }
+    await logEvent(env, "billing_document", newId, "convert", "admin", { number: newNumber, from_quote: src.number, total: Number(src.total) || 0 });
     return json({ ok: true, id: newId, number: newNumber, source_quote_number: src.number });
   } catch (e) {
     const msg = (e && (e.message || String(e))) || "db error";
@@ -3957,6 +4009,7 @@ async function handleMarkPaid(id, request, env) {
       console.error("reciprocal link stamp on mark-paid failed", e && (e.message || String(e)));
     }
   }
+  await logEvent(env, "billing_document", id, "paid", "admin", { payment_status: newStatus, paid_amount: newPaid, method });
   return json({ ok: true, id, payment_status: newStatus, paid_amount: newPaid, balance: Math.max(0, total - newPaid), paid_at: paidAt, payment_method: method });
 }
 
@@ -9354,6 +9407,14 @@ export async function handleAdmin(request, env) {
     return json({ ok: false, error: "not found" }, 404);
   }
 
+  // DF-14 — audit trail read endpoint.
+  if (path === "/admin/api/events") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    if (!env.BILLING_DB) return dbUnavailable();
+    if (method !== "GET") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET" } });
+    return handleEvents(url, env);
+  }
   // DF-13 — evidence dump: rows the legacy test-heuristic would flag (read-only).
   if (path === "/admin/api/sales/test-candidates") {
     const authed = await isAuthed(request, env);
