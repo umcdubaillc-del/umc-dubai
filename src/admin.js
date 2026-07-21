@@ -169,6 +169,37 @@ async function stampLeadQuotedIfNew(env, leadId){
   try { await env.BILLING_DB.prepare("UPDATE leads SET status='quoted' WHERE id = ? AND COALESCE(status,'new') = 'new'").bind(leadId).run(); }
   catch (e) { console.error("stampLeadQuotedIfNew failed", e && (e.message || String(e))); }
 }
+// DF-10 — resolve (dedupe) a customer by E.164 phone (primary) then email, creating
+// one if none exists; accumulate the origin badge (never overwrite). Returns the
+// customer_id, or null when there is no usable phone or email (never fragments
+// identity on nothing). Best-effort: a failure returns null and never blocks a create.
+async function resolveCustomer(env, info){
+  try {
+    info = info || {};
+    const e164 = waMeNumber(info.phone) || "";
+    const email = String(info.email || "").trim().toLowerCase();
+    const name = String(info.name || "").trim();
+    const origin = String(info.origin || "").trim();
+    if (!e164 && !email) return null;
+    let row = null;
+    if (e164) row = await env.BILLING_DB.prepare("SELECT * FROM customers WHERE phone_e164 = ? LIMIT 1").bind(e164).first();
+    if (!row && email) row = await env.BILLING_DB.prepare("SELECT * FROM customers WHERE email = ? LIMIT 1").bind(email).first();
+    const now = new Date().toISOString();
+    if (row) {
+      let origins = [];
+      try { origins = JSON.parse(row.origins || "[]") || []; } catch { origins = []; }
+      if (origin && !origins.includes(origin)) origins.push(origin);
+      await env.BILLING_DB.prepare(
+        "UPDATE customers SET phone_e164 = COALESCE(NULLIF(phone_e164,''), ?), email = COALESCE(NULLIF(email,''), ?), name = COALESCE(NULLIF(name,''), ?), origins = ?, updated_at = ? WHERE id = ?"
+      ).bind(e164 || null, email || null, name || null, JSON.stringify(origins), now, row.id).run();
+      return row.id;
+    }
+    const ins = await env.BILLING_DB.prepare(
+      "INSERT INTO customers (phone_e164, email, name, origins, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).bind(e164 || null, email || null, name || null, JSON.stringify(origin ? [origin] : []), now, now).run();
+    return ins && ins.meta && ins.meta.last_row_id;
+  } catch (e) { console.error("resolveCustomer failed", e && (e.message || String(e))); return null; }
+}
 
 // ============================================================ D1
 
@@ -297,12 +328,34 @@ async function ensureSchema(env) {
       // the durable record behind the editor Revert, and an audit of what was seeded
       // vs later edited. NULL for direct-created docs.
       "prefill_snapshot TEXT",
+      // DF-10 — customer spine: the deduped customer this document belongs to
+      // (resolved by E.164 phone then email at create/convert). NULL for docs with no
+      // usable phone/email. Lets the same client's documents share one identity.
+      "customer_id INTEGER",
     ]);
     // DF-3 — dedup index for the idempotency nonce (partial: only non-null nonces
     // are unique, so legacy NULLs never collide). SQLite honours WHERE on indexes.
     await env.BILLING_DB.prepare(
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_client_nonce ON billing_documents(client_nonce) WHERE client_nonce IS NOT NULL"
     ).run();
+    // DF-10 — lightweight customer spine. A customer is deduped by E.164 phone (then
+    // email); documents attach via billing_documents.customer_id so the same client's
+    // paperwork shares one identity. origins is a JSON array of the sources the
+    // customer has been seen through (booking / whatsapp / admin …) — origin badges are
+    // preserved (accumulated), never overwritten.
+    await env.BILLING_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS customers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        phone_e164 TEXT,
+        email TEXT,
+        name TEXT,
+        origins TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT
+      )`
+    ).run();
+    await env.BILLING_DB.prepare("CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone_e164)").run();
+    await env.BILLING_DB.prepare("CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email)").run();
     // v53 — standalone Nomod payment links (Links tab). A separate table keeps
     // the billing_documents schema clean (a link has no client, items or VAT
     // surface — it's a one-line collect-this-amount artefact).
@@ -1147,6 +1200,11 @@ async function handleCreate(request, env) {
   const quoteStatus = (b.doc_type === "quote") ? (b.quote_status || "draft") : null;
   const validUntil  = (b.doc_type === "quote") ? (b.valid_until || umcAddDays(String(b.doc_date), 14)) : null;
 
+  // DF-10 — resolve/dedupe the customer this document belongs to (E.164 phone then
+  // email). Origin badge: 'lead' when lead-born, else 'admin'. Best-effort: null when
+  // no usable phone/email.
+  const customerId = await resolveCustomer(env, { phone: b.client_phone, email: b.client_email, name: b.client_name, origin: leadId ? "lead" : "admin" });
+
   // DF-3 — atomic-ish numbering. The shared MAX+1 is read-then-write, so a
   // concurrent create can take the client's suggested number first. On a
   // UNIQUE(number) collision for a NEW doc we recompute the next free number and
@@ -1163,8 +1221,8 @@ async function handleCreate(request, env) {
           (doc_type, number, doc_date, client_name, client_company, client_address, client_email, client_phone,
            currency, vat_mode, line_items, discount, subtotal, vat, total, notes, internal_notes, lead_id, client_nonce,
            journey_pickup, journey_destination, journey_date, journey_time, journey_vehicle, journey_flight, journey_sign,
-           quote_status, valid_until, prefill_snapshot)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           quote_status, valid_until, prefill_snapshot, customer_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         b.doc_type, insertNumber, String(b.doc_date),
         String(b.client_name || ""), b.client_company || null, b.client_address || null, b.client_email || null, b.client_phone || null,
@@ -1177,7 +1235,8 @@ async function handleCreate(request, env) {
         clientNonce,  // DF-3 — idempotency nonce (NULL for edits/legacy)
         jrny.pickup, jrny.destination, jrny.date, jrny.time, jrny.vehicle, jrny.flight, jrny.sign,  // DF-4 — journey snapshot
         quoteStatus, validUntil,  // DF-5 — quote lifecycle
-        (leadId && b.prefill_snapshot != null) ? String(b.prefill_snapshot).slice(0, 8000) : null  // DF-7 — prefill snapshot
+        (leadId && b.prefill_snapshot != null) ? String(b.prefill_snapshot).slice(0, 8000) : null,  // DF-7 — prefill snapshot
+        customerId  // DF-10 — customer spine
       ).run();
       id = res && res.meta && res.meta.last_row_id;
       break;
@@ -1417,14 +1476,16 @@ async function handleConvertToInvoice(id, env) {
       `INSERT INTO billing_documents
         (doc_type, number, doc_date, client_name, client_company, client_address, client_email, client_phone,
          currency, vat_mode, line_items, discount, subtotal, vat, total, notes, internal_notes, source_quote_number, lead_id,
-         journey_pickup, journey_destination, journey_date, journey_time, journey_vehicle, journey_flight, journey_sign)
-       VALUES ('invoice', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         journey_pickup, journey_destination, journey_date, journey_time, journey_vehicle, journey_flight, journey_sign,
+         customer_id)
+       VALUES ('invoice', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       newNumber, today,
       src.client_name, src.client_company, src.client_address, src.client_email, src.client_phone,
       src.currency, src.vat_mode, src.line_items, src.discount,
       src.subtotal, src.vat, src.total, src.notes, src.internal_notes, src.number, src.lead_id,
-      src.journey_pickup, src.journey_destination, src.journey_date, src.journey_time, src.journey_vehicle, src.journey_flight, src.journey_sign
+      src.journey_pickup, src.journey_destination, src.journey_date, src.journey_time, src.journey_vehicle, src.journey_flight, src.journey_sign,
+      src.customer_id  // DF-10 — inherit the deduped customer
     ).run();
     const newId = res && res.meta && res.meta.last_row_id;
     // DF-5 — flip the source quote's lifecycle to 'converted' (terminal). The reverse
