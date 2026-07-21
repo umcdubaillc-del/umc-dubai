@@ -15555,11 +15555,16 @@ const PAGE_SCRIPT = `<script>
     $("cAddress").value = "";
     $("cEmail").value   = state.client.email;
     if($("cPhone")) $("cPhone").value = state.client.phone;
-    // Default to one line item with the link title as description and the
-    // link's stored NET amount as the rate. vat_mode stays exclusive so the
-    // displayed total matches what Nomod will charge (rate + 5%).
+    // Default to one line item priced at the link's stored NET amount. vat_mode
+    // stays exclusive so the displayed total matches what Nomod will charge
+    // (rate + 5%). DF-9 — description mirrors the server paid-link handler (v98):
+    // a real client note on the link, else a generic service line. NEVER
+    // link.title — that field is the client name and belongs in client_name only.
     const rate = Number(link.amount) || 0;
-    state.line_items = [{ description: link.title || "Payment", qty: 1, rate: rate }];
+    const seedNoteRaw = String(link.note || "").trim();
+    const seedNoteIsSystem = /^Auto-captured from Nomod/i.test(seedNoteRaw);
+    const seedDesc = (seedNoteRaw && !seedNoteIsSystem) ? seedNoteRaw : "Chauffeur service";
+    state.line_items = [{ description: seedDesc, qty: 1, rate: rate }];
     state.discount = 0;
     state.currency = String(link.currency || "AED");
     state.notes = link.note || "";
