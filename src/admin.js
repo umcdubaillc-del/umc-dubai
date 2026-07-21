@@ -120,6 +120,9 @@ function esc(s) {
 // between 00:00 and 03:59 GST is stamped with the previous UTC day. Derived via
 // timezone (UAE is a fixed UTC+4, but never hardcode the offset).
 function umcTodayDubai(){ return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dubai'}).format(new Date()); }
+// DF-5 — add N days to an ISO (YYYY-MM-DD) calendar date; used for quote validity.
+// TZ-neutral: treat the date as UTC-midnight so day arithmetic never drifts.
+function umcAddDays(iso, n){ var m = String(iso||"").match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m) return null; var d = new Date(Date.UTC(+m[1], +m[2]-1, +m[3])); d.setUTCDate(d.getUTCDate()+Number(n||0)); return d.toISOString().slice(0,10); }
 
 // ============================================================ D1
 
@@ -238,6 +241,11 @@ async function ensureSchema(env) {
       "journey_vehicle TEXT",
       "journey_flight TEXT",
       "journey_sign TEXT",
+      // DF-5 — quote lifecycle. quote_status: draft|sent|accepted|declined|expired|
+      // converted (NULL for invoices). valid_until: quote validity date; a draft/sent
+      // quote past it reads 'expired' (derived). Convert flips quote_status→converted.
+      "quote_status TEXT",
+      "valid_until TEXT",
     ]);
     // DF-3 — dedup index for the idempotency nonce (partial: only non-null nonces
     // are unique, so legacy NULLs never collide). SQLite honours WHERE on indexes.
@@ -1075,6 +1083,11 @@ async function handleCreate(request, env) {
     } catch (e) { /* journey snapshot is best-effort */ }
   }
 
+  // DF-5 — quote lifecycle defaults. New quotes start 'draft' with a validity
+  // window (default 14 days from the doc date); invoices carry neither.
+  const quoteStatus = (b.doc_type === "quote") ? (b.quote_status || "draft") : null;
+  const validUntil  = (b.doc_type === "quote") ? (b.valid_until || umcAddDays(String(b.doc_date), 14)) : null;
+
   // DF-3 — atomic-ish numbering. The shared MAX+1 is read-then-write, so a
   // concurrent create can take the client's suggested number first. On a
   // UNIQUE(number) collision for a NEW doc we recompute the next free number and
@@ -1090,8 +1103,9 @@ async function handleCreate(request, env) {
         `INSERT INTO billing_documents
           (doc_type, number, doc_date, client_name, client_company, client_address, client_email, client_phone,
            currency, vat_mode, line_items, discount, subtotal, vat, total, notes, internal_notes, lead_id, client_nonce,
-           journey_pickup, journey_destination, journey_date, journey_time, journey_vehicle, journey_flight, journey_sign)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           journey_pickup, journey_destination, journey_date, journey_time, journey_vehicle, journey_flight, journey_sign,
+           quote_status, valid_until)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         b.doc_type, insertNumber, String(b.doc_date),
         String(b.client_name || ""), b.client_company || null, b.client_address || null, b.client_email || null, b.client_phone || null,
@@ -1102,7 +1116,8 @@ async function handleCreate(request, env) {
         b.internal_notes || null,
         leadId,       // WA-2 H — lead context association (NULL for non-lead docs → never fires)
         clientNonce,  // DF-3 — idempotency nonce (NULL for edits/legacy)
-        jrny.pickup, jrny.destination, jrny.date, jrny.time, jrny.vehicle, jrny.flight, jrny.sign  // DF-4 — journey snapshot
+        jrny.pickup, jrny.destination, jrny.date, jrny.time, jrny.vehicle, jrny.flight, jrny.sign,  // DF-4 — journey snapshot
+        quoteStatus, validUntil  // DF-5 — quote lifecycle
       ).run();
       id = res && res.meta && res.meta.last_row_id;
       break;
@@ -1202,7 +1217,7 @@ async function handleList(env) {
             b.currency, b.total, b.source_quote_number, b.nomod_link_id,
             b.nomod_link_url, b.nomod_link_created_at, b.created_at,
             b.nomod_charge_id, b.paid_at, b.paid_amount, b.payment_method, b.line_items,
-            b.voided_at,
+            b.voided_at, b.quote_status, b.valid_until,
             COALESCE(b.payment_status, 'unpaid') AS payment_status,
             (SELECT i.number FROM billing_documents i
               WHERE i.doc_type = 'invoice' AND i.source_quote_number = b.number
@@ -1334,24 +1349,80 @@ async function handleConvertToInvoice(id, env) {
   const newNumber = PREFIX.invoice + m[1];
   const today = umcTodayDubai();
   try {
+    // DF-5 — nearest-upstream: copy the quote's items VERBATIM, and carry the
+    // journey snapshot, lead_id, phone and internal_notes that the old convert
+    // dropped (V5). The invoice's /pay journey now renders and the lead link
+    // survives; source_quote_number is the invoice→quote reference.
     const res = await env.BILLING_DB.prepare(
       `INSERT INTO billing_documents
-        (doc_type, number, doc_date, client_name, client_company, client_address, client_email,
-         currency, vat_mode, line_items, discount, subtotal, vat, total, notes, source_quote_number)
-       VALUES ('invoice', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        (doc_type, number, doc_date, client_name, client_company, client_address, client_email, client_phone,
+         currency, vat_mode, line_items, discount, subtotal, vat, total, notes, internal_notes, source_quote_number, lead_id,
+         journey_pickup, journey_destination, journey_date, journey_time, journey_vehicle, journey_flight, journey_sign)
+       VALUES ('invoice', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       newNumber, today,
-      src.client_name, src.client_company, src.client_address, src.client_email,
+      src.client_name, src.client_company, src.client_address, src.client_email, src.client_phone,
       src.currency, src.vat_mode, src.line_items, src.discount,
-      src.subtotal, src.vat, src.total, src.notes, src.number
+      src.subtotal, src.vat, src.total, src.notes, src.internal_notes, src.number, src.lead_id,
+      src.journey_pickup, src.journey_destination, src.journey_date, src.journey_time, src.journey_vehicle, src.journey_flight, src.journey_sign
     ).run();
     const newId = res && res.meta && res.meta.last_row_id;
+    // DF-5 — flip the source quote's lifecycle to 'converted' (terminal). The reverse
+    // reference quote→invoice is the derived converted_invoice_number (via
+    // source_quote_number). Fail-open: a status flip error must not undo the convert.
+    try {
+      await env.BILLING_DB.prepare(
+        "UPDATE billing_documents SET quote_status = 'converted' WHERE id = ?"
+      ).bind(id).run();
+    } catch (e) { console.error("QUOTE status flip failed", e && (e.message || String(e))); }
+    // DF-5 — if this quote came from a lead, stamp the lead's invoice slot so the
+    // lead reads "Converted" and links to the new invoice.
+    if (src.lead_id != null) {
+      try {
+        await env.BILLING_DB.prepare(
+          `UPDATE leads SET status = 'invoiced', linked_doc_number = ?, linked_invoice_number = ?, converted_at = ?
+            WHERE id = ?`
+        ).bind(newNumber, newNumber, new Date().toISOString(), src.lead_id).run();
+      } catch (e) { console.error("LEAD stamp on convert failed", e && (e.message || String(e))); }
+    }
     return json({ ok: true, id: newId, number: newNumber, source_quote_number: src.number });
   } catch (e) {
     const msg = (e && (e.message || String(e))) || "db error";
     if (/UNIQUE/i.test(msg)) return json({ ok: false, error: "duplicate invoice number, please refresh and retry", detail: msg }, 409);
     return json({ ok: false, error: "db error during convert", detail: msg }, 500);
   }
+}
+
+// DF-5 — set a quote's lifecycle status. Operator-settable: sent|accepted|declined
+// (and back to draft). 'converted' is set only by the convert path; 'expired' is
+// derived from valid_until at render time and never stored.
+async function handleQuoteStatus(id, request, env) {
+  await ensureSchema(env);
+  let status = null, validUntil = null;
+  try {
+    const b = await request.json();
+    status = (b && b.status) ? String(b.status) : null;
+    validUntil = (b && b.valid_until) ? String(b.valid_until).slice(0, 10) : null;
+  } catch {}
+  const doc = await env.BILLING_DB.prepare(
+    "SELECT id, doc_type, quote_status FROM billing_documents WHERE id = ?"
+  ).bind(id).first();
+  if (!doc) return json({ ok: false, error: "not found" }, 404);
+  if (doc.doc_type !== "quote") return json({ ok: false, error: "only quotes have a lifecycle status" }, 400);
+  if (doc.quote_status === "converted") return json({ ok: false, error: "quote already converted" }, 409);
+  const ALLOWED = ["draft", "sent", "accepted", "declined"];
+  if (status != null && !ALLOWED.includes(status)) {
+    return json({ ok: false, error: "invalid status", detail: "operator-settable: " + ALLOWED.join(", ") }, 400);
+  }
+  if (status == null && validUntil == null) return json({ ok: false, error: "nothing to update" }, 400);
+  if (status != null && validUntil != null) {
+    await env.BILLING_DB.prepare("UPDATE billing_documents SET quote_status = ?, valid_until = ? WHERE id = ?").bind(status, validUntil, id).run();
+  } else if (status != null) {
+    await env.BILLING_DB.prepare("UPDATE billing_documents SET quote_status = ? WHERE id = ?").bind(status, id).run();
+  } else {
+    await env.BILLING_DB.prepare("UPDATE billing_documents SET valid_until = ? WHERE id = ?").bind(validUntil, id).run();
+  }
+  return json({ ok: true, id, quote_status: status != null ? status : doc.quote_status, valid_until: validUntil });
 }
 
 // ============================================================ v52: Nomod payment links
@@ -9064,6 +9135,8 @@ export async function handleAdmin(request, env) {
     if (voidM && method === "POST") return handleVoid(parseInt(voidM[1], 10), request, env);
     const convM = path.match(/^\/admin\/api\/billing\/(\d+)\/convert$/);
     if (convM && method === "POST") return handleConvertToInvoice(parseInt(convM[1], 10), env);
+    const qsM = path.match(/^\/admin\/api\/billing\/(\d+)\/quote-status$/);
+    if (qsM && method === "POST") return handleQuoteStatus(parseInt(qsM[1], 10), request, env);
     const linkM = path.match(/^\/admin\/api\/billing\/(\d+)\/payment-link$/);
     if (linkM && method === "POST") {
       const regenerate = url.searchParams.get("regenerate") === "1";
@@ -16772,7 +16845,13 @@ const PAGE_SCRIPT = `<script>
         e.preventDefault();
         const id = Number(iBtn.getAttribute("data-leadinvoice"));
         const lead = leadsCache.find(function(x){ return Number(x.id) === id; });
-        if(lead) prefillFromLead(lead, "invoice");
+        if(!lead) return;
+        // DF-5 — nearest-upstream: if the lead already has a quote, issue the invoice
+        // FROM that quote (its items/journey copied verbatim) rather than re-deriving
+        // from the raw lead. Falls back to lead prefill when there is no quote.
+        const _qn = lead.linked_quote_number && String(lead.linked_quote_number).trim();
+        if(_qn){ convertQuoteNumberToInvoice(_qn); }
+        else { prefillFromLead(lead, "invoice"); }
         return;
       }
       const ljBtn = e.target.closest("[data-leadjob]");
@@ -17095,6 +17174,7 @@ const PAGE_SCRIPT = `<script>
       const printB = e.target.closest("[data-pdf]");
       const delB  = e.target.closest("[data-del]");
       const voidB = e.target.closest("[data-void]");
+      const qsBtn = e.target.closest("[data-qstatus]");
       const convB = e.target.closest("[data-convert]");
       const linkB = e.target.closest("[data-link]");
       const copyB = e.target.closest("[data-copy]");
@@ -17209,6 +17289,20 @@ const PAGE_SCRIPT = `<script>
           .catch(function(err){ setStatus("Void failed: " + (err.message || err)); });
         return;
       }
+      // DF-5 — set a quote's lifecycle status (sent/accepted/declined).
+      if(qsBtn){
+        e.preventDefault();
+        const st = qsBtn.getAttribute("data-qstatus");
+        const qid = qsBtn.getAttribute("data-qsid");
+        fetch("/admin/api/billing/" + qid + "/quote-status", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ status: st }) })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if(j && j.ok){ setStatus("Quote marked " + st + "."); loadHistory(); }
+            else { setStatus("Update failed: " + ((j && (j.detail || j.error)) || "")); }
+          })
+          .catch(function(err){ setStatus("Update failed: " + (err.message || err)); });
+        return;
+      }
       // Phase 1.1 — row click toggles the drawer (skipped for clicks on
       // links/buttons so the Number anchor and panel action buttons keep
       // their handlers).
@@ -17262,6 +17356,12 @@ const PAGE_SCRIPT = `<script>
           } else {
             actions.push('<button type="button" class="btn btn-small btn-ghost" data-convert="'+x.id+'" data-num="'+esc(x.number)+'" title="Issue an invoice with this quote\\'s numeric (UMC-Q-#### -> UMC-INV-####). The quote stays in history.">Convert to invoice</button>');
           }
+          // DF-5 — lifecycle quick-set (hidden once converted).
+          if(!x.converted_invoice_number && derivedQuoteStatus(x) !== "converted"){
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-qstatus="sent" data-qsid="'+x.id+'" title="Mark this quote sent to the client">Mark sent</button>');
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-qstatus="accepted" data-qsid="'+x.id+'" title="Mark this quote accepted">Accepted</button>');
+            actions.push('<button type="button" class="btn btn-small btn-ghost" data-qstatus="declined" data-qsid="'+x.id+'" title="Mark this quote declined">Declined</button>');
+          }
         }
         if(isInvoice){
           if(hasLink){
@@ -17313,7 +17413,7 @@ const PAGE_SCRIPT = `<script>
               : (isPartialDoc
                   ? '<span class="hist-status" style="color:var(--amber-deep)">Partial</span><span style="color:var(--muted);font-size:11px;margin-left:.4rem;font-variant-numeric:tabular-nums">AED '+_docBalance.toFixed(2)+' due</span>'
                   : (hasLink ? '<span class="hist-status linked">Link generated</span>' : '<span class="hist-status">&middot;</span>')))
-          : (x.source_quote_number ? '<span class="hist-status">Converted</span>' : '<span class="hist-status">&middot;</span>'));
+          : (isQuote ? quoteStatusBadge(x) : (x.source_quote_number ? '<span class="hist-status">Converted</span>' : '<span class="hist-status">&middot;</span>')));
         const searchText = [x.number, x.client_name || "", x.client_company || "", x.source_quote_number || ""].join(" ");
         const sortDate = String(x.doc_date || "");
         const sortAmount = Number(x.total) || 0;
@@ -17425,6 +17525,44 @@ const PAGE_SCRIPT = `<script>
   }
   // B2b Slice 1 — open a billing document by its NUMBER (resolve → id → loadDoc).
   // Shared by the Leads "Open <doc>" button and the job-sheet invoice readout.
+  // DF-5 — derived quote lifecycle label. A draft/sent quote past its validity
+  // reads 'expired'; 'converted' is terminal. Mirrors the server intent.
+  function derivedQuoteStatus(x){
+    var st = x.quote_status || "draft";
+    if(st === "converted") return "converted";
+    var vu = x.valid_until && String(x.valid_until).slice(0,10);
+    if((st === "draft" || st === "sent") && vu && vu < umcTodayDubai()) return "expired";
+    return st;
+  }
+  function quoteStatusBadge(x){
+    var st = derivedQuoteStatus(x);
+    var color = (st === "accepted") ? "var(--amber-deep)" : (st === "converted") ? "var(--ink)" : "var(--muted)";
+    var vu = x.valid_until && String(x.valid_until).slice(0,10);
+    var tip = ((st === "expired" || st === "sent" || st === "draft") && vu) ? (" title='Valid until " + vu + "'") : "";
+    var label = st.charAt(0).toUpperCase() + st.slice(1);
+    return "<span class='hist-status' style='color:" + color + "'" + tip + ">" + label + "</span>";
+  }
+  // DF-5 — nearest-upstream: issue an invoice FROM an existing quote (by number),
+  // copying its items/journey verbatim, instead of re-deriving from the raw lead.
+  async function convertQuoteNumberToInvoice(num){
+    setStatus("Issuing invoice from " + num + " …");
+    try {
+      var lr = await fetch("/admin/api/billing");
+      var lj = await lr.json();
+      var row = (lj && lj.ok && Array.isArray(lj.items)) ? lj.items.find(function(rr){ return String(rr.number) === String(num) && rr.doc_type === "quote"; }) : null;
+      if(!row){ setStatus("Quote " + num + " not found — issuing from the lead instead."); return false; }
+      var cr = await fetch("/admin/api/billing/" + row.id + "/convert", { method:"POST", headers:{"Content-Type":"application/json"}, body:"{}" });
+      var cj = await cr.json();
+      if(!cj.ok){
+        if(cj.invoice_id){ setStatus("Quote " + num + " already converted to " + cj.invoice_number + "."); switchTab("documents"); if(typeof loadDoc==="function") loadDoc(cj.invoice_id); return true; }
+        setStatus("Convert failed: " + (cj.error || cr.status)); return false;
+      }
+      setStatus("Issued invoice " + cj.number + " from quote " + num + ".");
+      loadHistory(); if(typeof loadLeads === "function") loadLeads();
+      switchTab("documents"); if(typeof loadDoc === "function" && cj.id) loadDoc(cj.id);
+      return true;
+    } catch(err){ setStatus("Convert failed: " + (err && (err.message || err))); return false; }
+  }
   async function openDocByNumber(num, setMsg){
     var say = (typeof setMsg === "function") ? setMsg : function(){};
     if(!num) return;
