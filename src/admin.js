@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-b2fix2";
+const ADMIN_BUILD = "20260722-b3fix1";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -10604,11 +10604,6 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #tab-documents td[data-lbl="Date"]{ display:none; }
   #tab-documents td[data-lbl="Type"]{ display:none; }
   #tab-documents .hist-chev-cell{ display:none; }
-  /* B1 placement — keep "Show voided" inline to the left of the Type segmented
-     on mobile too: let the filter row wrap so Sort drops below and the Type
-     control gets full width. */
-  #tab-documents .hist-tsrow{ flex-wrap:wrap; row-gap:.6rem; }
-  #tab-documents .hist-sort{ margin-left:0; }
 
   /* Decision 2 — uniform fixed-height 2-line row. Line 1: name + status;
      line 2: DF-4-trimmed route + date. Service / contact / chips / funnel move
@@ -10618,6 +10613,7 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #tab-leads td[data-lbl="Name"] .lead-meta{ display:none !important; }
   #tab-leads td[data-lbl="Status"]{ grid-column:2; grid-row:1; align-self:center; justify-self:end; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:44vw; line-height:1.3; }
   #tab-leads td[data-lbl="Route"]{ display:block; grid-column:1; grid-row:2; max-width:none; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:.1rem 0 0; }
+  #tab-leads td[data-lbl="Route"] .lead-route-alt{ display:inline !important; }
   #tab-leads td[data-lbl="Date"]{ grid-column:2; grid-row:2; max-width:none; align-self:center; justify-self:end; font-size:11.5px; color:var(--muted); white-space:nowrap; padding:.1rem 0 0; }
   #tab-leads td[data-lbl="Service"]{ display:none; }
   #tab-leads td[data-lbl="Contact"]{ display:none; }
@@ -11264,19 +11260,17 @@ function appShellHTML() {
       <div class="hist-search hist-ctrl">
         <label class="lbl" for="histSearch">Search</label>
         <input id="histSearch" type="search" placeholder="Number, client, company …" autocomplete="off">
+        <label class="hist-voided-toggle" style="display:inline-flex;align-items:center;gap:.45rem;font-size:.82rem;color:var(--muted);white-space:nowrap;margin-top:.5rem">
+          <input id="histShowVoided" type="checkbox" style="margin:0"> Show voided
+        </label>
       </div>
       <div class="hist-tsrow">
         <div class="hist-ctrl">
           <span class="lbl">Type</span>
-          <div style="display:flex;align-items:center;gap:.85rem;flex-wrap:wrap">
-            <label class="hist-voided-toggle" style="display:inline-flex;align-items:center;gap:.4rem;font-size:.82rem;color:var(--muted);white-space:nowrap">
-              <input id="histShowVoided" type="checkbox"> Show voided
-            </label>
-            <div class="hist-typefilter" role="tablist" aria-label="Filter by type">
-              <button type="button" class="seg on" data-typefilter="all">All</button>
-              <button type="button" class="seg"     data-typefilter="quote">Quotes</button>
-              <button type="button" class="seg"     data-typefilter="invoice">Invoices</button>
-            </div>
+          <div class="hist-typefilter" role="tablist" aria-label="Filter by type">
+            <button type="button" class="seg on" data-typefilter="all">All</button>
+            <button type="button" class="seg"     data-typefilter="quote">Quotes</button>
+            <button type="button" class="seg"     data-typefilter="invoice">Invoices</button>
           </div>
         </div>
         <div class="hist-sort hist-ctrl" style="margin-left:auto">
@@ -15094,12 +15088,16 @@ const PAGE_SCRIPT = `<script>
   // full route stays in the cell tooltip AND the expanded/sheet view.
   function trimEndpoint(s){
     s = String(s == null ? "" : s).trim();
-    if(s.length <= 28) return s;
-    var parts = s.split(/\s*,\s*|\s+[–—-]\s+/);
-    var out = parts[0].trim();
-    for(var i=1;i<parts.length;i++){ var next = out + ", " + parts[i].trim(); if(next.length > 28) break; out = next; }
-    if(out.length > 30) out = out.slice(0,27).trim() + "…";
-    return out;
+    if(s.length <= 30) return s;
+    // Cut ONLY on separator boundaries (comma / space-padded dash) — never mid-word.
+    var parts = s.split(/\s*,\s*|\s+[–—-]\s+/).map(function(p){ return p.trim(); }).filter(Boolean);
+    if(!parts.length) return s;
+    var out = parts[0];                     // always keep the whole first segment intact
+    for(var i=1;i<parts.length;i++){
+      if((out + ", " + parts[i]).length > 30) break;
+      out += ", " + parts[i];
+    }
+    return out;                             // may exceed 30 if the first segment is long; the cell ellipsis clips visually, never the data
   }
   function shortRouteLabel(pickup, dest){
     return [pickup, dest].map(function(p){ return trimEndpoint(p); }).filter(Boolean).join(" → ");
@@ -15290,7 +15288,9 @@ const PAGE_SCRIPT = `<script>
           + '<td data-lbl="Name">'+esc(x.name || "")+newBadge+'<div class="lead-meta" style="margin-top:.25rem;display:flex;gap:.35rem;align-items:center;flex-wrap:wrap">'+kindChip+originChip+'</div></td>'
           + '<td data-lbl="Contact">'+(contactBits.join('<br>') || '<span style="color:var(--muted)">·</span>')+'<div class="lead-chips" data-leadchips="'+x.id+'" style="margin-top:.3rem;display:flex;gap:.3rem;flex-wrap:wrap"></div></td>'
           + '<td data-lbl="Service">'+esc(serviceBits || "·")+'</td>'
-          + '<td data-lbl="Route"><span class="lead-route" title="'+esc(route)+'">'+esc(routeShort || "·")+'</span></td>'
+          + '<td data-lbl="Route">'+(routeShort
+              ? '<span class="lead-route" title="'+esc(route)+'">'+esc(routeShort)+'</span>'
+              : (serviceBits ? '<span class="lead-route-alt" style="display:none">'+esc(serviceBits)+'</span>' : ''))+'</td>'
           + '<td data-lbl="Funnel">'+stageCell+'</td>'
           + '<td data-lbl="Consent">'+consent+'</td>'
           + '<td data-lbl="Status">'+statusCell+unverifiedPill+'</td>'
@@ -18216,7 +18216,7 @@ const PAGE_SCRIPT = `<script>
   window.__sheetBound = true;
   var CFG = {
     'tab-documents': { title:{lbl:'Number',link:true},  sub:{lbl:'Client'},  right:{lbl:'Total'},  metaL:['Type','Date'], metaR:'Status', inline:false },
-    'tab-leads':     { title:{lbl:'Name'},               sub:{lbl:'Contact'}, right:null,           metaL:['Service'],    metaR:function(row){ var c = row.querySelector('td[data-lbl="Status"]'); var s = c && c.querySelector('.pay-status'); /* item 6 \u2014 suppress the muted "Pending" chip on mobile cards (adds nothing there); real statuses + UNVERIFIED still show, and the NEW badge lives in the title. */ var base = (s && !s.classList.contains('pending')) ? s.textContent.trim() : ''; var parts = []; if(base) parts.push(base); if(row.querySelector('.lead-unverified')) parts.push('UNVERIFIED'); return parts.join(' \u00b7 '); }, inline:true, lead:true  },
+    'tab-leads':     { title:{lbl:'Name',first:true},    sub:{lbl:'Contact'}, right:null,           metaL:['Service'],    metaR:function(row){ var c = row.querySelector('td[data-lbl="Status"]'); var s = c && c.querySelector('.pay-status'); /* item 6 \u2014 suppress the muted "Pending" chip on mobile cards (adds nothing there); real statuses + UNVERIFIED still show, and the NEW badge lives in the title. */ var base = (s && !s.classList.contains('pending')) ? s.textContent.trim() : ''; var parts = []; if(base) parts.push(base); if(row.querySelector('.lead-unverified')) parts.push('UNVERIFIED'); return parts.join(' \u00b7 '); }, inline:true, lead:true  },
     'tab-links':     { title:{lbl:'Client',first:true},  sub:null,            right:{lbl:'Amount'}, metaL:['Created'],    metaR:'Status', inline:false },
     'tab-fleet':     { title:{lbl:'Name'},               sub:{lbl:'Detail'},  right:null,           metaL:[],             metaR:function(row){ var p = row.querySelector('td[data-lbl="Status"] .hist-status'); return p ? p.textContent.trim() : ''; }, inline:false }
   };
@@ -18368,27 +18368,20 @@ const PAGE_SCRIPT = `<script>
     var _cbScope = panel || row;
     var createBtns = { Quote: _cbScope.querySelector('[data-leadquote]'), Invoice: _cbScope.querySelector('[data-leadinvoice]'), Job: _cbScope.querySelector('[data-leadjob]') };
     if (isLead && (createBtns.Quote || createBtns.Invoice || createBtns.Job)){
-      var primary = document.createElement('button');
-      primary.type = 'button';
-      primary.className = 'doc-sheet-action doc-sheet-primary';
-      primary.textContent = 'Create quote / invoice / job';
-      var chooser = document.createElement('div');
-      chooser.className = 'lead-sheet-chooser';
-      chooser.hidden = true;
+      // One full-width action per document type — same size as every other sheet
+      // button (WhatsApp / Call / …). The old redundant "Create quote / invoice /
+      // job" toggle button is gone; each button performs the create directly.
+      var _ct = (_grouped && _gBody.docs) ? _gBody.docs : sheetEl;
       ['Quote', 'Invoice', 'Job'].forEach(function(kind){
         var orig = createBtns[kind];
         if (!orig) return;
         var cb = document.createElement('button');
         cb.type = 'button';
-        cb.className = 'doc-sheet-action doc-sheet-choose';
-        cb.textContent = kind;
+        cb.className = 'doc-sheet-action';
+        cb.textContent = 'Create ' + kind.toLowerCase();
         cb.addEventListener('click', function(){ hide(); orig.click(); });
-        chooser.appendChild(cb);
+        _ct.appendChild(cb);
       });
-      primary.addEventListener('click', function(){ chooser.hidden = !chooser.hidden; primary.classList.toggle('open', !chooser.hidden); });
-      var _ct = (_grouped && _gBody.docs) ? _gBody.docs : sheetEl;
-      _ct.appendChild(primary);
-      _ct.appendChild(chooser);
     }
     // v104 — leads quote-price: the sheet shows its OWN mirror input, prefilled
     // from the canonical drawer input. There is NO per-keystroke writeback (that
