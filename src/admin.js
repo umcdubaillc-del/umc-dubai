@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-b3sub3";
+const ADMIN_BUILD = "20260722-preview";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -10022,12 +10022,14 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 /* display:flex+column with min-height = A4 pushes the espresso footer band to
    the BOTTOM of the page regardless of content length (item 4 — sticky to A4
    bottom, not floating directly under the body). */
-.doc{width:794px;background:#fff;border:1px solid var(--hair);border-radius:3px;color:var(--ink);font-family:Outfit,sans-serif;font-size:12px;line-height:1.55;min-height:1123px;padding:0;overflow:hidden;box-shadow:0 30px 60px -36px rgba(34,27,20,.25);transform-origin:top left;display:flex;flex-direction:column}
+.doc{width:794px;background:var(--bone);border:1px solid var(--hair);border-radius:3px;color:var(--ink);font-family:Outfit,sans-serif;font-size:12px;line-height:1.55;min-height:1123px;padding:0;overflow:hidden;box-shadow:0 30px 60px -36px rgba(34,27,20,.25);transform-origin:top left;display:flex;flex-direction:column}
 
 /* Espresso footer band — classical letterhead silhouette: clean top edge,
    branded foot (v44f — top masthead band removed; legal name + TRN now live
    in the body header next to the lockup). */
-.doc .dfoot{background:var(--espresso);color:#D9D0C0;padding:1.4rem 2.4rem 1.6rem;font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact;flex-shrink:0;text-align:center}
+.doc .dfoot{background:var(--bone);color:var(--muted);padding:1.1rem 2.4rem 1.4rem;font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.05em;border-top:1px solid var(--hair);flex-shrink:0}
+.doc .dfoot .dfl-1{color:var(--ink-soft);font-weight:500;margin-bottom:.22rem}
+.doc .dfoot .dfl-2{color:var(--muted)}
 
 /* Body fills available vertical space — pushes footer to the bottom edge. */
 .doc .dbody{padding:2.6rem 2.4rem 2rem;flex:1 1 auto;display:flex;flex-direction:column}
@@ -10062,7 +10064,7 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
    carries only the label + number; the date is hoisted out as its own
    flex item under .dh-right so the column gap drops it to the legal-name
    row on the left (item from v44i). */
-.doc .meta .t{font-family:Marcellus,serif;font-size:2.4rem;color:var(--ink);margin:0 0 .2rem;letter-spacing:.18em;text-transform:uppercase;line-height:1}
+.doc .meta .t{font-family:Marcellus,serif;font-size:2.4rem;color:var(--ink);margin:0 0 .2rem;letter-spacing:.01em;line-height:1}
 .doc .meta .n{font-family:Fraunces,Georgia,serif;color:var(--amber-deep);letter-spacing:.05em;font-size:1.15rem;display:block;margin-top:.2rem}
 .doc .dh-right .d{font-size:10.5px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase}
 
@@ -10082,12 +10084,12 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 
 /* Totals box — Fraunces numerals, hairlines, Total in serif. */
 .doc .tot-wrap{display:flex;justify-content:flex-end;margin-bottom:1.8rem}
-.doc .tot-box{min-width:280px;border:0;font-size:12px}
+.doc .tot-box{min-width:300px;background:var(--card);border:1px solid var(--hair);border-radius:6px;padding:.4rem 1.1rem;font-size:12px}
 .doc .tot-box .r{display:flex;justify-content:space-between;padding:.4rem 0;color:var(--ink-soft);border-bottom:1px solid var(--hair);font-variant-numeric:tabular-nums}
-.doc .tot-box .r span:first-child{font-family:Outfit;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+.doc .tot-box .r span:first-child{font-family:Outfit;font-size:11px;letter-spacing:.01em;color:var(--muted)}
 .doc .tot-box .r span:last-child{font-family:Fraunces,Georgia,serif}
 .doc .tot-box .r.grand{border-bottom:0;border-top:1px solid var(--ink-soft);padding-top:.7rem;margin-top:.2rem;color:var(--ink);font-size:1.15rem}
-.doc .tot-box .r.grand span:first-child{font-family:Marcellus;font-size:1.05rem;letter-spacing:.06em;color:var(--ink);text-transform:uppercase}
+.doc .tot-box .r.grand span:first-child{font-family:Marcellus;font-size:1.05rem;letter-spacing:.01em;color:var(--ink)}
 .doc .tot-box .r.grand span:last-child{font-family:Fraunces,Georgia,serif;color:var(--ink);font-size:1.3rem}
 
 /* Institutional 2-col fine-print band: Terms (wider) | Bank (narrower).
@@ -10099,6 +10101,7 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 .doc .legal h4{font-family:Outfit;font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0 0 .6rem}
 .doc .terms ol{padding-left:1.1rem;margin:0;color:var(--ink-soft);font-size:10.5px;line-height:1.6}
 .doc .terms ol li{margin-bottom:.3rem}
+.doc .bank{background:var(--card);border:1px solid var(--hair);border-radius:6px;padding:1rem 1.15rem}
 .doc .bank table{font-size:10.5px;color:var(--ink-soft);line-height:1.6;border-collapse:collapse}
 .doc .bank table td{padding:0 .6rem .3rem 0;vertical-align:top}
 .doc .bank table td.k{color:var(--muted);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;white-space:nowrap;padding-right:.85rem}
@@ -12107,7 +12110,7 @@ const PAGE_SCRIPT = `<script>
   function renderDoc(){
     const r = compute();
     const isInv = state.doc_type === "invoice";
-    const docLabel = isInv ? "Invoice" : "Quote";
+    const docLabel = isInv ? "Invoice" : "Quotation";
     const clientLbl = isInv ? "Billed to" : "Quote made for";
     $("lblClient").textContent = clientLbl;
     updatePriceGate();
@@ -12212,7 +12215,7 @@ const PAGE_SCRIPT = `<script>
       // Only the website (phone + email are already on the body header with the
       // company name; the footer stays a single line, centred, same font-size
       // as the masthead). Sticks to the bottom of the A4 page via flex column.
-      + '<div class="dfoot">umcdubai.ae</div>';
+      + '<div class="dfoot"><div class="dfoot-txt"><div class="dfl-1">'+esc(COMPANY.legal)+' &middot; Trading as UMC Dubai</div><div class="dfl-2">'+esc(COMPANY.email)+' &middot; '+esc(COMPANY.phone)+' &middot; umcdubai.ae</div></div></div>';
     // v105.2 — renderDoc runs on every document render, including the
     // document-open path (loadDoc -> renderDoc), so reconciling the paid-lock
     // here guarantees it engages even if an open-path call is missed elsewhere.
