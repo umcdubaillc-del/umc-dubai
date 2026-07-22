@@ -3415,13 +3415,16 @@ var PAY_CSS = "@font-face{font-family:'Outfit';font-style:normal;font-weight:300
   "body{font-family:var(--sans);font-weight:300;font-size:16.5px;line-height:1.7;-webkit-font-smoothing:antialiased;color:var(--ink);background:var(--bone);background-image:radial-gradient(ellipse 90% 55% at 50% -8%,#FBF7EE 0%,var(--bone) 55%);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:clamp(1rem,3.5vw,2.6rem) 1rem 3rem}"+
   ".app{width:100%;max-width:520px;animation:rise .6s cubic-bezier(.22,.8,.3,1) both}"+
   "@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}"+
-  // topbar / masthead — .mark & .sub type metrics VERBATIM from the live header
-  // (.mark 1.5rem/.36em, .sub .6rem/.46em, weight 300); horizontal lockup is the v3 arch.
+  // topbar / masthead — the REAL homepage logo treatment (site/index.html .masthead +
+  // site/assets/style.css:48-52): a VERTICAL column lockup — "UMC" over a 34x1px amber
+  // rule over "Dubai" — same .mark/.rule/.sub markup and type metrics as the live header.
+  // (PAY-PAGE v2: replaced the earlier horizontal grey-divider variant.) The topbar keeps
+  // the masthead left and the Payment/Receipt doctype pill right.
   ".topbar{display:flex;align-items:center;justify-content:space-between;padding:.35rem .35rem 1.05rem}"+
-  ".masthead{display:inline-flex;align-items:center;gap:.65rem;text-decoration:none;color:var(--ink)}"+
-  ".masthead .mark{font-family:var(--serif);font-size:1.5rem;letter-spacing:.36em;line-height:1;color:var(--ink)}"+
-  ".masthead .rule{width:1px;height:15px;background:var(--line)}"+
-  ".masthead .sub{font-size:.6rem;letter-spacing:.46em;text-transform:uppercase;color:var(--muted)}"+
+  ".masthead{display:inline-flex;flex-direction:column;align-items:center;gap:.32rem;text-decoration:none;color:var(--ink)}"+
+  ".masthead .mark{font-family:var(--serif);font-size:1.5rem;letter-spacing:.36em;margin-left:.36em;line-height:1;color:var(--ink)}"+
+  ".masthead .rule{width:34px;height:1px;background:var(--amber)}"+
+  ".masthead .sub{font-size:.6rem;letter-spacing:.46em;margin-left:.46em;text-transform:uppercase;color:var(--muted)}"+
   ".doctype{font-size:.58rem;letter-spacing:.24em;text-transform:uppercase;color:var(--amber-deep);font-weight:500;border:1px solid rgba(199,91,18,.35);background:rgba(199,91,18,.06);border-radius:100px;padding:.38rem .8rem .32rem}"+
   ".group-lbl{font-size:.6rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:1.15rem .9rem .45rem}"+
   ".card{background:var(--card);border:1px solid var(--hair);border-radius:18px;box-shadow:0 1px 2px rgba(34,27,20,.03),0 10px 30px -14px rgba(34,27,20,.10);overflow:hidden}"+
@@ -3686,8 +3689,11 @@ export async function handlePayPage(env, token){
   var ogTitle = isPaid ? "Receipt — UMC Dubai" : "Payment Request — UMC Dubai";
 
   return payResponse(payPageHtml({
+    // PAY-PAGE v2 (D2) — the HERO is the item/service name ONLY: the first line of the
+    // description. The vehicle·date sub-line stays where it belongs — the journey card and
+    // the summary line item (which still carry the full stored description) — never the hero.
     doctype: isPaid?"Receipt":"Payment", payRef: payRef, invoiceNumber: isInvoice?invoiceNumber:"", dateStr: dateStr,
-    clientName: clientName, hero: hero, note: note, journey: journey,
+    clientName: clientName, hero: String(hero||"").split("\n")[0].trim(), note: note, journey: journey,
     cur: cur, isAED: isAED, items: items, subtotal: subtotal, vat: vat, gross: gross, discount: discountAmt,
     isInvoice: isInvoice, paid: paid, nomodUrl: link.nomod_link_url || "https://umcdubai.ae", pdfUrl: pdfUrl, taxPrefill: taxPrefill,
     expiryStr: expiryStr, pageTitle: pageTitle, ogTitle: ogTitle
@@ -9818,7 +9824,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-stamppreview";
+const ADMIN_BUILD = "20260722-paypagev2";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
