@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-b3fix1";
+const ADMIN_BUILD = "20260722-b3fix2";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -11260,8 +11260,8 @@ function appShellHTML() {
       <div class="hist-search hist-ctrl">
         <label class="lbl" for="histSearch">Search</label>
         <input id="histSearch" type="search" placeholder="Number, client, company …" autocomplete="off">
-        <label class="hist-voided-toggle" style="display:inline-flex;align-items:center;gap:.45rem;font-size:.82rem;color:var(--muted);white-space:nowrap;margin-top:.5rem">
-          <input id="histShowVoided" type="checkbox" style="margin:0"> Show voided
+        <label class="hist-voided-toggle" style="display:inline-flex;align-items:center;gap:.45rem;font-size:.82rem;color:var(--muted);white-space:nowrap;margin-top:.5rem;align-self:flex-start;width:max-content;max-width:100%">
+          <input id="histShowVoided" type="checkbox" style="margin:0;flex:0 0 auto"> Show voided
         </label>
       </div>
       <div class="hist-tsrow">
