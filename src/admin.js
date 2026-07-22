@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-createbtn";
+const ADMIN_BUILD = "20260722-voidfix";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -18335,6 +18335,35 @@ const PAGE_SCRIPT = `<script>
     if (dis) b.disabled = true;
     if (orig.classList.contains('btn-danger') || /delete|exclude/i.test(label)) b.className += ' doc-sheet-danger';
     var isCopy = /copy/i.test(label);
+    // UI-5 — Void / Mark-test on mobile: run the action DIRECTLY from this real tap
+    // (iOS swallows confirm() when it comes from a proxied orig.click()), then give
+    // quote-Save-style feedback: label → "Voided"/"Marked", disabled, no second
+    // press. loadHistory() refreshes the list so the row reflects it.
+    var voidId = orig.getAttribute && orig.getAttribute('data-void');
+    var testId = orig.getAttribute && orig.getAttribute('data-marktest');
+    if (voidId || testId){
+      b.addEventListener('click', function(){
+        if (b.disabled) return;
+        if (voidId){
+          var num = orig.getAttribute('data-num') || '';
+          if (!confirm('Void invoice ' + num + '? The number stays on record (never reused); the invoice is marked cancelled and dropped from Sales.')) return;
+          b.disabled = true; b.textContent = 'Voiding…';
+          fetch('/admin/api/billing/' + voidId + '/void', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' })
+            .then(function(r){ return r.json(); })
+            .then(function(j){ if (j && j.ok){ b.textContent = 'Voided'; b.classList.add('doc-sheet-ok'); if (typeof loadHistory === 'function') loadHistory(); if (typeof loadLeads === 'function') loadLeads(); } else { b.disabled = false; b.textContent = 'Void'; setStatus('Void failed: ' + ((j && j.error) || '')); } })
+            .catch(function(e){ b.disabled = false; b.textContent = 'Void'; setStatus('Void failed: ' + (e.message || e)); });
+        } else {
+          var next = orig.getAttribute('data-istest') === '1' ? 0 : 1;
+          b.disabled = true; b.textContent = next ? 'Marking…' : 'Unmarking…';
+          fetch('/admin/api/billing/' + testId + '/test', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ is_test: next }) })
+            .then(function(r){ return r.json(); })
+            .then(function(j){ if (j && j.ok){ b.textContent = next ? 'Marked' : 'Unmarked'; b.classList.add('doc-sheet-ok'); if (typeof loadHistory === 'function') loadHistory(); } else { b.disabled = false; b.textContent = next ? 'Mark test' : 'Test ✓'; setStatus('Update failed: ' + ((j && j.error) || '')); } })
+            .catch(function(e){ b.disabled = false; setStatus('Update failed: ' + (e.message || e)); });
+        }
+      });
+      (container || sheetEl).appendChild(b);
+      return;
+    }
     b.addEventListener('click', function(){
       if (b.disabled) return;
       var row = currentRow;
