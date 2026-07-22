@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-b3fix4";
+const ADMIN_BUILD = "20260722-b3sub";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -10644,6 +10644,18 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #docSheetBackdrop.on{ opacity:1; pointer-events:auto; }
   #docSheet{ position:fixed; left:0; right:0; bottom:0; z-index:2001; transform:translateY(100%); transition:transform .3s cubic-bezier(.32,.72,0,1); background:var(--card); border-radius:20px 20px 0 0; box-shadow:0 -12px 44px rgba(0,0,0,.28); padding:.5rem 1.1rem 1.6rem; max-height:86vh; overflow-y:auto; display:flex; flex-direction:column; gap:.55rem; }
   #docSheet.on{ transform:translateY(0); }
+  /* UI-4 — stacked sub-sheet (Contact / Quote / Documents push over the main sheet) */
+  #docSubBackdrop{ position:fixed; inset:0; background:rgba(20,15,10,.32); opacity:0; pointer-events:none; transition:opacity .25s; z-index:2002; }
+  #docSubBackdrop.on{ opacity:1; pointer-events:auto; }
+  #docSubSheet{ position:fixed; left:0; right:0; bottom:0; z-index:2003; transform:translateY(100%); transition:transform .32s cubic-bezier(.32,.72,0,1); background:var(--card); border-radius:20px 20px 0 0; box-shadow:0 -12px 44px rgba(0,0,0,.30); padding:.5rem 1.1rem calc(1.6rem + env(safe-area-inset-bottom)); max-height:88vh; overflow-y:auto; -webkit-overflow-scrolling:touch; display:flex; flex-direction:column; gap:.55rem; }
+  #docSubSheet.on{ transform:translateY(0); }
+  #docSubSheet .sub-content, #docSubSheet .lead-subgroup{ display:flex; flex-direction:column; gap:.55rem; }
+  .sub-head{ display:flex; align-items:center; gap:.5rem; margin:.1rem 0 .35rem; }
+  .sub-back{ display:inline-flex; align-items:center; gap:.25rem; background:transparent; border:0; color:var(--ink); font-family:inherit; font-size:1rem; cursor:pointer; padding:.35rem .1rem; }
+  .sub-back span{ font-size:1.3em; line-height:1; }
+  .sub-title{ font-family:'Marcellus',serif; font-size:1.2rem; color:var(--ink); }
+  .doc-sheet-navrow{ display:flex; align-items:center; justify-content:space-between; text-align:left; }
+  .doc-sheet-navrow .nav-chev{ color:var(--muted); font-size:1.25em; line-height:1; margin-left:.6rem; }
   .doc-sheet-action{ width:100%; text-align:center; padding:.95rem 1rem; border-radius:12px; border:1px solid var(--hair); background:var(--bone); color:var(--ink); font-family:inherit; font-size:1rem; cursor:pointer; }
   /* Buttons inside the Contact/Quote/Documents disclosures get the SAME vertical
      rhythm as the sheet's own buttons (#docSheet gap:.55rem). */
@@ -10663,7 +10675,7 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   @keyframes docSheetUp{ from{ transform:translateY(100%); } to{ transform:translateY(0); } }
   #tab-documents tr.expandable.open + tr.hist-actions-row .hist-actions-panel .hist-btn,
   #tab-documents tr.expandable.open + tr.hist-actions-row .hist-actions-panel button{ width:100% !important; justify-content:center; padding:.85rem 1rem !important; margin:0 !important; }
-  .doc-sheet-grab{ width:40px; height:4px; border-radius:2px; background:var(--hair); margin:.4rem auto 1rem; }
+  .doc-sheet-grab{ width:40px; height:5px; border-radius:3px; background:var(--line); margin:.4rem auto 1rem; }
   .doc-sheet-row1{ display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; }
   .doc-sheet-num{ font-family:'Marcellus',serif; font-size:1.35rem; color:var(--ink); line-height:1.1; }
   .doc-sheet-client{ color:var(--muted); margin-top:.15rem; font-size:.95rem; }
@@ -18225,7 +18237,7 @@ const PAGE_SCRIPT = `<script>
   };
   var TABS = ['tab-documents','tab-leads','tab-links','tab-fleet'];
   function mq(){ return window.matchMedia('(max-width: 620px)').matches; }
-  var sheetEl = null, backdropEl = null, currentRow = null;
+  var sheetEl = null, backdropEl = null, currentRow = null, subSheetEl = null, subBackdropEl = null;
   function shtEsc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function cell(row, lbl){ return row.querySelector('td[data-lbl="' + lbl + '"]'); }
   function cellText(row, lbl){ var c = cell(row, lbl); return c ? c.textContent.trim() : ''; }
@@ -18253,6 +18265,33 @@ const PAGE_SCRIPT = `<script>
     if (!backdropEl.__wired){ backdropEl.addEventListener('click', dismiss); backdropEl.__wired = true; }
     sheetEl = document.getElementById('docSheet');
     if (!sheetEl){ sheetEl = document.createElement('div'); sheetEl.id = 'docSheet'; document.body.appendChild(sheetEl); }
+    // UI-4 — second (stacked) sheet: Contact/Quote/Documents push a sub-sheet that
+    // slides up over the main one (same translateY mechanics), Back/backdrop returns.
+    subBackdropEl = document.getElementById('docSubBackdrop');
+    if (!subBackdropEl){ subBackdropEl = document.createElement('div'); subBackdropEl.id = 'docSubBackdrop'; document.body.appendChild(subBackdropEl); }
+    if (!subBackdropEl.__wired){ subBackdropEl.addEventListener('click', closeSub); subBackdropEl.__wired = true; }
+    subSheetEl = document.getElementById('docSubSheet');
+    if (!subSheetEl){
+      subSheetEl = document.createElement('div'); subSheetEl.id = 'docSubSheet';
+      subSheetEl.innerHTML = '<div class="doc-sheet-grab"></div>'
+        + '<div class="sub-head"><button type="button" class="sub-back" id="docSubBack"><span aria-hidden="true">&#8249;</span> Back</button><span class="sub-title" id="docSubTitle"></span></div>'
+        + '<div class="sub-content" id="docSubContent"></div>';
+      document.body.appendChild(subSheetEl);
+      subSheetEl.querySelector('#docSubBack').addEventListener('click', closeSub);
+    }
+  }
+  function openSub(title, bodyEl){
+    var content = document.getElementById('docSubContent');
+    Array.prototype.forEach.call(content.children, function(c){ c.hidden = true; });
+    bodyEl.hidden = false;
+    document.getElementById('docSubTitle').textContent = title;
+    subSheetEl.scrollTop = 0;
+    subBackdropEl.classList.add('on');
+    subSheetEl.classList.add('on');
+  }
+  function closeSub(){
+    if (subBackdropEl) subBackdropEl.classList.remove('on');
+    if (subSheetEl) subSheetEl.classList.remove('on');
   }
   function bindAction(orig, quiet, container){
     var label = orig.textContent.trim();
@@ -18297,6 +18336,18 @@ const PAGE_SCRIPT = `<script>
     });
     wrap.appendChild(head); wrap.appendChild(body);
     return { wrap: wrap, body: body };
+  }
+  // UI-4 — a group as a stacked sub-sheet: a large nav row on the main sheet that
+  // pushes a sub-sheet holding this group's buttons (replaces the inline accordion).
+  function sheetGroup(title){
+    var navRow = document.createElement('button');
+    navRow.type = 'button';
+    navRow.className = 'doc-sheet-action doc-sheet-navrow';
+    navRow.innerHTML = '<span>' + title + '</span><span class="nav-chev" aria-hidden="true">&#8250;</span>';
+    var body = document.createElement('div');
+    body.className = 'lead-subgroup';
+    body.hidden = true;
+    return { navRow: navRow, body: body, title: title };
   }
   function buildSheet(row, cfg){
     var drawer = row.nextElementSibling;
@@ -18362,7 +18413,7 @@ const PAGE_SCRIPT = `<script>
         var te = d.querySelector('.lead-disc__title');
         var did = hb ? (hb.getAttribute('data-disc') || '') : '';
         var key = /disc-contact-/.test(did) ? 'contact' : (/disc-quote-/.test(did) ? 'quote' : (/disc-docs-/.test(did) ? 'docs' : 'g' + _gWraps.length));
-        var g = sheetDisc(te ? te.textContent : 'More');
+        var g = sheetGroup(te ? te.textContent : 'More');
         _gBody[key] = g.body; g.__disc = d; _gWraps.push(g);
       });
     }
@@ -18467,7 +18518,16 @@ const PAGE_SCRIPT = `<script>
       _gWraps.forEach(function(g){
         Array.prototype.forEach.call(g.__disc.querySelectorAll('.lead-disc__body button, .lead-disc__body a.hist-btn, .lead-disc__body .hist-btn'), function(b){ forwardBtn(b, g.body); });
       });
-      _gWraps.forEach(function(g){ sheetEl.appendChild(g.wrap); });
+      // Mount each non-empty group as a nav row on the main sheet + its body in the
+      // sub-sheet; tapping the row pushes the sub-sheet with that group's actions.
+      var _subContent = document.getElementById('docSubContent');
+      if (_subContent) _subContent.innerHTML = '';
+      _gWraps.forEach(function(g){
+        if (!g.body.children.length) return;
+        sheetEl.appendChild(g.navRow);
+        if (_subContent) _subContent.appendChild(g.body);
+        g.navRow.addEventListener('click', function(){ openSub(g.title, g.body); });
+      });
       // Row-level actions (e.g. delete) live outside the disclosures — keep them
       // top-level, as they sit outside the .lead-disc groups on desktop too.
       if (cfg.inline){ Array.prototype.forEach.call(row.querySelectorAll('button, a.hist-btn, .hist-btn'), function(b){ forwardBtn(b, sheetEl); }); }
@@ -18509,6 +18569,8 @@ const PAGE_SCRIPT = `<script>
     sheetEl.classList.add('on');
   }
   function hide(){
+    closeSub();
+    var _sc = document.getElementById('docSubContent'); if (_sc) _sc.innerHTML = '';
     if (backdropEl) backdropEl.classList.remove('on');
     if (sheetEl) sheetEl.classList.remove('on');
     if (sheetEl) sheetEl.innerHTML = '';
