@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-preview";
+const ADMIN_BUILD = "20260722-linedesc";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -16822,14 +16822,12 @@ const PAGE_SCRIPT = `<script>
   function composeServiceDescription(x){
     const head = leadNz(x.service) || leadServiceLabel(x);
     const lines = head ? [head] : [];
-    const route = [leadNz(x.pickup), leadNz(x.destination)].filter(Boolean).join(" to ");
-    if(route) lines.push(route);
+    // Institutional: name the SERVICE, then one quiet sub-line = vehicle · date.
+    // Route / flight / welcome sign / full address chain are operational — they
+    // live in the pay-page journey card + the backend, never on the billing doc.
     const when = [leadNz(x.date), leadNz(x.time)].filter(Boolean).join(" at ");
-    if(when) lines.push(when);
-    if(leadNz(x.vehicle)) lines.push("Vehicle: " + leadNz(x.vehicle));
-    if(leadNz(x.days))    lines.push("At disposal: " + leadNz(x.days) + (Number(x.days) === 1 ? " day" : " days"));
-    if(leadNz(x.flight))  lines.push("Flight: " + leadNz(x.flight));
-    if(leadNz(x.sign))    lines.push("Welcome sign: " + leadNz(x.sign));
+    const sub = [leadNz(x.vehicle), when].filter(Boolean).join(" · ");
+    if(sub) lines.push(sub);
     return lines.join("\\n");
   }
   function buildLeadMessage(x, quoteStr){
