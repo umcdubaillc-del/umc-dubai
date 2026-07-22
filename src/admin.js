@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-savegate";
+const ADMIN_BUILD = "20260722-stamppreview";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -10027,9 +10027,12 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 /* Espresso footer band — classical letterhead silhouette: clean top edge,
    branded foot (v44f — top masthead band removed; legal name + TRN now live
    in the body header next to the lockup). */
-.doc .dfoot{background:var(--bone);color:var(--muted);padding:1.1rem 2.4rem 1.4rem;font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.05em;border-top:1px solid var(--hair);flex-shrink:0}
+.doc .dfoot{background:var(--bone);color:var(--muted);padding:1.1rem 2.4rem 1.4rem;font-family:Outfit,sans-serif;font-size:9.5px;letter-spacing:.05em;border-top:1px solid var(--hair);flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.doc .dfoot .dfoot-txt{min-width:0}
 .doc .dfoot .dfl-1{color:var(--ink-soft);font-weight:500;margin-bottom:.22rem}
 .doc .dfoot .dfl-2{color:var(--muted)}
+/* Item 3 — preview stamp seal: mirrors the 58px-square footer-right stamp the PDF embeds (src/pdf.js drawBrandFooter). Vertically centred in the footer, right edge at the 2.4rem gutter = same as the PDF's 38.4px margin. */
+.doc .dfoot .dfoot-stamp{width:58px;height:58px;flex-shrink:0;object-fit:contain;display:block}
 
 /* Body fills available vertical space — pushes footer to the bottom edge. */
 .doc .dbody{padding:2.6rem 2.4rem 2rem;flex:1 1 auto;display:flex;flex-direction:column}
@@ -12234,7 +12237,12 @@ const PAGE_SCRIPT = `<script>
       // Only the website (phone + email are already on the body header with the
       // company name; the footer stays a single line, centred, same font-size
       // as the masthead). Sticks to the bottom of the A4 page via flex column.
-      + '<div class="dfoot"><div class="dfoot-txt"><div class="dfl-1">'+esc(COMPANY.legal)+' &middot; Trading as UMC Dubai</div><div class="dfl-2">'+esc(COMPANY.email)+' &middot; '+esc(COMPANY.phone)+' &middot; umcdubai.ae</div></div></div>';
+      // Item 3 — preview stamp seal. The generated PDF (src/pdf.js drawBrandFooter)
+      // embeds a 58px-square transparent stamp at the footer's right edge; the
+      // HTML preview now mirrors it via a hosted <img> (served from /assets, NOT
+      // the 147KB inline b64) so what the operator sees matches the PDF. Preview
+      // only — onPrint downloads the server PDF, which is untouched.
+      + '<div class="dfoot"><div class="dfoot-txt"><div class="dfl-1">'+esc(COMPANY.legal)+' &middot; Trading as UMC Dubai</div><div class="dfl-2">'+esc(COMPANY.email)+' &middot; '+esc(COMPANY.phone)+' &middot; umcdubai.ae</div></div><img class="dfoot-stamp" src="/assets/umc-stamp.png" alt="" aria-hidden="true" width="58" height="58"></div>';
     // v105.2 — renderDoc runs on every document render, including the
     // document-open path (loadDoc -> renderDoc), so reconciling the paid-lock
     // here guarantees it engages even if an open-path call is missed elsewhere.
