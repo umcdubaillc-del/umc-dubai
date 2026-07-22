@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-voidfix";
+const ADMIN_BUILD = "20260722-savegate";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -11906,6 +11906,12 @@ const PAGE_SCRIPT = `<script>
     // loaded document. Populated by loadDoc on open; null for new documents.
     // onSave reads it: present -> server UPDATE in place; null -> server INSERT.
     id: null,
+    // Item 2 — dirty gating. On an EXISTING doc (id set) Save stays disabled
+    // until the operator actually changes something. false on load + after a
+    // successful save; flipped true by any real editor input (see bindForm's
+    // #editorHost delegated listener). Irrelevant for new docs (id null), which
+    // gate on price alone.
+    dirty: false,
     doc_type: "quote",
     number: "",
     doc_date: umcTodayDubai(),
@@ -12052,10 +12058,12 @@ const PAGE_SCRIPT = `<script>
       const i = Number(b.dataset.del);
       state.line_items.splice(i, 1);
       if(state.line_items.length === 0) state.line_items.push({ description:"", qty:1, rate:0 });
+      markDirty();  // Item 2 — removing a line is an edit
       renderLineRows(); renderTotals(); renderDoc();
     });
     $("ltAdd").addEventListener("click", function(){
       state.line_items.push({ description:"", qty:1, rate:0 });
+      markDirty();  // Item 2 — adding a line is an edit
       renderLineRows(); renderTotals(); renderDoc();
     });
   }
@@ -12105,10 +12113,19 @@ const PAGE_SCRIPT = `<script>
     const hasPositiveRate = state.line_items.some(function(li){ return Number(li && li.rate) > 0; });
     // "Create" while the document is new (no id yet); "Save" once it exists and is
     // reopened to edit. state.id is set on save + on loadDoc, cleared on a new doc.
-    if(btn){ btn.textContent = state.id ? "Save" : "Create"; btn.disabled = !hasPositiveRate; }
+    // Item 2 — an existing doc's Save also stays disabled until it is dirty, so a
+    // re-opened doc can't be re-saved (and re-numbered/audited) with no change.
+    // New docs (id null) ignore dirty and gate on price alone.
+    if(btn){ btn.textContent = state.id ? "Save" : "Create"; btn.disabled = !hasPositiveRate || (!!state.id && !state.dirty); }
     if(hint) hint.hidden = hasPositiveRate;
     if(typeof updateLeadRevertButton === "function") updateLeadRevertButton();
   }
+  // Item 2 — flip the doc to dirty on the first real edit and refresh the Save
+  // gate. Defined at editor scope so BOTH the #editorHost field listener
+  // (bindForm) and the line-item add/delete click handlers (bindLineRows) can
+  // reach it — deleting or adding a line is an edit too, and must not leave an
+  // existing doc's Save stuck-disabled.
+  function markDirty(){ if(!state.dirty){ state.dirty = true; updatePriceGate(); } }
   function renderDoc(){
     const r = compute();
     const isInv = state.doc_type === "invoice";
@@ -12261,6 +12278,21 @@ const PAGE_SCRIPT = `<script>
     const fIN = $("fInternalNotes");
     if(fIN){
       fIN.addEventListener("input", function(e){ state.internal_notes = e.target.value; });
+    }
+
+    // Item 2 — dirty gating. One delegated listener on the moveable #editorHost
+    // catches every editor edit (client + meta fields AND the #ltBody line-item
+    // inputs) via bubbling, in BOTH the Create-tab home and the modal slot: the
+    // whole host node — with this listener — is physically moved between them
+    // (v59), so the binding survives the move. Only genuine user input fires
+    // "input"/"change" here; programmatic value-sets on load do not (flatpickr's
+    // setDate uses the no-fire flag, see bindThemedPicker), so opening a doc
+    // never false-marks it dirty. First real edit flips dirty and re-runs the
+    // price gate so Save enables. (markDirty is defined at editor scope, above.)
+    const edHost = $("editorHost");
+    if(edHost){
+      edHost.addEventListener("input", markDirty);
+      edHost.addEventListener("change", markDirty);
     }
 
     // v98: Save and Print are separate buttons; the legacy "New" button is
@@ -12887,6 +12919,7 @@ const PAGE_SCRIPT = `<script>
           if(!j2.ok){ setStatus("Save failed: " + (j2.error || res2.status)); return; }
           if(j2.id != null) state.id = j2.id;
           if(j2.number) state.number = j2.number;
+          state.dirty = false;  // Item 2 — saved-clean after the forced re-save
           state.create_nonce = null;
           setStatus("Saved " + (j2.number || state.number) + " — now Regenerate the payment link to re-sync the amount.");
           loadHistory();
@@ -12903,6 +12936,9 @@ const PAGE_SCRIPT = `<script>
       // UPDATEs this same row instead of creating a duplicate. On INSERT the
       // server returns the new id; on UPDATE it returns the same id back.
       if (j && j.id != null) state.id = j.id;
+      // Item 2 — the just-saved doc is now clean; disable Save again until the
+      // next real edit (also covers the case where the editor stays open).
+      state.dirty = false;
       // DF-3 — reflect the number actually used (server may bump on a numbering
       // race) and drop the nonce so the next fresh document gets a new one.
       if (j && j.number) state.number = j.number;
@@ -12961,6 +12997,7 @@ const PAGE_SCRIPT = `<script>
     // v99: New starts a genuinely fresh document; clear the id so the next
     // save INSERTs with a new number rather than overwriting the prior row.
     state.id = null;
+    state.dirty = false;  // Item 2 — fresh doc: no pending edits (new docs gate on price anyway)
     state.create_nonce = null;  // DF-3 — fresh doc: force a new idempotency nonce
     state.client = { name:"", company:"", address:"", email:"", phone:"" };
     state.line_items = [{ description:"", qty:1, rate:0 }];
@@ -18103,6 +18140,11 @@ const PAGE_SCRIPT = `<script>
       $("fDiscount").value = state.discount || "";
       $("fNotes").value = state.notes;
       if($("fInternalNotes")) $("fInternalNotes").value = state.internal_notes || "";
+      // Item 2 — a freshly-opened existing doc is clean; Save stays disabled
+      // until the operator changes something. renderDoc -> updatePriceGate reads
+      // this to keep Save off. (Set after all fields are populated so nothing
+      // above can be misread as an edit.)
+      state.dirty = false;
       renderLineRows(); renderTotals(); renderDoc();
       // v59: open the editor in a modal OVERLAY on the Documents tab — the
       // user does NOT leave Documents. Reverses the v58 tab-switch behaviour
