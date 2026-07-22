@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-concierge";
+const ADMIN_BUILD = "20260722-createbtn";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -12103,7 +12103,9 @@ const PAGE_SCRIPT = `<script>
     const btn = $("btnSave");
     const hint = $("priceGateHint");
     const hasPositiveRate = state.line_items.some(function(li){ return Number(li && li.rate) > 0; });
-    if(btn) btn.disabled = !hasPositiveRate;
+    // "Create" while the document is new (no id yet); "Save" once it exists and is
+    // reopened to edit. state.id is set on save + on loadDoc, cleared on a new doc.
+    if(btn){ btn.textContent = state.id ? "Save" : "Create"; btn.disabled = !hasPositiveRate; }
     if(hint) hint.hidden = hasPositiveRate;
     if(typeof updateLeadRevertButton === "function") updateLeadRevertButton();
   }
