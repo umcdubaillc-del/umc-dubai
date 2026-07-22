@@ -1558,6 +1558,13 @@ export async function runIntegritySweep(env){
   findings.invoice_multiple_live_links = await ids(
     "SELECT invoice_number AS id FROM payment_links WHERE invoice_number IS NOT NULL AND invoice_number <> '' AND archived_at IS NULL " +
     "GROUP BY invoice_number HAVING COUNT(*) > 1 LIMIT 100");
+  // Bug 2c — an invoice that HAS a Nomod link (billing_documents.nomod_link_url) but NO
+  // payment_links row: the dropped fail-open dual-write. The Links-tab reconcile now
+  // DISPLAYS these, but the sweep must still COUNT them so the masked symptom is never
+  // forgotten — a persistent non-zero count means the dual-write is genuinely failing.
+  findings.invoice_link_not_indexed = await ids(
+    "SELECT b.id FROM billing_documents b WHERE b.nomod_link_url IS NOT NULL AND b.nomod_link_url <> '' " +
+    "AND NOT EXISTS (SELECT 1 FROM payment_links p WHERE p.invoice_number = b.number) LIMIT 100");
   const summary = {};
   let total = 0;
   for (const k of Object.keys(findings)) { const v = findings[k]; const n = Array.isArray(v) ? v.length : 0; summary[k] = n; total += n; }
@@ -1885,6 +1892,7 @@ async function handlePaymentLink(id, env, opts, override) {
   // Title prefers the invoice's client_name (the relational identity); falls
   // back to the invoice number so the row is never anonymous. Fail-open: a
   // persistence error must not undo the link creation.
+  let dualWriteWarning = null;
   try {
     // DF-8 — persist the ACTUAL minted NET (an override mints at ovAmt, not the
     // full invoice net) and flag a below-balance override partial, so the link row
@@ -1897,10 +1905,14 @@ async function handlePaymentLink(id, env, opts, override) {
     // refreshing nomod_link_id/url and keeping the SAME pay_token — instead of duplicating.
     if (existLink && existLink.id) {
       await env.BILLING_DB.prepare(
+        // BUG-FIX (link hidden + /pay 410): a (re)generated link is LIVE, so clear
+        // any archived_at on the reused row. Without this, regenerating a link whose
+        // prior row was archived left it archived → hidden from the Links tab AND the
+        // /pay page returned 410 "no longer active" even though a fresh URL was minted.
         `UPDATE payment_links
          SET title = ?, amount = ?, currency = ?, note = ?,
              nomod_link_id = ?, nomod_link_url = ?, client_name = ?, invoice_number = ?,
-             is_partial = ?, origin = 'workspace', pay_token = COALESCE(pay_token, ?)
+             is_partial = ?, origin = 'workspace', archived_at = NULL, pay_token = COALESCE(pay_token, ?)
          WHERE id = ?`
       ).bind(
         linkTitle.slice(0, 120), persistedNet, payload.currency, linkNote,
@@ -1920,7 +1932,12 @@ async function handlePaymentLink(id, env, opts, override) {
       ).run();
     }
   } catch (e) {
-    console.error("payment_links dual-write failed", e && (e.message || String(e)));
+    // BUG-FIX (Bug 2a): this write is fail-open (a persistence error must not undo
+    // the Nomod link), but it must NOT be silent — a swallowed error here is exactly
+    // how a "Link generated" invoice ends up with no Links-tab row. Surface it so the
+    // caller (and the operator) sees the link was created but not indexed.
+    dualWriteWarning = "Link created but not indexed in the Links tab: " + ((e && (e.message || String(e))) || "unknown error");
+    console.error("payment_links dual-write failed", dualWriteWarning);
   }
   return json({
     ok: true,
@@ -1929,6 +1946,7 @@ async function handlePaymentLink(id, env, opts, override) {
     created_at: createdAt,
     regenerated: !!opts.regenerate,
     partial: overridePartial,   // DF-8 — below-balance override; not a full settlement
+    ...(dualWriteWarning ? { warning: dualWriteWarning } : {}),
   });
 }
 
@@ -2077,7 +2095,39 @@ async function handleListLinks(request, env) {
             expiry_date, archived_at, viewed_at, COALESCE(view_count,0) AS view_count, items_json
      FROM payment_links ${where} ORDER BY created_at DESC LIMIT 500`
   ).all();
-  return json({ ok: true, items: results || [] });
+  const items = results || [];
+  // Bug 2b — RECONCILE: surface invoice-born links that exist on the invoice
+  // (billing_documents.nomod_link_url) but have NO payment_links row — the visible
+  // symptom of a dropped fail-open dual-write. Synthesized read-only display rows
+  // (reconciled:true), attached to their invoice, so a generated link can NEVER be
+  // silently missing from this tab. This MASKS the symptom; the nightly integrity
+  // sweep still COUNTS these misses (see runIntegritySweep) so it's never forgotten.
+  try {
+    const orphans = (await env.BILLING_DB.prepare(
+      `SELECT b.id AS doc_id, b.number AS invoice_number, b.client_name, b.client_email,
+              b.client_phone, b.total, b.currency, b.nomod_link_id, b.nomod_link_url,
+              b.nomod_link_created_at, COALESCE(b.payment_status,'unpaid') AS payment_status, b.paid_at
+         FROM billing_documents b
+        WHERE b.nomod_link_url IS NOT NULL AND b.nomod_link_url <> ''
+          AND NOT EXISTS (SELECT 1 FROM payment_links p WHERE p.invoice_number = b.number)
+        ORDER BY b.id DESC LIMIT 200`
+    ).all()).results || [];
+    for (const o of orphans) {
+      items.push({
+        id: "recon-" + o.doc_id, reconciled: true,
+        title: o.client_name || o.invoice_number, client_name: o.client_name || null,
+        client_email: o.client_email || null, client_phone: o.client_phone || null,
+        amount: (Number(o.total) || 0) / 1.05, amount_aed: Number(o.total) || 0,
+        currency: o.currency || "AED", note: null,
+        nomod_link_id: o.nomod_link_id || null, nomod_link_url: o.nomod_link_url,
+        nomod_charge_id: null, excluded: 0, created_at: o.nomod_link_created_at || null,
+        invoice_number: o.invoice_number, origin: "invoice",
+        payment_status: o.payment_status, paid_at: o.paid_at || null, pay_token: null,
+        expiry_date: null, archived_at: null, viewed_at: null, view_count: 0, items_json: null,
+      });
+    }
+  } catch (e) { console.error("links reconcile failed", e && (e.message || String(e))); }
+  return json({ ok: true, items });
 }
 // W3 — soft-archive / restore a payment link (never DELETE; a Nomod-synced charge is revenue).
 async function handleArchiveLink(id, request, env) {
@@ -9824,7 +9874,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-paypagev2";
+const ADMIN_BUILD = "20260722-linkfix";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -12572,13 +12622,24 @@ const PAGE_SCRIPT = `<script>
           // spot-check the synced contact details at a glance.
           const contactLine = [x.client_phone, x.client_email].filter(function(s){ return s && String(s).trim(); }).map(function(s){ return esc(String(s).trim()); }).join(' · ');
           // F1 — the payment link's own display reference. W4 — server-side view telemetry.
-          const plRef = "UMC-PL-" + String(x.id).padStart(4, "0");
+          // Bug 2b — reconciled rows have no real payment_links id/pay_token; show a
+          // "pending index" ref (not a fake UMC-PL-####) so they're honestly flagged.
+          const plRef = x.reconciled
+            ? '↺ pending index'
+            : ("UMC-PL-" + String(x.id).padStart(4, "0"));
           const viewsBit = Number(x.view_count) > 0
             ? (' · viewed ' + Number(x.view_count) + '×' + (x.viewed_at ? ' · last ' + esc(lkAgo(x.viewed_at)) : ''))
             : '';
           const archBit = x.archived_at ? ' · <span style="color:var(--amber-deep)">Archived</span>' : '';
           const metaLine = '<div class="hist-link" style="color:var(--muted);font-size:11px;letter-spacing:.02em">'+plRef+viewsBit+archBit+'</div>';
+          // Bug 2b — reconciled links exist on the invoice but were never indexed into
+          // payment_links (dropped dual-write). Flag them so the operator can heal via
+          // regenerate (which now upserts + un-archives the row).
+          const reconWarn = x.reconciled
+            ? '<div class="hist-link" style="color:var(--amber-deep);font-size:11px">⚠ Not indexed in Links — regenerate the link on '+esc(String(x.invoice_number||"the invoice"))+' to fix.</div>'
+            : '';
           const subline = metaLine
+            + reconWarn
             + (x.note ? '<div class="hist-link" style="color:var(--muted)">'+esc(x.note)+'</div>' : '')
             + (contactLine ? '<div class="hist-link" style="color:var(--muted);font-size:11px">'+contactLine+'</div>' : '');
           const statusPill = isPaid
@@ -17980,6 +18041,9 @@ const PAGE_SCRIPT = `<script>
       const j = await r.json();
       if(!j.ok){ setStatus("Convert failed: " + (j.error || r.status)); return; }
       setStatus("Created invoice " + j.number + " from " + num + ". Loading it …");
+      // Bug 1 — a plain status line was easy to miss (and the new invoice mirrors the
+      // quote), so a conversion could feel like nothing happened. Confirm it loudly.
+      if(typeof showToast === "function") showToast("Quote " + num + " converted → invoice " + j.number + " ✓");
       await loadHistory();
       await loadDoc(j.id);
     } catch(e){ setStatus("Convert failed: " + (e.message || e)); }
@@ -18029,6 +18093,10 @@ const PAGE_SCRIPT = `<script>
           if(!j.ok){ ctx.setStatus("Payment link failed: " + (j.error || r.status)); ctx.setBusy(false); return; }
           ctx.close();
           setStatus("Payment link ready for " + inv.number + (j.reused ? " (existing link reused)" : "") + ".");
+          // Bug 2a — the server dual-write into payment_links is fail-open; if it
+          // failed, the link works but won't appear in the Links tab. Surface it
+          // instead of leaving the operator to discover a missing row.
+          if(j.warning && typeof showToast === "function") showToast(j.warning, true);
           await loadHistory();
           if(typeof loadLinks === "function") loadLinks();
           const ok = await copyToClipboard(paymentLinkMessage(j.url));
@@ -18080,10 +18148,12 @@ const PAGE_SCRIPT = `<script>
       var cr = await fetch("/admin/api/billing/" + row.id + "/convert", { method:"POST", headers:{"Content-Type":"application/json"}, body:"{}" });
       var cj = await cr.json();
       if(!cj.ok){
-        if(cj.invoice_id){ setStatus("Quote " + num + " already converted to " + cj.invoice_number + "."); switchTab("documents"); if(typeof loadDoc==="function") loadDoc(cj.invoice_id); return true; }
+        if(cj.invoice_id){ setStatus("Quote " + num + " already converted to " + cj.invoice_number + "."); if(typeof showToast === "function") showToast("Quote " + num + " was already converted → invoice " + cj.invoice_number); switchTab("documents"); if(typeof loadDoc==="function") loadDoc(cj.invoice_id); return true; }
         setStatus("Convert failed: " + (cj.error || cr.status)); return false;
       }
       setStatus("Issued invoice " + cj.number + " from quote " + num + ".");
+      // Bug 1 — loud confirmation (the status line alone was easy to miss).
+      if(typeof showToast === "function") showToast("Quote " + num + " converted → invoice " + cj.number + " ✓");
       loadHistory(); if(typeof loadLeads === "function") loadLeads();
       switchTab("documents"); if(typeof loadDoc === "function" && cj.id) loadDoc(cj.id);
       return true;
