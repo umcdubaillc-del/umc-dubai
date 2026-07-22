@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-b3sub";
+const ADMIN_BUILD = "20260722-b3sub2";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -10650,6 +10650,7 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #docSubSheet{ position:fixed; left:0; right:0; bottom:0; z-index:2003; transform:translateY(100%); transition:transform .32s cubic-bezier(.32,.72,0,1); background:var(--card); border-radius:20px 20px 0 0; box-shadow:0 -12px 44px rgba(0,0,0,.30); padding:.5rem 1.1rem calc(1.6rem + env(safe-area-inset-bottom)); max-height:88vh; overflow-y:auto; -webkit-overflow-scrolling:touch; display:flex; flex-direction:column; gap:.55rem; }
   #docSubSheet.on{ transform:translateY(0); }
   #docSubSheet .sub-content, #docSubSheet .lead-subgroup{ display:flex; flex-direction:column; gap:.55rem; }
+  #docSubSheet .lead-subgroup[hidden]{ display:none; }  /* flex display above would otherwise beat the [hidden] UA rule */
   .sub-head{ display:flex; align-items:center; gap:.5rem; margin:.1rem 0 .35rem; }
   .sub-back{ display:inline-flex; align-items:center; gap:.25rem; background:transparent; border:0; color:var(--ink); font-family:inherit; font-size:1rem; cursor:pointer; padding:.35rem .1rem; }
   .sub-back span{ font-size:1.3em; line-height:1; }
