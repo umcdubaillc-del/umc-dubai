@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-b3fix3";
+const ADMIN_BUILD = "20260722-b3fix4";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -10645,6 +10645,9 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #docSheet{ position:fixed; left:0; right:0; bottom:0; z-index:2001; transform:translateY(100%); transition:transform .3s cubic-bezier(.32,.72,0,1); background:var(--card); border-radius:20px 20px 0 0; box-shadow:0 -12px 44px rgba(0,0,0,.28); padding:.5rem 1.1rem 1.6rem; max-height:86vh; overflow-y:auto; display:flex; flex-direction:column; gap:.55rem; }
   #docSheet.on{ transform:translateY(0); }
   .doc-sheet-action{ width:100%; text-align:center; padding:.95rem 1rem; border-radius:12px; border:1px solid var(--hair); background:var(--bone); color:var(--ink); font-family:inherit; font-size:1rem; cursor:pointer; }
+  /* Buttons inside the Contact/Quote/Documents disclosures get the SAME vertical
+     rhythm as the sheet's own buttons (#docSheet gap:.55rem). */
+  #docSheet .lead-disc__body{ display:flex; flex-direction:column; gap:.55rem; padding:.35rem .1rem .6rem; }
   .doc-sheet-action:disabled{ opacity:.4; }
   .doc-sheet-danger{ color:var(--amber-deep); border-color:rgba(168,75,12,.32); }
   .doc-sheet-action.doc-sheet-ok{ color:var(--paid); border-color:rgba(46,125,84,.4); }
@@ -15153,8 +15156,8 @@ const PAGE_SCRIPT = `<script>
         // the expandable sheet below (fixes the "buttons missing/undiscoverable" reports).
         // WA-5-B2-CANCEL — admin parity: soft Cancel/Restore (same status engine as chat).
         const cxAction = (status === "cancelled")
-          ? '<button type="button" class="btn btn-small" data-leadrestore="'+x.id+'" title="Restore this booking">Restore</button> '
-          : '<button type="button" class="btn btn-small" data-leadcancel="'+x.id+'" title="Cancel this booking (kept on file, reversible)">Cancel</button> ';
+          ? '<button type="button" class="btn btn-small" data-leadrestore="'+x.id+'" title="Restore this booking">Restore booking</button> '
+          : '<button type="button" class="btn btn-small" data-leadcancel="'+x.id+'" title="Cancel this booking (kept on file, reversible)">Cancel booking</button> ';
         const actions = cxAction + '<button type="button" class="btn btn-small btn-danger" data-leaddel="'+x.id+'" title="Delete this lead">&times;</button>';
         // DOCUMENTS-cluster create controls. One-chain discipline: gate ONLY on whether an
         // actual billing document exists for the lead (linked_doc_number), NEVER on chat/
