@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-b3fix2";
+const ADMIN_BUILD = "20260722-b3fix3";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -18455,7 +18455,10 @@ const PAGE_SCRIPT = `<script>
       var k = b.textContent.trim();
       if (!k || seen[k]) return;
       seen[k] = 1;
-      bindAction(b, isLead, container);
+      // UI-3 — leads sheet buttons must match the Docs/Links sheet buttons: full
+      // .doc-sheet-action weight (ink text, 1rem, bone fill), never the quieter
+      // muted .doc-sheet-secondary. (Danger buttons still get their own accent.)
+      bindAction(b, false, container);
     }
     if (_grouped){
       _gWraps.forEach(function(g){
