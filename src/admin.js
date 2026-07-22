@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-b3sub2";
+const ADMIN_BUILD = "20260722-b3sub3";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -18280,6 +18280,8 @@ const PAGE_SCRIPT = `<script>
       document.body.appendChild(subSheetEl);
       subSheetEl.querySelector('#docSubBack').addEventListener('click', closeSub);
     }
+    if (sheetEl) attachSwipeDismiss(sheetEl, dismiss);
+    if (subSheetEl) attachSwipeDismiss(subSheetEl, closeSub);
   }
   function openSub(title, bodyEl){
     var content = document.getElementById('docSubContent');
@@ -18293,6 +18295,26 @@ const PAGE_SCRIPT = `<script>
   function closeSub(){
     if (subBackdropEl) subBackdropEl.classList.remove('on');
     if (subSheetEl) subSheetEl.classList.remove('on');
+  }
+  // UI-4 — swipe-down-to-dismiss. Drag only starts when the sheet is scrolled to
+  // top (so content scroll still works); past ~90px it dismisses, else snaps back.
+  function attachSwipeDismiss(el, onDismiss){
+    if (el.__swipe) return; el.__swipe = true;
+    var startY = 0, dy = 0, dragging = false;
+    el.addEventListener('touchstart', function(e){
+      if (el.scrollTop > 0 || !e.touches || !e.touches.length) { dragging = false; return; }
+      dragging = true; startY = e.touches[0].clientY; dy = 0; el.style.transition = 'none';
+    }, { passive: true });
+    el.addEventListener('touchmove', function(e){
+      if (!dragging) return;
+      dy = e.touches[0].clientY - startY; if (dy < 0) dy = 0;
+      el.style.transform = 'translateY(' + dy + 'px)';
+    }, { passive: true });
+    el.addEventListener('touchend', function(){
+      if (!dragging) return; dragging = false;
+      el.style.transition = ''; el.style.transform = '';
+      if (dy > 90) onDismiss();
+    });
   }
   function bindAction(orig, quiet, container){
     var label = orig.textContent.trim();
