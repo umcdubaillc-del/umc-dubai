@@ -9818,7 +9818,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-linedesc";
+const ADMIN_BUILD = "20260722-concierge";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -16826,7 +16826,12 @@ const PAGE_SCRIPT = `<script>
     // Route / flight / welcome sign / full address chain are operational — they
     // live in the pay-page journey card + the backend, never on the billing doc.
     const when = [leadNz(x.date), leadNz(x.time)].filter(Boolean).join(" at ");
-    const sub = [leadNz(x.vehicle), when].filter(Boolean).join(" · ");
+    var veh = leadNz(x.vehicle);
+    // "Concierge recommends" is a booking-form placeholder (no specific vehicle
+    // chosen yet). On a client-facing billing doc that reads oddly, so present it
+    // as the premium-service statement. The lead view keeps the raw value.
+    if(/concierge\\s+recommends?/i.test(veh)) veh = "Concierge recommended vehicle";
+    const sub = [veh, when].filter(Boolean).join(" · ");
     if(sub) lines.push(sub);
     return lines.join("\\n");
   }
