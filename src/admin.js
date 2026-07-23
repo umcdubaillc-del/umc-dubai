@@ -10062,7 +10062,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260723-deletelink";
+const ADMIN_BUILD = "20260723-deletelink2";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -10580,10 +10580,10 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 }
 /* ed-preview button: hidden on desktop, shown only on phones (rule lives outside the media query) */
 .ed-preview-btn{display:none}
-/* Item 3 — the Links invoice cell is a MOBILE-only row-card line; on desktop the
-   invoice rides as the invTag pill in the Client cell, so hide the cell entirely
-   here (kept out of the media query so it wins on desktop by source order). */
-.history td.lk-invcell{display:none}
+/* Item 3 — the linked invoice number on the Links row is MOBILE-only; on desktop it
+   rides as the invTag pill in the Client cell, so this inline suffix stays hidden here
+   (rule kept outside the media query so it wins on desktop by source order). */
+.lk-inv-mob{display:none}
 
 /* ============ v100: mobile admin-app pass ============
    Dense hairline rows keyed off data-lbl (not cell position), two-line
@@ -10812,13 +10812,7 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #tab-links td[data-lbl="Amount"]{order:2; flex:1 1 0; text-align:right; font-size:14.5px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; padding:0; margin-left:auto; max-width:none}
   #tab-links td[data-lbl="Status"]{order:4; flex:1 1 0; text-align:right; padding:.1rem 0 0; margin-left:auto}
   #tab-links td[data-lbl="Link"]{display:none}
-  /* Item 3 — linked invoice number on its own truncation-safe line (order between
-     Client/Status and the chevron). Empty (standalone) cells stay collapsed so the
-     card height is uniform. Chevron bumped to order:6 to sit below this line. */
-  #tab-links td.lk-invcell{display:block; order:5; flex:0 0 100%; max-width:100%; padding:.15rem 0 0; margin:0; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-  #tab-links td.lk-invcell.lk-invcell-empty{display:none}
-  #tab-links td.lk-invcell .lk-invref{font-variant-numeric:tabular-nums; letter-spacing:.02em}
-  #tab-links .hist-chev-cell{order:6; flex:0 0 100%; max-width:100%; text-align:right; padding:.15rem 0 0; margin-left:0; position:static}
+  #tab-links .hist-chev-cell{order:5; flex:0 0 100%; max-width:100%; text-align:right; padding:.15rem 0 0; margin-left:0; position:static}
 
   /* 2.3 Drawer: inset rounded card with centred action buttons */
   .history tr.hist-actions-row > td{background:var(--bone2); padding:0; border:0; margin:0}
@@ -10887,7 +10881,10 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #tab-links td[data-lbl="Client"]{ grid-column:1; grid-row:1; max-width:none; font-size:14.5px; font-weight:500; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0; }
   #tab-links td[data-lbl="Client"] > *{ display:none; }
   #tab-links td[data-lbl="Status"]{ grid-column:2; grid-row:1; justify-self:end; align-self:center; text-align:right; white-space:nowrap; padding:0; }
-  #tab-links td[data-lbl="Created"]{ grid-column:1; grid-row:2; font-size:11.5px; color:var(--muted); white-space:nowrap; padding:.1rem 0 0; }
+  #tab-links td[data-lbl="Created"]{ grid-column:1; grid-row:2; min-width:0; max-width:100%; font-size:11.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:.1rem 0 0; }
+  /* Item 3 — reveal the linked invoice number inline on line 2, next to Created.
+     Desktop keeps it hidden (invTag pill covers it); standalone rows emit no span. */
+  #tab-links td[data-lbl="Created"] .lk-inv-mob{ display:inline; color:var(--muted); font-variant-numeric:tabular-nums; }
   #tab-links td[data-lbl="Amount"]{ grid-column:2; grid-row:2; justify-self:end; text-align:right; font-size:13px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; white-space:nowrap; padding:.1rem 0 0; }
   #tab-links td[data-lbl="Link"]{ display:none; }
   #tab-links .hist-chev-cell{ display:none; }
@@ -12930,22 +12927,22 @@ const PAGE_SCRIPT = `<script>
             ? Math.round(Number(x.amount) * 1.05 * 100) / 100
             : (aedGross != null ? aedGross : Number(x.amount));
           const vatHint = ' <span style="color:var(--muted);font-size:11px">incl. VAT</span>';
-          // Item 3 — MOBILE row card only: surface the linked invoice number (UMC-INV-####)
-          // on its own truncation-safe line. On desktop the invoice already rides as the
-          // invTag pill in the Client cell, so this cell is display:none there (see
-          // #tab-links td.lk-invcell CSS). Standalone links (no attachedNum) render an
-          // EMPTY cell that stays collapsed on mobile too, so their card height is uniform
-          // with no dangling blank line.
-          const invMobileCell = attachedNum
-            ? '<td data-lbl="Invoice" class="lk-invcell"><span class="lk-invref">'+esc(attachedNum)+'</span></td>'
-            : '<td data-lbl="Invoice" class="lk-invcell lk-invcell-empty"></td>';
+          // Item 3 — on the MOBILE row card the whole Client cell (incl. the invTag
+          // pill) is collapsed by the "Decision 2" grid (td[data-lbl="Client"] > * →
+          // display:none), so the linked invoice number would be invisible there. The
+          // desktop table still shows it as the invTag pill. To surface it on mobile
+          // without adding a card line (uniform height) we append a MOBILE-ONLY span to
+          // the Created cell — same line 2, alongside Created/Amount, truncation-safe.
+          // Standalone links (no attachedNum) emit nothing, so their card is unchanged.
+          const invMob = attachedNum
+            ? ' <span class="lk-inv-mob">· '+esc(attachedNum)+'</span>'
+            : '';
           return '<tr class="'+trClass+'" data-expandable="1" data-lkid="'+x.id+'">'
             + '<td data-lbl="Client">'+esc(clientPrimary || "·")+invTag+originTag+subline+'</td>'
             + '<td data-lbl="Amount" style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(dispAmount, x.currency))+aedSuffix+vatHint+'</td>'
-            + '<td data-lbl="Created">'+esc(fmtDate(x.created_at))+'</td>'
+            + '<td data-lbl="Created">'+esc(fmtDate(x.created_at))+invMob+'</td>'
             + '<td data-lbl="Link"><div class="hist-link" style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">' + linkCellHtml + '</div></td>'
             + '<td data-lbl="Status">'+statusPill+'</td>'
-            + invMobileCell
             + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
             + '</tr>'
             + '<tr class="hist-actions-row" hidden><td colspan="6"><div class="hist-actions-panel">'+actions.join(' ')+'</div></td></tr>';

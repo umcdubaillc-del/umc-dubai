@@ -132,18 +132,20 @@ console.log("UI source guards (src/admin.js inline page script):");
 console.log("Item 3 — invoice on the Links MOBILE row card:");
 {
   const src = readFileSync(new URL("../src/admin.js", import.meta.url), "utf8");
-  check("linked row emits an invoice cell with the UMC-INV number",
-    src.includes('<td data-lbl="Invoice" class="lk-invcell"><span class="lk-invref">\'+esc(attachedNum)+\'</span></td>'));
-  check("standalone row emits an EMPTY (collapsed) invoice cell",
-    src.includes('class="lk-invcell lk-invcell-empty"'));
-  check("invoice cell hidden on DESKTOP (rides the invTag pill there)",
-    src.includes(".history td.lk-invcell{display:none}"));
-  check("invoice cell shown as its own MOBILE line, truncation-safe",
-    /#tab-links td\.lk-invcell\{display:block;[^}]*text-overflow:ellipsis/.test(src));
-  check("empty invoice cell stays collapsed on mobile (uniform card height)",
-    src.includes("#tab-links td.lk-invcell.lk-invcell-empty{display:none}"));
-  check("chevron bumped below the invoice line (order:6)",
-    src.includes("#tab-links .hist-chev-cell{order:6;"));
+  const norm = src.replace(/\s+/g, " ");
+  check("linked row appends a mobile-only invoice span to the Created cell",
+    src.includes('<span class="lk-inv-mob">· \'+esc(attachedNum)+\'</span>') &&
+    src.includes('esc(fmtDate(x.created_at))+invMob'));
+  check("standalone row emits nothing (invMob is empty → uniform 2-line card)",
+    norm.includes("const invMob = attachedNum ? ' <span class=\"lk-inv-mob\">· '+esc(attachedNum)+'</span>' : '';"));
+  check("invoice suffix hidden on DESKTOP (rides the invTag pill there)",
+    src.includes(".lk-inv-mob{display:none}"));
+  check("invoice suffix shown inline on the MOBILE line-2 Created cell",
+    norm.includes('#tab-links td[data-lbl="Created"] .lk-inv-mob{ display:inline'));
+  check("Created cell is truncation-safe on mobile (ellipsis, capped width)",
+    /#tab-links td\[data-lbl="Created"\]\{[^}]*max-width:100%;[^}]*text-overflow:ellipsis/.test(src));
+  check("no extra row td added — same 6-column row, uniform card height",
+    !src.includes("lk-invcell"));
 }
 
 console.log("");
