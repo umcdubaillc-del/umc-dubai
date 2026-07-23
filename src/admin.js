@@ -1387,7 +1387,10 @@ async function handleList(env) {
               LIMIT 1) AS converted_invoice_number,
             (SELECT p.pay_token FROM payment_links p
               WHERE p.invoice_number = b.number AND p.pay_token IS NOT NULL
-              ORDER BY p.id DESC LIMIT 1) AS pay_token
+              ORDER BY p.id DESC LIMIT 1) AS pay_token,
+            (SELECT p2.id FROM payment_links p2
+              WHERE p2.invoice_number = b.number AND p2.archived_at IS NULL
+              ORDER BY p2.id DESC LIMIT 1) AS link_pl_id
      FROM billing_documents b
      ORDER BY b.id DESC LIMIT 500`
   ).all();
@@ -1585,6 +1588,13 @@ export async function runIntegritySweep(env){
   findings.payable_link_on_voided_invoice = await ids(
     "SELECT p.invoice_number AS id FROM payment_links p JOIN billing_documents b ON b.number = p.invoice_number " +
     "WHERE p.archived_at IS NULL AND b.voided_at IS NOT NULL LIMIT 100");
+  // AUTO-INVOICE — a PAID standalone link that never got its invoice. With auto-invoice-on-
+  // payment live this should trend to 0 (only legacy paid rows that predate it linger). A
+  // rising count means the webhook auto-create is failing. Mirrors the webhook's skip set
+  // (test / excluded / partial excluded — those intentionally never auto-invoice).
+  findings.paid_standalone_link_no_invoice = await ids(
+    "SELECT id FROM payment_links WHERE payment_status='paid' AND (invoice_number IS NULL OR invoice_number='') " +
+    "AND archived_at IS NULL AND COALESCE(is_test,0)=0 AND COALESCE(excluded,0)=0 AND COALESCE(is_partial,0)=0 LIMIT 100");
   const summary = {};
   let total = 0;
   for (const k of Object.keys(findings)) { const v = findings[k]; const n = Array.isArray(v) ? v.length : 0; summary[k] = n; total += n; }
@@ -3984,6 +3994,29 @@ async function handleNomodWebhook(request, env) {
     // webhook payload values if absent. Wrapped in try/catch so the webhook
     // still returns 2xx and Nomod does not retry on email transport faults.
     if (!wasAlreadyPaid) {
+      // AUTO-INVOICE (institutional step): on the FIRST settlement of a STANDALONE link
+      // (a now-paid link with no invoice yet), auto-create the pre-paid invoice server-side
+      // via the SAME machinery as the manual "Create invoice from link" button — normal
+      // numbering, and it back-refs the link so /pay flips to the invoice-born receipt
+      // (Download invoice) and the "Request tax invoice" prompt retires. Runs BEFORE the
+      // receipt email so the email carries the new invoice number. Idempotent on two levels:
+      // first-settlement only (a Svix retry has wasAlreadyPaid=true) AND
+      // handleCreateInvoiceFromPaidLink refuses a link that already carries an invoice_number.
+      // Skips test, excluded-from-revenue, and partial-payment links per the rule.
+      try {
+        const stdLink = await env.BILLING_DB.prepare(
+          `SELECT id, COALESCE(invoice_number,'') AS invoice_number, COALESCE(is_test,0) AS is_test,
+                  COALESCE(excluded,0) AS excluded, COALESCE(is_partial,0) AS is_partial
+             FROM payment_links WHERE nomod_link_id = ? LIMIT 1`
+        ).bind(linkId).first();
+        if (stdLink && !String(stdLink.invoice_number).trim()
+            && Number(stdLink.is_test) !== 1 && Number(stdLink.excluded) !== 1 && Number(stdLink.is_partial) !== 1) {
+          const air = await handleCreateInvoiceFromPaidLink(stdLink.id, env);
+          let aj = null; try { aj = await air.json(); } catch (_) {}
+          console.log("AUTO-INVOICE (paid standalone link " + stdLink.id + "): " + (aj ? JSON.stringify(aj).slice(0, 160) : "no-json"));
+          await logEvent(env, "payment_link", stdLink.id, "auto_invoice", "webhook", { invoice: aj && aj.number, ok: !!(aj && aj.ok) });
+        }
+      } catch (e) { console.error("AUTO-INVOICE on paid webhook failed", e && (e.message || String(e))); }
       try {
         const lk = await env.BILLING_DB.prepare(
           `SELECT title, invoice_number, client_name, amount, currency FROM payment_links WHERE nomod_link_id = ? LIMIT 1`
@@ -9924,7 +9957,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260723-voidlink";
+const ADMIN_BUILD = "20260723-linksdocs";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -16013,14 +16046,16 @@ const PAGE_SCRIPT = `<script>
           const nm = arc.getAttribute("data-lkname") || "this link";
           if(!confirm("Archive " + nm + "?\\n\\nThe payment page will show it is no longer active. Also deactivate this link in the Nomod app.")) return;
         }
-        arc.disabled = true;
+        // Button-state discipline: disable + in-flight label; loadLinks re-renders the row to
+        // its new state (Archive ↔ Restore) on success; on error reset to idle + toast.
+        var _arl = arc.textContent; arc.disabled = true; arc.textContent = toArchive ? "Archiving…" : "Restoring…";
         fetch("/admin/api/links/" + lkId + "/archive", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ restore: !toArchive })
         })
           .then(function(r){ return r.json().catch(function(){ return {}; }); })
-          .then(function(j){ arc.disabled = false; if(j && j.ok){ showToast(toArchive ? "Link archived." : "Link restored."); loadLinks(); } else { showToast("Couldn’t update — " + ((j && j.error) || "error"), true); } })
-          .catch(function(err){ arc.disabled = false; showToast("Couldn’t update — " + (err.message||err), true); });
+          .then(function(j){ if(j && j.ok){ showToast(toArchive ? "Link archived." : "Link restored."); loadLinks(); } else { arc.disabled = false; arc.textContent = _arl; showToast("Couldn’t update — " + ((j && j.error) || "error"), true); } })
+          .catch(function(err){ arc.disabled = false; arc.textContent = _arl; showToast("Couldn’t update — " + (err.message||err), true); });
         return;
       }
       const mk = e.target.closest("[data-lkmakeinv]");
@@ -16060,12 +16095,13 @@ const PAGE_SCRIPT = `<script>
         }
         function done(num){
           if(settled) return; settled = true; clearTimeout(watchdog);
-          // Reset the button BEFORE any re-render so a throw in a reload can never
-          // strand it on "Creating …" (the original stuck-state bug). loadLinks
-          // will replace the row anyway; if it throws, the button is already sane.
-          restore();
+          // Completed state: the button becomes a NON-reclickable pointer to what it made
+          // ("Invoice generated → UMC-INV-####"), never re-creating. Stays disabled; loadLinks
+          // then replaces the row with an "Open UMC-INV-####" action. Safe if a reload throws —
+          // a completed disabled label is a fine terminal state (not the old stuck "Creating …").
+          mkp.disabled = true; mkp.textContent = "Invoice generated → " + num;
           setLkStatus("Invoice " + num + " created and marked Paid.");
-          showToast("Invoice " + num + " created and marked Paid.");
+          showToast("Invoice generated → " + num + " ✓");
           try { loadLinks(); } catch(_){}
           try { if(typeof loadHistory === "function") loadHistory(); } catch(_){}
           try { if(typeof loadPayments === "function") loadPayments(); } catch(_){}
@@ -16127,11 +16163,15 @@ const PAGE_SCRIPT = `<script>
       const ex = e.target.closest("[data-lkexclude]");
       if(ex){
         e.preventDefault(); e.stopPropagation();
+        if(ex.disabled) return;
         const flag = ex.getAttribute("data-lkexclude") === "1";
         if(flag){
           if(!confirm("Exclude this charge from revenue and reports? The record is kept but no longer counted.")) return;
         }
         const id = ex.getAttribute("data-id");
+        // Button-state discipline: disable + in-flight label. On success loadLinks re-renders
+        // the row to its new state (Exclude ↔ Restore); on error reset to idle + toast.
+        var _exl = ex.textContent; ex.disabled = true; ex.textContent = flag ? "Excluding…" : "Restoring…";
         fetch("/admin/api/payments/" + id + "/exclude", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -16145,10 +16185,12 @@ const PAGE_SCRIPT = `<script>
               if(typeof loadPayments === "function") loadPayments();
               if(typeof loadSales === "function") loadSales();
             } else {
+              ex.disabled = false; ex.textContent = _exl;
               setLkStatus("Update failed: " + ((j && j.error) || ""));
+              if(typeof showToast === "function") showToast("Update failed: " + ((j && j.error) || "error"), true);
             }
           })
-          .catch(function(err){ setLkStatus("Update failed: " + (err.message || err)); });
+          .catch(function(err){ ex.disabled = false; ex.textContent = _exl; setLkStatus("Update failed: " + (err.message || err)); if(typeof showToast === "function") showToast("Update failed: " + (err.message || err), true); });
         return;
       }
       const rf = e.target.closest("#lkRefresh");
@@ -17885,7 +17927,8 @@ const PAGE_SCRIPT = `<script>
       }
       if(convB){
         e.preventDefault();
-        convertQuote(convB.getAttribute("data-convert"), convB.getAttribute("data-num"));
+        if(convB.disabled) return;
+        convertQuote(convB.getAttribute("data-convert"), convB.getAttribute("data-num"), convB);
         return;
       }
       if(linkB){
@@ -17996,6 +18039,12 @@ const PAGE_SCRIPT = `<script>
         const srcTag = x.source_quote_number
           ? ' <span class="hist-src" title="Converted from '+esc(x.source_quote_number)+'">&larr; '+esc(x.source_quote_number)+'</span>'
           : '';
+        // Item 1 — DOCS↔LINKS cross-reference: an invoice that has a payment link shows its
+        // link reference (UMC-PL-####) in the row, mirroring the Links tab showing the invoice
+        // number. Same pill style as the Links invTag. Standalone/linkless docs show nothing.
+        const plRefTag = (isInvoice && x.link_pl_id)
+          ? ' <span class="hist-status linked" style="margin-left:.4em" title="Payment link for this invoice">UMC-PL-'+String(x.link_pl_id).padStart(4,"0")+'</span>'
+          : '';
         const isPaidDoc = String(x.payment_status || "").toLowerCase() === "paid";
         const isPartialDoc = String(x.payment_status || "").toLowerCase() === "partial";
         const _docTotal = Number(x.total) || 0;
@@ -18083,7 +18132,7 @@ const PAGE_SCRIPT = `<script>
         const sortDate = String(x.doc_date || "");
         const sortAmount = Number(x.total) || 0;
         return '<tr class="expandable" data-expandable="1" data-doctype="'+esc(x.doc_type)+'" data-voided="'+(isVoided?'1':'0')+'" data-searchtext="'+esc(searchText)+'" data-sortdate="'+esc(sortDate)+'" data-sortamount="'+sortAmount+'">'
-          + '<td data-lbl="Number"><a href="#" data-load="'+x.id+'">'+esc(x.number)+'</a>'+srcTag+linkPreview+'</td>'
+          + '<td data-lbl="Number"><a href="#" data-load="'+x.id+'">'+esc(x.number)+'</a>'+srcTag+plRefTag+linkPreview+'</td>'
           + '<td data-lbl="Type"><span class="pill '+(isInvoice?'inv':'')+'">'+x.doc_type+'</span></td>'
           + '<td data-lbl="Date">'+esc(fmtDate(x.doc_date))+'</td>'
           + '<td data-lbl="Client">'+esc(x.client_name || "")+(x.client_company?' <span style="color:#7A6F5F">('+esc(x.client_company)+')</span>':'')+'</td>'
@@ -18111,20 +18160,35 @@ const PAGE_SCRIPT = `<script>
       return Promise.resolve(!!ok);
     } catch { return Promise.resolve(false); }
   }
-  async function convertQuote(id, num){
+  async function convertQuote(id, num, btn){
     if(!confirm("Convert quote " + num + " to an invoice?\\n\\nA new invoice will be created with the next UMC-INV-#### number, today's date, and the TRN, copying this quote's client, line items, currency, discount and totals. The original quote stays in history unchanged.")) return;
+    // Button-state discipline: idle → in-flight (disabled "Converting…") → completed
+    // ("Converted → UMC-INV-####", non-reclickable — loadHistory then re-renders the row).
+    // On error: reset to idle + toast/status.
+    var _bl = btn ? btn.textContent : "";
+    if(btn){ btn.disabled = true; btn.textContent = "Converting…"; }
     setStatus("Converting " + num + " …");
     try {
       const r = await fetch("/admin/api/billing/" + id + "/convert", { method: "POST" });
       const j = await r.json();
-      if(!j.ok){ setStatus("Convert failed: " + (j.error || r.status)); return; }
+      if(!j.ok){
+        if(btn){ btn.disabled = false; btn.textContent = _bl; }
+        setStatus("Convert failed: " + (j.error || r.status));
+        if(typeof showToast === "function") showToast("Convert failed: " + (j.error || r.status), true);
+        return;
+      }
+      if(btn){ btn.textContent = "Converted → " + j.number; }   // completed, stays disabled until re-render
       setStatus("Created invoice " + j.number + " from " + num + ". Loading it …");
       // Bug 1 — a plain status line was easy to miss (and the new invoice mirrors the
       // quote), so a conversion could feel like nothing happened. Confirm it loudly.
       if(typeof showToast === "function") showToast("Quote " + num + " converted → invoice " + j.number + " ✓");
       await loadHistory();
       await loadDoc(j.id);
-    } catch(e){ setStatus("Convert failed: " + (e.message || e)); }
+    } catch(e){
+      if(btn){ btn.disabled = false; btn.textContent = _bl; }
+      setStatus("Convert failed: " + (e.message || e));
+      if(typeof showToast === "function") showToast("Convert failed: " + (e.message || e), true);
+    }
   }
   // v86 — every link generation routes through openLinkPreviewModal first.
   // Loads the invoice to derive defaults (NET = total / 1.05, title = number,
