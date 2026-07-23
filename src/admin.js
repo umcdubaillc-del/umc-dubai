@@ -459,6 +459,9 @@ async function ensureSchema(env) {
       // + soft-archive timestamp (never DELETE; /pay renders ARCHIVED, admin hides by default).
       "expiry_date TEXT",
       "archived_at TEXT",
+      // DELETE-LINK — tombstone (never physical DELETE). A deleted link appears NOWHERE in the
+      // UI (not even under Show archived) and reconcile/sync paths skip it (never resurrected).
+      "deleted_at TEXT",
       // PAY-PAGE W4 — server-side view telemetry stamped on each public /pay hit (no page JS).
       "viewed_at TEXT",
       "view_count INTEGER DEFAULT 0",
@@ -1544,6 +1547,9 @@ async function handleEvents(url, env){
 // V9/V15/V17, returns a report (counts + sample ids per check), and logs the summary
 // to the events trail (action integrity_sweep). Run by the daily cron and on demand
 // via GET /admin/api/integrity.
+// Auto-invoice go-live (build 20260723-linksdocs). Standalone links settled BEFORE this are the
+// legacy tail (informational); settled AFTER without an invoice are real sweep issues.
+const AUTO_INVOICE_GOLIVE = "2026-07-23T18:15:00Z";
 export async function runIntegritySweep(env){
   await ensureSchema(env);
   const today = umcTodayDubai();
@@ -1588,16 +1594,24 @@ export async function runIntegritySweep(env){
   findings.payable_link_on_voided_invoice = await ids(
     "SELECT p.invoice_number AS id FROM payment_links p JOIN billing_documents b ON b.number = p.invoice_number " +
     "WHERE p.archived_at IS NULL AND b.voided_at IS NOT NULL LIMIT 100");
-  // AUTO-INVOICE — a PAID standalone link that never got its invoice. With auto-invoice-on-
-  // payment live this should trend to 0 (only legacy paid rows that predate it linger). A
-  // rising count means the webhook auto-create is failing. Mirrors the webhook's skip set
-  // (test / excluded / partial excluded — those intentionally never auto-invoice).
+  // AUTO-INVOICE — a PAID standalone link with no invoice. BASELINED: only links that settled
+  // AFTER the auto-invoice go-live count as real issues (a settlement the auto-create should
+  // have caught but didn't). The pre-go-live legacy tail (~223 rows) moves to an INFORMATIONAL
+  // counter (legacy_unbilled_links) OUTSIDE total_issues, so a healthy night reports 0. Skips
+  // test/excluded/partial (never auto-invoiced) and deleted tombstones. GOLIVE = the auto-invoice
+  // deploy (build 20260723-linksdocs). Uses paid_at; a NULL paid_at is treated as legacy.
+  var _stdBase = "FROM payment_links WHERE payment_status='paid' AND (invoice_number IS NULL OR invoice_number='') " +
+    "AND archived_at IS NULL AND deleted_at IS NULL AND COALESCE(is_test,0)=0 AND COALESCE(excluded,0)=0 AND COALESCE(is_partial,0)=0";
   findings.paid_standalone_link_no_invoice = await ids(
-    "SELECT id FROM payment_links WHERE payment_status='paid' AND (invoice_number IS NULL OR invoice_number='') " +
-    "AND archived_at IS NULL AND COALESCE(is_test,0)=0 AND COALESCE(excluded,0)=0 AND COALESCE(is_partial,0)=0 LIMIT 100");
+    "SELECT id " + _stdBase + " AND paid_at IS NOT NULL AND paid_at >= '" + AUTO_INVOICE_GOLIVE + "' LIMIT 100");
+  // Informational only (NOT an issue): the legacy tail predating auto-invoice. Kept visible so
+  // the owner can retro-bill via the manual button, but never blocks a clean sweep.
+  const legacyUnbilled = await ids(
+    "SELECT id " + _stdBase + " AND (paid_at IS NULL OR paid_at < '" + AUTO_INVOICE_GOLIVE + "') LIMIT 500");
   const summary = {};
   let total = 0;
   for (const k of Object.keys(findings)) { const v = findings[k]; const n = Array.isArray(v) ? v.length : 0; summary[k] = n; total += n; }
+  summary.legacy_unbilled_links = Array.isArray(legacyUnbilled) ? legacyUnbilled.length : 0;  // informational, OUTSIDE total_issues
   summary.total_issues = total;
   await logEvent(env, "system", null, "integrity_sweep", "system", summary);
   return { ok: true, ran_at: new Date().toISOString(), summary, findings };
@@ -2116,7 +2130,10 @@ async function handleListLinks(request, env) {
   // W3 — default list HIDES archived; ?archived=1 includes them (the Show-archived toggle).
   let showArchived = false;
   try { showArchived = new URL(request.url).searchParams.get("archived") === "1"; } catch (e) { /* env may pass no request */ }
-  const where = showArchived ? "" : "WHERE archived_at IS NULL";
+  // DELETE-LINK — tombstoned rows (deleted_at set) are hidden EVERYWHERE, even
+  // when Show-archived is on. Archived is a soft state you can restore; deleted
+  // is gone from every view. A genuine settlement resurrects the row (see webhook).
+  const where = showArchived ? "WHERE deleted_at IS NULL" : "WHERE archived_at IS NULL AND deleted_at IS NULL";
   const { results } = await env.BILLING_DB.prepare(
     `SELECT id, title, amount, amount_aed, currency, note, nomod_link_id, nomod_link_url,
             nomod_charge_id, COALESCE(excluded, 0) AS excluded, created_at,
@@ -2167,6 +2184,21 @@ async function handleArchiveLink(id, request, env) {
   await env.BILLING_DB.prepare(
     `UPDATE payment_links SET archived_at = ? WHERE id = ?`
   ).bind(restore ? null : new Date().toISOString(), id).run();
+  // Best-effort: when ARCHIVING (not restoring), also attempt to deactivate the
+  // Nomod hosted link so its checkout URL stops accepting money. Nomod exposes no
+  // documented deactivate endpoint, so this is non-blocking and may be a no-op —
+  // the archive itself always succeeds regardless of the remote outcome.
+  if (!restore) {
+    try {
+      const row = await env.BILLING_DB.prepare(
+        "SELECT nomod_link_id FROM payment_links WHERE id = ?"
+      ).bind(id).first();
+      if (row && row.nomod_link_id) {
+        const nd = await nomodDeactivateLink(env, row.nomod_link_id);
+        await logEvent(env, "payment_link", id, "archive_nomod_deactivate", "admin", { nomod: nd && nd.ok ? "deactivated" : ("unsupported:" + (nd && nd.status)) });
+      }
+    } catch (e) { console.error("archive nomodDeactivate failed", e && (e.message || String(e))); }
+  }
   return json({ ok: true, id, archived: !restore });
 }
 
@@ -2204,26 +2236,56 @@ async function handleUpdateLinkItemName(id, request, env) {
   return json({ ok: true, id, items_json: itemsJson });
 }
 
+// Best-effort remote deactivation of a Nomod hosted link. Nomod's public API (v1/links) exposes
+// no DOCUMENTED delete/deactivate endpoint, so this ATTEMPTS the RESTful DELETE and reports the
+// status; a failure is non-blocking (the hosted checkout URL may outlive our archive/void).
+async function nomodDeactivateLink(env, linkId) {
+  if (!env.NOMOD_API_KEY || !linkId) return { ok: false, status: 503, error: "no api key / link" };
+  try {
+    const res = await fetch(`${NOMOD_API_URL}/${encodeURIComponent(linkId)}`, {
+      method: "DELETE",
+      headers: { "X-API-KEY": env.NOMOD_API_KEY, "Accept": "application/json" },
+    });
+    return { ok: res.ok, status: res.status };
+  } catch (e) { return { ok: false, status: 0, error: String((e && e.message) || e) }; }
+}
+
+// DELETE-LINK — TOMBSTONE, never a physical DELETE. Gates are SERVER-enforced:
+//   • PAID links (or any Nomod-synced charge) are NEVER deletable — revenue rows; use
+//     Exclude from revenue / Mark test instead.
+//   • The link must already be ARCHIVED (soft-archive first; delete is a deliberate 2nd step).
+//   • Invoice-born links require their invoice to be VOIDED first.
+// A tombstoned row survives for audit but is hidden EVERYWHERE and skipped by reconcile/sync
+// (never resurrected via nomod_link_id). Nomod side is deactivated best-effort (non-blocking).
 async function handleDeleteLink(id, env) {
   await ensureSchema(env);
-  // Phase 1.3 — Nomod-synced charges are revenue ledger; never hard delete.
-  // The operator must use Exclude from revenue instead, which preserves the
-  // row so a full re-sync cannot resurrect it under the original keys.
   const row = await env.BILLING_DB.prepare(
-    "SELECT nomod_charge_id FROM payment_links WHERE id = ?"
+    "SELECT id, title, payment_status, archived_at, invoice_number, nomod_charge_id, nomod_link_id, deleted_at FROM payment_links WHERE id = ?"
   ).bind(id).first();
   if (!row) return json({ ok: false, error: "not found" }, 404);
-  if (row.nomod_charge_id) {
-    return json({
-      ok: false,
-      error: "nomod-synced charges cannot be deleted; use Exclude from revenue instead",
-    }, 409);
+  const ref = "UMC-PL-" + String(id).padStart(4, "0");
+  if (row.deleted_at) return json({ ok: true, id, ref, deleted_at: row.deleted_at, already: true });
+  if (String(row.payment_status || "").toLowerCase() === "paid" || row.nomod_charge_id) {
+    return json({ ok: false, error: "paid links can't be deleted — they are revenue rows; use Exclude from revenue or Mark test instead", ref }, 403);
   }
-  const res = await env.BILLING_DB.prepare(
-    "DELETE FROM payment_links WHERE id = ?"
-  ).bind(id).run();
-  if (!res || !res.meta || !res.meta.changes) return json({ ok: false, error: "not found" }, 404);
-  return json({ ok: true, id });
+  if (!row.archived_at) {
+    return json({ ok: false, error: "archive the link first, then delete", ref }, 403);
+  }
+  if (row.invoice_number && String(row.invoice_number).trim()) {
+    const inv = await env.BILLING_DB.prepare(
+      "SELECT voided_at FROM billing_documents WHERE number = ? LIMIT 1"
+    ).bind(String(row.invoice_number).trim()).first();
+    if (!inv || !inv.voided_at) {
+      return json({ ok: false, error: "void invoice " + row.invoice_number + " before deleting its link", ref }, 403);
+    }
+  }
+  const now = new Date().toISOString();
+  await env.BILLING_DB.prepare("UPDATE payment_links SET deleted_at = ? WHERE id = ?").bind(now, id).run();
+  let nomodResult = "skipped";
+  try { if (row.nomod_link_id) { const nd = await nomodDeactivateLink(env, row.nomod_link_id); nomodResult = nd && nd.ok ? "deactivated" : ("unsupported:" + (nd && nd.status)); } }
+  catch (e) { nomodResult = "error"; }
+  await logEvent(env, "payment_link", id, "delete", "admin", { ref, nomod: nomodResult });
+  return json({ ok: true, id, ref, deleted_at: now, nomod: nomodResult });
 }
 
 // Phase 1.3 — delete a lead row (hard delete; leads carry no financial impact).
@@ -2943,7 +3005,7 @@ async function maybeAutoInvoiceStandalone(env, nomodLinkId) {
     const lk = await env.BILLING_DB.prepare(
       `SELECT id, COALESCE(invoice_number,'') AS invoice_number, LOWER(COALESCE(payment_status,'')) AS payment_status,
               COALESCE(is_test,0) AS is_test, COALESCE(excluded,0) AS excluded, COALESCE(is_partial,0) AS is_partial
-         FROM payment_links WHERE nomod_link_id = ? LIMIT 1`
+         FROM payment_links WHERE nomod_link_id = ? AND deleted_at IS NULL LIMIT 1`
     ).bind(nomodLinkId).first();
     if (!lk) return null;
     if (lk.payment_status !== "paid") return null;               // not settled
@@ -3236,6 +3298,7 @@ async function reconcileAllOutstanding(env) {
   const lks = await env.BILLING_DB.prepare(
     `SELECT id, nomod_link_id, payment_status, paid_at FROM payment_links
       WHERE nomod_link_id IS NOT NULL
+        AND deleted_at IS NULL
         AND (
           ( COALESCE(payment_status,'unpaid') != 'paid'
             AND (last_checked_at IS NULL OR last_checked_at < ?) )
@@ -3296,6 +3359,7 @@ async function handleListPayments(env) {
             COALESCE(excluded, 0) AS excluded
        FROM payment_links
       WHERE COALESCE(payment_status,'unpaid') = 'paid'
+        AND deleted_at IS NULL
       ORDER BY id DESC LIMIT 500`
   ).all();
   const merged = new Map();
@@ -3967,6 +4031,15 @@ async function handleNomodWebhook(request, env) {
     // computeAmountAed(data) (null if unavailable -> the periodic sync fills it).
     // COALESCE keeps any value a prior sync already wrote.
     const webhookAmountAed = computeAmountAed(data);
+    // DELETE-LINK money-correctness — a tombstoned link is UNPAID by gate (paid
+    // links can never be deleted), but Nomod's hosted checkout URL can outlive our
+    // archive/void, so a client CAN still pay one. Real money must never be dropped:
+    // this UPDATE is deliberately NOT filtered by deleted_at (the payment always
+    // lands), and it CLEARS deleted_at — resurrecting the row, self-consistent with
+    // "paid links are revenue and are never deletable". A resurrection is logged.
+    const wasTombstoned = await env.BILLING_DB.prepare(
+      `SELECT 1 AS x FROM payment_links WHERE nomod_link_id = ? AND deleted_at IS NOT NULL LIMIT 1`
+    ).bind(linkId).first();
     const upLnk = await env.BILLING_DB.prepare(
       `UPDATE payment_links
          SET payment_status='paid',
@@ -3974,9 +4047,14 @@ async function handleNomodWebhook(request, env) {
              last_checked_at=?,
              nomod_charge_id=COALESCE(?, nomod_charge_id),
              payment_method=COALESCE(payment_method, 'nomod'),
+             deleted_at=NULL,
              amount_aed=COALESCE(amount_aed, CASE WHEN UPPER(COALESCE(currency,'AED'))='AED' THEN amount ELSE ? END)
        WHERE nomod_link_id = ?`
     ).bind(now, now, chargeId, webhookAmountAed, linkId).run();
+    if (wasTombstoned) {
+      console.log("DELETE-LINK RESURRECT — deleted link " + linkId + " settled via Nomod; tombstone cleared (revenue).");
+      try { await logEvent(env, "payment_link", null, "resurrect_on_payment", "system", { nomod_link_id: linkId, chargeId }); } catch (_) {}
+    }
     const invChanges = (upInv && upInv.meta && Number(upInv.meta.changes)) || 0;
     const lnkChanges = (upLnk && upLnk.meta && Number(upLnk.meta.changes)) || 0;
     // v87 — orphan capture: if the webhook fires for a Nomod link we have no
@@ -5064,6 +5142,7 @@ async function handleSyncNomod(request, env) {
     const need = await env.BILLING_DB.prepare(
       `SELECT id, nomod_link_id FROM payment_links
         WHERE nomod_link_id IS NOT NULL
+          AND deleted_at IS NULL
           AND (
                 client_name  IS NULL OR TRIM(client_name)='' OR LOWER(TRIM(client_name))='direct sale'
              OR client_phone IS NULL OR TRIM(client_phone)=''
@@ -9983,7 +10062,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260723-autoinv-poll";
+const ADMIN_BUILD = "20260723-deletelink";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -10501,6 +10580,10 @@ nav.tabbar .tab .tab-soon{font-size:9px;letter-spacing:.18em;color:var(--muted);
 }
 /* ed-preview button: hidden on desktop, shown only on phones (rule lives outside the media query) */
 .ed-preview-btn{display:none}
+/* Item 3 — the Links invoice cell is a MOBILE-only row-card line; on desktop the
+   invoice rides as the invTag pill in the Client cell, so hide the cell entirely
+   here (kept out of the media query so it wins on desktop by source order). */
+.history td.lk-invcell{display:none}
 
 /* ============ v100: mobile admin-app pass ============
    Dense hairline rows keyed off data-lbl (not cell position), two-line
@@ -10729,7 +10812,13 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
   #tab-links td[data-lbl="Amount"]{order:2; flex:1 1 0; text-align:right; font-size:14.5px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; padding:0; margin-left:auto; max-width:none}
   #tab-links td[data-lbl="Status"]{order:4; flex:1 1 0; text-align:right; padding:.1rem 0 0; margin-left:auto}
   #tab-links td[data-lbl="Link"]{display:none}
-  #tab-links .hist-chev-cell{order:5; flex:0 0 100%; max-width:100%; text-align:right; padding:.15rem 0 0; margin-left:0; position:static}
+  /* Item 3 — linked invoice number on its own truncation-safe line (order between
+     Client/Status and the chevron). Empty (standalone) cells stay collapsed so the
+     card height is uniform. Chevron bumped to order:6 to sit below this line. */
+  #tab-links td.lk-invcell{display:block; order:5; flex:0 0 100%; max-width:100%; padding:.15rem 0 0; margin:0; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  #tab-links td.lk-invcell.lk-invcell-empty{display:none}
+  #tab-links td.lk-invcell .lk-invref{font-variant-numeric:tabular-nums; letter-spacing:.02em}
+  #tab-links .hist-chev-cell{order:6; flex:0 0 100%; max-width:100%; text-align:right; padding:.15rem 0 0; margin-left:0; position:static}
 
   /* 2.3 Drawer: inset rounded card with centred action buttons */
   .history tr.hist-actions-row > td{background:var(--bone2); padding:0; border:0; margin:0}
@@ -12783,7 +12872,14 @@ const PAGE_SCRIPT = `<script>
               actions.push('<button type="button" class="btn btn-small btn-danger" data-lkexclude="1" data-id="'+x.id+'" title="Keep the record but stop counting it in revenue">Exclude from revenue</button>');
             }
           } else if(!attachedNum){
-            actions.push('<button type="button" class="btn btn-small btn-danger" data-lkdel="'+x.id+'" data-lktitle="'+esc(x.title)+'" title="Delete this link from the local record (the Nomod URL itself stays live)">Delete</button>');
+            // DELETE-LINK — paid links are revenue and the server refuses to delete
+            // them; render the button DISABLED with a tooltip pointing at the right
+            // tool, so it's never a dead-click on money.
+            if(isPaid){
+              actions.push('<button type="button" class="btn btn-small btn-danger" disabled title="Paid links are revenue and cannot be deleted — use Exclude from revenue or Mark test instead">Delete</button>');
+            } else {
+              actions.push('<button type="button" class="btn btn-small btn-danger" data-lkdel="'+x.id+'" data-lktitle="'+esc(clientPrimary||x.title||"")+'" data-lkref="'+plRef+'" title="Delete '+plRef+' from the payment-links record — the Nomod checkout URL may stay live">Delete</button>');
+            }
           }
           // Stage 2: surface Copy in the drawer too. On mobile the inline Link
           // cell is hidden, so the row Copy button is unreachable without this.
@@ -12834,12 +12930,22 @@ const PAGE_SCRIPT = `<script>
             ? Math.round(Number(x.amount) * 1.05 * 100) / 100
             : (aedGross != null ? aedGross : Number(x.amount));
           const vatHint = ' <span style="color:var(--muted);font-size:11px">incl. VAT</span>';
+          // Item 3 — MOBILE row card only: surface the linked invoice number (UMC-INV-####)
+          // on its own truncation-safe line. On desktop the invoice already rides as the
+          // invTag pill in the Client cell, so this cell is display:none there (see
+          // #tab-links td.lk-invcell CSS). Standalone links (no attachedNum) render an
+          // EMPTY cell that stays collapsed on mobile too, so their card height is uniform
+          // with no dangling blank line.
+          const invMobileCell = attachedNum
+            ? '<td data-lbl="Invoice" class="lk-invcell"><span class="lk-invref">'+esc(attachedNum)+'</span></td>'
+            : '<td data-lbl="Invoice" class="lk-invcell lk-invcell-empty"></td>';
           return '<tr class="'+trClass+'" data-expandable="1" data-lkid="'+x.id+'">'
             + '<td data-lbl="Client">'+esc(clientPrimary || "·")+invTag+originTag+subline+'</td>'
             + '<td data-lbl="Amount" style="text-align:right;font-variant-numeric:tabular-nums">'+esc(fmtMoney(dispAmount, x.currency))+aedSuffix+vatHint+'</td>'
             + '<td data-lbl="Created">'+esc(fmtDate(x.created_at))+'</td>'
             + '<td data-lbl="Link"><div class="hist-link" style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">' + linkCellHtml + '</div></td>'
             + '<td data-lbl="Status">'+statusPill+'</td>'
+            + invMobileCell
             + '<td data-lbl="" class="hist-chev-cell"><span class="hist-chevron" aria-hidden="true">&#9662;</span></td>'
             + '</tr>'
             + '<tr class="hist-actions-row" hidden><td colspan="6"><div class="hist-actions-panel">'+actions.join(' ')+'</div></td></tr>';
@@ -12941,7 +13047,7 @@ const PAGE_SCRIPT = `<script>
         if(r.ok && j && j.ok){
           // Fix 8: name the link in the status so the operator can see which
           // row was removed even after the list re-renders without it.
-          setLkStatus("Removed " + (title || ("link #" + id)) + ".");
+          setLkStatus("Deleted " + (title || ("link #" + id)) + ".");
           loadLinks();
         } else {
           // Surface the server's exact message (e.g. the 409 "use Exclude
@@ -16175,15 +16281,17 @@ const PAGE_SCRIPT = `<script>
       if(dl){
         e.preventDefault(); e.stopPropagation();
         if(dl.disabled) return;
-        const title = dl.getAttribute("data-lktitle") || "this link";
-        if(!confirm("Remove " + title + " from the standalone-links record?\\n\\nThe Nomod payment URL itself stays live; anyone with the link can still pay until it expires on Nomod. This only removes it from your local record.")) return;
+        const ref = dl.getAttribute("data-lkref") || "this link";
+        const title = dl.getAttribute("data-lktitle") || "";
+        const who = title ? (title + " (" + ref + ")") : ref;
+        if(!confirm("Delete " + who + " from the payment-links record?\\n\\nThis removes it from every list here. The Nomod checkout URL may stay live — anyone holding it could still pay until it expires on Nomod, and a real payment would restore this record automatically. Money already received is never affected.")) return;
         // Fix 8: re-entrancy guard, disable the button so a frantic double-click
         // can't fire two DELETEs (the second one would 404 on a now-gone row and
         // surface a misleading error).
         dl.disabled = true;
         const origLabel = dl.textContent;
-        dl.textContent = "Removing …";
-        deleteStandaloneLink(dl.getAttribute("data-lkdel"), title, dl, origLabel);
+        dl.textContent = "Deleting …";
+        deleteStandaloneLink(dl.getAttribute("data-lkdel"), (title || ref), dl, origLabel);
         return;
       }
       const ex = e.target.closest("[data-lkexclude]");
