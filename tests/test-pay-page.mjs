@@ -57,9 +57,10 @@ function payPageHtml(d){
       (d.isInvoice ? "<a class=\"docaction\" href=\""+payEsc(d.pdfUrl)+"\"><span>Download invoice (PDF)</span></a>"
                    : "<p class=\"footnote\">A tax invoice is available for this payment on request.<br><a class=\"taxbtn\" href=\"https://api.whatsapp.com/send?phone=971586497861&text="+d.taxPrefill+"\">Request tax invoice</a></p>");
   } else {
+    // PAY-PAGE RULE — standalone + unpaid → payment CTA only (no tax-invoice request).
     var docaction = d.isInvoice
       ? "<a class=\"docaction\" href=\""+payEsc(d.pdfUrl)+"\"><span>Download invoice (PDF)</span></a>"
-      : "<p class=\"footnote\">A tax invoice is available for this payment on request.<br><a class=\"taxbtn\" href=\"https://api.whatsapp.com/send?phone=971586497861&text="+d.taxPrefill+"\">Request tax invoice</a></p>";
+      : "";
     block = "<div class=\"action sticky\"><a class=\"paybtn\" href=\""+payEsc(d.nomodUrl)+"\">"+PAY_LOCK_SVG+"Pay "+payEsc(d.cur+" "+payMoney(d.gross))+" securely</a>"+
       "<div class=\"assure\"><span>Secured by <b>Nomod</b></span><span>Visa</span><span>Mastercard</span><span>Amex</span><span>Apple&nbsp;Pay</span></div></div>"+
       docaction;
@@ -146,8 +147,29 @@ console.log("Shape B — standalone, due:");
   check("B: NO invoice pill", html.indexOf("Invoice <b>") === -1);
   check("B: NO journey section", html.indexOf('class="card journey"') === -1);
   check("B: NO download-invoice link", html.indexOf("Download invoice") === -1);
-  check("B: Request tax invoice → api.whatsapp.com/send?phone=971586497861", /api.whatsapp.com\/send\?phone=971586497861&text=Hello/.test(html));
-  check("B: prefill carries the payment ref", /UMC-PL-0057/.test(decodeURIComponent(html.split("text=")[1].split('"')[0])));
+  // PAY-PAGE RULE — standalone + UNPAID: payment CTA ONLY, NO tax-invoice request
+  // (nothing to invoice until it is paid). This is the EyHvy… live case.
+  check("B: NO 'Request tax invoice' on standalone UNPAID", html.indexOf("Request tax invoice") === -1);
+  check("B: NO WA taxbtn / prefill link on standalone UNPAID", html.indexOf("taxbtn") === -1 && html.indexOf("text=") === -1);
+  check("B: pay CTA still present (payment-only)", /class="paybtn"[^>]*>.*Pay AED 2,205.00 securely/.test(html));
+}
+
+// ═══ PAY-PAGE RULE — standalone + PAID: tax-invoice request RETURNS in the receipt ═══
+console.log("Standalone + paid — tax-invoice request shows in receipt state:");
+{
+  const html = payPageHtml({
+    doctype:"Receipt", payRef:"UMC-PL-0057", invoiceNumber:"", dateStr:"",
+    clientName:"Ms. Elena Marchetti", hero:"Full-Day Chauffeur — Cadillac Escalade", journey:null,
+    cur:"AED", isAED:true, isInvoice:false, items:[{desc:"Full-Day Chauffeur",sub:"",amount:"2,205.00"}],
+    subtotal:2100, vat:105, gross:2205,
+    paid:{ grossStr:"AED 2,205.00 (incl. VAT)", dateStr:"22 July 2026 · 09:14", chargeRef:"ch_ab12…9f" },
+    nomodUrl:"https://nomod.link/xyz", pdfUrl:null,
+    taxPrefill: encodeURIComponent("Hello, I've just completed payment UMC-PL-0057 — could you send the tax invoice? Thank you.")
+  });
+  check("B-paid: PAID badge shown", /class="badge"><span class="chk">.*<\/span>Paid<\/span>/.test(html));
+  check("B-paid: NO pay button (receipt state)", html.indexOf("paybtn") === -1);
+  check("B-paid: 'Request tax invoice' WA prefill PRESENT (unchanged)", /api.whatsapp.com\/send\?phone=971586497861&text=Hello/.test(html) && html.indexOf("Request tax invoice") !== -1);
+  check("B-paid: prefill carries the payment ref", /UMC-PL-0057/.test(decodeURIComponent(html.split("text=")[1].split('"')[0])));
 }
 
 // ═══ PAID state ═══

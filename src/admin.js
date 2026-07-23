@@ -3619,9 +3619,13 @@ function payPageHtml(d){
       (d.isInvoice ? "<a class=\"docaction\" href=\""+payEsc(d.pdfUrl)+"\"><span>Download invoice (PDF)</span></a>"
                    : "<p class=\"footnote\">A tax invoice is available for this payment on request.<br><a class=\"taxbtn\" href=\"https://api.whatsapp.com/send?phone=971586497861&text="+d.taxPrefill+"\">Request tax invoice</a></p>");
   } else {
+    // PAY-PAGE RULE — a standalone link that is still UNPAID has nothing to invoice
+    // yet, so show the payment CTA ONLY (no "Request tax invoice"). Invoice-born links
+    // keep their Download-invoice action unchanged. The tax-invoice request returns in
+    // the PAID receipt state (the d.paid branch above), where a payment actually exists.
     var docaction = d.isInvoice
       ? "<a class=\"docaction\" href=\""+payEsc(d.pdfUrl)+"\"><span>Download invoice (PDF)</span></a>"
-      : "<p class=\"footnote\">A tax invoice is available for this payment on request.<br><a class=\"taxbtn\" href=\"https://api.whatsapp.com/send?phone=971586497861&text="+d.taxPrefill+"\">Request tax invoice</a></p>";
+      : "";
     block = "<div class=\"action sticky\"><a class=\"paybtn\" href=\""+payEsc(d.nomodUrl)+"\">"+PAY_LOCK_SVG+"Pay "+payEsc(d.cur+" "+payMoney(d.gross))+" securely</a>"+
       "<div class=\"assure\"><span>Secured by <b>Nomod</b></span><span>Visa</span><span>Mastercard</span><span>Amex</span><span>Apple&nbsp;Pay</span><span>Google&nbsp;Pay</span></div></div>"+
       docaction;
@@ -9874,7 +9878,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260723-linkfreeze-guard2";
+const ADMIN_BUILD = "20260723-payrule";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
