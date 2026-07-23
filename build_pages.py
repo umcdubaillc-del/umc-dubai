@@ -173,6 +173,17 @@ def _compute_v():
     return h.hexdigest()[:10]
 V = _compute_v()
 OG_BASE = "https://umcdubai.ae"  # canonical production host (flipped from workers.dev for pre-cutover SEO: og:image + schema image/logo must be umcdubai.ae; resolves once DNS cuts over to this deployment)
+
+def hero_dims(hero_rel):
+    """OG-CAR: real (width, height) of a fleet hero image on disk (site/assets/fleet/<hero_rel>),
+    so og:image:width/height are accurate. Falls back to the brand-card 1200x630 if unreadable."""
+    try:
+        from PIL import Image
+        with Image.open(SITE / "assets" / "fleet" / hero_rel) as _im:
+            return _im.size
+    except Exception:
+        return (1200, 630)
+
 GTM_ID = "GTM-PNM6MRS7"
 GTM_HEAD = ("<!-- Google Tag Manager -->\n<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});"
  "var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;"
@@ -278,10 +289,13 @@ def reviewed_line():
             'font-size:.8rem;letter-spacing:.03em;margin:0 0 1.6rem">Reviewed '
             + REVIEWED_LABEL + '</p>')
 
-def head(title, desc, canon, extra=""):
+def head(title, desc, canon, extra="", og_image=None, og_w=1200, og_h=630):
     # F3 (SEO-QW): auto BreadcrumbList unless the caller supplies its own in `extra`
     # (comparison page + render_post articles inject a Journal-level crumb themselves).
     _bc = "" if (extra and "BreadcrumbList" in extra) else auto_breadcrumb(canon, title)
+    # OG-CAR: individual car pages pass their OWN hero as og_image (absolute URL) so the
+    # social/link preview shows that vehicle; every other page keeps the brand card default.
+    _ogimg = og_image if og_image else f"{OG_BASE}/assets/og-image-v3.png"
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -296,11 +310,11 @@ def head(title, desc, canon, extra=""):
 <meta property="og:site_name" content="UMC Dubai">
 <meta property="og:locale" content="en_GB">
 <meta property="og:url" content="https://umcdubai.ae/{canon}">
-<meta property="og:image" content="{OG_BASE}/assets/og-image-v3.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
+<meta property="og:image" content="{_ogimg}">
+<meta property="og:image:width" content="{og_w}">
+<meta property="og:image:height" content="{og_h}">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="{OG_BASE}/assets/og-image-v3.png">
+<meta name="twitter:image" content="{_ogimg}">
 <meta name="msvalidate.01" content="1848923491E08E0A57EBF89D946D8B19">
 <meta name="facebook-domain-verification" content="sx2v5hd4o6p3f8ve51c385hcojspbn">
 <link rel="icon" href="/favicon.ico" sizes="any">
@@ -3426,7 +3440,11 @@ sc_head = head("Mercedes S-Class Chauffeur in Dubai | UMC Dubai",
                + vehicle_service_schema("Mercedes-Benz S-Class", "https://umcdubai.ae/fleet/s-class")
                + vehicle_product_schema("Mercedes-Benz S-Class", "Mercedes-Benz",
                    OG_BASE + "/assets/fleet/s-class/card.webp",
-                   OG_BASE + "/fleet/s-class", seating=3))
+                   OG_BASE + "/fleet/s-class", seating=3),
+               # OG-CAR: S-Class social preview = its own hero (absolute URL + real dims).
+               og_image=OG_BASE + "/assets/fleet/s-class/" + SC_HERO_IMG[0],
+               og_w=hero_dims("s-class/" + SC_HERO_IMG[0])[0],
+               og_h=hero_dims("s-class/" + SC_HERO_IMG[0])[1])
 sc_head = sc_head.replace('<title>', '<base href="/">\n<title>', 1)
 (SITE/"fleet").mkdir(parents=True, exist_ok=True)
 (SITE/"fleet"/"s-class.html").write_text(sc_head + sc_body)
@@ -4191,6 +4209,11 @@ for car in FLEET_PAGES_DRAFT:
     # image = the page's own fleet card (grid cars); rolls-royce is by-request with no
     # card, so fall back to its page hero, else omit image entirely.
     _img = _CARD_IMG.get(cid) or (("/assets/fleet/" + car["hero_img"]) if car.get("hero_img") else None)
+    # OG-CAR: this car page's social preview = the car's OWN hero (absolute URL + real dims),
+    # not the brand card. Falls back to the brand default when a car has no hero_img.
+    _hero = car.get("hero_img")
+    _og_car = (OG_BASE + "/assets/fleet/" + _hero) if _hero else None
+    _ogw, _ogh = hero_dims(_hero) if _hero else (1200, 630)
     head_html = head(
         car["title_seo"],
         car["meta_seo"],
@@ -4201,7 +4224,8 @@ for car in FLEET_PAGES_DRAFT:
             info["name"], _CAR_BRAND.get(cid, info["name"]),
             (OG_BASE + _img) if _img else None,
             OG_BASE + "/" + info["page"],
-            seating=(info["pax"] if cid in _VERIFIED_SEATING else None))
+            seating=(info["pax"] if cid in _VERIFIED_SEATING else None)),
+        og_image=_og_car, og_w=_ogw, og_h=_ogh
     )
     head_html = head_html.replace('<title>', '<base href="/">\n<title>', 1)
     (SITE/"fleet").mkdir(parents=True, exist_ok=True)
@@ -5480,7 +5504,9 @@ def _assert_head_assets():
     import re as _re_head
     need_icons = ('/favicon.ico', 'sizes="48x48"', 'sizes="96x96"',
                   'sizes="192x192"', 'sizes="512x512"', 'apple-touch-icon')
-    og_re = _re_head.compile(r'<meta property="og:image" content="https://[^"]+/assets/og-image-v3\.png"')
+    # OG-CAR: every page must carry an ABSOLUTE og:image — the brand card by default, OR a
+    # car's own /assets/fleet/ hero on individual car pages. Presence is still enforced.
+    og_re = _re_head.compile(r'<meta property="og:image" content="https://[^"]+/assets/(?:og-image-v3\.png|fleet/[^"]+)"')
     pages = sorted(SITE.rglob("*.html"))
     bad_icons = [p.relative_to(SITE).as_posix() for p in pages
                  if not all(tok in p.read_text(errors="replace") for tok in need_icons)]

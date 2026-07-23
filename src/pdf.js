@@ -550,7 +550,11 @@ function fmtRate(v){
 function drawBiArrow(page, xPt, yTopPx, sizePx, color){
   const boxH = 9;                                   // path design units (tall)
   const scale = sx(sizePx)/boxH * 0.92;
-  const midPt = page.getHeight() - sx(yTopPx + sizePx*0.52);
+  // Vertical centre on the LABEL cap-height (not above it): drawText puts the text
+  // baseline at yTop+sizePx and the cap top near yTop+~0.3·sizePx, so the cap centre
+  // sits ~0.66·sizePx below yTop. Align the arrow's middle there so it reads straight
+  // between the from/to labels on either side.
+  const midPt = page.getHeight() - sx(yTopPx + sizePx*0.66);
   const topPt = midPt + (boxH*scale)/2;             // drawSvgPath anchors the top; y grows downward
   const path = "M0 2 H10 M10 2 L7 0.4 M10 2 L7 3.6 M14 7 H4 M4 7 L7 5.4 M4 7 L7 8.6";
   page.drawSvgPath(path, { x:xPt, y:topPt, scale, borderColor:color, borderWidth:Math.max(0.6, sx(sizePx)*0.1) });

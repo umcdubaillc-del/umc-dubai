@@ -4662,7 +4662,10 @@ async function handleBankDetailsPdf(env) {
   const bytes = await renderBankDetailsPdf(Object.assign({}, row, { issued: new Date().toISOString() }));
   return new Response(bytes, { headers: {
     "Content-Type": "application/pdf",
-    "Content-Disposition": 'inline; filename="UMC-Bank-Transfer-Details.pdf"',
+    // POLISH — attachment (not inline) so the browser saves with THIS name instead of a
+    // generic "pdf". The URL ends in /pdf, and inline PDF viewers name a manual save from
+    // that last path segment, ignoring an inline disposition name (see the invoice route).
+    "Content-Disposition": 'attachment; filename="UMC-Dubai-Bank-Details.pdf"',
   }});
 }
 
@@ -4851,13 +4854,16 @@ async function handleRateCardPdf(request, env) {
   // Filename: umc-rate-card[-{client-slug}][-{valid-through}].pdf — each segment
   // appears only when its field is present (fleetSlugify handles the client name).
   const clientSlug = fleetSlugify(preparedFor);
-  const fname = "umc-rate-card"
+  // POLISH — base name UMC-Dubai-B2B-Rate-Card; the RATE-2-LITE personalization suffixes
+  // (client slug + valid-through) are preserved so a personalized export stays distinct.
+  const fname = "UMC-Dubai-B2B-Rate-Card"
     + (clientSlug ? "-" + clientSlug : "")
     + (validThrough ? "-" + validThrough : "")
     + ".pdf";
   return new Response(bytes, { headers: {
     "Content-Type": "application/pdf",
-    "Content-Disposition": 'inline; filename="' + fname + '"',
+    // attachment (not inline) so it saves under the name above rather than a generic "pdf".
+    "Content-Disposition": 'attachment; filename="' + fname + '"',
   }});
 }
 
@@ -9878,7 +9884,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260723-payrule";
+const ADMIN_BUILD = "20260723-polish";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -13497,7 +13503,7 @@ const PAGE_SCRIPT = `<script>
         .then(function(j){ saveBtn.disabled = false; st(j && j.ok ? "Saved." : ("Save failed: " + ((j && j.error) || ""))); if(j && j.ok && typeof showToast === "function") showToast("Bank details saved."); })
         .catch(function(e){ saveBtn.disabled = false; st("Save failed — " + (e.message || e)); });
     });
-    if(pdfBtn) pdfBtn.addEventListener("click", function(){ window.open("/admin/api/bank-details/pdf", "_blank", "noopener"); });
+    if(pdfBtn) pdfBtn.addEventListener("click", function(){ var a=document.createElement("a"); a.href="/admin/api/bank-details/pdf"; a.download=""; document.body.appendChild(a); a.click(); a.remove(); });
   }
 
   // ── Section B — B2B Rate Card editor ───────────────────────────────────────
@@ -13655,7 +13661,7 @@ const PAGE_SCRIPT = `<script>
         warn.hidden = false;
       } else { warn.hidden = true; }
     }
-    rcSetStatus("Exported — review the PDF opened in the new tab.");
+    rcSetStatus("Exported — the rate card PDF is downloading.");
     var vf = rcState.valid_from || "";
     var pf = (($("rcPreparedFor") && $("rcPreparedFor").value) || "").trim();
     var vt = (($("rcValidThrough") && $("rcValidThrough").value) || "").trim();
@@ -13664,7 +13670,7 @@ const PAGE_SCRIPT = `<script>
     if(pf){ params.push("prepared_for=" + encodeURIComponent(pf)); }
     if(vt){ params.push("valid_through=" + encodeURIComponent(vt)); }
     var url = "/admin/api/rate-card/pdf" + (params.length ? ("?" + params.join("&")) : "");
-    window.open(url, "_blank", "noopener");
+    var a=document.createElement("a"); a.href=url; a.download=""; document.body.appendChild(a); a.click(); a.remove();
   }
 
   // ── Section C — Fleet prices (live car-card rates) ─────────────────────────
