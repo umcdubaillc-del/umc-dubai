@@ -9874,7 +9874,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260722-linkfix";
+const ADMIN_BUILD = "20260723-linkfreeze-guard";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -15967,8 +15967,16 @@ const PAGE_SCRIPT = `<script>
       const mk = e.target.closest("[data-lkmakeinv]");
       if(mk){
         e.preventDefault(); e.stopPropagation();
-        const link = lastLinksById[mk.getAttribute("data-lkmakeinv")];
-        if(link) prefillFromLink(link);
+        // Hardening (freeze-proofing): contain ANY error building the editor from a
+        // link so a malformed / synthetic row shape can never propagate uncaught and
+        // leave the UI half-open or unresponsive — surface it, never strand it.
+        try {
+          const link = lastLinksById[mk.getAttribute("data-lkmakeinv")];
+          if(link) prefillFromLink(link);
+          else if(typeof showToast === "function") showToast("That link is no longer listed — refresh and try again.", true);
+        } catch(err){
+          if(typeof showToast === "function") showToast("Couldn’t open the editor from that link — " + ((err && (err.message || err)) || "error"), true);
+        }
         return;
       }
       // Fix 8: paid Nomod sale, server-side create of a pre-paid invoice.
@@ -16434,7 +16442,9 @@ const PAGE_SCRIPT = `<script>
         }
       } catch(_){}
     }
-    if(!row){ setLkStatus("Invoice " + num + " not found."); return; }
+    // Scope-safe: setLkStatus lives in the links (bindForm) closure and is NOT
+    // visible from this editor-scope helper — a bare call threw ReferenceError.
+    if(!row){ var _nf = "Invoice " + num + " not found."; if(typeof setLkStatus === "function") setLkStatus(_nf); else if(typeof setStatus === "function") setStatus(_nf); return; }
     if(typeof loadDoc === "function") loadDoc(row.id);
   }
 
@@ -16499,7 +16509,12 @@ const PAGE_SCRIPT = `<script>
     updateLeadRevertButton();
     // v101: editor moves into the modal regardless of seed source.
     openEditorModal("New invoice from link #" + link.id);
-    setLkStatus("Editor prefilled from link #" + link.id + ". Save to attach this link to the new invoice.");
+    // Scope-safe: setLkStatus is defined in the links (bindForm) closure and is
+    // NOT visible here — prefillFromLink runs in the editor scope. The bare call
+    // threw ReferenceError at this tail, so the status never updated. Route the
+    // feedback to the editor's own status line, guarded.
+    var _pfMsg = "Editor prefilled from link #" + link.id + ". Save to attach this link to the new invoice.";
+    if(typeof setStatus === "function") setStatus(_pfMsg); else if(typeof setLkStatus === "function") setLkStatus(_pfMsg);
   }
 
   // v86 — institutional confirm modal for any link generation (standalone
