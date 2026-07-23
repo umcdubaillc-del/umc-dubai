@@ -9874,7 +9874,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260723-linkfreeze-guard";
+const ADMIN_BUILD = "20260723-linkfreeze-guard2";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -13156,6 +13156,15 @@ const PAGE_SCRIPT = `<script>
   // here for the same reason as loadLinks: bindForm closes around the
   // populating code, but the reader is IIFE-scope.
   let lastLinksById = {};
+  // FREEZE FIX (2026-07-23): setLkStatus was ONLY defined inside bindForm(), but the
+  // delegated links handler (bindLinksClickOnce) plus prefillFromLink/openInvoiceByNumber
+  // run at IIFE scope and could NOT see it — a bare call threw ReferenceError. In the
+  // PAID create-from-link handler that throw landed BETWEEN setting the button to
+  // "Creating …" and arming the fetch + watchdog, so the button stranded on "Creating …"
+  // forever with NO POST and no way to recover (the reported "freeze"). Defining it at
+  // IIFE scope makes every call site resolve; the inner bindForm copy still shadows
+  // within bindForm (identical behaviour), so nothing else changes.
+  function setLkStatus(s){ var el = document.getElementById("lkStatus"); if(el) el.textContent = s; }
   // W3 — IIFE-scope so both loadLinks (fetch) and bindLinksClickOnce (toggle) share it.
   let showArchivedLinks = false;
 
@@ -16013,7 +16022,11 @@ const PAGE_SCRIPT = `<script>
         }
         mkp.disabled = true;
         mkp.textContent = "Creating …";
-        setLkStatus("Creating invoice from link …");
+        // Hardening: this status line sits BETWEEN "Creating …" and arming the
+        // fetch + watchdog. A throw here (the setLkStatus scope bug) stranded the
+        // button on "Creating …" forever with no POST. Guarded so nothing in this
+        // pre-fetch window can ever again abort before the watchdog is armed.
+        try { setLkStatus("Creating invoice from link …"); } catch(_){}
         const watchdog = setTimeout(function(){ fail("timed out, please try again"); }, 20000);
         fetch("/admin/api/links/" + lkId + "/create-invoice", { method: "POST" })
           .then(function(r){

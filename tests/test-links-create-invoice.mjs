@@ -73,6 +73,25 @@ console.log("Source guards — scope-safe status + error containment (src/admin.
   check("data-lkmakeinv handler surfaces a toast on failure (never silent/stuck)",
     /catch\(err\)\{[\s\S]*showToast/.test(mkBlock));
 
+  // CONFIRMED PROD SYMPTOM: the PAID create-from-link handler set the button to
+  // "Creating …" then called setLkStatus BEFORE arming the fetch + watchdog. That
+  // call threw (setLkStatus out of scope in the IIFE-scope bindLinksClickOnce), so
+  // the fetch never fired and the watchdog never armed → button stuck on "Creating …"
+  // forever, no POST. Root fix: setLkStatus is now ALSO defined at IIFE scope so every
+  // call site resolves; plus the pre-fetch status call is try/guarded.
+  check("setLkStatus is defined at IIFE scope (resolvable from bindLinksClickOnce)",
+    /\n  function setLkStatus\(s\)\{ var el = document\.getElementById\("lkStatus"\); if\(el\) el\.textContent = s; \}/.test(src));
+  {
+    // In the paid handler, the "Creating …" status call must be throw-guarded so it
+    // can never again abort between the button state and the fetch/watchdog.
+    const paidIdx = src.indexOf('mkp.textContent = "Creating …";');
+    const paidBlock = paidIdx >= 0 ? src.slice(paidIdx, paidIdx + 900) : "";
+    check("paid create handler guards the pre-fetch status call (try/catch)",
+      /try \{ setLkStatus\("Creating invoice from link …"\); \} catch\(_\)\{\}/.test(paidBlock));
+    check("paid handler still arms the watchdog + fetch after the guarded status",
+      /watchdog = setTimeout[\s\S]*fetch\("\/admin\/api\/links\/"/.test(paidBlock));
+  }
+
   // Structural freeze-proofing: there are NO while/do loops in the whole bundle, so
   // the client convert path has no loop construct that any data shape could hang.
   check("no while(...) loops anywhere in src/admin.js (client convert path cannot hang on a loop)",
