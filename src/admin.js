@@ -2929,6 +2929,36 @@ async function handleCreateInvoiceFromPaidLink(linkId, env) {
   return json({ ok: true, id: newId, number, link_id: linkId });
 }
 
+// Shared AUTO-INVOICE trigger: for a link that has JUST become paid, auto-create its invoice
+// if it is a STANDALONE link (no invoice yet) that is not test / excluded / partial — via the
+// same machinery as the manual "Create invoice from link". Idempotent (the machinery 409s an
+// already-attached link; the payment_status + invoice_number guards make repeat calls no-ops).
+// Called from EVERY new unpaid→paid transition — the Nomod webhook AND the polling reconcile —
+// so a standalone link auto-invoices regardless of which mechanism settles it. Callers gate on
+// a GENUINE new transition (webhook !wasAlreadyPaid / reconcile newlyPaid), so historical paid
+// rows are never retroactively invoiced. Best-effort: never throws to the caller.
+async function maybeAutoInvoiceStandalone(env, nomodLinkId) {
+  try {
+    if (!nomodLinkId) return null;
+    const lk = await env.BILLING_DB.prepare(
+      `SELECT id, COALESCE(invoice_number,'') AS invoice_number, LOWER(COALESCE(payment_status,'')) AS payment_status,
+              COALESCE(is_test,0) AS is_test, COALESCE(excluded,0) AS excluded, COALESCE(is_partial,0) AS is_partial
+         FROM payment_links WHERE nomod_link_id = ? LIMIT 1`
+    ).bind(nomodLinkId).first();
+    if (!lk) return null;
+    if (lk.payment_status !== "paid") return null;               // not settled
+    if (String(lk.invoice_number).trim()) return null;           // not standalone / already invoiced
+    if (Number(lk.is_test) === 1 || Number(lk.excluded) === 1 || Number(lk.is_partial) === 1) return null; // skip set
+    const resp = await handleCreateInvoiceFromPaidLink(lk.id, env);
+    let j = null; try { j = await resp.json(); } catch (_) {}
+    if (j && j.ok) {
+      console.log("AUTO-INVOICE (paid standalone link " + lk.id + " → " + j.number + ")");
+      await logEvent(env, "payment_link", lk.id, "auto_invoice", "system", { invoice: j.number });
+    }
+    return j;
+  } catch (e) { console.error("maybeAutoInvoiceStandalone failed", e && (e.message || String(e))); return null; }
+}
+
 // v86 — invoices with no payment link yet, used by the link-attach picker.
 async function handleListUnlinkedInvoices(env) {
   await ensureSchema(env);
@@ -3168,6 +3198,14 @@ async function reconcilePaymentStatus(env, record, table) {
     } catch (e) {
       console.error("cross-table stamp failed", e && (e.message || String(e)));
     }
+  }
+  // AUTO-INVOICE (polling parity with the webhook): a link the poller JUST promoted to paid
+  // auto-invoices when it is a standalone link with no invoice yet. `newlyPaid` gates this to a
+  // real unpaid→paid transition, so historical paid rows are never retroactively invoiced. The
+  // bulk historical Sync-Nomod import is deliberately NOT hooked (it would invoice old sales);
+  // the nightly paid_standalone_link_no_invoice sweep + manual button cover that tail.
+  if (newlyPaid && record.nomod_link_id) {
+    try { await maybeAutoInvoiceStandalone(env, record.nomod_link_id); } catch (_) {}
   }
   return { id: record.id, status: m.status, newlyPaid, chargeId: m.chargeId };
 }
@@ -4003,20 +4041,8 @@ async function handleNomodWebhook(request, env) {
       // first-settlement only (a Svix retry has wasAlreadyPaid=true) AND
       // handleCreateInvoiceFromPaidLink refuses a link that already carries an invoice_number.
       // Skips test, excluded-from-revenue, and partial-payment links per the rule.
-      try {
-        const stdLink = await env.BILLING_DB.prepare(
-          `SELECT id, COALESCE(invoice_number,'') AS invoice_number, COALESCE(is_test,0) AS is_test,
-                  COALESCE(excluded,0) AS excluded, COALESCE(is_partial,0) AS is_partial
-             FROM payment_links WHERE nomod_link_id = ? LIMIT 1`
-        ).bind(linkId).first();
-        if (stdLink && !String(stdLink.invoice_number).trim()
-            && Number(stdLink.is_test) !== 1 && Number(stdLink.excluded) !== 1 && Number(stdLink.is_partial) !== 1) {
-          const air = await handleCreateInvoiceFromPaidLink(stdLink.id, env);
-          let aj = null; try { aj = await air.json(); } catch (_) {}
-          console.log("AUTO-INVOICE (paid standalone link " + stdLink.id + "): " + (aj ? JSON.stringify(aj).slice(0, 160) : "no-json"));
-          await logEvent(env, "payment_link", stdLink.id, "auto_invoice", "webhook", { invoice: aj && aj.number, ok: !!(aj && aj.ok) });
-        }
-      } catch (e) { console.error("AUTO-INVOICE on paid webhook failed", e && (e.message || String(e))); }
+      try { await maybeAutoInvoiceStandalone(env, linkId); }
+      catch (e) { console.error("AUTO-INVOICE on paid webhook failed", e && (e.message || String(e))); }
       try {
         const lk = await env.BILLING_DB.prepare(
           `SELECT title, invoice_number, client_name, amount, currency FROM payment_links WHERE nomod_link_id = ? LIMIT 1`
@@ -9957,7 +9983,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260723-linksdocs";
+const ADMIN_BUILD = "20260723-autoinv-poll";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;

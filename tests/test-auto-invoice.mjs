@@ -38,13 +38,19 @@ check("not paid → skip",
 console.log("Source guards (src/admin.js):");
 {
   const src = readFileSync(new URL("../src/admin.js", import.meta.url), "utf8");
-  // webhook: auto-invoice runs in the first-settlement block, via the shared machinery.
-  check("webhook auto-invoice is gated to first settlement (!wasAlreadyPaid)",
-    /if \(!wasAlreadyPaid\) \{[\s\S]*handleCreateInvoiceFromPaidLink\(stdLink\.id, env\)/.test(src));
-  check("webhook skips test / excluded / partial standalone links",
-    src.includes("Number(stdLink.is_test) !== 1 && Number(stdLink.excluded) !== 1 && Number(stdLink.is_partial) !== 1"));
-  check("webhook only auto-invoices links with NO invoice_number (standalone)",
-    src.includes("!String(stdLink.invoice_number).trim()"));
+  // SHARED helper enforces the skip set (paid + standalone + not test/excluded/partial).
+  check("shared maybeAutoInvoiceStandalone helper exists",
+    src.includes("async function maybeAutoInvoiceStandalone(env, nomodLinkId)"));
+  check("helper skips non-paid, invoice-born, and test/excluded/partial links",
+    src.includes('if (lk.payment_status !== "paid") return null;') &&
+    src.includes("if (String(lk.invoice_number).trim()) return null;") &&
+    src.includes("Number(lk.is_test) === 1 || Number(lk.excluded) === 1 || Number(lk.is_partial) === 1"));
+  // WEBHOOK path: gated to first settlement, delegates to the shared helper.
+  check("webhook calls the helper inside the first-settlement block (!wasAlreadyPaid)",
+    /if \(!wasAlreadyPaid\) \{[\s\S]*maybeAutoInvoiceStandalone\(env, linkId\)/.test(src));
+  // POLLING path parity: reconcile fires the helper ONLY on a genuine new transition.
+  check("reconcile path fires the helper gated on newlyPaid (no retroactive legacy invoicing)",
+    /if \(newlyPaid && record\.nomod_link_id\) \{[\s\S]*maybeAutoInvoiceStandalone\(env, record\.nomod_link_id\)/.test(src));
   // machinery idempotency backstop: refuses a link that already carries an invoice.
   check("handleCreateInvoiceFromPaidLink refuses an already-attached link (409)",
     /if \(link\.invoice_number\) \{[\s\S]*already attached/.test(src));
