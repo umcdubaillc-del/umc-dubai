@@ -1466,6 +1466,19 @@ async function handleVoid(id, request, env) {
   await env.BILLING_DB.prepare(
     "UPDATE billing_documents SET voided_at = ?, voided_reason = ? WHERE id = ?"
   ).bind(now, reason, id).run();
+  // MONEY-CORRECTNESS (void-link rule): a voided invoice must STOP being payable in the
+  // same action. Soft-archive every payment_links row bound to this invoice number
+  // (nothing is deleted — a Nomod-synced charge stays on record); this drops the link
+  // from the Links tab AND makes /pay return its not-active state. COALESCE keeps any
+  // existing archived_at. Only invoices carry payable links. Fail-open: a link-archive
+  // error must never undo the void (the /pay void-check below is the enforcement backstop).
+  if (String(doc.doc_type) === "invoice") {
+    try {
+      await env.BILLING_DB.prepare(
+        "UPDATE payment_links SET archived_at = COALESCE(archived_at, ?) WHERE invoice_number = ?"
+      ).bind(now, String(doc.number)).run();
+    } catch (e) { console.error("VOID link-archive failed", e && (e.message || String(e))); }
+  }
   // Release this document's own linkage (typed slots + legacy pointer + job) via the
   // shared helper. A lead falls back to 'new' so it can be re-quoted; a lead linked
   // to a DIFFERENT document keeps its linkage.
@@ -1565,6 +1578,13 @@ export async function runIntegritySweep(env){
   findings.invoice_link_not_indexed = await ids(
     "SELECT b.id FROM billing_documents b WHERE b.nomod_link_url IS NOT NULL AND b.nomod_link_url <> '' " +
     "AND NOT EXISTS (SELECT 1 FROM payment_links p WHERE p.invoice_number = b.number) LIMIT 100");
+  // MONEY-CORRECTNESS (void-link rule) — belt to the braces: any STILL-PAYABLE link
+  // (archived_at IS NULL) whose invoice has been VOIDED. handleVoid soft-archives these
+  // in the same action, so a persistent non-zero count means that auto-archive is failing
+  // (the /pay void-check still blocks payment, but the row should not linger active).
+  findings.payable_link_on_voided_invoice = await ids(
+    "SELECT p.invoice_number AS id FROM payment_links p JOIN billing_documents b ON b.number = p.invoice_number " +
+    "WHERE p.archived_at IS NULL AND b.voided_at IS NOT NULL LIMIT 100");
   const summary = {};
   let total = 0;
   for (const k of Object.keys(findings)) { const v = findings[k]; const n = Array.isArray(v) ? v.length : 0; summary[k] = n; total += n; }
@@ -3616,8 +3636,12 @@ function payPageHtml(d){
       (d.paid.chargeRef?"<div class=\"rrow\"><span class=\"k\">Charge Ref</span><span class=\"v\">"+payEsc(d.paid.chargeRef)+"</span></div>":"");
     block = "<div class=\"status\"><span class=\"badge\"><span class=\"chk\">"+PAY_CHECK_SVG+"</span>Paid</span></div>"+
       "<section class=\"card receipt\">"+rrows+"</section>"+
-      (d.isInvoice ? "<a class=\"docaction\" href=\""+payEsc(d.pdfUrl)+"\"><span>Download invoice (PDF)</span></a>"
-                   : "<p class=\"footnote\">A tax invoice is available for this payment on request.<br><a class=\"taxbtn\" href=\"https://api.whatsapp.com/send?phone=971586497861&text="+d.taxPrefill+"\">Request tax invoice</a></p>");
+      // void-link rule: a paid-then-VOIDED invoice keeps its receipt (the payment happened)
+      // but drops the invoice download — the invoice no longer exists, so no active-invoice
+      // implication. Standalone paid links keep the tax-invoice request.
+      (d.voided ? ""
+        : (d.isInvoice ? "<a class=\"docaction\" href=\""+payEsc(d.pdfUrl)+"\"><span>Download invoice (PDF)</span></a>"
+                   : "<p class=\"footnote\">A tax invoice is available for this payment on request.<br><a class=\"taxbtn\" href=\"https://api.whatsapp.com/send?phone=971586497861&text="+d.taxPrefill+"\">Request tax invoice</a></p>"));
   } else {
     // PAY-PAGE RULE — a standalone link that is still UNPAID has nothing to invoice
     // yet, so show the payment CTA ONLY (no "Request tax invoice"). Invoice-born links
@@ -3647,7 +3671,19 @@ export async function handlePayPage(env, token){
   // W2 — ARCHIVED (owner soft-archived) and EXPIRED (expiry_date passed, still unpaid) states:
   // a notice with the concierge line, NO pay button. A PAID link always shows its receipt below.
   var paidNow = String(link.payment_status||"").toLowerCase() === "paid";
-  if(link.archived_at){
+  // MONEY-CORRECTNESS (void-link rule): if this link is bound to an invoice that has been
+  // VOIDED, it is no longer payable — enforce HERE even if the payment_links row was not
+  // archived (backstop to the void handler's soft-archive). A voided+UNPAID link shows the
+  // not-active state (same 410 as archived); a voided+PAID link may still show its receipt
+  // below (the payment happened) but with NO pay CTA and NO invoice download (see payPageHtml).
+  var invoiceVoided = false;
+  if(link.invoice_number && String(link.invoice_number).trim()){
+    try {
+      var _vr = await env.BILLING_DB.prepare("SELECT voided_at FROM billing_documents WHERE number = ? LIMIT 1").bind(String(link.invoice_number).trim()).first();
+      invoiceVoided = !!(_vr && _vr.voided_at);
+    } catch(e){}
+  }
+  if(link.archived_at || (invoiceVoided && !paidNow)){
     return payResponse(payStateNotice("This payment link is no longer active.", "Please contact our concierge if you still need to complete this payment."), 410);
   }
   if(!paidNow && link.expiry_date){
@@ -3750,7 +3786,8 @@ export async function handlePayPage(env, token){
     clientName: clientName, hero: String(hero||"").split("\n")[0].trim(), note: note, journey: journey,
     cur: cur, isAED: isAED, items: items, subtotal: subtotal, vat: vat, gross: gross, discount: discountAmt,
     isInvoice: isInvoice, paid: paid, nomodUrl: link.nomod_link_url || "https://umcdubai.ae", pdfUrl: pdfUrl, taxPrefill: taxPrefill,
-    expiryStr: expiryStr, pageTitle: pageTitle, ogTitle: ogTitle
+    expiryStr: expiryStr, pageTitle: pageTitle, ogTitle: ogTitle,
+    voided: invoiceVoided   // void-link rule: paid+voided shows the receipt but NO invoice download / no pay CTA
   }));
 }
 // PAY-PAGE — token-gated public invoice PDF (Shape A only). Reuses renderInvoicePdf; attachment.
@@ -3763,6 +3800,9 @@ export async function handlePayInvoicePdf(env, token){
   if(!link || !link.invoice_number) return json({ ok:false, error:"not found" }, 404);
   var row = await env.BILLING_DB.prepare("SELECT * FROM billing_documents WHERE number = ? LIMIT 1").bind(String(link.invoice_number)).first();
   if(!row) return json({ ok:false, error:"not found" }, 404);
+  // void-link rule: a VOIDED invoice has no downloadable document — refuse the token-gated
+  // PDF too (the pay page already hides the download; this closes the direct-URL path).
+  if(row.voided_at) return payResponse(payStateNotice("This invoice is no longer available.", "Please contact our concierge if you need assistance."), 410);
   try { row.line_items = JSON.parse(row.line_items||"[]"); } catch(e){ row.line_items = []; }
   var mod = await import("./pdf.js");
   var bytes = await mod.renderInvoicePdf(row);
@@ -9884,7 +9924,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260723-polish";
+const ADMIN_BUILD = "20260723-voidlink";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;

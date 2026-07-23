@@ -114,14 +114,25 @@ function P(page){
   };
 }
 
-let _fonts = null;
+// Decode the (large, static) base64 font files ONCE per isolate. Every PDF render otherwise
+// re-decodes ~246KB of base64; under rapid succession that redundant work contributes to
+// "Worker exceeded resource limits" 503s. embedFont still runs per-document (a PDFFont is
+// document-bound and cannot be shared), but the decode no longer repeats. pdf-lib reads the
+// bytes without mutating them, so a shared cache is safe.
+let _fontBytes = null;
+function fontBytes(){
+  return _fontBytes || (_fontBytes = {
+    marcellus: b(MARCELLUS_400), outfit: b(OUTFIT_400), outfitMed: b(OUTFIT_500), mono: b(MONO_400),
+  });
+}
 async function loadFonts(pdf){
   pdf.registerFontkit(fontkit);
+  const fb = fontBytes();
   return {
-    marcellus: await pdf.embedFont(b(MARCELLUS_400)),
-    outfit:    await pdf.embedFont(b(OUTFIT_400)),
-    outfitMed: await pdf.embedFont(b(OUTFIT_500)),
-    mono:      await pdf.embedFont(b(MONO_400)), // suite data voice (IBM Plex Mono)
+    marcellus: await pdf.embedFont(fb.marcellus),
+    outfit:    await pdf.embedFont(fb.outfit),
+    outfitMed: await pdf.embedFont(fb.outfitMed),
+    mono:      await pdf.embedFont(fb.mono), // suite data voice (IBM Plex Mono)
   };
 }
 
