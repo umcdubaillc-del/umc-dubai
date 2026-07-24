@@ -1608,6 +1608,14 @@ export async function runIntegritySweep(env){
   // the owner can retro-bill via the manual button, but never blocks a clean sweep.
   const legacyUnbilled = await ids(
     "SELECT id " + _stdBase + " AND (paid_at IS NULL OR paid_at < '" + AUTO_INVOICE_GOLIVE + "') LIMIT 500");
+  // CURRENCY-FX — a non-AED row whose foreign amount equals its AED figure is impossible
+  // (that would mean a 1.0 exchange rate). It is the exact signature of the Sync-Nomod
+  // mismap (computeAmountAed echoing the foreign total as AED). Counts as a real issue so
+  // any future import regression surfaces the same night. Skips test rows and tombstones.
+  findings.foreign_amount_equals_aed = await ids(
+    "SELECT id FROM payment_links WHERE UPPER(COALESCE(currency,'AED')) <> 'AED' " +
+    "AND amount IS NOT NULL AND amount_aed IS NOT NULL AND ROUND(amount,2) = ROUND(amount_aed,2) " +
+    "AND COALESCE(is_test,0)=0 AND deleted_at IS NULL LIMIT 100");
   const summary = {};
   let total = 0;
   for (const k of Object.keys(findings)) { const v = findings[k]; const n = Array.isArray(v) ? v.length : 0; summary[k] = n; total += n; }
@@ -3153,15 +3161,34 @@ const PAID_CHARGE_STATUSES = new Set([
 // c.total is the CARD-currency amount; the AED gross is c.original_total
 // (original_currency='AED'), or c.total × c.dcc_exchange_rate when settlement
 // is AED. GROSS, never net. Any NaN collapses to null (caller leaves it unset).
-function computeAmountAed(c) {
+export function computeAmountAed(c) {
   if (!c) return null;
   const round2 = (x) => Math.round(x * 100) / 100;
+  const num = (v) => (v === null || v === undefined || v === "" ? NaN : Number(v));
   const cur = String(c.currency || "AED").toUpperCase();
-  if (cur === "AED") { const v = round2(Number(c.total)); return isNaN(v) ? null : v; }
+  if (cur === "AED") { const v = round2(num(c.total)); return isNaN(v) ? null : v; }
+  // DCC-to-AED: the base link was AED, so original_total IS the exact AED gross.
   const oc = String(c.original_currency || "").toUpperCase();
-  if (oc === "AED" && c.original_total != null) { const v = round2(Number(c.original_total)); return isNaN(v) ? null : v; }
+  if (oc === "AED" && c.original_total != null) { const v = round2(num(c.original_total)); return isNaN(v) ? null : v; }
   const sc = String(c.settlement_currency || "").toUpperCase();
-  if (sc === "AED" && c.dcc_exchange_rate && c.total != null) { const v = round2(Number(c.total) * Number(c.dcc_exchange_rate)); return isNaN(v) ? null : v; }
+  if (sc === "AED") {
+    // CURRENCY-FX FIX — a foreign card settling to AED where the original amount is
+    // ALSO foreign (no AED total anywhere in the payload). The AED gross the business
+    // received = net + fee (both reported in AED on a captured charge). This equals
+    // original_total on the DCC-to-AED case too (629.362 + 20.638 = 650.000), so it is
+    // the universal, exact source. The OLD `total × dcc_exchange_rate` multiplied a
+    // FOREIGN total by a rate that is the 1.0 sentinel on NON-DCC charges → it echoed
+    // the foreign number mislabelled as AED (e.g. GBP 900 → "AED 900" instead of the
+    // real ~AED 4455.73). That was the six-row amount==amount_aed corruption.
+    const net = num(c.net), fee = num(c.fee);
+    if (!isNaN(net) && !isNaN(fee)) { const v = round2(net + fee); return isNaN(v) ? null : v; }
+    // DCC fallback ONLY when a genuine conversion happened (real intent or a non-1.0
+    // rate): total is then the customer's DCC-currency amount and × rate = AED.
+    const rate = num(c.dcc_exchange_rate);
+    if (!isNaN(rate) && rate > 0 && (c.dcc_intent != null || rate !== 1)) {
+      const v = round2(num(c.total) * rate); return isNaN(v) ? null : v;
+    }
+  }
   return null;
 }
 
@@ -5044,6 +5071,54 @@ async function handleRateCardPdf(request, env) {
   }});
 }
 
+// CURRENCY-FX REPAIR — re-pull the true amounts for the mismapped foreign rows and
+// correct (amount, currency, amount_aed) from Nomod truth. TARGETED: only rows whose
+// signature is non-AED currency AND amount == amount_aed (the impossible-rate-1.0
+// corruption). DRY-RUN by default: reads Nomod (existing sync creds) and returns a
+// before/after diff WITHOUT writing; pass {"apply":true} to persist. Sales impact =
+// Σ(after.amount_aed − before.amount_aed), since the ledger sums amount_aed.
+async function handleRepairFxAmounts(request, env) {
+  await ensureSchema(env);
+  let body = {}; try { body = await request.json(); } catch (e) { /* default dry-run */ }
+  const apply = body && body.apply === true;
+  const flagged = (await env.BILLING_DB.prepare(
+    "SELECT id, nomod_link_id, title, client_name, amount, currency, amount_aed FROM payment_links " +
+    "WHERE UPPER(COALESCE(currency,'AED')) <> 'AED' AND amount IS NOT NULL AND amount_aed IS NOT NULL " +
+    "AND ROUND(amount,2) = ROUND(amount_aed,2) AND COALESCE(is_test,0)=0 AND deleted_at IS NULL " +
+    "ORDER BY id"
+  ).all()).results || [];
+  const round2 = (x) => Math.round(Number(x) * 100) / 100;
+  const rows = [];
+  let salesDeltaAed = 0, repaired = 0, unresolved = 0;
+  for (const r of flagged) {
+    const before = { amount: Number(r.amount), currency: r.currency, amount_aed: Number(r.amount_aed) };
+    const entry = { id: r.id, ref: "UMC-PL-" + String(r.id).padStart(4, "0"), client: r.client_name || r.title || null, before, after: null, note: null };
+    if (!r.nomod_link_id) { entry.note = "no nomod_link_id — cannot re-pull"; unresolved++; rows.push(entry); continue; }
+    const cr = await nomodListChargesByLink(env, r.nomod_link_id);
+    if (!cr.ok) { entry.note = "Nomod re-pull failed: " + (cr.error || cr.status); unresolved++; rows.push(entry); continue; }
+    const list = (cr.data && (cr.data.results || cr.data.data)) || (Array.isArray(cr.data) ? cr.data : []);
+    const paid = list.find((x) => PAID_CHARGE_STATUSES.has(String((x && (x.status || x.state)) || "").toLowerCase()));
+    if (!paid) { entry.note = "no paid charge found on re-pull"; unresolved++; rows.push(entry); continue; }
+    const newAmount = round2(paid.total);
+    const newCurrency = String(paid.currency || r.currency).toUpperCase();
+    const newAed = computeAmountAed(paid);
+    if (newAed == null || !isFinite(newAmount)) { entry.note = "could not derive AED gross from charge (net/fee absent?)"; unresolved++; rows.push(entry); continue; }
+    entry.after = { amount: newAmount, currency: newCurrency, amount_aed: round2(newAed) };
+    entry.charge_id = paid.id || null;
+    salesDeltaAed = round2(salesDeltaAed + (round2(newAed) - before.amount_aed));
+    if (apply) {
+      await env.BILLING_DB.prepare(
+        "UPDATE payment_links SET amount = ?, currency = ?, amount_aed = ? WHERE id = ?"
+      ).bind(newAmount, newCurrency, round2(newAed), r.id).run();
+      await logEvent(env, "payment_link", r.id, "fx_repair", "admin", { before, after: entry.after, charge: entry.charge_id });
+      repaired++;
+    }
+    rows.push(entry);
+  }
+  return json({ ok: true, apply, scanned: flagged.length, repaired: apply ? repaired : 0,
+    resolvable: rows.filter(x => x.after).length, unresolved, sales_impact_aed: round2(salesDeltaAed), rows });
+}
+
 async function handleSyncNomod(request, env) {
   await ensureSchema(env);
   let body = {};
@@ -5599,7 +5674,7 @@ async function handleCustomersCsv(env) {
             MIN(paid_at) AS first_purchase,
             MAX(paid_at) AS last_purchase,
             COUNT(*) AS orders,
-            SUM(amount) AS total_spent
+            SUM(COALESCE(amount_aed, amount)) AS total_spent
        FROM payment_links
       WHERE client_email IS NOT NULL
         AND client_email <> ''
@@ -10030,6 +10105,9 @@ export async function handleAdmin(request, env) {
     if (!env.BILLING_DB) return dbUnavailable();
     if (path === "/admin/api/payments" && method === "GET") return handleListPayments(env);
     if (path === "/admin/api/payments/reconcile" && method === "POST") return handleReconcilePayments(env);
+    // CURRENCY-FX — GET previews the before/after diff (read-only, visitable in-browser);
+    // POST {"apply":true} persists the corrections. Both re-pull with the existing sync creds.
+    if (path === "/admin/api/payments/repair-fx" && (method === "GET" || method === "POST")) return handleRepairFxAmounts(request, env);
     const ipm = path.match(/^\/admin\/api\/payments\/inspect\/(\d+)$/);
     if (ipm && method === "GET") return handleInspectPayment(parseInt(ipm[1], 10), env);
     // Phase 1.3 — toggle revenue exclusion on a payment_links row.
@@ -10062,7 +10140,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260723-deletelink2";
+const ADMIN_BUILD = "20260724-fxcurrency";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -12921,11 +12999,17 @@ const PAGE_SCRIPT = `<script>
           //     net, some gross) — the cause of the "net labelled incl. VAT" bug.
           // Zero double-VAT: workspace is multiplied once; nomod is never multiplied.
           const isWorkspaceRow = String(x.origin || "") === "workspace";
+          const isForeignRow = String(x.currency || "AED").toUpperCase() !== "AED";
           const aedGross = (x.amount_aed != null && x.amount_aed !== "" && isFinite(Number(x.amount_aed)))
             ? Number(x.amount_aed) : null;
+          // CURRENCY-FX FIX — a foreign row's PRIMARY figure is its own original amount in
+          // its own currency (GBP 142.71), NOT the AED settlement labelled with the foreign
+          // code (the "GBP 650" mislabel). The AED settlement rides in aedSuffix → "(AED 650.00)".
+          // AED-native + workspace rows are unchanged (workspace stores NET → gross ×1.05).
           const dispAmount = isWorkspaceRow
             ? Math.round(Number(x.amount) * 1.05 * 100) / 100
-            : (aedGross != null ? aedGross : Number(x.amount));
+            : (isForeignRow ? Number(x.amount)
+                            : (aedGross != null ? aedGross : Number(x.amount)));
           const vatHint = ' <span style="color:var(--muted);font-size:11px">incl. VAT</span>';
           // Item 3 — on the MOBILE row card the whole Client cell (incl. the invTag
           // pill) is collapsed by the "Decision 2" grid (td[data-lbl="Client"] > * →
