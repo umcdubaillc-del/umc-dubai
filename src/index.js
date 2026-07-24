@@ -2,8 +2,8 @@
 
 import {
   handleAdmin, handleFleetRatesPublic, isAuthed,
-  sendLeadAlerts, sendInboundAlert, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runLeadWatchdog, runFlightWatch,
-  createWaLink, handleWaRedirect, composeQuoteText, runQuoteNudge, runOpsDigest, runUnassignedJobWatch, runInboundWatch,
+  sendLeadAlerts, waQuoteUrl, applyWaOutboundStatuses, waMeNumber, runFlightWatch,
+  createWaLink, handleWaRedirect, composeQuoteText, runOpsDigest, runUnassignedJobWatch,
   handleAssistant, handleAssistantInbound, waSendingNumber,
   handlePayPage, handlePayInvoicePdf, runIntegritySweep
 } from "./admin.js";
@@ -184,6 +184,7 @@ export default {
         url.pathname === "/admin/api/wa-team" ||
         url.pathname.startsWith("/admin/api/wa-team/") ||
         url.pathname === "/admin/api/wa-template-status" ||
+        url.pathname === "/admin/api/flight-check" ||
         url.pathname.startsWith("/admin/api/drivers") ||
         url.pathname.startsWith("/admin/api/vehicles") ||
         url.pathname.startsWith("/admin/api/jobs") ||
@@ -234,11 +235,11 @@ export default {
     } else if (event.cron === "30 4 * * *") {
       ctx.waitUntil(runOpsDigest(env).catch(() => {}));  // WA-4 §ADD6 — 08:30 GST Ops Digest
     } else {
-      ctx.waitUntil(runLeadWatchdog(env).catch(() => {}));
-      ctx.waitUntil(runFlightWatch(env).catch(() => {}));  // WA-2 I (self-gates on FLIGHT_WATCH_ENABLED)
-      ctx.waitUntil(runQuoteNudge(env).catch(() => {}));   // WA-3 quote follow-up nudge
-      ctx.waitUntil(runUnassignedJobWatch(env).catch(() => {})); // B2b Slice 3a — T-24h unassigned-job reminder
-      ctx.waitUntil(runInboundWatch(env).catch(() => {}));        // Slice 2b.2b — unanswered WhatsApp inquiry → watchdog
+      // WA-SHARPEN — the inbound-alert family (per-inbound alert, 30-min lead watchdog,
+      // inbound-inquiry watchdog) and the quote-nudge cron are RETIRED. The team reads
+      // inbound WhatsApp directly in the Business app; quote follow-up is a human job.
+      ctx.waitUntil(runFlightWatch(env).catch(() => {}));  // jobs-only, UMC-only, proposal-gated (self-gates on FLIGHT_WATCH_ENABLED)
+      ctx.waitUntil(runUnassignedJobWatch(env).catch(() => {})); // WA-SHARPEN — 12h/6h/2h unassigned-job reminder ladder
     }
   }
 };
@@ -1218,84 +1219,15 @@ async function handleWaWebhook(request, env, ctx, url) {
       }
     }
   }
-  // Gate F — capture unknown-number inbound messages as leads (non-blocking, after 200).
-  for (const entry of entries) {
-    for (const change of (Array.isArray(entry.changes) ? entry.changes : [])) {
-      if (change && change.value && Array.isArray(change.value.messages) && change.value.messages.length) {
-        ctx.waitUntil(captureWhatsAppLead(env, ctx, change).catch(() => {}));
-      }
-    }
-  }
+  // WA-SHARPEN — Gate F (unknown-number inbound → leadless team ping) is RETIRED.
+  // A bare inbound no longer alerts the team; staff read inbound WhatsApp directly in
+  // the Business app. Leads come only from a booking (assistant create) or a form.
   return new Response("ok", { status: 200 });
 }
 
-// Gate F — WhatsApp lead capture. An inbound message from a number matching no
-// existing lead (E.164-normalized) becomes a new lead (origin "WhatsApp"): profile
-// name, phone, first message as the note, timestamp. Deduped by normalized phone
-// forever. Mirrors to the Sheet with source "WhatsApp" (own tab once the Apps Script
-// edit lands; the active sheet until then — graceful).
-async function captureWhatsAppLead(env, ctx, change) {
-  if (!env.BILLING_DB) return;
-  const value = (change && change.value) || {};
-  if (!Array.isArray(value.messages) || !value.messages.length) return;
-  const msg = value.messages[0];
-  const contact = (Array.isArray(value.contacts) && value.contacts[0]) || {};
-  const e164 = waMeNumber(contact.wa_id || msg.from || "");
-  if (!e164) return; // un-normalizable → never build a broken lead
-
-  // Freshness gate — never capture a lead from a REPLAYED historical message. A
-  // Dualhook history re-sync re-delivers old inbound as live `messages` events carrying
-  // their original (days/weeks-old) timestamps; a genuine first contact is always
-  // near-real-time. Skip anything older than 2h so a re-sync can't flood Leads with
-  // bare rows. (A missing timestamp is treated as live — never over-skip.)
-  const tsSec = Number(msg.timestamp);
-  if (isFinite(tsSec) && tsSec > 0 && (tsSec * 1000) < (Date.now() - 2 * 60 * 60 * 1000)) return;
-
-  // Never auto-create a lead for a team member messaging the business number (once
-  // alerts go live, staff will message it). Exclude any active wa_team row. Fail-open
-  // if wa_team isn't created yet (fresh DB) — it exists in production.
-  try {
-    const { results: team } = await env.BILLING_DB.prepare(
-      `SELECT phone FROM wa_team WHERE active = 1`
-    ).all();
-    if ((team || []).some((t) => waMeNumber(t.phone) === e164)) return;
-  } catch (e) { /* wa_team absent → nothing to exclude */ }
-
-  // FIRST-EVER-CONTACT rule: only create on a number with NO prior presence in
-  // wa_events in ANY direction (history sync, prior inbound, prior smb echoes,
-  // status recipients). The current inbound is already stored by storeWaEvents, so
-  // exclude it by its own wamid. wa_id column covers messages/statuses; the LIKE on
-  // the raw payload covers echoes (recipient in message_echoes[].to) and history.
-  try {
-    const prior = await env.BILLING_DB.prepare(
-      `SELECT 1 FROM wa_events
-         WHERE (wa_id = ? OR payload_json LIKE ?)
-           AND payload_json NOT LIKE ?
-         LIMIT 1`
-    ).bind(e164, "%" + e164 + "%", "%" + (msg.id || "__no_wamid__") + "%").first();
-    if (prior) return; // existing conversation — a follow-up, not a new lead
-  } catch (e) { /* wa_events absent → treat as first contact */ }
-
-  await ensureLeadsSchema(env);
-  // An already-KNOWN number (existing lead — form/manual/assistant) is not a new inquiry;
-  // stay silent. Full scan; fine at this scale.
-  const { results } = await env.BILLING_DB.prepare(
-    `SELECT phone FROM leads WHERE phone IS NOT NULL`
-  ).all();
-  if ((results || []).some((r) => waMeNumber(r.phone) === e164)) return; // already known
-
-  // Slice 2b.2 — RETIRED the unknown-number lead INSERT (context-free noise) + its Sheet
-  // mirror. A bare inbound no longer births a lead row; leads come ONLY from a booking
-  // (assistant create) or a website/admin form. The team is still pinged so no inquiry is
-  // missed: a LEADLESS alert (preview + a direct api.whatsapp.com reply link, NO lead).
-  // The first-contact / freshness / not-staff filter above still gates it. Inert until
-  // WA_SEND_ENABLED="1".
-  const name = (contact.profile && contact.profile.name) || "";
-  const text = (msg.text && msg.text.body) ? msg.text.body : ("[" + (msg.type || "message") + "]");
-  if (env.WA_SEND_ENABLED === "1") {
-    ctx.waitUntil(sendInboundAlert(env, { e164, name, text, wamid: msg.id }).catch(() => {}));
-  }
-}
+// WA-SHARPEN — captureWhatsAppLead (unknown-number inbound → leadless team alert) is
+// RETIRED with the inbound-alert family. Its only remaining action was the per-inbound
+// team ping; the team now reads inbound WhatsApp directly in the Business app.
 
 // D1 statements are capped (~100 KB); a WhatsApp history re-sync delivers very large
 // phased chunks (whole conversations in one change), so payload_json is size-guarded and

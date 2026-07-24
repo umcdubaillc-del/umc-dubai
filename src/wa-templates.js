@@ -100,24 +100,24 @@ export const WA_TEMPLATES = {
   },
 
   // WA-3 — payment alert to the TEAM (not the client). Nomod PAID webhook, lead-linked.
-  // {{1}} client name, {{2}} amount (AED), {{3}} summary, {{4}} message-the-client link.
-  payment_alert: {
-    name: "payment_alert",
+  // WA-SHARPEN — payment_alert template RETIRED (the payment_proposal YES/EDIT/NO is the
+  // notification; edge-case payments are visible in the Payments tab, no paid mirror).
+
+  // WA-SHARPEN — unassigned-job reminder to the team (the single UMC Dubai number). {{1}}
+  // carries the full reminder line (job #, client, how close to pickup, when/pickup). A
+  // TEMPLATE (not freeform) so the operational safety net delivers even when the 24h
+  // session window is closed. NOTE: must be submitted + approved in Meta before it delivers.
+  job_reminder: {
+    name: "job_reminder",
     category: "UTILITY",
     language: "en",
     components: [
       {
         type: "BODY",
-        text:
-          "Payment received — {{1}} has paid AED {{2}}.\n" +
-          "{{3}}\n" +
-          "Message the client: {{4}}\n" +
-          "Logged in the workspace.",
+        text: "⏰ Unassigned job — {{1}}\nAssign a driver in the workspace.",
         example: {
           body_text: [[
-            "Sarah Wells", "450",
-            "Mercedes S-Class · 12 Jun, 14:30 · DXB T3 → Downtown Dubai",
-            "https://umcdubai.ae/r/wa/AbC123"
+            "Job #142 (Sarah Wells) is within 6h of pickup, no driver. 12 Jun 14:30 · DXB T3"
           ]]
         }
       },

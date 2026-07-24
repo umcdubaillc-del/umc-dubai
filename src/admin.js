@@ -622,13 +622,15 @@ async function ensureSchema(env) {
          created_at TEXT NOT NULL
        )`
     ).run();
-    // Owner-supplied seed (2026-07-14): the two active alert numbers.
+    // WA-SHARPEN (2026-07-24): the roster COLLAPSES to the single UMC Dubai number.
+    // Every internal alert/watchdog/approval now goes solely from the assistant number
+    // to this one WhatsApp inbox. The two legacy alert numbers (4898/4430) are RETIRED —
+    // their seed is deleted here (a prior manual DELETE was being silently resurrected by
+    // INSERT OR IGNORE on the next request), and they are force-deactivated below so they
+    // can never route again.
     await env.BILLING_DB.prepare(
       `INSERT OR IGNORE INTO wa_team (name, phone, active, created_at) VALUES (?,?,1,?)`
-    ).bind("Alerts 1", "971582244898", "2026-07-14T00:00:00.000Z").run();
-    await env.BILLING_DB.prepare(
-      `INSERT OR IGNORE INTO wa_team (name, phone, active, created_at) VALUES (?,?,1,?)`
-    ).bind("Alerts 2", "971555154430", "2026-07-14T00:00:00.000Z").run();
+    ).bind("UMC Dubai", "971586497861", "2026-07-24T00:00:00.000Z").run();
     // ROSTER-2 — per-number capability flags. Independent gates; each send stream
     // reads exactly one. Default 1 on existing rows ⇒ behavior unchanged until edited.
     // `active` remains the master gate (active=0 ⇒ receives nothing anywhere).
@@ -637,6 +639,12 @@ async function ensureSchema(env) {
       "cap_approve INTEGER NOT NULL DEFAULT 1",
       "cap_watchdog INTEGER NOT NULL DEFAULT 1",
     ]);
+    // WA-SHARPEN — permanently retire the two legacy alert numbers. Unconditional +
+    // idempotent (a cheap indexed UPDATE): guarantees they stay deactivated across every
+    // isolate even if a row is somehow re-added, so nothing can ever route to them again.
+    await env.BILLING_DB.prepare(
+      `UPDATE wa_team SET active=0 WHERE phone IN ('971582244898','971555154430')`
+    ).run();
     await env.BILLING_DB.prepare(
       `CREATE TABLE IF NOT EXISTS wa_outbound (
          id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -6449,18 +6457,16 @@ async function sendPaymentConfirmation(env, ctx, info) {
 
   // P4 — non-AED never auto-confirms to the client; the team handles it.
   if (String(info.currency || "AED").toUpperCase() !== "AED") {
-    await teamPaymentAlert(env, lead, amountStr + " " + String(info.currency || ""), summary, clientLink, payId + ":fx");
     await finishOutbound(env, lockId, { status: "skipped", errorCode: "non_aed" });
-    await stampNote("Non-AED payment (" + info.currency + ") — team alerted, no client auto-send." + mirrorTag);
+    await stampNote("Non-AED payment (" + info.currency + ") — no client auto-send; visible in Payments for manual handling." + mirrorTag);
     return;
   }
 
   // P1 — reachability gate. Unverified number → team prefill alert, never a client send.
   const reachable = lead.whatsapp_reachable === "yes" || (to && await leadHasInboundHistory(env, to));
   if (!to || !reachable) {
-    await teamPaymentAlert(env, lead, amountStr + inclVat, summary, clientLink, payId + ":unreach");
     await finishOutbound(env, lockId, { status: "skipped", errorCode: "unreachable" });
-    await stampNote((to ? "Number not verified" : "No usable number") + " — team prefill alert, no client auto-send." + mirrorTag);
+    await stampNote((to ? "Number not verified" : "No usable number") + " — no client auto-send; visible in Payments for manual handling." + mirrorTag);
     return;
   }
 
@@ -6473,9 +6479,8 @@ async function sendPaymentConfirmation(env, ctx, info) {
   // Assistant OFF for payments → fall back to a plain team alert (no proposal).
   const asettings = await getAssistantSettings(env);
   if (asettings.paymentMode === "off") {
-    await teamPaymentAlert(env, lead, amountStr + inclVat, summary, clientLink, payId + ":assistoff");
     await finishOutbound(env, lockId, { status: "skipped", errorCode: "assistant_off" });
-    await stampNote("Assistant payment proposals are OFF — plain team alert sent, no proposal." + mirrorTag);
+    await stampNote("Assistant payment proposals are OFF — no proposal; payment visible in Payments." + mirrorTag);
     return;
   }
   const prompt = paymentProposalPrompt(clientName, amountStr, summary, maskNumber(to), false);
@@ -6591,53 +6596,8 @@ export function isInquiryLead(lead) {
     !waNz(lead && lead.service) && !waNz(lead && lead.date);
 }
 
-export async function runLeadWatchdog(env) {
-  if (!env.BILLING_DB) return { checked: 0, escalated: 0 };
-  const gstHour = (new Date().getUTCHours() + 4) % 24;
-  if (gstHour < 8 || gstHour >= 22) return { checked: 0, escalated: 0, skipped: "outside GST window" };
-  try { await ensureSchema(env); } catch (e) { return { checked: 0, escalated: 0 }; }
-  const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-  let rows;
-  try {
-    const r = await env.BILLING_DB.prepare(
-      `SELECT lead_id, MIN(created_at) AS alerted_at
-         FROM wa_outbound
-        WHERE kind='team_alert' AND lead_id IS NOT NULL
-        GROUP BY lead_id
-       HAVING MIN(created_at) <= ?
-          AND NOT EXISTS (SELECT 1 FROM wa_outbound e WHERE e.kind='escalation' AND e.lead_id = wa_outbound.lead_id)`
-    ).bind(cutoff).all();
-    rows = (r && r.results) || [];
-  } catch (e) { return { checked: 0, escalated: 0 }; }
-
-  let escalated = 0;
-  for (const row of rows) {
-    const lead = await env.BILLING_DB.prepare(`SELECT * FROM leads WHERE id = ?`).bind(row.lead_id).first();
-    if (!lead) continue;
-    if (String(lead.status) === "cancelled") continue; // WA-5-B2-CANCEL — never chase a cancelled booking
-    if (isInquiryLead(lead)) continue; // WA-4 §5c: inquiries alert but are never escalated
-    const to = waMeNumber(lead.phone);
-    if (!to) continue;
-    // Any API send to the client since the alert? (quote/payment/flight, actually sent)
-    const apiSend = await env.BILLING_DB.prepare(
-      `SELECT 1 FROM wa_outbound
-        WHERE lead_id = ? AND kind IN ('quote','payment','flight')
-          AND status IN ('sent','delivered','read') AND created_at >= ? LIMIT 1`
-    ).bind(row.lead_id, row.alerted_at).first();
-    if (apiSend) continue;
-    // Any human echo (manual app reply) to that client since the alert?
-    const echo = await env.BILLING_DB.prepare(
-      `SELECT 1 FROM wa_events
-        WHERE event_type='smb_message_echoes' AND received_at >= ?
-          AND payload_json LIKE ? LIMIT 1`
-    ).bind(row.alerted_at, '%"to":"' + to + '"%').first();
-    if (echo) continue;
-    // Un-actioned → escalate once (reuses lead_alert; per-lead+member dedupe inside).
-    const res = await sendLeadAlerts(env, row.lead_id, lead, { escalation: true });
-    if (res && res.sent) escalated++;
-  }
-  return { checked: rows.length, escalated };
-}
+// WA-SHARPEN — runLeadWatchdog (30-min unanswered-inbound escalation) is DELETED. Its
+// cron registration and import are removed; the team reads inbound WhatsApp directly.
 
 // ── Gate I — flight watch (AeroDataBox, budget-guarded) ──────────────────────
 // Behind FLIGHT_WATCH_ENABLED. Enrolls confirmed leads with a flight number + phone;
@@ -6760,34 +6720,10 @@ async function leadHasInboundHistory(env, e164) {
     return !!r;
   } catch (e) { return false; }
 }
-// Fan out the payment_alert TEMPLATE to the team (used for unreachable / non-AED /
-// client-send-failure paths). {{1}} client, {{2}} amount, {{3}} summary, {{4}} link.
-async function teamPaymentAlert(env, lead, amountStr, summary, clientLink, dedupeSuffix) {
-  const team = await getWaTeamByCap(env, "cap_approve");
-  let sent = 0;
-  for (const m of team) {
-    const mto = waMeNumber(m.phone); if (mto.length < 8) continue;
-    const rowId = await claimOutbound(env, {
-      lead_id: lead.id, kind: "payment", recipient: mto, template: "payment_alert",
-      dedupe_key: "payalert:" + dedupeSuffix + ":" + mto, meta_json: JSON.stringify({ amount: amountStr, summary })
-    });
-    if (!rowId) continue;
-    if (env.WA_SEND_ENABLED !== "1") { await finishOutbound(env, rowId, { status: "skipped", errorCode: "disabled" }); continue; }
-    const result = await waGraphSend(env, {
-      messaging_product: "whatsapp", to: mto, type: "template",
-      template: { name: "payment_alert", language: { code: "en" },
-        components: [{ type: "body", parameters: [
-          { type: "text", text: waNz(lead.name) || "the client" },
-          { type: "text", text: amountStr },
-          { type: "text", text: summary },
-          { type: "text", text: clientLink || "No WhatsApp number on file" }
-        ] }] }
-    });
-    await finishOutbound(env, rowId, result);
-    if (result.ok) sent++;
-  }
-  return sent;
-}
+// WA-SHARPEN — teamPaymentAlert (the payment_alert TEMPLATE mirror) is RETIRED. The
+// normal payment path raises a YES/EDIT/NO proposal (payment_proposal) which IS the
+// notification; the three edge branches (non-AED, unreachable, assistant-off) no longer
+// push a paid template — the payment is visible in the Payments tab with a stamped note.
 
 // ── WA-5-B1 — Assistant proposal engine (raise + decide) ─────────────────────
 // Client-facing automations never auto-send. They RAISE a proposal into the
@@ -8919,64 +8855,8 @@ export async function runFlightWatch(env) {
   return { polled, notified, units };
 }
 
-// ── WA-3 — quote follow-up nudge ─────────────────────────────────────────────
-// A quote link opened ≥24h ago with NO client inbound since, in business hours
-// (08:00–22:00 GST) → ONE team alert with a gentle follow-up prefill (a human sends
-// it). Idempotent per lead (wa_outbound 'nudge:<lead>'). Gated by WA_SEND_ENABLED.
-export async function runQuoteNudge(env) {
-  if (!env.BILLING_DB) return { nudged: 0 };
-  const gstHour = (new Date().getUTCHours() + 4) % 24;
-  if (gstHour < 8 || gstHour >= 22) return { nudged: 0, skipped: "outside GST window" };
-  try { await ensureSchema(env); } catch (e) { return { nudged: 0 }; }
-  const cutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-  let rows;
-  try {
-    const r = await env.BILLING_DB.prepare(
-      `SELECT id, name, phone, date, wa_opened_at FROM leads
-        WHERE wa_opened_at IS NOT NULL AND wa_opened_at <= ?
-          AND COALESCE(status,'new') != 'cancelled'
-          AND id NOT IN (SELECT lead_id FROM wa_outbound WHERE kind='nudge' AND lead_id IS NOT NULL)
-        LIMIT 50`
-    ).bind(cutoff).all();
-    rows = (r && r.results) || [];
-  } catch (e) { return { nudged: 0 }; }
-
-  let nudged = 0;
-  for (const lead of rows) {
-    const to = waMeNumber(lead.phone);
-    if (!to) continue;
-    // Client replied since the quote was opened? → no nudge.
-    const inbound = await env.BILLING_DB.prepare(
-      `SELECT 1 FROM wa_events WHERE event_type='messages' AND wa_id=? AND received_at >= ? LIMIT 1`
-    ).bind(to, lead.wa_opened_at).first();
-    if (inbound) continue;
-    // Claim the once-per-lead nudge marker (carries lead_id for the NOT IN filter).
-    const rowId = await claimOutbound(env, {
-      lead_id: lead.id, kind: "nudge", recipient: null, template: "freeform",
-      dedupe_key: "nudge:" + lead.id, meta_json: "{}"
-    });
-    if (!rowId) continue;
-    const firstName = (waNz(lead.name) || "there").split(/\s+/)[0];
-    const dayStr = waNz(lead.date) || "your trip";
-    const prefill = "Dear " + firstName + ", just checking you received our quote for " + dayStr +
-      " — happy to adjust anything if needed.\n\nWarm regards,\nUMC Dubai";
-    const link = await createWaLink(env, { leadId: lead.id, purpose: "nudge", toPhone: lead.phone, prefill });
-    let anyOk = false;
-    if (env.WA_SEND_ENABLED === "1") {
-      const team = await getWaTeamByCap(env, "cap_approve");
-      const msg = "It's been 24h since the quote to " + (waNz(lead.name) || ("lead #" + lead.id)) +
-        " — did it convert to a booking? Send a follow-up: " + link;
-      for (const m of team) {
-        const mto = waMeNumber(m.phone); if (mto.length < 8) continue;
-        const r = await waGraphSend(env, { messaging_product: "whatsapp", to: mto, type: "text", text: { preview_url: false, body: msg } });
-        if (r.ok) anyOk = true;
-      }
-    }
-    await finishOutbound(env, rowId, { status: anyOk ? "sent" : "skipped", errorCode: anyOk ? null : "note_only" });
-    nudged++;
-  }
-  return { nudged };
-}
+// WA-SHARPEN — runQuoteNudge (24h quote follow-up nudge) is DELETED. Quote follow-up is a
+// human job; quote statuses stay visible in the Leads tab to work from. Cron + import removed.
 
 // ── WA-4 §ADD6 — weekly line for the 08:30 Ops Digest ────────────────────────
 // No Ops Digest host existed, so this IS the host: a daily 08:30 GST cron composes a
@@ -9119,55 +8999,10 @@ export async function sendLeadAlerts(env, leadId, lead, opts) {
   return { sent, skipped };
 }
 
-// Slice 2b.2 — LEADLESS inbound alert. An unknown-number first contact no longer creates a
-// lead row (context-free noise); the team is still pinged so no inquiry is missed. Reuses the
-// approved `lead_alert` template + the outbound plumbing, but writes NO lead: lead_id=NULL and
-// kind='wa_inbound_alert', so the quote-by-reply binding (which requires lead_id != null) and
-// the 30-min escalation (kind='team_alert') both SKIP it. Deduped per (inbound wamid, member).
-// Inert until WA_SEND_ENABLED="1" (waGraphSend returns unconfigured otherwise). Fail-open.
-export async function sendInboundAlert(env, opts) {
-  opts = opts || {};
-  if (!env.BILLING_DB) return { sent: 0, skipped: 0 };
-  await ensureSchema(env);
-  const e164 = waMeNumber(opts.e164 || "");
-  if (!e164) return { sent: 0, skipped: 0 };
-  const team = await getWaTeamByCap(env, "cap_lead_alerts");
-  const clientName = waNz(opts.name) || "New WhatsApp message";
-  // {{2}} — the first message inline (one line; Meta forbids newlines in a body variable).
-  const raw = waNz(opts.text).replace(/\s+/g, " ").trim();
-  const summary = raw ? raw.slice(0, 300) : "New WhatsApp inquiry";
-  // {{3}} — a PLAIN reply link straight to the client's number. No lead → no signed redirect;
-  // api.whatsapp.com per house convention (never wa.me for our own links).
-  const link = "https://api.whatsapp.com/send?phone=" + e164;
-  const wamid = waNz(opts.wamid);
-  let sent = 0, skipped = 0;
-  for (const member of team) {
-    const to = waMeNumber(member.phone);
-    if (to.length < 8) { skipped++; continue; }
-    // wamid is present for any real inbound; if absent, fall back to the number so distinct
-    // first-contacts still each alert (per-member) rather than colliding on an empty key.
-    const dedupe = "inbound:" + (wamid || e164) + ":" + to;
-    const rowId = await claimOutbound(env, {
-      lead_id: null, kind: "wa_inbound_alert", recipient: to, template: "lead_alert",
-      dedupe_key: dedupe, meta_json: JSON.stringify({ summary, inbound: e164 })
-    });
-    if (!rowId) { skipped++; continue; } // already alerted this member for this inbound
-    const result = await waGraphSend(env, {
-      messaging_product: "whatsapp", to, type: "template",
-      template: {
-        name: "lead_alert", language: { code: "en" },
-        components: [{ type: "body", parameters: [
-          { type: "text", text: clientName },
-          { type: "text", text: summary },
-          { type: "text", text: link }
-        ] }]
-      }
-    });
-    await finishOutbound(env, rowId, result);
-    if (result.ok) sent++; else skipped++;
-  }
-  return { sent, skipped };
-}
+// WA-SHARPEN — sendInboundAlert (per-inbound leadless `wa_inbound_alert` to the team) is
+// DELETED. This was the single largest WhatsApp cost driver (~86% of template spend). An
+// inbound message no longer fires a paid alert; the team reads WhatsApp directly. Its
+// caller (captureWhatsAppLead) and the webhook trigger are removed too.
 
 // B2b Slice 3a — parse a job's pickup (date TEXT + time TEXT) into epoch ms, interpreted as
 // GST (UTC+4; the Worker runs UTC). ISO date (flatpickr default) primary, a loose Date.parse
@@ -9189,101 +9024,69 @@ function jobGapCode(noDriver, noVehicle) {
   return noDriver && noVehicle ? "nodriver+novehicle" : noDriver ? "nodriver" : noVehicle ? "novehicle" : "";
 }
 
-// B2b Slice 3a — T-24h unassigned-job reminder. Every 10-min tick: any LIVE job whose pickup
-// is within the next 24h but which is missing a driver OR a vehicle gets ONE reminder to the
-// cap_approve channel. Deduped once per (job, gap) via teamFreeform's wa_outbound dedupe_key —
-// so it re-fires only when the gap genuinely changes (driver assigned→removed flips the code),
-// not every tick. Cancelled/completed/outsourced jobs are excluded (silent). Inert until
-// WA_SEND_ENABLED=1 (the dedupe row is still claimed, so it won't spam once send goes live).
+// WA-SHARPEN — send the job_reminder TEMPLATE to the team (the single UMC number). One
+// param ({{1}} = the reminder line). Deduped per (job, band) via dedupeKey so each 12h/6h/
+// 2h nudge fires exactly once. A template (not freeform) so the safety net delivers even
+// outside the 24h session window. Returns true on a delivered send.
+async function teamJobReminder(env, line, dedupeKey) {
+  const rowId = await claimOutbound(env, {
+    lead_id: null, kind: "job_watch", recipient: null, template: "job_reminder",
+    dedupe_key: dedupeKey, meta_json: JSON.stringify({ line })
+  });
+  if (!rowId) return false; // already nudged for this (job, band)
+  let anyOk = false;
+  if (env.WA_SEND_ENABLED === "1") {
+    const team = await getWaTeamByCap(env, "cap_approve");
+    for (const m of team) {
+      const to = waMeNumber(m.phone); if (to.length < 8) continue;
+      const r = await waGraphSend(env, {
+        messaging_product: "whatsapp", to, type: "template",
+        template: { name: "job_reminder", language: { code: "en" },
+          components: [{ type: "body", parameters: [{ type: "text", text: line }] }] }
+      });
+      if (r.ok) anyOk = true;
+    }
+  }
+  await finishOutbound(env, rowId, { status: anyOk ? "sent" : "skipped", errorCode: anyOk ? null : "note_only" });
+  return anyOk;
+}
+
+// WA-SHARPEN — unassigned-job reminder LADDER (the premise's operational safety net).
+// Every 10-min tick: any LIVE calendar job with NO DRIVER assigned, as pickup approaches,
+// gets a reminder at the 12h / 6h / 2h bands — each fires exactly once (deduped per job+band)
+// to the single UMC number. Cancelled/completed/outsourced jobs are excluded. Inert until
+// WA_SEND_ENABLED=1 (the dedupe row is still claimed, so it won't backfill-spam once live).
 export async function runUnassignedJobWatch(env) {
   if (!env.BILLING_DB) return { checked: 0, alerted: 0 };
   await ensureSchema(env);
   const nowMs = Date.now();
-  const horizon = nowMs + 24 * 3600 * 1000;
+  const H = 3600 * 1000;
   const { results } = await env.BILLING_DB.prepare(
     `SELECT j.id, j.client_name, j.date, j.time, j.pickup,
-            (SELECT COUNT(*) FROM job_drivers  WHERE job_id = j.id) AS ndrivers,
-            (SELECT COUNT(*) FROM job_vehicles WHERE job_id = j.id) AS nvehicles
+            (SELECT COUNT(*) FROM job_drivers WHERE job_id = j.id) AS ndrivers
        FROM jobs j
       WHERE COALESCE(j.status,'new') NOT IN ('cancelled','completed','outsourced')`
   ).all();
   let checked = 0, alerted = 0;
   for (const j of (results || [])) {
+    if (Number(j.ndrivers) > 0) continue;              // driver assigned → nothing to nudge
     const pMs = jobPickupMs(j);
-    if (isNaN(pMs) || pMs < nowMs || pMs > horizon) continue; // only upcoming, within 24h
-    const noD = Number(j.ndrivers) === 0, noV = Number(j.nvehicles) === 0;
-    if (!noD && !noV) continue; // fully crewed
+    if (isNaN(pMs) || pMs < nowMs) continue;            // past pickup / unparseable
+    const h = (pMs - nowMs) / H;
+    // Fire the SMALLEST band the job has entered; dedupe per (job, band) fires each once.
+    const band = h <= 2 ? "2h" : h <= 6 ? "6h" : h <= 12 ? "12h" : null;
+    if (!band) continue;                                // >12h away — not yet
     checked++;
-    const gap = jobGapCode(noD, noV);
-    const gapText = noD && noV ? "no driver or vehicle" : noD ? "no driver" : "no vehicle";
     const when = waNz(j.date) + (waNz(j.time) ? " " + waNz(j.time) : "");
-    const ok = await teamFreeform(env,
-      "⏰ Job #" + j.id + " (" + (waNz(j.client_name) || "client") + ") is within 24h — " + gapText + ". " +
-        when + (waNz(j.pickup) ? " · " + waNz(j.pickup) : "") + ". Assign in the workspace.",
-      { cap: "cap_approve", dedupeKey: "jobwatch:" + j.id + ":" + gap, kind: "job_watch", leadId: null });
-    if (ok) alerted++;
+    const line = "Job #" + j.id + " (" + (waNz(j.client_name) || "client") + ") is within " + band +
+      " of pickup, no driver. " + when + (waNz(j.pickup) ? " · " + waNz(j.pickup) : "");
+    if (await teamJobReminder(env, line, "jobladder:" + j.id + ":" + band)) alerted++;
   }
   return { checked, alerted };
 }
 
-// Slice 2b.2b — unanswered WhatsApp-inquiry watchdog. Since 2b.2 an unknown-number first contact
-// no longer creates a lead (it fires a leadless `wa_inbound_alert` to cap_lead_alerts), so
-// runLeadWatchdog (lead-anchored) can't see it. This re-keys off those ping rows: a first-contact
-// inbound whose team ping is >30min old with NO reply to that number since → escalate ONCE to
-// cap_watchdog. "Replied" = a human app echo (smb_message_echoes to the number) OR an API send to
-// it. Dedupe per inbound wamid (inboundesc:<wamid>). GST-gated + a 6h floor (don't chase stale pings).
-export async function runInboundWatch(env) {
-  if (!env.BILLING_DB) return { checked: 0, escalated: 0 };
-  const gstHour = (new Date().getUTCHours() + 4) % 24;
-  if (gstHour < 8 || gstHour >= 22) return { checked: 0, escalated: 0, skipped: "outside GST window" };
-  try { await ensureSchema(env); } catch (e) { return { checked: 0, escalated: 0 }; }
-  const now = Date.now();
-  const cutoff = new Date(now - 30 * 60 * 1000).toISOString();     // pinged ≥30min ago
-  const floor = new Date(now - 6 * 60 * 60 * 1000).toISOString();  // but not ancient
-  let rows;
-  try {
-    const r = await env.BILLING_DB.prepare(
-      `SELECT dedupe_key, meta_json, created_at FROM wa_outbound
-        WHERE kind='wa_inbound_alert' AND created_at <= ? AND created_at >= ?
-        ORDER BY created_at ASC`
-    ).bind(cutoff, floor).all();
-    rows = (r && r.results) || [];
-  } catch (e) { return { checked: 0, escalated: 0 }; }
-  const seen = new Set();
-  let checked = 0, escalated = 0;
-  for (const row of rows) {
-    // The ping fans out one row per member (dedupe_key = inbound:<wamid>:<member>); collapse to
-    // one escalation per inbound wamid.
-    const parts = String(row.dedupe_key || "").split(":");
-    const wamid = parts.length >= 3 ? parts[1] : String(row.dedupe_key || "");
-    if (!wamid || seen.has(wamid)) continue;
-    seen.add(wamid);
-    let meta = {}; try { meta = JSON.parse(row.meta_json || "{}"); } catch (e) { /* skip */ }
-    const e164 = waMeNumber(meta.inbound || "");
-    if (!e164) continue;
-    checked++;
-    // A human reply from the WhatsApp Business app (the most likely reply to a first contact)?
-    const echo = await env.BILLING_DB.prepare(
-      `SELECT 1 FROM wa_events WHERE event_type='smb_message_echoes' AND received_at >= ?
-         AND payload_json LIKE ? LIMIT 1`
-    ).bind(row.created_at, '%"to":"' + e164 + '"%').first();
-    if (echo) continue;
-    // Any API send to that number since the ping (quote/text/etc), other than the ping itself?
-    const apiReply = await env.BILLING_DB.prepare(
-      `SELECT 1 FROM wa_outbound WHERE recipient = ? AND kind <> 'wa_inbound_alert'
-         AND created_at >= ? LIMIT 1`
-    ).bind(e164, row.created_at).first();
-    if (apiReply) continue;
-    // Unanswered → escalate once. teamFreeform's UNIQUE dedupe_key makes it idempotent.
-    const summary = waNz(meta.summary) || "New WhatsApp inquiry";
-    const ok = await teamFreeform(env,
-      "⏱ Unanswered 30 min — WhatsApp inquiry from +" + e164 + ": " + summary +
-        " — reply: https://api.whatsapp.com/send?phone=" + e164,
-      { cap: "cap_watchdog", dedupeKey: "inboundesc:" + wamid, kind: "inbound_escalation" });
-    if (ok) escalated++;
-  }
-  return { checked, escalated };
-}
+// WA-SHARPEN — runInboundWatch (30-min unanswered-inbound-inquiry escalation) is DELETED with
+// the rest of the inbound-alert family. Cron + import removed. The team reads WhatsApp directly.
 
 // ── Gate C — desktop WhatsApp send from the business number ───────────────────
 async function handleSendLeadWhatsApp(request, env) {
@@ -9600,6 +9403,24 @@ async function handleListWaTeam(env) {
 // carries { message_template_name, event, reason, message_template_language }. We
 // read that truth instead of polling. Rows are read ASC so the LATEST verdict per
 // template name overwrites earlier ones in the map.
+// WA-SHARPEN — one-shot FLIGHT_API_KEY validator (read-only, no watch state changed). Calls
+// aerodatabox with a sample flight and reports the HTTP status so the key is proven LIVE before
+// FLIGHT_WATCH is enabled. 200 = live; 401/403 = bad/blocked key; other = plan/quota issue.
+async function handleFlightCheck(env) {
+  if (!env.FLIGHT_API_KEY) return json({ ok: false, configured: false, error: "FLIGHT_API_KEY secret not set" });
+  const sample = "EK1";
+  const dateStr = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const url = `https://${FLIGHT_HOST}/flights/number/${sample}/${dateStr}?dateLocalRole=Arrival&withLocation=true`;
+  try {
+    const res = await fetch(url, { headers: { "X-RapidAPI-Key": env.FLIGHT_API_KEY, "X-RapidAPI-Host": FLIGHT_HOST } });
+    const body = await res.text();
+    return json({
+      ok: res.ok, configured: true, status: res.status, sample: sample + " / " + dateStr,
+      verdict: res.ok ? "key live" : ((res.status === 401 || res.status === 403) ? "key rejected" : "plan/quota issue"),
+      snippet: body.slice(0, 200)
+    });
+  } catch (e) { return json({ ok: false, configured: true, error: String((e && e.message) || e) }); }
+}
 async function handleWaTemplateStatus(env) {
   await ensureSchema(env);
   const { results } = await env.BILLING_DB.prepare(
@@ -9979,6 +9800,12 @@ export async function handleAdmin(request, env) {
     if (!env.BILLING_DB) return dbUnavailable();
     return handleWaTemplateStatus(env);
   }
+  // WA-SHARPEN — one-shot flight-key validation (read-only). Run before enabling FLIGHT_WATCH.
+  if (path === "/admin/api/flight-check" && method === "GET") {
+    const authed = await isAuthed(request, env);
+    if (!authed) return json({ ok: false, error: "auth required" }, 401);
+    return handleFlightCheck(env);
+  }
   {
     const tm = path.match(/^\/admin\/api\/wa-team\/(\d+)$/);
     if (tm) {
@@ -10140,7 +9967,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260724-backfix";
+const ADMIN_BUILD = "20260724-washarpen";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
