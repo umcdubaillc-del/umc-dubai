@@ -10140,7 +10140,7 @@ export async function handleAdmin(request, env) {
 // <meta> + console line so the running bundle is verifiable at a glance, and (c) the
 // pageshow guard below force-reloads a bfcache-restored page (the usual "stale after
 // navigating back" cause that a hard refresh otherwise fixes). BUMP on every admin deploy.
-const ADMIN_BUILD = "20260724-fxcurrency";
+const ADMIN_BUILD = "20260724-backfix";
 
 function PAGE_HTML(authed, env) {
   const adminMissing = !env.ADMIN_PASSWORD;
@@ -10685,11 +10685,13 @@ nav.tabbar .tab .tab-fulllabel{display:inline}
    meta line 2, stacked editor #ltTable). Last block in the
    stylesheet so it wins on source order.
 ============================================================ */
-/* Desktop-safe hidden default for the shared bottom sheet. Placed BEFORE the
-   mobile media query so the #docSheet{display:flex} rule inside it wins on
-   source order when the query matches; this wins (keeps the sheet hidden) when
-   it does not, so a populated sheet can never leak onto desktop. */
-#docSheet{ display:none; }
+/* Desktop-safe hidden default for the shared bottom sheet AND its stacked sub-sheet.
+   Placed BEFORE the mobile media query so the #docSheet/#docSubSheet{display:flex}
+   rules inside it win on source order when the query matches; these win (keep both
+   hidden) when it does not. ensureEls() creates both elements on every sync()/start()
+   regardless of viewport (only *presenting* is gated by mq()), so without this the
+   empty #docSubSheet — and its "‹ Back" control — leaks onto desktop bottom-left. */
+#docSheet, #docSubSheet{ display:none; }
 @media (max-width:620px){
   /* ---- App chrome ---- */
   header.top{
